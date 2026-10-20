@@ -405,9 +405,9 @@ test("localized trading expert mentions stay English in the composer and canonic
   assert.match(mentionHelpers, /language === "en"[\s\S]*Strategy[\s\S]*Indicator[\s\S]*Alert/);
   assert.match(mentionHelpers, /function canonicalizeTradingExpertMentionText/);
   assert.match(mentionHelpers, /tradingStrategyCatalog\(\)[\s\S]*tradingIndicatorCatalog\(\)[\s\S]*mentionTokens\[0\]/);
-  assert.match(source, /const tradingExpertRoutingText = isTradingExpertExecutionThreadId\(threadId\)[\s\S]*canonicalizeTradingExpertMentionText\(text\)/);
-  assert.match(source, /tradingStrategyMentionedByText\(tradingExpertRoutingText\)/);
-  assert.match(source, /tradingAlertMentioned\(tradingExpertRoutingText\)/);
+  assert.match(source, /const agentText = baseAgentText;/);
+  assert.match(source, /catalog: async \(\) =>/);
+  assert.match(source, /alert: runTradingAlertConversation/);
 });
 
 test("language initializes before boot and reconciles renderer and main-process persistence without clobbering", async () => {
@@ -545,7 +545,7 @@ test("native dialogs receive localized copy from the persisted application langu
 test("client-owned chat notices are localized while user and model content remain protected", async () => {
   const [renderer, language] = await Promise.all([rendererSource, languageSource]);
   const bubbleBlock = sourceBlock(renderer, "function renderTextBubble", "function executionPlanCandidateKey");
-  const reportBlock = sourceBlock(renderer, "function appendTradingExpertReport", "function tradingAlertMentioned");
+  const reportBlock = sourceBlock(renderer, "function appendTradingExpertReport", "function stripTradingAlertMention");
   const planCardBlock = sourceBlock(renderer, "function renderExecutionPlanCardContent", "function renderMessageExecutionPlan");
   const skipBlock = sourceBlock(language, "function shouldSkipLocalization", "function localizeTextNode");
   assert.match(renderer, /trading-preference-onboarding-bubble[\s\S]*message-text" data-i18n-owned/);

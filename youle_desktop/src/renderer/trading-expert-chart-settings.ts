@@ -1,5 +1,5 @@
 import { colorPickerInput } from './color-picker.ts';
-import type { TradingDrawingLayerVisibility } from './trading-drawing-visibility.ts';
+import { DEFAULT_TRADING_DRAWING_VISIBILITY, TRADING_VISIBILITY_LAYERS, type TradingDrawingLayerVisibility } from './trading-drawing-visibility.ts';
 
 export type TradingChartStyle =
   | "candlestick"
@@ -603,7 +603,7 @@ const colorInput = (key: string, label: string, value: string) => `
 export function renderTradingChartSettingsDialog(
   settings: TradingChartSettings = cloneTradingChartSettings(),
   themeName: TradingChartThemeName = "dark",
-  drawingVisibility: TradingDrawingLayerVisibility = { aiHidden: false, manualHidden: false },
+  drawingVisibility: TradingDrawingLayerVisibility = DEFAULT_TRADING_DRAWING_VISIBILITY,
   verticalLocked = false,
 ) {
   const theme = settings.themes[themeName];
@@ -659,10 +659,6 @@ export function renderTradingChartSettingsDialog(
               <div class="trading-chart-settings-row"><span>水平辅助线</span><div class="trading-chart-settings-options">${checkbox("theme.horizontalGridVisible", "显示", theme.horizontalGridVisible)}${colorInput("theme.horizontalGridColor", "颜色", theme.horizontalGridColor)}</div></div>
               <div class="trading-chart-settings-row"><span>十字线</span><div class="trading-chart-settings-options">${colorInput("theme.crosshairColor", "颜色", theme.crosshairColor)}<span class="trading-chart-settings-line-preview dashed"></span></div></div>
               <div class="trading-chart-settings-row"><span>背景颜色</span><div class="trading-chart-settings-options">${colorInput("theme.backgroundColor", "颜色", theme.backgroundColor)}</div></div>
-              <div class="trading-chart-settings-row"><span>隐藏数据标注</span><label class="trading-chart-settings-switch">
-                <input type="checkbox" role="switch" data-chart-setting="hideKlineAnnotations" ${settings.hideKlineAnnotations ? "checked" : ""} aria-label="隐藏数据标注"/>
-                <span aria-hidden="true"></span>
-              </label><small>隐藏主图左上角的行情数据和指标数值。</small></div>
               <p class="trading-chart-settings-theme-note">当前正在编辑${themeName === "dark" ? "暗色" : "亮色"}主题；切换主题后可分别设置另一套颜色。</p>
             </section>
             <section data-chart-settings-panel="scale" hidden>
@@ -707,8 +703,7 @@ export function renderTradingChartSettingsDialog(
             </section>
             <section data-chart-settings-panel="drawing-visibility" hidden>
               <div class="trading-chart-order-display-list">
-                ${(['aiHidden', 'manualHidden'] as const).map(key => {
-                  const label = key === 'aiHidden' ? '隐藏AI画线' : '隐藏手动画线';
+                ${TRADING_VISIBILITY_LAYERS.map(({ key, label }) => {
                   return `<div class="trading-chart-order-display-row">
                     <span class="trading-chart-order-display-copy"><strong>${label}</strong></span>
                     <label class="trading-chart-settings-switch">

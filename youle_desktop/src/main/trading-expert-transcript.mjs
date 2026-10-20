@@ -115,7 +115,7 @@ function normalizeTradingTranscriptItem(value) {
   }
   const actions = normalizeTradingTranscriptActions(value.actions, role);
   const executionPlanPresentation = role === "assistant"
-    && (value.executionPlanPresentation === "execution-plan" || value.executionPlanPresentation === "plain")
+    && (value.executionPlanPresentation === "execution-plan" || value.executionPlanPresentation === "position-plan" || value.executionPlanPresentation === "plain")
     ? value.executionPlanPresentation
     : "";
   const cloudReports = role === 'assistant' ? normalizeCloudReports(value.cloudReports) : [];

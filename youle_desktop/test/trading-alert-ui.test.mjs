@@ -114,13 +114,13 @@ test("the alert page contains no draft filter, cards, confirmation, or deletion 
 
 test("@预警 conversation is compiled, simulated and explicitly confirmed before creation", async () => {
   const source = await rendererSource;
-  assert.match(source, /function tradingAlertMentioned/);
+  assert.doesNotMatch(source, /function tradingAlertMentioned|function tradingAlertAffirmative|function tradingAlertCancelled/);
   assert.match(source, /tradingAlertsCompile!/);
   assert.match(source, /tradingExpertAlertSimulationFrames/);
   assert.match(source, /tradingAlertsSimulate!/);
   assert.match(source, /showTradingExpertAlertSimulation/);
-  assert.match(source, /tradingAlertAffirmative[\s\S]*tradingAlertsConfirm!/);
-  assert.match(source, /tradingAlertCancelled[\s\S]*tradingAlertConversationByThreadId\.delete\(threadId\)[\s\S]*clearTradingExpertAlertSimulation/);
+  assert.match(source, /classifyTradingConfirmationIntent[\s\S]*tradingAlertsConfirm!/);
+  assert.match(source, /intent === "cancel"[\s\S]*tradingAlertConversationByThreadId\.delete\(threadId\)[\s\S]*clearTradingExpertAlertSimulation/);
 });
 
 test("clarification replies keep the original alert instruction as source text", () => {
@@ -154,7 +154,7 @@ test("unconfirmed state is memory-only and success is shown only after persisted
   assert.match(renderer, /!state\.tradingAlerts\.loaded[\s\S]*await refreshTradingAlerts\(\)/);
   assert.match(renderer, /function tradingAlertConversationStateForThread[\s\S]*inMemoryTradingAlertConversationForThread\(threadId\)/);
   assert.doesNotMatch(renderer, /pendingTradingAlertConfirmationForThread|activeTradingAlertDraftForThread|recoveredTradingAlertDraftConversation/);
-  assert.match(renderer, /tradingAlertCandidateAtSend[\s\S]*tradingAlertConversationStateForThread\(threadId\)/);
+  assert.match(renderer, /pending: threadId => \([\s\S]*tradingAlertConversationStateForThread\(threadId\)/);
   assert.match(renderer, /tradingAlertsConfirm![\s\S]*refreshTradingAlertsAndRequireAlert\(alertId\)[\s\S]*persistTradingAlertCreationSuccessItem/);
   assert.match(renderer, /预警写入后未能从预警列表读回/);
 });
@@ -710,7 +710,7 @@ test("alert editor hides the technical market scope and uses Haolo selects for v
   assert.match(html, /class="video-expert-select-menu trading-alert-select-menu"[^>]*role="listbox"/);
   assert.match(html, /role="option" aria-selected="true" tabindex="-1"/);
   assert.match(html, /data-trading-alert-select="mode"[^>]*opens-above|trading-alert-select opens-above[^>]*data-trading-alert-select="mode"/);
-  const binding = renderer.match(/function bindTradingAlertEditorSelects\(\)[\s\S]*?\n}\n\nfunction bindEvents/)?.[0] || "";
+  const binding = renderer.match(/function bindTradingAlertEditorSelects\(\)[\s\S]*?\r?\n}\r?\n\r?\nfunction bindEvents/)?.[0] || "";
   assert.match(binding, /aria-expanded/);
   assert.match(binding, /input\.value = value/);
   assert.match(binding, /aria-selected/);

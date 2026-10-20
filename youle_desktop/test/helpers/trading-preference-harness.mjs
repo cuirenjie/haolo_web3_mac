@@ -16,11 +16,16 @@ export const harnessSource = `
 function createHarness(overrides = {}) {
   const choices = (() => { const exports = {}; const require = () => ({ TRADING_PREFERENCE_CHOICE_FIELDS: ${JSON.stringify(TRADING_PREFERENCE_CHOICE_FIELDS)} }); ${choiceJavascript}; return exports; })();
   const { createTradingPreferenceSettings } = (() => { const exports = {}; const require = () => choices; ${settingsJavascript}; return exports; })();
-  const runtime = { saves: [], transcripts: [], cleared: [], openedSettings: [], failSave: false, saveGate: null };
-  const state = { currentThreadId: "qa-thread", items: {}, threads: [{ id: "qa-thread" }], attachments: [], auth: { authenticated: true }, binanceAccount: { status: { bound: false } } };
+  const runtime = { saves: [], transcripts: [], cleared: [], openedSettings: [], toasts: [], frames: [], failSave: false, saveGate: null };
+  const state = { currentThreadId: "qa-thread", items: {}, threads: [{ id: "qa-thread" }], attachments: [], loading: false, auth: { authenticated: true, baseUrl: "https://qa.invalid", profile: { id: "qa-account" } }, binanceAccount: { status: { bound: false } } };
+  const storage = new Map();
   const escapeHtml = value => String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
   const deps = {
+    codexTradingTools: { isToolTurn: () => false, collect: () => false },
     ...choices, createTradingPreferenceSettings, state, escapeHtml, escapeAttr: escapeHtml, threadNameOverrides: {}, binanceAccountLoadPromise: null,
+    firstString: (...values) => values.find(value => typeof value === "string" && value.trim())?.trim() || "",
+    shouldShowLoginWindow: () => !state.auth.authenticated,
+    localStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) },
     threadById: id => state.threads.find(thread => thread.id === id),
     isTradingExpertThreadId: () => true, isThreadBusy: () => false,
     messagesForThread: id => Object.values(state.items[id] || {}),
@@ -28,8 +33,8 @@ function createHarness(overrides = {}) {
     upsertItem: (id, item) => { (state.items[id] ??= {})[item.id] = item; },
     render() {}, scheduleScrollMessagesToBottom() {}, setMessageStreamFollow() {},
     openSettingsDialog: tab => runtime.openedSettings.push(tab),
-    window: { requestAnimationFrame() {} },
-    clearTradingExpertComposerAfterSend: id => runtime.cleared.push(id), showToast() {}, errorMessage: error => error.message,
+    window: { requestAnimationFrame: callback => runtime.frames.push(callback) },
+    clearTradingExpertComposerAfterSend: id => runtime.cleared.push(id), showToast: (...args) => runtime.toasts.push(args), errorMessage: error => error.message,
     persistCompletedTradingExpertTranscript: async (...args) => runtime.transcripts.push(args),
     api: {
       getBinanceAccountStatus: async () => state.binanceAccount.status,
@@ -57,6 +62,7 @@ function createHarness(overrides = {}) {
     }
     return { startTradingPreferenceOnboarding, startLegacyFixture, renderTradingPreferenceChoices, bindTradingPreferenceChoiceForm,
       loadTradingPreferenceProfile, renderTradingPreferenceOnboardingEntry,
+      scheduleTradingPreferenceSetupPrompt, resetTradingPreferenceProfileState,
       handleTradingPreferenceOnboardingReply, saveTradingPreferenceOnboarding, tradingPreferenceMemoryEntries,
       tradingPreferenceCompletionText, tradingPreferenceSettings, flows: tradingPreferenceOnboardingByThreadId };
   `)})(...Object.values(deps));

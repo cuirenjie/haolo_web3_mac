@@ -8,7 +8,7 @@ const catalogSource = readFile(
   "utf8",
 );
 const strategyClientSource = readFile(
-  new URL("../src/renderer/trading-strategy-runtime/client.ts", import.meta.url),
+  new URL("../src/main/codex-business-tools.mjs", import.meta.url),
   "utf8",
 );
 const stylesSource = readFile(new URL("../src/renderer/styles.css", import.meta.url), "utf8");
@@ -52,16 +52,18 @@ test("the bundled trading strategies expose real Skill metadata", async () => {
   }
 });
 
-test("strategy routing is model-first, shares literal target parsing, and has a local availability fallback", async () => {
+test("Codex selects strategies while the business tool preserves explicit user choices", async () => {
   const [catalog, client, renderer] = await Promise.all([
     catalogSource,
     strategyClientSource,
     rendererSource,
   ]);
   assert.doesNotMatch(catalog, /ROUTING_HAN_NON_ASSET_FRAGMENT/);
-  assert.match(client, /catch \{\s*return normalizeTradingStrategyRequest\(strategy, text, null\)/s);
-  assert.match(renderer, /if \(tradingStrategyAtSend && tradingStrategyRequestAtSend\?\.mode === "chart-analysis"\)/);
-  assert.match(renderer, /await runTradingStrategyChartRequest\(threadId, tradingStrategyAtSend, tradingStrategyRequestAtSend\)/);
+  assert.doesNotMatch(catalog, /normalizeTradingStrategyRequest|deterministicStrategyRequestRouting/);
+  assert.match(client, /resolveExplicitTradingStrategyIds/);
+  assert.match(client, /Preserve the user's explicitly selected strategy/);
+  assert.match(renderer, /const strategy = tradingStrategyById\(args.strategyId\)/);
+  assert.match(renderer, /return runTradingStrategyChartRequest\(threadId, strategy, request\)/);
 });
 
 test("My Skills derives installed cards from the trading strategy catalog", async () => {

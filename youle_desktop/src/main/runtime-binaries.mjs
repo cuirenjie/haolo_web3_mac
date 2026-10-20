@@ -172,7 +172,10 @@ function readAndValidateRuntimeManifest(binDir, { platform }) {
   const files = manifest.files.map((entry) => {
     const name = String(entry?.name || "").trim();
     const sha256 = String(entry?.sha256 || "").trim().toLowerCase();
-    if (!name || path.basename(name) !== name || name === "." || name === "..") {
+    // Official runtimes now ship code-mode and platform resources in subfolders.
+    // Accept canonical relative paths only; never materialize outside binDir.
+    if (!name || name.includes("\\") || name.includes(":") || path.isAbsolute(name) ||
+        name.split("/").some(part => !part || part === "." || part === "..")) {
       throw runtimeError(`Bundled Haolo runtime contains an unsafe file name: ${name || "<empty>"}.`, "HAOLO_RUNTIME_MANIFEST_INVALID");
     }
     if (!SHA256_PATTERN.test(sha256)) {

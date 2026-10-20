@@ -3,7 +3,7 @@
 // activation always re-reads the account-owned plan on the server.
 import {executionPlanCandidatesFromText,executionPlanCandidateWithSourceText,executionPlanDisplayLines,
   executionPlanHasStructuredTradingFields,executionPlanHasConcreteTradingPlan} from './legacy-execution-plan-presentation.mjs';
-import {executionPlanCardHeading,executionPlanCardBody,executionPlanStructuredCardBody} from './execution-plan-card-view.mjs';
+import {executionPlanCardHeading,executionPlanCardBody,executionPlanStructuredCardBody,executionPlanCardAction} from './execution-plan-card-view.mjs';
 import {cloudPlanAccountView,cloudPlanEntryBasisMismatch} from './cloud-plan-account-view.mjs';
 import {validLeftObservation,leftWatchView,leftRouteView} from './price-action-left-card.mjs';
 const uuid = value => typeof value==='string' && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
@@ -128,14 +128,15 @@ function cardInterval(value) {
   return '';
 }
 
-export function cloudPlanCard(report, { hideExpiry = false, language: displayLanguage } = {}) {
+export function cloudPlanCard(report, { hideExpiry = false, separateAction = false, language: displayLanguage } = {}) {
   if(report.executionPolicy==='right-legacy-v1') {
     const remote=report.planRecords.find(plan=>plan.cardIndex===(report.selectedCardIndex??0));
     if(!remote)return null;
     const {title,content}=remote.card,lines=executionPlanDisplayLines(content);
     const language=displayLanguage||(report.locale==='zh-Hant'?'zh-TW':report.locale);
     const expiresAt=hideExpiry?undefined:(remote.expiresAt??report.executionPlan.expiresAt);
-    return {title,content,html:executionPlanCardHeading(title,lines,language)+executionPlanCardBody(lines,language,{expiresAt})};
+    return {title,content,html:executionPlanCardHeading(title,lines,language)+executionPlanCardBody(lines,language,{expiresAt,hideAction:separateAction}),
+      ...(separateAction?{actionHtml:executionPlanCardAction(lines,language)}:{})};
   }
   const index=report.locale==='en'?1:report.locale==='zh-Hant'?2:0,t=key=>words[key]?.[index]||key;
   const plan=report.executionPlan,condition=plan.entryCondition,scenario=plan.scenarios[0];
@@ -169,9 +170,10 @@ export function cloudPlanCard(report, { hideExpiry = false, language: displayLan
   });
   const account=cloudPlanAccountView(plan,report.marketId,report.planRecords?.[0]);
   const entry=condition.confirmation==='breakout_retest'?condition.retest:condition.trigger;
+  const action=plan.executionBlocked===true||(scenario.positionSizing||plan.positionSizing)?.executionBlocked===true||scenario.eligible===false?'blocked':route?.action||'wait';
   const body=executionPlanStructuredCardBody({entry,entryMode:plan.selectedMode,stop:scenario.stop,targets:scenario.targets,direction:condition.direction,
     expiresAt:hideExpiry?undefined:condition.expiresAt,riskReward,account,entryBasisMismatch,
-    action:plan.executionBlocked===true||(scenario.positionSizing||plan.positionSizing)?.executionBlocked===true||scenario.eligible===false?'blocked':route?.action||'wait'},language);
+    action,hideAction:separateAction},language);
   return {title,content:[title,...fields.map(([label,value])=>`${label}: ${value}`),t('notice'),...(route?[route.content]:[]),...(watch?[watch.content]:[])].join('\n'),
-    html:heading+body};
+    html:heading+body,...(separateAction?{actionHtml:executionPlanCardAction(action,language)}:{})};
 }

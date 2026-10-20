@@ -1016,6 +1016,7 @@ export class TradingExpertSplitPane {
         this.extremaOverlay?.update();
       },
       {
+        onRemoveAllDrawings: () => this.drawingController?.clearAllDrawings({ allScopes: true }),
         onFocus: () => this.drawingController?.focusPane(0),
         getCandles: () => this.candles,
         getScaleAnchor: () => this.settings.scaleAnchor,

@@ -1,0 +1,223 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import test from "node:test";
+import vm from "node:vm";
+import ts from "typescript";
+import { businessPresentationItems, businessPresentationResult } from "../src/shared/codex-business-presentation.mjs";
+import { completedTradingAnalysisReport, isCompletedTradingAnalysisReport } from "../src/renderer/trading-analysis-completion.ts";
+import { activeThinkingResponseId, isFinalAnswerForThinkingResponse } from "../src/renderer/thinking-indicator.ts";
+
+const source = fs.readFileSync(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
+const ast = ts.createSourceFile("main.ts", source, ts.ScriptTarget.Latest, true);
+const functions = [
+  "upsertItem", "appendTradingExpertReport", "isThreadBusy", "isProviderThreadBusy",
+  "activeWorkflowRunForThread", "completedTradingAnalysisForTurn", "hasActiveCompletedTradingAnalysis",
+  "isConversationThreadWorking", "isComposerThreadBusy", "isTradingExpertConversationCollapseLocked",
+  "hasActiveFinalAnswerMessage", "isFinalAnswerAgentItem", "withThinkingMessage",
+  "isTurnResultGroupComplete", "turnResultDisplayStatus", "turnResultElapsedLabel",
+  "turnIdFromResultKey", "normalizedTurnResultStatus", "minFinite", "maxFinite",
+  "isConversationSupplementWindowOpen", "hasThreadCodexWork",
+  "renderComposerSubmitButton",
+];
+const compiled = ts.transpileModule(
+  ast.statements.filter(node => ts.isFunctionDeclaration(node) && functions.includes(node.name?.text))
+    .map(node => node.getText(ast)).join("\n"),
+  { compilerOptions: { target: ts.ScriptTarget.ES2022 } },
+).outputText;
+const toolsSource = fs.readFileSync(new URL("../src/renderer/codex-trading-tools.ts", import.meta.url), "utf8");
+const toolsJs = ts.transpileModule(toolsSource, {
+  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+}).outputText;
+const toolsExports = {};
+vm.runInNewContext(toolsJs, {
+  exports: toolsExports, AbortController,
+  require: () => ({ rebindTradingExpertAnalysisTargetStorageSession: () => null }),
+});
+
+function harness() {
+  let turnId = "turn-1", finishPresentation;
+  const resolved = [];
+  const state = { currentThreadId: "origin", activeView: "chat", providerBusy: {}, items: { origin: {} },
+    itemOrder: { origin: [] }, artifacts: [], threadRoles: {}, voiceInput: { status: "idle" } };
+  const noop = () => {};
+  const context = {
+    state, businessPresentationItems, businessPresentationResult,
+    completedTradingAnalysisReport, isCompletedTradingAnalysisReport,
+    activeThinkingResponseId, isFinalAnswerForThinkingResponse,
+    activeTurnIdForThread: () => turnId,
+    activeCodexThreadIds: new Set(["origin"]),
+    activeProviderInteractionByThreadId: new Map(),
+    workflowRunsByThreadId: new Map(),
+    localGroupChatBusyThreadIds: new Set(),
+    submittingComposerThreadIds: new Set(),
+    tradingExpertThinkingStateByThreadId: new Map(),
+    localHistoryAheadThreadIds: new Set(),
+    internalSubagentThreadIds: new Set(),
+    groupBlankThreadIds: new Set(),
+    suppressCreatedAtStamp: false, codexItemLocalSequence: 0,
+    api: {},
+    rememberInternalSubagentThreadsFromItem: noop,
+    ensureThreadState: id => { state.items[id] ??= {}; state.itemOrder[id] ??= []; },
+    discardCachedThreadMessageSurface: noop,
+    sanitizeIncomingThreadItem: item => item,
+    isUserSideThreadItem: item => item?.type === "userMessage",
+    isOptimisticUserItemId: () => false,
+    firstString: (...values) => values.find(value => typeof value === "string" && value.trim()) || null,
+    assistantProviderFromItem: () => null,
+    isQuestionAnswerThreadId: () => false,
+    conversationSupplementIdFromRecord: () => null,
+    updateThreadRoleFromItem: noop, syncThreadMembersForRole: noop,
+    inferItemRole: () => "assistant",
+    shouldHideChatItem: () => false,
+    patchThreadPreviewFromItem: noop,
+    setMessageStreamFollow: noop, patchConversationRow: noop,
+    refreshTradingExpertConversationSurface: noop, recordRendererTranscriptDiagnostic: noop,
+    itemTurnId: item => item?.turnId || item?.turn_id || null,
+    agentMessagePhase: item => item?.phase || item?.message_phase || item?.messagePhase,
+    itemText: item => item?.text || "",
+    itemAttachments: () => [], messageActionsFromItem: () => [],
+    isThinkingNoiseMessage: () => false,
+    localGroupChatRecord: () => null,
+    hasActiveContextCompaction: () => false, hasActiveVideoGenerationState: () => false,
+    latestQuestionAnswerProgressForThread: () => null,
+    isGptPlanQuestionAnswerProgress: () => false,
+    questionAnswerProgressFromMessage: () => null,
+    isMultiModelClusterThread: () => false,
+    activeSubagentUiEntries: () => [],
+    activeCodexThinkingStage: () => ({ label: "智能体正在执行" }),
+    activeThinkingElapsedLabel: () => "1m",
+    inferActiveThinkingRole: () => "assistant", effectiveProviderForThread: () => null,
+    isTradingExpertSurfaceThreadId: () => true,
+    composerSubmitActionForThread: () => "interrupt",
+    canInterruptThread: () => true, canSendComposer: () => true,
+    hasGptPlanProcessForInteraction: () => false,
+    cachedConsumptionStatusForTurn: () => "pending",
+    interruptedCodexTurnIds: new Set(),
+    turnTiming: () => ({ startedAtMs: 1000, completedAtMs: 100000 }),
+    turnResultProcessIndexes: () => [],
+    turnItemStartMs: item => item?.createdAt ? Date.parse(item.createdAt) : null,
+    turnItemEndMs: item => item?.createdAt ? Date.parse(item.createdAt) : null,
+    sortTimeFromValues: (...values) => {
+      const value = values.find(value => value != null);
+      return value == null ? null : typeof value === "number" ? value : Date.parse(value);
+    },
+    itemSortTime: item => item?.createdAt ? Date.parse(item.createdAt) : null,
+    formatElapsedDuration: ms => ms,
+    previousTurnResultUserStartMs: () => null,
+    shouldOpenConversationSupplementWindow: () => true,
+    conversationSupplementRoutingStateForThread: () => ({}),
+  };
+  vm.createContext(context);
+  vm.runInContext(compiled, context);
+  const tools = new toolsExports.CodexTradingTools({
+    api: { resolveBusinessTool: value => resolved.push(value) },
+    responseId: () => context.activeProviderInteractionByThreadId.get("origin") || turnId,
+    pending: () => ({}),
+    present: async () => {
+      const item = context.appendTradingExpertReport("origin", "SNDK 1h plan", "report", undefined, "execution-plan");
+      tools.collect("origin", [item]);
+      await new Promise(resolve => { finishPresentation = resolve; });
+    },
+  });
+  context.codexTradingTools = tools;
+  return { context, state, tools, resolved, setTurn: id => { turnId = id; }, finish: () => finishPresentation(),
+    present: () => tools.handle({ requestId: "present", threadId: "origin", turnId,
+      arguments: { action: "present", artifact: {}, metadata: {} } }) };
+}
+
+test("visible native plan completes analysis immediately, before tool acknowledgement or root final text", async () => {
+  const h = harness(), c = h.context;
+  assert.equal(c.withThinkingMessage("origin", []).at(-1).text, "智能体正在执行");
+  assert.equal(c.isConversationThreadWorking("origin"), true);
+  assert.match(c.renderComposerSubmitButton({ id: "origin" }), /stop-button/);
+  const pending = h.present();
+  assert.equal(h.resolved.length, 0);
+  assert.equal(h.state.items.origin.report.turnId, "turn-1");
+  assert.equal(c.hasActiveFinalAnswerMessage("origin"), true);
+  assert.equal(c.withThinkingMessage("origin", []).length, 0);
+  assert.equal(c.isConversationThreadWorking("origin"), false);
+  assert.equal(c.isComposerThreadBusy("origin"), false);
+  const button = c.renderComposerSubmitButton({ id: "origin" });
+  assert.match(button, /title="发送"/);
+  assert.doesNotMatch(button, /stop-button|interrupt-turn/);
+  assert.equal(c.isTradingExpertConversationCollapseLocked("origin"), false);
+  assert.equal(c.isConversationSupplementWindowOpen("origin"), false, "follow-up must queue, not steer the completed analysis");
+  assert.equal(c.isThreadBusy("origin"), true, "transport ownership remains active until its terminal event");
+  assert.equal(c.hasThreadCodexWork("origin"), true, "the actual send path still queues follow-ups until turn/completed");
+  assert.equal(c.activeCodexThreadIds.has("origin"), true);
+  h.finish(); await pending;
+  assert.equal(h.resolved[0].result.presentationItems[0].turnId, "turn-1", "durable MCP result retains the same identity");
+  assert.equal(h.tools.bindPresentation("origin", { type: "agentMessage" }).turnId, undefined);
+});
+
+test("tool replay restores completed grouping and frozen elapsed time despite pending consumption", () => {
+  const h = harness(), c = h.context;
+  const card = { id: "plan", type: "agentMessage", phase: "final_answer", text: "SNDK plan",
+    __youleExecutionPlanPresentation: "execution-plan", createdAt: new Date(61000).toISOString(), turnId: "old-turn",
+    __youleTurnCompletedAt: new Date(100000).toISOString() };
+  const tool = { id: "tool", type: "mcpToolCall", tool: "haolo_plan_present", status: "completed", turnId: "turn-1",
+    result: { content: [{ type: "text", text: JSON.stringify({ presentationItems: [card] }) }] } };
+  c.upsertItem("origin", tool);
+  const messages = [{ id: "plan", kind: "agent_text" }];
+  assert.equal(c.hasActiveFinalAnswerMessage("origin"), true);
+  assert.equal(c.isTurnResultGroupComplete("origin", "turn:turn-1", true), true);
+  assert.equal(c.turnResultDisplayStatus("origin", "turn:turn-1", [0], messages), "handled");
+  assert.equal(c.turnResultElapsedLabel("origin", "turn:turn-1", [0], messages), 60000);
+  c.turnTiming = () => ({ startedAtMs: 1000, completedAtMs: 500000 });
+  c.turnItemEndMs = () => 500000;
+  assert.equal(c.turnResultElapsedLabel("origin", "turn:turn-1", [0], messages), 60000);
+  assert.equal(card.turnId, "old-turn", "display adaptation never mutates the stored report");
+  h.setTurn("turn-2");
+  assert.equal(c.hasActiveFinalAnswerMessage("origin"), false);
+  assert.equal(c.withThinkingMessage("origin", []).length, 1);
+  assert.equal(c.isConversationThreadWorking("origin"), true);
+  assert.equal(c.isComposerThreadBusy("origin"), true);
+});
+
+test("late reports use the captured response, never another conversation or a newer turn", async () => {
+  const h = harness();
+  const pending = h.present();
+  h.setTurn("turn-2");
+  h.state.currentThreadId = "other";
+  const late = h.tools.bindPresentation("origin", { id: "late", type: "agentMessage", phase: "final_answer", text: "plan",
+    __youleExecutionPlanPresentation: "execution-plan" });
+  h.context.upsertItem("origin", late);
+  assert.equal(late.turnId, "turn-1");
+  assert.equal(h.context.hasActiveFinalAnswerMessage("origin"), false);
+  assert.equal(h.context.hasActiveCompletedTradingAnalysis("other"), false);
+  h.finish(); await pending;
+});
+
+test("provider response identities stay separate and independent runners keep their busy ownership", async () => {
+  const h = harness(), c = h.context;
+  h.state.providerBusy.origin = true;
+  c.activeProviderInteractionByThreadId.set("origin", "provider-1");
+  const pending = h.present();
+  assert.equal(h.state.items.origin.report.turnId, "provider-1");
+  assert.equal(c.hasActiveFinalAnswerMessage("origin"), true);
+  assert.equal(c.isComposerThreadBusy("origin"), true, "provider runner cannot queue parallel sends");
+  c.activeProviderInteractionByThreadId.set("origin", "provider-2");
+  assert.equal(c.hasActiveFinalAnswerMessage("origin"), false);
+  h.finish(); await pending;
+});
+
+test("new analysis and workflow progress retain working state; empty or non-final cards never complete analysis", async () => {
+  const h = harness(), c = h.context;
+  const pending = h.present(); h.finish(); await pending;
+  c.tradingExpertThinkingStateByThreadId.set("origin", { phase: "analyzing" });
+  assert.equal(c.isConversationThreadWorking("origin"), true);
+  assert.equal(c.isTurnResultGroupComplete("origin", "turn:turn-1", true), false);
+  c.tradingExpertThinkingStateByThreadId.clear();
+  c.workflowRunsByThreadId.set("origin", { id: "workflow", status: "running" });
+  assert.equal(c.isComposerThreadBusy("origin"), true);
+  for (const item of [
+    { type: "plan", phase: "final_answer", text: "steps" },
+    { type: "agentMessage", phase: "commentary", text: "working", __youleExecutionPlanPresentation: "execution-plan" },
+    { type: "agentMessage", phase: "final_answer", text: " ", __youleExecutionPlanPresentation: "execution-plan" },
+    { type: "agentMessage", phase: "final_answer", text: "alert draft", __youleExecutionPlanPresentation: "plain" },
+  ]) assert.equal(isCompletedTradingAnalysisReport(item), false);
+  const position = { type: "agentMessage", phase: "final_answer", text: "position plan",
+    __youleExecutionPlanPresentation: "position-plan", turn_id: "position" };
+  assert.equal(completedTradingAnalysisReport([position], "position"), position);
+  assert.equal(completedTradingAnalysisReport([position], null), null);
+});

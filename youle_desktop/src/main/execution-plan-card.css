@@ -1,3 +1,21 @@
+/* Position-management reports use prose instead of the entry-price grid. */
+html .execution-plan-surface[data-trading-result-kind="position-management"] > .execution-plan-card-content {
+  display: block;
+  container-type: normal;
+  line-height: 1.65;
+}
+html .execution-plan-surface[data-trading-result-kind="position-management"] > h3 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+html .execution-plan-surface[data-trading-result-kind="position-management"] > .execution-plan-card-content > :first-child {
+  margin-top: 0;
+}
+html .execution-plan-surface[data-trading-result-kind="position-management"] > .execution-plan-card-content > :last-child {
+  margin-bottom: 0;
+}
+
 /* Shared palette for chat, saved plans and standalone sticky windows.
    Dark colors follow the mobile sticky card; badge fills retain white-text contrast. */
 html[data-execution-plan-sticky],
@@ -218,8 +236,8 @@ html:lang(en) .execution-plan-surface .execution-plan-inline-footer {
 .execution-plan-surface .execution-plan-card-label {
   color: var(--plan-label);
   font-weight: 700;
+  font-size: var(--plan-font-size);
 }
-.execution-plan-surface .execution-plan-metric > .execution-plan-card-label,
 .execution-plan-surface .execution-plan-target-main {
   font-size: calc(var(--plan-font-size) + 1px);
 }
@@ -250,7 +268,7 @@ html:lang(en) .execution-plan-surface .execution-plan-inline-footer {
 .execution-plan-surface .execution-plan-target-profit { grid-column: 2; }
 .execution-plan-surface .execution-plan-details { display: grid; grid-column: 1 / -1; gap: 4px; font-size: calc(var(--plan-font-size) - 1px); }
 .execution-plan-surface .execution-plan-card-line { grid-column: 1 / -1; margin: 0; }
-.execution-plan-surface .execution-plan-details .execution-plan-card-label { color: var(--plan-muted); font-weight: 400; }
+.execution-plan-surface .execution-plan-details .execution-plan-card-label { color: var(--plan-muted); font-weight: 400; font-size: inherit; }
 .message-execution-plan-footer {
   display: flex;
   align-items: center;
@@ -338,3 +356,50 @@ html .execution-plan-surface .message-execution-plan-footer button.message-add-t
 html .execution-plan-surface .execution-plan-card-status.pending { color: var(--plan-muted); }
 html .execution-plan-surface .execution-plan-card-status:is(.executing, .take-profit) { color: var(--execution-plan-direction-bullish); }
 html .execution-plan-surface .execution-plan-card-status.stop-loss { color: var(--execution-plan-direction-bearish); }
+
+/* Saved plans and desktop notes share the same compact card geometry. */
+html :is(.execution-plan-list .execution-plan-surface.execution-plan-card, .execution-plan-surface.execution-plan-sticky-card),
+html .execution-plan-list .execution-plan-surface.execution-plan-card:hover {
+  border-radius: 12px;
+  padding: 12px 14px 9px;
+}
+:is(.execution-plan-list .execution-plan-surface.execution-plan-card, .execution-plan-surface.execution-plan-sticky-card) > header {
+  margin-bottom: 10px;
+}
+:is(.execution-plan-list .execution-plan-surface, .execution-plan-surface.execution-plan-sticky-card) .execution-plan-card-content {
+  row-gap: 10px;
+}
+:is(.execution-plan-list .execution-plan-surface, .execution-plan-surface.execution-plan-sticky-card) :is(.execution-plan-heading, .execution-plan-badges) {
+  gap: 6px;
+}
+:is(.execution-plan-list .execution-plan-surface, .execution-plan-surface.execution-plan-sticky-card) .execution-plan-heading h2 {
+  font-size: calc(var(--plan-font-size) + 2px);
+}
+:is(.execution-plan-list .execution-plan-surface, .execution-plan-surface.execution-plan-sticky-card) .execution-plan-badge {
+  padding: 2px 5px;
+}
+:is(.execution-plan-list .execution-plan-surface, .execution-plan-surface.execution-plan-sticky-card) .execution-plan-price {
+  margin-top: 3px;
+}
+:is(.execution-plan-list .execution-plan-surface, .execution-plan-surface.execution-plan-sticky-card) .execution-plan-metric > .execution-plan-account-detail {
+  margin-top: 2px;
+}
+:is(.execution-plan-list .execution-plan-surface, .execution-plan-surface.execution-plan-sticky-card) .execution-plan-targets {
+  row-gap: 8px;
+}
+:is(.execution-plan-list .execution-plan-surface.execution-plan-card, .execution-plan-surface.execution-plan-sticky-card) .execution-plan-inline-footer {
+  --plan-footer-font-size: calc(var(--plan-font-size) - 1px);
+  margin-top: auto;
+  padding-top: 12px;
+}
+.execution-plan-surface .execution-plan-current-action {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--plan-muted);
+  font-size: var(--plan-footer-font-size);
+  font-weight: 400;
+  line-height: 1.5;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

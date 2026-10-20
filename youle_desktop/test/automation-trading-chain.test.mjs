@@ -12,7 +12,7 @@ import {
   buildTradingAutomationDeveloperInstructions,
   isTradingAutomationJob,
   normalizeTradingAutomationContext,
-  resolveTradingAutomationRoute,
+  resolveTradingAutomationAnalysis,
   tradingAutomationBinanceInterval,
 } from "../src/main/automation/trading-profile.mjs";
 
@@ -66,45 +66,25 @@ test("automatic trading context is normalized and maps to Binance intervals", ()
   assert.equal(hyperliquid.venue, "hyperliquid");
 });
 
-test("explicit automatic analysis overrides the captured chart while current-chart analysis reuses it", () => {
-  const explicit = resolveTradingAutomationRoute({
-    prompt: "每小时用缠论分析 BTC 1h 的盘面",
-    context: tradingJob().tradingContext,
-    strategies,
-  });
-  assert.equal(explicit.mode, "analysis");
+test("Codex-selected automatic analysis preserves explicit targets and saved context", () => {
+  const context = tradingJob().tradingContext;
+  const explicit = resolveTradingAutomationAnalysis({ context, args: { action: "analyze_only", strategyId: "chan", symbol: "BTCUSDT", interval: "1h" } });
   assert.equal(explicit.strategyId, "chan");
-  assert.equal(explicit.symbol, "BTCUSDT");
-  assert.equal(explicit.interval, "60");
   assert.equal(explicit.marketId, "BINANCE:FUTURES:BTCUSDT");
-  assert.equal(explicit.drawingRequested, true);
-  assert.equal(explicit.executionPlanRequested, true);
-
-  const currentChart = resolveTradingAutomationRoute({
-    prompt: "分析当前盘面并给出交易计划",
-    context: tradingJob().tradingContext,
-    strategies,
-  });
-  assert.equal(currentChart.mode, "analysis");
-  assert.equal(currentChart.strategyId, null);
-  assert.equal(currentChart.symbol, "ETHUSDT");
-  assert.equal(currentChart.interval, "240");
-
-  const priceCheck = resolveTradingAutomationRoute({
-    prompt: "检查 ETH 当前价格和成交量",
-    context: tradingJob().tradingContext,
-    strategies,
-  });
-  assert.equal(priceCheck.mode, "analysis");
-  assert.equal(priceCheck.symbol, "ETHUSDT");
+  assert.equal(explicit.interval, "60");
+  const current = resolveTradingAutomationAnalysis({ context, args: { action: "analyze_only", drawingRequested: false } });
+  assert.equal(current.symbol, "ETHUSDT");
+  assert.equal(current.interval, "240");
+  assert.equal(current.drawingRequested, false);
+  const spot = resolveTradingAutomationAnalysis({ context, args: { action: "analyze", marketId: "BINANCE:SPOT:SOLUSDT", symbol: "SOLUSDT" } });
+  assert.equal(spot.marketType, "spot");
 });
 
-test("trading knowledge stays conversational instead of fabricating a live-market analysis", () => {
-  assert.deepEqual(resolveTradingAutomationRoute({
-    prompt: "什么是缠论",
-    context: tradingJob().tradingContext,
-    strategies,
-  }), { mode: "conversation", reason: "knowledge-only" });
+test("automation never infers analysis from text and rejects malformed explicit targets", () => {
+  assert.throws(() => resolveTradingAutomationAnalysis({ prompt: "用缠论分析 BTC 1h" }), /Codex analysis tool call/);
+  assert.throws(() => resolveTradingAutomationAnalysis({ args: { action: "analyze", symbol: "BTC?" } }), /Invalid explicit/);
+  assert.throws(() => resolveTradingAutomationAnalysis({ args: { action: "analyze", interval: "nonsense" } }), /Invalid explicit/);
+  assert.throws(() => resolveTradingAutomationAnalysis({ args: { action: "analyze", marketId: "BINANCE:SPOT:ETHUSDT", symbol: "BTCUSDT" } }), /disagree/);
 });
 
 test("auto-task jobs receive trading-first unattended instructions and live-order safety", () => {
@@ -171,7 +151,7 @@ test("scheduled and immediate auto-task triggers converge on the trading worker"
 
   assert.match(mainSource, /for \(const task of dueTasks\) \{\s*void runAutoTask\(task\.id\);/);
   assert.match(mainSource, /async function runAutoTask\(taskId\)[\s\S]*?getAutomationWorker\(\)\.runNow\(autoTaskJobId\(syncedTask\)\)/);
-  assert.match(mainSource, /async function executeAutomationTurn[\s\S]*?executeTradingAutomationAnalysis[\s\S]*?if \(tradingAnalysisResult\) return tradingAnalysisResult;[\s\S]*?ensureAutomationThread/);
+  assert.match(mainSource, /async function executeAutomationTurn[\s\S]*?ensureAutomationThread[\s\S]*?codexBusinessTools\.bind[\s\S]*?executeTradingAutomationAnalysis[\s\S]*?"turn\/start"/);
   assert.match(mainSource, /executionProfile: TRADING_AUTOMATION_EXECUTION_PROFILE/);
   assert.match(mainSource, /model: TRADING_AUTOMATION_MODEL/);
   assert.match(mainSource, /reasoningEffort: TRADING_AUTOMATION_REASONING_EFFORT/);

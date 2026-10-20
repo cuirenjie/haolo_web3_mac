@@ -65,7 +65,7 @@ test("first-stage model configuration does not replace the existing provider cha
   );
   assert.match(
     main,
-    /ipcMain\.handle\("youle:sendProviderChat", async \(_event, params = \{\}\) => \{[\s\S]*?resolvedThreadReferenceContext\(params, threadId, cwd\)[\s\S]*?prepareQuestionAnswerFileContext\([\s\S]*?params,[\s\S]*?cwd,[\s\S]*?emitQuestionAnswerProgress[\s\S]*?providerMessagesWithReferencedThreadContext[\s\S]*?providerMessagesWithQuestionAnswerFileContext[\s\S]*?invokeQuestionAnswerProvider\(\{[\s\S]*?workspaceTools:\s*questionAnswerFileContext\?\.workspaceTools/,
+    /async function executeSelectedProviderChat\(_event, params = \{\}, rootAbortController = null\) \{[\s\S]*?resolvedThreadReferenceContext\(params, threadId, cwd\)[\s\S]*?prepareQuestionAnswerFileContext\([\s\S]*?params,[\s\S]*?cwd,[\s\S]*?emitQuestionAnswerProgress[\s\S]*?providerMessagesWithReferencedThreadContext[\s\S]*?providerMessagesWithQuestionAnswerFileContext[\s\S]*?invokeQuestionAnswerProvider\(\{[\s\S]*?workspaceTools:\s*questionAnswerFileContext\?\.workspaceTools/,
   );
   assert.match(main, /QuestionAnswerContextIntentResolver/);
   assert.doesNotMatch(

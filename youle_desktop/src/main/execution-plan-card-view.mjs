@@ -111,10 +111,19 @@ function metricHtml(line, label, tone, detail = "") {
   return priceMetricHtml(label, priceText(match[1]), tone, detail || (suffix ? `<div class="execution-plan-metric-description">${signedText(suffix)}</div>` : ""));
 }
 
-// Both arguments are trusted card markup. The footer contains only each
-// surface's controls/creation time; expiry remains part of the frozen plan data.
-export function executionPlanCardFooter(content, trailing) {
-  return content + (trailing ? `<div class="execution-plan-inline-footer">${trailing}</div>` : '');
+// Arguments are trusted card markup; the optional action shares the time row.
+export function executionPlanCardFooter(content, trailing, action = '') {
+  return content + (action || trailing ? `<div class="execution-plan-inline-footer">${action}${trailing}</div>` : '');
+}
+
+export function executionPlanCardAction(input = [], language = 'zh-CN') {
+  const labels = actionCopy[language] || actionCopy['zh-CN'];
+  const line = Array.isArray(input)
+    ? input.find(line => matches(line, /^(?:当前动作|當前動作|current action)$/i))
+    : Object.hasOwn(labels, input) && input !== 'label' ? {label: labels.label, text: labels[input]} : null;
+  if (!line?.text?.trim()) return '';
+  const text = `${line.label}${line.text}`;
+  return `<span class="execution-plan-current-action" title="${escape(text)}">${escape(text)}</span>`;
 }
 
 function priceMetricHtml(label, price, tone, detail = "") {
@@ -131,7 +140,7 @@ function targetsHtml(targets, labels, ratios) {
 
 // Typed cloud prices bypass the legacy prose parser. Match mobile's compact
 // price/ratio layout; full conditions remain in the frozen report/content.
-export function executionPlanStructuredCardBody({ entry, entryMode, stop, targets, direction, riskReward = [], account, action, entryBasisMismatch = false }, language = "zh-CN") {
+export function executionPlanStructuredCardBody({ entry, entryMode, stop, targets, direction, riskReward = [], account, action, hideAction = false, entryBasisMismatch = false }, language = "zh-CN") {
   const labels = copy[language] || copy["zh-CN"];
   const tone = direction === "long" ? "bullish" : "bearish";
   // Left valuation and display both use the favorable zone endpoint:
@@ -157,7 +166,7 @@ export function executionPlanStructuredCardBody({ entry, entryMode, stop, target
     return { price, index: index + 1, amount, profit: Number.isFinite(cumulative) ? cumulative : undefined };
   });
   const actions = actionCopy[language] || actionCopy['zh-CN'];
-  const actionHtml = Object.hasOwn(actions, action) && action !== 'label' && action !== 'wait'
+  const actionHtml = !hideAction && Object.hasOwn(actions, action) && action !== 'label' && action !== 'wait'
     ? `<div class="execution-plan-details">${lineHtml({label: actions.label, text: actions[action]})}</div>` : '';
   const basisNotice = {
     'zh-CN': '此计划使用旧入场口径，请重新分析以更新盈亏测算。',
@@ -228,12 +237,12 @@ function simpleRatios(text, targets) {
   return { values: new Map(indexed.map((item) => [item.index, `1:${fixed(item.value.split(/[:：]/)[1].trim())}`])), loss: outcome?.[2] ?? outcome?.[4] };
 }
 
-export function executionPlanCardBody(lines = [], language = "zh-CN", _options = {}) {
+export function executionPlanCardBody(lines = [], language = "zh-CN", { hideAction = false } = {}) {
   // Presentation only: hide the verbose account summaries, keeping the report
   // and saved/alert inputs intact. Per-level amounts remain beside their prices.
   lines = lines.filter((line) => !matches(line, /^(?:仓位大小|倉位大小|可能盈亏|可能盈虧|position size|potential P&L|有效至|有效期|有效时间|有效時間|到期时间|到期時間|valid until|expiry|expires at)(?:\s*[（(][^）)]*[）)])?$/i));
   lines = lines.filter((line) => !(matches(line, /^(?:当前动作|當前動作|current action)$/i)
-    && /^(?:等待条件触发|等待條件觸發|wait for the trigger)$/i.test(String(line.text || '').trim())));
+    && (hideAction || /^(?:等待条件触发|等待條件觸發|wait for the trigger)$/i.test(String(line.text || '').trim()))));
   const labels = copy[language] || copy["zh-CN"];
   const entry = lines.find((line) => matches(line, /^(?:(?:多头|空头|首选方向|方向)?触发|入场触发价|(?:long|short|entry) trigger)$/i));
   const stop = lines.find((line) => matches(line, /^(?:止损(?:与失效)?|止损价|stop-loss(?: and invalidation)?)$/i));

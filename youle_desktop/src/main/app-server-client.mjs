@@ -1,4 +1,5 @@
 import { modelToolNetworkEnv, modelToolNetworkConfigArgs } from "./model-tool-network.mjs";
+import { syncManagedTradingSkill } from "./managed-trading-skills.mjs";
 import { HAOLO_GATEWAY_BASE_URL, migrateHaoloGatewayAuth, migrateHaoloGatewayConfig, normalizeHaoloGatewayBaseUrl } from "./haolo-gateway.mjs";
 import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -55,6 +56,9 @@ const COPY_ONCE_SYSTEM_SKILL_MARKER = ".haolo-desktop-managed";
 const DEEPSEEK_MCP_SERVER_FILE = path.join("mcp", "deepseek-server", "index.mjs");
 const GITHUB_MCP_SERVER_FILE = path.join("mcp", "github-server", "index.mjs");
 const CHROME_MCP_SERVER_FILE = path.join("mcp", "chrome-server", "index.mjs");
+const BUSINESS_MCP_SERVER_FILE = path.join("mcp", "business-server", "index.mjs");
+const MANAGED_BUSINESS_MCP_CONFIG_START = "# >>> haolo_desktop managed Business MCP";
+const MANAGED_BUSINESS_MCP_CONFIG_END = "# <<< haolo_desktop managed Business MCP";
 const PERSONAL_CONTEXT_MCP_SERVER_FILE = path.join("mcp", "personal-context-server", "index.mjs");
 const MANAGED_DEEPSEEK_MCP_CONFIG_START = "# >>> haolo_desktop managed DeepSeek MCP";
 const MANAGED_DEEPSEEK_MCP_CONFIG_END = "# <<< haolo_desktop managed DeepSeek MCP";
@@ -131,7 +135,7 @@ const MANAGED_SECTION_CONFIG_KEYS = [
 ];
 const DEFAULT_PROVIDER_BASE_URL = HAOLO_GATEWAY_BASE_URL;
 const DEFAULT_PROVIDER_WIRE_API = "responses";
-const DEFAULT_PROVIDER_CODEX_VERSION = "0.157.1";
+const DEFAULT_PROVIDER_CODEX_VERSION = "0.163.0";
 const DEFAULT_PROVIDER_MODEL_POOL = "execution";
 const DEFAULT_PROVIDER_MODEL_CAPABILITY = "root_execution";
 const DEEPSEEK_EXECUTION_DEFAULT_BASE_URL = DEFAULT_PROVIDER_BASE_URL;
@@ -192,6 +196,7 @@ export class AppServerClient extends EventEmitter {
     this.nextId = 1;
     this.pending = new Map();
     this.activeRuntimeTurns = new Map();
+    this.historyModelSelections = new Map();
     this.timedOutRequests = new Map();
     this.status = "stopped";
   }
@@ -315,6 +320,7 @@ export class AppServerClient extends EventEmitter {
       const wasReady = this.status === "ready";
       this.status = "stopped";
       this.activeRuntimeTurns.clear();
+      this.historyModelSelections.clear();
       void this.stopModelRequestRelays();
       this.rejectAll(new Error(`app-server exited with code ${code ?? "null"}, signal ${signal ?? "null"}`));
       this.emit("status", this.getStatus({ exitCode: code, signal }));
@@ -458,7 +464,10 @@ export class AppServerClient extends EventEmitter {
       }
       if (threadId && message.method === "thread/status/changed" && message.params?.status?.type === "active"
         && !this.activeRuntimeTurns.has(threadId)) this.activeRuntimeTurns.set(threadId, null);
-      if (threadId && message.method === "thread/closed") this.activeRuntimeTurns.delete(threadId);
+      if (threadId && message.method === "thread/closed") {
+        this.activeRuntimeTurns.delete(threadId);
+        this.historyModelSelections.delete(threadId);
+      }
       this.emit("notification", message);
       return;
     }
@@ -482,6 +491,16 @@ export class AppServerClient extends EventEmitter {
     try { assertAllowedModelRequest(params); } catch (error) { return Promise.reject(error); }
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       return Promise.reject(new Error("app-server websocket is not open"));
+    }
+    // Bind before sending: a fast automatic compaction can reach the model
+    // relay before turn/started or the JSON-RPC acknowledgement is delivered.
+    // Never infer a replacement from persisted history or a different thread.
+    if (["turn/start", "thread/settings/update"].includes(method)
+      && typeof params.threadId === "string" && params.model) {
+      this.historyModelSelections.set(params.threadId, {
+        model: params.model,
+        effort: isDeepSeekFlashModel(params.model) ? "max" : "low",
+      });
     }
     const id = this.nextId++;
     const payload = { id, method, params };
@@ -545,6 +564,7 @@ export class AppServerClient extends EventEmitter {
     this.ws = null;
     await stopProcessTree(this.child);
     this.activeRuntimeTurns.clear();
+    this.historyModelSelections.clear();
     this.child = null;
     await this.stopModelRequestRelays();
     this.status = "stopped";
@@ -574,6 +594,7 @@ export class AppServerClient extends EventEmitter {
             upstreamBaseUrl: baseUrl,
             fetch: this.modelRelayFetch || undefined,
             WebSocketImpl: this.modelRelayWebSocketImpl,
+            resolveHistoryModel: (threadId) => this.historyModelSelections.get(threadId),
           });
           relay.on("request-metrics", (metrics) => this.emitModelRelayMetrics(metrics));
           relay.on("request-error", (error) => {
@@ -847,6 +868,11 @@ function syncDefaultCodexResourcesInto(codexHome, options = {}) {
       const target = path.join(targetSkills, entry.name);
       const relativeTarget = path.join(DEFAULT_CODEX_SKILLS_DIR, entry.name);
       try {
+        const managed = syncManagedTradingSkill(source, target);
+        if (managed) {
+          if (managed.changed) copied.push(relativeTarget);
+          continue;
+        }
         if (!fs.existsSync(target)) {
           safeCopyDirectoryChanged(source, target, copied, relativeTarget, errors);
         }
@@ -870,6 +896,7 @@ function syncDefaultCodexResourcesInto(codexHome, options = {}) {
     copied.push(`${DEFAULT_CODEX_CONFIG_FILE}:mcp_servers.chrome`);
   }
 
+  syncManagedBusinessMcpConfig(codexHome);
   const personalContextMcpConfig = syncManagedPersonalContextMcpConfig(codexHome);
   if (personalContextMcpConfig.action === "updated") {
     copied.push(`${DEFAULT_CODEX_CONFIG_FILE}:mcp_servers.personal_context`);
@@ -2053,6 +2080,71 @@ function hasPersonalContextMcpConfig(text) {
   return /^\s*\[mcp_servers\.personal_context(?:\]|\.)/m.test(String(text || ""));
 }
 
+function syncManagedBusinessMcpConfig(codexHome) {
+  if (process.env.HAOLO_DESKTOP_SKIP_BUILTIN_BUSINESS_MCP === "1") {
+    return { action: "skipped", reason: "HAOLO_DESKTOP_SKIP_BUILTIN_BUSINESS_MCP=1" };
+  }
+  const serverPath = resolveBundledBusinessMcpServer();
+  if (!serverPath) return { action: "missing-server" };
+  const command = resolveBundledDeepSeekMcpCommand();
+  if (!command) return { action: "missing-command", serverPath };
+
+  const configPath = path.join(codexHome, DEFAULT_CODEX_CONFIG_FILE);
+  let current = "";
+  try {
+    current = fs.existsSync(configPath) ? fs.readFileSync(configPath, "utf8") : "";
+  } catch (error) {
+    return { action: "read-failed", configPath, error: error.message };
+  }
+  const hasManagedConfig = current.includes(MANAGED_BUSINESS_MCP_CONFIG_START);
+  if (!hasManagedConfig && hasBusinessMcpConfig(current)) {
+    return { action: "preserved-existing", configPath, serverPath };
+  }
+  const managedBlock = withDocumentNewlines(
+    buildManagedBusinessMcpConfig({ command, serverPath }),
+    current,
+  );
+  const next = hasManagedConfig
+    ? replaceManagedTomlBlock(
+        current,
+        MANAGED_BUSINESS_MCP_CONFIG_START,
+        MANAGED_BUSINESS_MCP_CONFIG_END,
+        managedBlock,
+      )
+    : appendTomlBlock(current, managedBlock);
+  if (next === current) return { action: "unchanged", configPath, serverPath };
+  try {
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, next, "utf8");
+  } catch (error) {
+    return { action: "write-failed", configPath, error: error.message };
+  }
+  return { action: "updated", configPath, serverPath };
+}
+
+function buildManagedBusinessMcpConfig({ command, serverPath }) {
+  return [
+    MANAGED_BUSINESS_MCP_CONFIG_START,
+    "[mcp_servers.haolo_business]",
+    `command = "${tomlString(command)}"`,
+    `args = ["${tomlString(serverPath)}"]`,
+    'env_vars = ["HAOLO_BUSINESS_BROKER_URL", "HAOLO_BUSINESS_BROKER_TOKEN"]',
+    "startup_timeout_sec = 20",
+    "tool_timeout_sec = 930",
+    // These tools execute the existing user-authorized workflows. Their Host
+    // validators retain draft/simulation/confirmation gates; no extra CLI gate.
+    'default_tools_approval_mode = "approve"',
+    "",
+    "[mcp_servers.haolo_business.env]",
+    'ELECTRON_RUN_AS_NODE = "1"',
+    MANAGED_BUSINESS_MCP_CONFIG_END,
+  ].join("\n");
+}
+
+function hasBusinessMcpConfig(text) {
+  return /^\s*\[mcp_servers\.haolo_business(?:\]|\.)/m.test(String(text || ""));
+}
+
 function replaceManagedTomlBlock(text, startMarker, endMarker, block) {
   const current = String(text || "");
   const start = current.indexOf(startMarker);
@@ -2651,6 +2743,8 @@ function resolveBundledGitHubMcpServer() {
 function resolveBundledChromeMcpServer() {
   return resolveBundledMcpServer(CHROME_MCP_SERVER_FILE);
 }
+
+function resolveBundledBusinessMcpServer() { return resolveBundledMcpServer(BUSINESS_MCP_SERVER_FILE); }
 
 function resolveBundledPersonalContextMcpServer() {
   return resolveBundledMcpServer(PERSONAL_CONTEXT_MCP_SERVER_FILE);

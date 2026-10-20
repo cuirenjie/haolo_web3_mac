@@ -33,7 +33,7 @@ test("trading favorites use the shared authenticated server collection", async (
   assert.match(sources.market, /onReorder: \(records\) => this\.syncWatchlistOrder/);
   assert.doesNotMatch(sources.market, /this\.syncFavoriteServerMembership\(market, !wasFavorite\)/);
   assert.doesNotMatch(sources.market, /this\.syncFavoriteServerOrder\(orderedMarketIds\)/);
-  assert.match(sources.market, /replaceGroupMarkets\("watchlist", remoteRecords\)/);
+  assert.match(sources.market, /mergeSharedSnapshot\(remoteRecords\)/);
   assert.match(sources.renderer, /reorderTradingFavorites\?\(params/);
 
   const readSharedBlock = sources.main.slice(

@@ -8,6 +8,7 @@ import {
   workflowInvocationContract,
 } from "../src/main/workflow/node-contract.mjs";
 import { freezeWorkflowDraft } from "../src/main/workflow/workflow-spec.mjs";
+import { workflowCodexIntakeHooks } from "../src/main/codex-workflow-intake.mjs";
 
 function definitionNode(id, dependsOn = [], overrides = {}) {
   return {
@@ -112,6 +113,84 @@ function runtimeForSpecs(store, executeProvider, overrides = {}) {
     ...overrides,
   });
 }
+
+test("frozen canvas reaches root Codex before any model, retains graph and forwards verified trading results", async () => {
+  const spec = frozenSpec("codex_first", [definitionNode("report")], ["report"]);
+  const order = [];
+  let releaseIntake, intakeSignal;
+  const gate = new Promise(resolve => { releaseIntake = resolve; });
+  const params = { threadId: "workflow-ui", prompt: "分析仓位并执行此画布", businessContextId: "frozen-chart" };
+  const hooks = workflowCodexIntakeHooks({
+    run: async request => {
+      order.push("codex"); intakeSignal = request.signal;
+      assert.equal(request.params.businessContextId, "frozen-chart");
+      assert.equal(request.params.visibleQuestion, params.prompt);
+      await gate;
+      return { text: '{"ready":true,"context":"verified-position-result"}' };
+    },
+    release: () => order.push("release"),
+  }, params);
+  const runtime = runtimeForSpecs(memoryStore([spec]), async call => {
+    order.push("provider");
+    assert.match(call.prompt, /verified-position-result/);
+    return { text: "report result", confidence: 0.99 };
+  }, {
+    planWithCodex: async () => { throw new Error("Frozen graph must not be replanned."); },
+    executeRootFinal: async call => {
+      order.push("final");
+      assert.match(call.prompt, /verified-position-result/);
+      return { text: "report delivered" };
+    },
+  });
+  const started = runtime.startSpec({ ...params, ...hooks, specId: spec.id, version: 1 });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(order, ["codex"]);
+  assert.equal(intakeSignal.aborted, false);
+  releaseIntake();
+  const completed = await runtime.waitForRun(started.id);
+  assert.equal(completed.status, "succeeded");
+  assert.equal(completed.graphHash, spec.graphHash);
+  assert.deepEqual(order, ["codex", "provider", "final", "release"]);
+});
+
+test("a request for trading confirmation stops a frozen workflow before provider execution", async () => {
+  const spec = frozenSpec("needs_confirmation", [definitionNode("report")], ["report"]);
+  let calls = 0, released = false;
+  const params = { threadId: "workflow-confirm", prompt: "创建预警" };
+  const hooks = workflowCodexIntakeHooks({
+    run: async () => ({ text: '{"ready":false,"context":"请确认模拟规则"}' }),
+    release: () => { released = true; },
+  }, params);
+  const runtime = runtimeForSpecs(memoryStore([spec]), async () => { calls++; return { text: "unexpected" }; });
+  const started = runtime.startSpec({ ...params, ...hooks, specId: spec.id, version: 1 });
+  const completed = await runtime.waitForRun(started.id);
+  assert.equal(completed.status, "failed");
+  assert.match(completed.error.message, /请确认模拟规则/);
+  assert.equal(calls, 0);
+  assert.equal(released, true);
+});
+
+test("cancelling during workflow root intake cancels its Codex signal and never starts a canvas model", async () => {
+  const spec = frozenSpec("intake_cancel", [definitionNode("report")], ["report"]);
+  let calls = 0, released = false, begun;
+  const entered = new Promise(resolve => { begun = resolve; });
+  const params = { threadId: "workflow-cancel", prompt: "分析当前图表" };
+  const hooks = workflowCodexIntakeHooks({
+    run: ({ signal }) => new Promise((_, reject) => {
+      signal.addEventListener("abort", () => reject(new DOMException("cancelled", "AbortError")), { once: true });
+      begun();
+    }),
+    release: () => { released = true; },
+  }, params);
+  const runtime = runtimeForSpecs(memoryStore([spec]), async () => { calls++; return { text: "unexpected" }; });
+  const started = runtime.startSpec({ ...params, ...hooks, specId: spec.id, version: 1 });
+  await entered;
+  runtime.cancel(started.id);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(runtime.getRun(started.id).status, "cancelled");
+  assert.equal(calls, 0);
+  assert.equal(released, true);
+});
 
 function revisionDraftStore(draft) {
   let current = structuredClone(draft);

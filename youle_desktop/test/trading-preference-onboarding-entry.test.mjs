@@ -140,11 +140,9 @@ test("three-question flow requires every question and supports per-question reco
   assert.match(flow, /const binanceStatusItem = appendTradingPreferenceMessage\([\s\S]*binanceConnected[\s\S]*TRADING_PREFERENCE_BINANCE_CONNECTED[\s\S]*TRADING_PREFERENCE_BINANCE_INVITATION/);
   assert.match(flow, /binanceConnected[\s\S]*\? \[\][\s\S]*label: "连接币安"[\s\S]*destination: "binance-account"/);
   assert.match(flow, /transcriptItems\.length \? transcriptItems : \[completionItem, binanceStatusItem\]/);
-  assert.match(send, /tradingPreferenceOnboardingByThreadId\.has\(threadId\)[\s\S]*handleTradingPreferenceOnboardingReply/);
-  assert.ok(
-    send.indexOf("handleTradingPreferenceOnboardingReply") < send.indexOf("classifyTradingStrategyForSend"),
-    "onboarding replies must be consumed before model or strategy routing",
-  );
+  assert.match(source, /preferences: \(threadId, text\) => handleTradingPreferenceOnboardingReply\(threadId, text, null\)/);
+  assert.doesNotMatch(send, /handleTradingPreferenceOnboardingReply|classifyTradingStrategyForSend/);
+  assert.match(send, /await sendAgentText/);
 });
 
 test("completed preference onboarding promotes a local blank task before persisting its transcript", async () => {

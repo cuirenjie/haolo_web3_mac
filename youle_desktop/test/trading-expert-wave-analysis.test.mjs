@@ -1021,23 +1021,23 @@ test("Trading Expert wires wave analysis through IPC, playback, and light/dark t
     readFile(new URL("../src/main/preload.mjs", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/main.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/trading-strategy-runtime/catalog.ts", import.meta.url), "utf8"),
-    readFile(new URL("../src/renderer/trading-strategy-runtime/client.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/main/codex-business-tools.mjs", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/trading-expert-market.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/trading-expert-drawing.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/trading-expert-ai-playback.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/styles.css", import.meta.url), "utf8"),
   ]);
 
-  assert.match(mainSource, /tradingAnalysis:classifyWaveRequest/);
+  assert.doesNotMatch(mainSource, /tradingAnalysis:classifyWaveRequest/);
   assert.match(mainSource, /tradingAnalysis:runWave/);
   assert.match(mainSource, /tradingAutomationWaveContextIntervals/);
-  assert.match(preloadSource, /classifyTradingWaveRequest/);
+  assert.doesNotMatch(preloadSource, /classifyTradingWaveRequest/);
   assert.match(preloadSource, /runTradingWaveAnalysis/);
-  assert.match(rendererSource, /await classifyTradingStrategyForSend\(/);
-  assert.match(clientSource, /client\.classifyTradingStrategyRequest\(/);
-  assert.match(rendererSource, /tradingStrategyRequestAtSend\?\.mode === "chart-analysis"/);
-  assert.match(rendererSource, /runTradingStrategyChartRequest\(threadId, tradingStrategyAtSend/);
-  assert.match(catalogSource, /buildTradingWaveExpertPrompt/);
+  assert.match(rendererSource, /const codexTradingTools = new CodexTradingTools\(/);
+  assert.match(clientSource, /resolveExplicitTradingStrategyIds/);
+  assert.match(rendererSource, /mode: "chart-analysis" as const, instruction: String\(args\.instruction/);
+  assert.match(rendererSource, /runTradingStrategyChartRequest\(threadId, strategy, request\)/);
+  assert.match(catalogSource, /OFFICIAL_TRADING_CATALOG/);
   assert.match(rendererSource, /正在分析波浪结构/);
   assert.match(rendererSource, /正在绘制波浪计数/);
   assert.match(marketSource, /runWaveConversation/);

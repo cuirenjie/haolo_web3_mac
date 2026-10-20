@@ -74,17 +74,16 @@ function beginSend(context, text) {
 
 const errors = [
   NOTICE,
-  "当前未开通有效体验版或其他套餐，请先开通后再使用盘面分析",
   "当前没有可用积分，请开通体验版或其他套餐后再提问",
-  "会员到期", "会员已过期", "积分不足", "会员等级不足",
-  "TRIAL_REQUIRED", "MEMBERSHIP_EXPIRED", "INSUFFICIENT_BALANCE",
+  "积分不足",
+  "INSUFFICIENT_BALANCE",
   "insufficient_quota", "Payment required (402)",
   "HTTP 402", "unexpected status code: 402",
   JSON.stringify({ error: { statusCode: 402 } }),
   "ANALYSIS_CREDITS_REQUIRED",
 ];
 
-test("all quota or membership failures settle the user send and create a separate recharge bubble", () => {
+test("all quota failures settle the user send and create a separate recharge bubble", () => {
   for (const text of ["@策略:订单流", "@策略:缠论", "@策略:波浪理论", "@指标:MACD", "帮我分析这个文件"]) {
     for (const error of errors) {
       const context = harness();
@@ -101,6 +100,28 @@ test("all quota or membership failures settle the user send and create a separat
       assert.equal(replies[0].text, NOTICE);
       assert.equal(replies[0].actions[0].label, "充值");
       assert.match(context.renderMessageActions(replies[0]), /message-recharge-button/);
+    }
+  }
+});
+
+
+test("membership denials preserve the actual failure without claiming an empty wallet", () => {
+  for (const error of ["当前未开通有效体验版或其他套餐，请先开通后再使用盘面分析",
+    "会员到期", "会员已过期", "会员等级不足", "TRIAL_REQUIRED", "MEMBERSHIP_EXPIRED", "MODEL_MEMBERSHIP_REQUIRED"]) {
+    const context = harness();
+    const id = beginSend(context, "@策略:订单流");
+    context.failPendingComposerSend("chat", id, error);
+    const user = context.state.items.chat[id];
+    assert.equal(context.localSendStatusFromRecord(user), "failed", error);
+    assert.ok(context.renderLocalSendStatus(user).includes(error));
+    assert.equal(context.state.itemOrder.chat.length, 1, "no misleading recharge bubble");
+    for (const legacy of [false, true]) {
+      const historical = { type: "userMessage", text: user.text,
+        [legacy ? "localSendStatus" : "__youleLocalSendStatus"]: "failed",
+        [legacy ? "localSendError" : "__youleLocalSendError"]: error };
+      assert.equal(context.localSendStatusFromRecord(historical), "failed");
+      const restored = context.withLocalSendStatus({ text: historical.text }, historical);
+      assert.ok(context.renderLocalSendStatus(restored).includes(error));
     }
   }
 });

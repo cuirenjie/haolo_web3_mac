@@ -1,7 +1,7 @@
 const analysisFiles = Object.freeze([
-  'app-server-provider.mjs', 'diagnostics.mjs', 'external-strategy-router.mjs',
-  'failure.mjs', 'general-request-router.mjs', 'model-budget.mjs', 'model-provider.mjs',
-  'request-routing-policy.mjs', 'strategy-selection.mjs',
+  'app-server-provider.mjs', 'diagnostics.mjs',
+  'failure.mjs',  'model-budget.mjs', 'model-provider.mjs',
+  'user-constraints.mjs', 'strategy-selection.mjs',
 ]);
 const cloudFiles = Object.freeze([
   'cloud-alert-feed.mjs', 'cloud-catalog.mjs', 'cloud-entry-result.mjs', 'cloud-error.mjs',

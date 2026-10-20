@@ -45,6 +45,7 @@ export class ModelRequestRelay extends EventEmitter {
     this.compressionOptions = options.compressionOptions || {};
     this.upstreamCompressionSupported = true;
     this.WebSocketImpl = options.WebSocketImpl || null;
+    this.resolveHistoryModel = options.resolveHistoryModel;
     this.webSockets = new Set();
     this.webSocketServer = null;
     this.server = null;
@@ -167,7 +168,7 @@ export class ModelRequestRelay extends EventEmitter {
         });
         const forward = (from, to) => from.on("message", (data, binary) => {
           if (from === client) {
-            try { data = normalizeModelRequestBody(data, "", this.maxRequestBytes); }
+            try { data = normalizeModelRequestBody(data, "", this.maxRequestBytes, this.resolveHistoryModel); }
             catch (error) {
               client.send(JSON.stringify({ type: "error", error: { code: error.code, message: error.message } }));
               client.close(1008, "Model request rejected");
@@ -210,7 +211,7 @@ export class ModelRequestRelay extends EventEmitter {
         writeJsonError(response, 404, "MODEL_RELAY_ROUTE_NOT_FOUND", "Unknown model relay route.");
         return;
       }
-      const body = normalizeModelRequestBody(await readRequestBody(request, this.maxRequestBytes), request.headers["content-encoding"], this.maxRequestBytes);
+      const body = normalizeModelRequestBody(await readRequestBody(request, this.maxRequestBytes), request.headers["content-encoding"], this.maxRequestBytes, this.resolveHistoryModel);
       const originalInit = {
         method: request.method,
         headers: request.headers,

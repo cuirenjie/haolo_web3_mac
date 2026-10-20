@@ -33,7 +33,8 @@ test("production AppServerClient migrates a legacy task to max and makes exactly
     server.closeAllConnections(); await new Promise(r => server.close(r));
     assert.equal(path.dirname(directory), path.resolve(os.tmpdir()));
     assert.match(path.basename(directory), /^haolo-deepseek-denial-/);
-    await fs.promises.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    // Windows may retain a native child CWD briefly after taskkill exits.
+    await fs.promises.rm(directory, { recursive: true, force: true, maxRetries: 12, retryDelay: 150 });
   });
   await new Promise(r => server.listen(0, "127.0.0.1", r));
   const baseUrl = `http://127.0.0.1:${server.address().port}/v1`;

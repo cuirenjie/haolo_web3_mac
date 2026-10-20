@@ -339,21 +339,21 @@ test("Trading Expert wires Wyckoff through IPC, persistent playback, and paired 
     readFile(new URL("../src/main/preload.mjs", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/main.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/trading-strategy-runtime/catalog.ts", import.meta.url), "utf8"),
-    readFile(new URL("../src/renderer/trading-strategy-runtime/client.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/main/codex-business-tools.mjs", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/trading-expert-market.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/trading-expert-drawing.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/trading-expert-ai-playback.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/styles.css", import.meta.url), "utf8"),
   ]);
-  assert.match(mainSource, /tradingAnalysis:classifyWyckoffRequest/);
+  assert.doesNotMatch(mainSource, /tradingAnalysis:classifyWyckoffRequest/);
   assert.match(mainSource, /tradingAnalysis:runWyckoff/);
-  assert.match(preloadSource, /classifyTradingWyckoffRequest/);
+  assert.doesNotMatch(preloadSource, /classifyTradingWyckoffRequest/);
   assert.match(preloadSource, /runTradingWyckoffAnalysis/);
-  assert.match(rendererSource, /await classifyTradingStrategyForSend\(/);
-  assert.match(clientSource, /client\.classifyTradingStrategyRequest\(/);
-  assert.match(rendererSource, /tradingStrategyRequestAtSend\?\.mode === "chart-analysis"/);
-  assert.match(rendererSource, /runTradingStrategyChartRequest\(threadId, tradingStrategyAtSend/);
-  assert.match(catalogSource, /buildTradingWyckoffExpertPrompt/);
+  assert.match(rendererSource, /const codexTradingTools = new CodexTradingTools\(/);
+  assert.match(clientSource, /resolveExplicitTradingStrategyIds/);
+  assert.match(rendererSource, /mode: "chart-analysis" as const, instruction: String\(args\.instruction/);
+  assert.match(rendererSource, /runTradingStrategyChartRequest\(threadId, strategy, request\)/);
+  assert.match(catalogSource, /OFFICIAL_TRADING_CATALOG/);
   assert.match(marketSource, /runWyckoffConversation/);
   assert.doesNotMatch(marketSource, /所选范围"\}仅有 \$\{analysisCandles\.length\} 根 K 线，不足以识别可靠的威科夫交易区间/);
   assert.match(marketSource, /playAiDrawingPatch/);

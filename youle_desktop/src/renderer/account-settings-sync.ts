@@ -11,6 +11,7 @@ const newer = (a: Edit, b: Edit) => a.changedAt > b.changedAt || (a.changedAt ==
 export class SettingsReplica {
   entries: Record<string, Edit> = {};
   pending: Record<string, Edit> = {};
+  deferred: Record<string, number> = {};
   upload: Upload | null = null;
   migrated: string[] = [];
   version = 0;
@@ -20,7 +21,7 @@ export class SettingsReplica {
   constructor(saved?: string | null) {
     if (saved) {
       const data = JSON.parse(saved);
-      for (const key of ['entries', 'pending', 'upload', 'migrated', 'version', 'offset', 'clockKnown', 'lastStamp'] as const)
+      for (const key of ['entries', 'pending', 'deferred', 'upload', 'migrated', 'version', 'offset', 'clockKnown', 'lastStamp'] as const)
         if (data[key] !== undefined) (this as any)[key] = data[key];
     }
   }
@@ -34,6 +35,7 @@ export class SettingsReplica {
       const edit = { key, value, changeId: crypto.randomUUID(), changedAt: legacy ? LEGACY_SETTINGS_TIME : this.lastStamp };
       this.entries[key] = edit;
       this.pending[key] = edit;
+      delete this.deferred[key];
     }
   }
   merge(receipt: Receipt, started = Date.now()) {
@@ -58,11 +60,26 @@ export class SettingsReplica {
     this.entries = merged;
     this.lastStamp = Math.max(receipt.serverTime, ...Object.values(merged).map(e => e.changedAt));
   }
-  begin(): Upload {
-    return this.upload ??= copy({ schemaVersion: 1, mutationId: crypto.randomUUID(), operations: Object.values(this.pending).slice(0, 1024) });
+  begin(): Upload | null {
+    if (this.upload) return this.upload;
+    const operations = Object.values(this.pending).filter(op => !(this.deferred[op.key] > Date.now())).slice(0, 1024);
+    return operations.length ? this.upload = copy({ schemaVersion: 1, mutationId: crypto.randomUUID(), operations }) : null;
+  }
+  rejectUnsupported(keys: unknown) {
+    if (!this.upload || !Array.isArray(keys) || !keys.length
+      || keys.some(key => typeof key !== 'string' || !this.upload!.operations.some(op => op.key === key))) throw new Error('SETTINGS_INVALID_REJECTION');
+    for (const key of keys as string[]) {
+      const rejected = this.upload.operations.find(op => op.key === key)!;
+      if (this.pending[key]?.changeId === rejected.changeId) this.deferred[key] = Date.now() + 3600000;
+    }
+    // Keep entries + pending intact, including edits made while the rejected
+    // request was in flight. Retry other fields with a new mutation ID.
+    this.upload = null;
   }
   acknowledge() {
-    for (const op of this.upload?.operations ?? []) if (this.pending[op.key]?.changeId === op.changeId) delete this.pending[op.key];
+    for (const op of this.upload?.operations ?? []) if (this.pending[op.key]?.changeId === op.changeId) {
+      delete this.pending[op.key]; delete this.deferred[op.key];
+    }
     this.upload = null;
   }
   correctClock() {
@@ -185,8 +202,13 @@ export class DesktopSettingsSync {
         await read();
         for (let i = 0; replica.dirty && i < 8; i++) {
           const body = replica.begin(); this.persist();
-          await this.request({ action: 'write', owner, baseUrl, body });
+          if (!body) break;
+          const result = await this.request({ action: 'write', owner, baseUrl, body });
           if (!current()) return;
+          if (result?.rejected === 'SETTINGS_UNSUPPORTED_FIELDS') {
+            replica.rejectUnsupported(result.keys); this.persist();
+            continue;
+          }
           replica.acknowledge(); this.persist();
           await read();
         }

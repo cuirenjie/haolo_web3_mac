@@ -17,16 +17,16 @@ test("Trading Expert exposes no direct question-answer or fast-chat transport", 
   assert.doesNotMatch(main, /HAOLO_TRADING_EXPERT_FAST_CHAT|handoff_to_agent/);
 });
 
-test("the large-model intent classifier remains routing-only before agent dispatch", () => {
-  assert.match(main, /tradingAnalysis:classifyGeneralRequest/);
-  assert.match(main, /getTradingAnalysisModelRegistry\(selectedModel,[\s\S]*?\)\.analyze/);
-  assert.match(preload, /classifyTradingGeneralRequest/);
-  assert.match(renderer, /classifyTradingGeneralRequestForSend|api\.classifyTradingGeneralRequest/);
+test("root Codex owns routing and dispatches trading through its tool", () => {
+  assert.doesNotMatch(main, /tradingAnalysis:classifyGeneralRequest|tradingStrategy:classify/);
+  assert.match(main, /getCloudStrategyRuntime\(\)\.run/);
+  assert.doesNotMatch(preload, /classifyTradingGeneralRequest|classifyExternalTradingRequest/);
+  assert.doesNotMatch(renderer, /classifyTradingGeneralRequestForSend|api\.classifyTradingGeneralRequest/);
   assert.match(
     renderer,
-    /tradingGeneralRequestAtSend = await classifyTradingGeneralRequestForSend\([\s\S]*?hasTradingExpertCurrentAnalysis\(\)/,
+    /const codexTradingTools = new CodexTradingTools\([\s\S]*?return runTradingGeneralChartRequest\(/,
   );
-  assert.match(renderer, /await runTradingGeneralChartRequest\(/);
+  assert.match(renderer, /return runTradingGeneralChartRequest\(/);
   assert.match(renderer, /await sendAgentText\(/);
   assert.doesNotMatch(main, /classifyGeneralRequest[\s\S]{0,4000}sendProviderChat/);
 });

@@ -18,6 +18,8 @@ const javascript = ts.transpileModule(names.map((name) => {
 function harness(error, result, language = "zh-CN") {
   const state = { strategyCalls: [], generalCalls: 0, reports: [], persisted: [], progress: [], finished: 0, quotas: 0 };
   const deps = {
+    state: { currentThreadId: "thread-one" },
+    codexTradingTools: { isToolTurn: () => false },
     isQuotaFailure,
     tradingStrategyAnalysisTargetByRequest: new WeakMap(),
     beginTradingExpertAnalysisJob: (_thread, strategy) => `analysis-${strategy}`,

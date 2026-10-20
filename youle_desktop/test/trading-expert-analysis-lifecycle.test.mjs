@@ -71,7 +71,9 @@ test("chart navigation is detached from analysis cancellation and IPC cancellati
 
   assert.doesNotMatch(restartBlock, /cancelTradingAnalysis|cancelChanAnalysis/);
   assert.doesNotMatch(destroyBlock, /cancelTradingAnalysis|cancelChanAnalysis/);
-  assert.equal((market.match(/const job = tradingAnalysisJobs\.start\(\{/g) || []).length, 1);
+  // Workspace analysis, detached analysis and separately requested drawing each
+  // own a cancellable job; navigation must not cancel any of them.
+  assert.equal((market.match(/const job = tradingAnalysisJobs\.start\(\{/g) || []).length, 3);
   const activeRunnerSection = renderer.slice(
     renderer.indexOf("async function runTradingGeneralChartRequest"),
     renderer.indexOf("function hasUploadingAttachments"),

@@ -133,19 +133,16 @@ test("cache fallback only accepts retryable entitlement failures", () => {
   assert.equal(isPremiumEntitlementRetryableError({ code: "INSUFFICIENT_BALANCE" }), false);
 });
 
-test("renderer and main process both enforce fresh premium access for local analysis", async () => {
+test("Host enforces fresh premium access when root Codex invokes analysis", async () => {
   const [renderer, mainProcess] = await Promise.all([
     readFile(new URL("../src/renderer/main.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/main/main.mjs", import.meta.url), "utf8"),
   ]);
 
-  assert.match(renderer, /confirmPremiumTradingAccessBeforeSend\("trading-analysis-send"\)/);
-  assert.match(renderer, /requiresPremiumTradingAccess[\s\S]*?accessState !== "available"[\s\S]*?return;/);
+  assert.match(renderer, /return runTradingGeneralChartRequest\(threadId, request, target\)/);
+  assert.match(renderer, /return runTradingStrategyChartRequest\(threadId, strategy, request\)/);
   assert.match(mainProcess, /async function requireFreshTradingPremiumAccess\(\)[\s\S]*?refreshSub2ApiAccount\(\)[\s\S]*?premiumAccessState\(profile\)/);
   assert.match(mainProcess, /async function runTradingStrategyRequest[\s\S]*?await requireFreshTradingPremiumAccess\(\)/);
   assert.match(mainProcess, /tradingAnalysis:runGeneral[\s\S]*?await requireFreshTradingPremiumAccess\(\)/);
   assert.match(mainProcess, /async function tradingAlertIpcCall[\s\S]*?\["compile", "resumeDraft", "simulate", "confirm", "revise"\][\s\S]*?await requireFreshTradingPremiumAccess\(\)/);
-  assert.match(mainProcess, /async function classifyTradingStrategyRequest[\s\S]*?await requireFreshTradingPremiumAccess\(\)[\s\S]*?coordinator\.classify/);
-  assert.match(mainProcess, /async function classifyExternalTradingRequest[\s\S]*?await requireFreshTradingPremiumAccess\(\)[\s\S]*?getTradingAnalysisModelRegistry\([^)]*\)\.analyze/);
-  assert.match(mainProcess, /tradingAnalysis:classifyGeneralRequest[\s\S]*?await requireFreshTradingPremiumAccess\(\)[\s\S]*?getTradingAnalysisModelRegistry\([^)]*\)\.analyze/);
 });

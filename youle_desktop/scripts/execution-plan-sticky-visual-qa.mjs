@@ -72,6 +72,7 @@ async function capture(theme, fontSize, account = false, language = "zh-CN") {
   window.setSize(fittedWidth, Math.max(180, Math.min(720, measuredHeight)));
   window.showInactive();
   await delay(180);
+  await window.webContents.executeJavaScript("document.querySelector('.card').removeAttribute('data-sizing')");
   const controlsVisible = await window.webContents.executeJavaScript(`(() => {
     document.activeElement?.blur();
     const style = getComputedStyle(document.querySelector(".controls"));
@@ -124,18 +125,19 @@ async function capture(theme, fontSize, account = false, language = "zh-CN") {
     return { fits: card.scrollWidth <= card.clientWidth && content.scrollHeight <= content.clientHeight + 1
       && controls.closest('.execution-plan-inline-footer') !== null
       && ratios.length === 3 && ratios.every(left => Math.abs(left - ratios[0]) < 0.1)
-      && pricesAndRatiosAlign && rightSpace >= 15 && rightSpace <= 20
+      && pricesAndRatiosAlign && rightSpace >= 13 && rightSpace <= 18
       && Math.abs(leftInset - rightInset) < 1
       && [...ratios, ...profits].every(left => Math.abs(left - stopLeft) < 0.1)
       && Array.from(document.querySelectorAll('.execution-plan-target'), el => el.scrollWidth <= el.clientWidth).every(Boolean)
       && !content.textContent.includes('等待条件触发')
+      && document.querySelector('.execution-plan-inline-footer .execution-plan-current-action')?.textContent.includes('等待条件触发')
       && !/USDT|仓位大小|可能盈亏/.test(displayed)
       && estimateStylesMatch
       && document.querySelectorAll('.execution-plan-estimate').length === ${account ? 4 : 0}
       // Native window dimensions round at fractional Windows display scales.
-      && Math.abs(controlsGap + controls.offsetHeight) < 1
-      && Math.abs(controlsContentGap + controls.offsetHeight) < 1
-      && bottomPadding >= 16 && bottomPadding <= 18
+      && Math.abs(controlsGap - 12) < 1
+      && controlsContentGap >= 11
+      && bottomPadding >= 9 && bottomPadding <= 11
       && badge.textContent === ${JSON.stringify(language === "en" ? "Price Action" : "裸K分析")}
       && badge.getBoundingClientRect().left > direction.getBoundingClientRect().right
       && Math.abs(badge.getBoundingClientRect().top - direction.getBoundingClientRect().top) < 0.1

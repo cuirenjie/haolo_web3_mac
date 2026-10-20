@@ -1,3 +1,6 @@
+// Legacy deterministic routing retained only for offline engine/replay tests. Not shipped.
+import { normalizeTradingRoutingText, explicitNoDrawingRequested } from "./user-constraints.mjs";
+export { normalizeTradingRoutingText, explicitNoDrawingRequested };
 const MAX_LOOKBACK_MS = 5 * 366 * 24 * 60 * 60 * 1_000;
 const QUOTE_ASSETS = ["USDT", "USDC", "USD"];
 const NAMED_ASSETS = new Map([
@@ -84,7 +87,6 @@ const MARKET_DIRECTION_OR_LEVEL_REQUEST = /(?:多还是空|空还是多|偏多|�
 const MARKET_IDEA_REQUEST = /(?:思路|交易计划|操作计划|交易方案|操作方案|布局|机会|setup)/iu;
 const FRESH_MARKET_REFERENCE = /(?:当前|现在|最新|实时|此刻|今天|未来|后续|接下来|下一|下个|这个盘|这张图|K\s*线|图表|盘面|行情|走势|价格)/iu;
 const TRADING_DOMAIN_REFERENCE = /(?:交易|市场|币|股票|指数|黄金|原油|外汇|期货|现货|永续|合约|仓位|持仓|开仓|平仓|买|卖|多|空|涨|跌|入场|止损|止盈|支撑|压力|阻力|趋势|结构|形态|K\s*线|盘面|行情|走势|价格|成交量|订单流|流动性|BTC|ETH|SOL|BNB|XRP|DOGE|USDT|USDC)/iu;
-const EXPLICIT_NO_DRAWING = /(?:不要|不用|无需|不需要|别)(?:重新)?(?:绘图|画图|画线|重画|标注)|(?:只要|仅要|只需).{0,12}(?:文字|结论|回答).{0,12}(?:不要|不用|无需).{0,8}(?:绘图|画图|画线)|(?:do\s+not|don't|without)\s+(?:draw|redraw|drawing|mark)/iu;
 const CHINESE_INTERVAL_NUMBER_PATTERN = "[零〇一二两三四五六七八九十百千]+";
 
 function chineseInteger(value) {
@@ -119,22 +121,6 @@ function naturalIntervalNumber(value) {
   const source = String(value || "").trim();
   if (/^\d+(?:\.\d+)?$/.test(source)) return Number(source);
   return chineseInteger(source);
-}
-
-export function normalizeTradingRoutingText(value) {
-  return String(value || "")
-    .replace(/\u0000/g, "")
-    .replace(/([\p{Script=Han}])[\r\n]+\s*([\p{Script=Han}])/gu, "$1$2")
-    .replace(/\r\n?/g, "\n")
-    .replace(/@(?:策略|指标)\s*：\s*/gu, (match) => match.includes("指标") ? "@指标:" : "@策略:")
-    .replace(/\s*\/\s*/g, "/")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 12_000);
-}
-
-export function explicitNoDrawingRequested(text) {
-  return EXPLICIT_NO_DRAWING.test(normalizeTradingRoutingText(text));
 }
 
 export function isTradingConceptOnlyRequest(text) {

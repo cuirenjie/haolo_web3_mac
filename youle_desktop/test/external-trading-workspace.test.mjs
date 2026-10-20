@@ -33,16 +33,16 @@ test("external channel threads share the trading split workspace surface", async
   assert.match(panel, /isExternalTradingWorkspaceThreadId\(threadId\)/);
 });
 
-test("external strategy analysis uses the full strategy runner with drawing playback", async () => {
+test("external strategy analysis uses the same Codex business tool runners as ordinary chats", async () => {
   const source = await rendererSource;
   const runner = sourceBlock(
     source,
-    "async function runExternalTradingStrategyAnalysis",
-    "async function handleExternalTradingChannelMessage",
+    "const codexTradingTools = new CodexTradingTools",
+    "let pendingProviderChatRecords",
   );
-  assert.match(runner, /runTradingExpertStrategyConversation\(route\.strategyId/);
-  assert.match(runner, /drawingRequested: true/);
-  assert.match(runner, /onProgress/);
+  assert.match(runner, /return runTradingStrategyChartRequest/);
+  assert.match(runner, /applyDeferredTradingDrawings/);
+  assert.match(runner, /presentExternalTradingChart/);
   assert.doesNotMatch(runner, /responseMode:\s*["']direct["']/);
 });
 
@@ -51,7 +51,7 @@ test("external strategy final replies capture the focused chart and send it with
   const capture = sourceBlock(
     source,
     "async function captureExternalTradingChartAttachment",
-    "async function sendExternalTradingReply",
+    "async function presentExternalTradingChart",
   );
   assert.match(capture, /state\.tradingExpertChartFocusMode = true/);
   assert.match(capture, /prepareTradingExpertMarketForExternalCapture\(\)/);
@@ -60,11 +60,12 @@ test("external strategy final replies capture the focused chart and send it with
 
   const reply = sourceBlock(
     source,
-    "const result = await runExternalTradingStrategyAnalysis",
-    "} catch (error) {",
+    "async function presentExternalTradingChart",
+    "function externalChannelReplyFailureMessage",
   );
-  assert.match(reply, /captureExternalTradingChartAttachment\(params\.threadId\)/);
-  assert.match(reply, /chartAttachment \? \[chartAttachment\] : \[\]/);
+  assert.match(reply, /captureExternalTradingChartAttachment\(threadId, simulation, expectedChart\)/);
+  assert.match(reply, /attachments: \[attachment\]/);
+  assert.match(reply, /codexTradingTools\.collect\(threadId/);
 });
 
 test("trading surface avatars are hidden only while the chart is split and restored when collapsed", async () => {

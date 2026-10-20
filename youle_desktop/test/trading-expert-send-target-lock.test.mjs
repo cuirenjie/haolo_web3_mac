@@ -14,23 +14,16 @@ function sourceBlock(source, startMarker, endMarker) {
   return source.slice(start, end);
 }
 
-test("trading chart sends capture an immutable target before any model classification await", async () => {
+test("Codex-first sends capture an immutable target before preparation and delegate only through the tool bridge", async () => {
   const source = await mainSource;
   const send = sourceBlock(source, "async function sendCurrentMessage", "async function sendCurrentProviderMessage");
   const capture = send.indexOf("captureTradingExpertAnalysisTarget()");
-  const onboardingAwait = send.indexOf("await handleTradingPreferenceOnboardingReply");
-  const strategyClassification = send.indexOf("await classifyTradingStrategyForSend");
-  const generalClassification = send.indexOf("await classifyTradingGeneralRequestForSend");
-
   assert.ok(capture >= 0, "the send path must capture its chart target");
-  assert.ok(capture < onboardingAwait, "the chart target must be frozen before onboarding can yield");
-  assert.ok(capture < strategyClassification, "the chart target must be frozen before strategy classification");
-  assert.ok(capture < generalClassification, "the chart target must be frozen before general classification");
-  assert.match(send, /tradingStrategyAnalysisTargetByRequest\.set\([\s\S]*?tradingAnalysisTargetAtSend/);
-  assert.match(send, /runTradingStrategyChartRequest\(threadId, tradingStrategyAtSend, tradingStrategyRequestAtSend\)/);
-  assert.match(send, /runTradingGeneralChartRequest\([\s\S]*?tradingAnalysisTargetAtSend/);
-  assert.match(send, /rebindTradingExpertAnalysisTargetStorageSession\([\s\S]*?threadId/);
-  assert.match(send, /finally \{[\s\S]*?releaseTradingExpertAnalysisTarget\(tradingAnalysisTargetAtSend\)/);
+  assert.ok(capture < send.indexOf("await prepareContextBudgetForSend"));
+  assert.match(send, /codexTradingTools\.capture\(state\.attachments, tradingAnalysisTargetAtSend\)/);
+  assert.doesNotMatch(send, /await (?:classifyTrading|runTradingStrategyChartRequest|runTradingGeneralChartRequest|handleTradingPreferenceOnboardingReply)/);
+  assert.match(send, /businessContextId/);
+  assert.match(send, /finally \{[\s\S]*?codexTradingTools\.release\(businessContextId\)/);
 });
 
 test("the captured target freezes market, interval, visible candles, and conversation storage identity", async () => {

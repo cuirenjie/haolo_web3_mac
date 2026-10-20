@@ -20,7 +20,7 @@
     "chrome:assets": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/generate-chrome-store-assets.ps1",
     "chrome:release:check": "node ./scripts/check-chrome-release-readiness.mjs --strict",
     "chrome:smoke": "node ./scripts/chrome-extension-smoke.mjs",
-    "test": "node --test",
+    "test": "node ./scripts/test.mjs",
     "wechat:backend": "node ./scripts/wechat-external-channel-server.mjs",
     "bump:patch": "node ./scripts/bump-version.mjs patch",
     "start": "electron .",
@@ -85,12 +85,10 @@
       "src/main/personal-context/trading-preference-form.mjs",
       "src/main/trading-analysis/app-server-provider.mjs",
       "src/main/trading-analysis/diagnostics.mjs",
-      "src/main/trading-analysis/external-strategy-router.mjs",
       "src/main/trading-analysis/failure.mjs",
-      "src/main/trading-analysis/general-request-router.mjs",
       "src/main/trading-analysis/model-budget.mjs",
       "src/main/trading-analysis/model-provider.mjs",
-      "src/main/trading-analysis/request-routing-policy.mjs",
+      "src/main/trading-analysis/user-constraints.mjs",
       "src/main/trading-analysis/strategy-selection.mjs",
       "src/main/trading-strategy-runtime/cloud-alert-feed.mjs",
       "src/main/trading-strategy-runtime/cloud-catalog.mjs",
@@ -165,6 +163,22 @@
       {
         "from": "scripts/clean-haolo-user-config.cmd",
         "to": "clean-haolo-user-config.cmd"
+      },
+      {
+        "from": "resources/bin/codex-code-mode-host.exe",
+        "to": "bin/codex-code-mode-host.exe"
+      },
+      {
+        "from": "resources/bin/codex-package.json",
+        "to": "bin/codex-package.json"
+      },
+      {
+        "from": "resources/bin/codex-resources",
+        "to": "bin/codex-resources"
+      },
+      {
+        "from": "resources/bin/codex-path",
+        "to": "bin/codex-path"
       }
     ],
     "asar": true,

@@ -6,6 +6,7 @@ import ts from "typescript";
 import { errorSignals, isQuotaFailure } from "../src/main/error-signals.mjs";
 import { loadTradingStrategyManifestFiles } from "../src/main/trading-strategy-runtime/manifest-loader.mjs";
 import { withTradingTranscriptItems } from "../src/main/trading-expert-transcript.mjs";
+import { isCompletedTradingAnalysisReport } from "../src/renderer/trading-analysis-completion.ts";
 
 const source = readFileSync(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
 const ast = ts.createSourceFile("main.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
@@ -28,7 +29,7 @@ const code = ts.transpileModule([
 
 function harness() {
   const c = {
-    errorSignals, isQuotaFailure,
+    errorSignals, isQuotaFailure, isCompletedTradingAnalysisReport,
     errorMessage: value => typeof value === "string" ? value : value?.message || "",
     state: { items: { chat: {} } },
     firstString: (...parts) => parts.find(p => typeof p === "string" && p.trim()) || null,

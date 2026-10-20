@@ -60,6 +60,12 @@ export const ENGLISH_DRAWING_SECTIONS = Object.freeze({
 });
 
 const PHRASES = Object.freeze({
+  "笔记 · 拖出线段后输入文字，也可依次点击两个端点": "Note · Drag a line and enter text, or click the two endpoints in order",
+  "已更新图片": "Image updated", "已更新帖子": "Post updated", "帖子已添加": "Post added",
+  "帖子内容暂不可用，双击重新加载": "Post unavailable; double-click to reload",
+  "链接到帖子": "Link to post", "背景": "Background", "字号": "Font size",
+  "入场价格必须位于目标与止损之间": "Entry price must be between the target and stop",
+  "终点时间必须晚于起点时间": "End time must be later than start time",
   "目标": "Target", "止损": "Stop", "金额": "Amount", "数量": "Qty", "已平仓": "Closed", "开仓": "Open", "风险/回报比": "Risk/Reward Ratio",
   "成功": "Success", "失败": "Failure", "在": "in", "天": "days", "小时": "hours", "分钟": "minutes",
   "账户资金": "Account size", "风险": "Risk", "风险单位": "Risk unit", "杠杆（0 表示不限制）": "Leverage (0 = no cap)", "每手数量": "Lot size", "点值": "Point value",
@@ -130,7 +136,11 @@ const PHRASES = Object.freeze({
   "磁吸到K线价格": "Magnet mode: snap to OHLC prices", "保持绘图模式": "Stay in drawing mode",
   "锁定全部绘图": "Lock all drawings", "解锁全部绘图": "Unlock all drawings",
   "隐藏全部绘图": "Hide all drawings", "显示全部绘图": "Show all drawings",
+  "展开隐藏绘图选项": "Drawing visibility options",
+  "隐藏AI绘图": "Hide AI drawings", "隐藏手动绘图": "Hide manual drawings",
+  "隐藏数据标注": "Hide data annotations", "隐藏仓位线": "Hide position lines", "隐藏计划线": "Hide plan lines",
   "清空本会话所有绘图": "Remove all drawings in this session",
+  "移除所有绘图": "Remove all drawings",
   "清空本会话所有绘图？": "Remove all drawings in this session?",
   "本会话的手动绘图、AI 绘图及历史记录都将被永久删除，其他会话不受影响。此操作无法撤销。": "All manual drawings, AI drawings, and drawing history in this session will be permanently deleted. Other sessions will not be affected. This cannot be undone.",
   "取消": "Cancel", "确认清空": "Remove all", "清空": "Clear", "确定": "OK",

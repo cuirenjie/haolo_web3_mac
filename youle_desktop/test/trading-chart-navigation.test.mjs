@@ -150,6 +150,26 @@ test('indicator menu keeps local auto and inversion but cannot change indicator 
   assert.equal(f.scales[0].autoScale, true);
 });
 
+test('remove all drawings is an immediate menu action on both main and indicator panes', t => {
+  const f = fixture(t);
+  let cleared = 0;
+  f.options.onRemoveAllDrawings = () => { cleared++; };
+  for (const clientY of [100, 400]) {
+    const initialRange = { ...f.range() };
+    f.send('contextmenu', { clientY }, true, f.element);
+    const button = f.navigation.menu.children.at(-1);
+    assert.equal(button.textContent, '移除所有绘图');
+    assert.equal(button.getAttribute('role'), 'menuitem');
+    assert.equal(button.getAttribute('aria-checked'), undefined);
+    assert.equal(cleared, clientY === 100 ? 0 : 1, 'opening the menu cannot delete');
+    button.dispatchEvent(new Event('click'));
+    assert.equal(cleared, clientY === 100 ? 1 : 2);
+    assert.equal(f.navigation.menu, null);
+    assert.equal(document.activeElement, f.element);
+    assert.deepEqual(f.range(), initialRange, 'removal preserves the chart viewport');
+  }
+});
+
 test('price lock starts disabled, fits after enabling, and can be unlocked and relocked', t => {
   const f = fixture(t), ts = f.chart.timeScale(), positions = [], native = f.nativeScroll;
   f.options.getAutoScale = () => false;

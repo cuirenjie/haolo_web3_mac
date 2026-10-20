@@ -3,6 +3,7 @@ import fs from "node:fs";
 import test from "node:test";
 import ts from "typescript";
 import * as plans from "../src/renderer/execution-plans.ts";
+import { executionPlanStickyLayout } from "../src/renderer/execution-plan-card-layout.ts";
 import * as planView from "../src/main/execution-plan-card-view.mjs";
 import {
   tradingTranscriptInjectionItems,
@@ -53,7 +54,7 @@ function harness(theme = "light", language = "zh-CN") {
   const state = { threads: [{ id: "thread", name: "ETH1H 分析" }], settings: { language }, executionPlans: [], executionPlansScope: "qa" };
   const candidates = new Map();
   const deps = {
-    ...plans, ...planView, tradingPreferenceSettings:{bind(){}}, state, executionPlanCandidatesBySource: candidates,
+    ...plans, ...planView, executionPlanStickyLayout, root: { querySelector: () => null }, tradingPreferenceSettings:{bind(){}}, state, executionPlanCandidatesBySource: candidates,
     executionPlanDeleteBusyIds: new Set(), executionPlanAlertSyncBusyIds: new Set(),
     escapeHtml, escapeAttr: escapeHtml, formatMessageText: escapeHtml,
     tradingLastAnalysisLabelForThread: () => runtime.latest,
@@ -109,7 +110,7 @@ function interactiveCards(h) {
   return cards;
 }
 
-test("clicking either plan pins only that candidate with its own zoom and persisted card size", async () => {
+test("chat zoom stays per candidate while each sticky starts with the shared plan-grid layout", async () => {
   const h = harness();
   const [long, short, other] = interactiveCards(h);
   long.buttons[0].click();
@@ -121,12 +122,14 @@ test("clicking either plan pins only that candidate with its own zoom and persis
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(h.runtime.sticky.length, 1);
   assert.match(h.runtime.sticky[0].title, /空头/);
-  assert.equal(h.runtime.sticky[0].fontSize, 11);
+  assert.equal(h.runtime.sticky[0].fontSize, 12);
+  assert.equal(h.runtime.sticky[0].cardWidth, 248);
   long.buttons[2].click();
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(h.runtime.sticky.length, 2);
   assert.match(h.runtime.sticky[1].title, /多头/);
-  assert.equal(h.runtime.sticky[1].fontSize, 13);
+  assert.equal(h.runtime.sticky[1].fontSize, 12);
+  assert.equal(h.runtime.sticky[1].baseFontSize, 12);
   for (let i = 0; i < 10; i++) long.buttons[0].click();
   assert.equal(long.style["--message-execution-plan-font-size"], "20px");
   assert.equal(long.buttons[0].disabled, true);

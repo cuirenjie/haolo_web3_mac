@@ -23,6 +23,7 @@ export function createProviderSendHost({ request, client = {}, cwd = "workspace"
   client.__youleWorkspaceKey = "test-runtime";
   let handler;
   const deps = {
+    codexBusinessTools: { bind: noop, cancel: noop, input: (_thread, text) => text },
     firstString: (...values) => values.find((v) => typeof v === "string" && v.trim())?.trim() || "",
     canonicalExecutionModelProvider, migrateDeepSeekModelSelection, migrateRetiredModelSelection,
     displayModelAliasForSelection, runtimeModelForSelection, migrateGpt6SolSelection,

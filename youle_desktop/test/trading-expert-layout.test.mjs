@@ -1759,7 +1759,7 @@ test("Trading Expert auto-favorites every successfully opened picker result", as
   assert.doesNotMatch(source, /shouldAutoFavoriteTradingMarketSelection\(action, this\.search\.value\)/);
   assert.match(source, /market && autoFavorite && this\.addFavoriteMarket\(market\)[\s\S]*?this\.commitFavoriteMarketChanges\(\)/);
   assert.match(source, /if \(!this\.selectMarket\(market\)\)[\s\S]*?const favoriteAdded = autoFavorite && this\.addFavoriteMarket\(market\)[\s\S]*?this\.commitFavoriteMarketChanges\(false\)/);
-  assert.match(source, /private addFavoriteMarket\(market: TradingMarket\)[\s\S]*?this\.favoriteSymbols\.has\(market\.id\)[\s\S]*?this\.favoriteMarketRecords\.has\(market\.id\)[\s\S]*?if \(alreadyFavorite && hasStableFavorite\) return false;[\s\S]*?this\.favoriteMarketRecords\.set\(market\.id, tradingFavoriteRecord\(market\)\)/);
+  assert.match(source, /private addFavoriteMarket\(market: TradingMarket\)[\s\S]*?this\.favoriteSymbols\.has\(market\.id\)[\s\S]*?this\.favoriteMarketRecords\.has\(market\.id\)[\s\S]*?if \(alreadyFavorite && hasStableFavorite\) return !inWatchlist;[\s\S]*?this\.favoriteMarketRecords = new Map\(\[\s*\[market\.id, tradingFavoriteRecord\(market\)\],/);
 });
 
 test("Trading Expert favorites persist, lead the next open, and remain available in the full directory", async () => {

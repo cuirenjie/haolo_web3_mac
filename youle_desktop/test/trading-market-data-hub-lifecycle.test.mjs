@@ -33,13 +33,22 @@ const subscribe = (hub, onHealth = () => {}, stream = "btcusdt@ticker", onEvent 
 
 test("an expired endpoint is replaced before a physical socket can consume it", async t => {
   let tickets = 0;
-  const hub = setup(t, { reconnectBaseMs: 10, endpointProvider: async () => ({
-    url: `wss://market.example/stream/futures?ticket=${++tickets}`, route: "gateway",
-    ticketExpiresAt: Date.now() + (tickets === 1 ? -1 : 30_000),
-  }) });
+  let releaseFreshLease;
+  const freshLease = new Promise(resolve => { releaseFreshLease = resolve; });
+  const hub = setup(t, { reconnectBaseMs: 10, endpointProvider: async () => {
+    const ticket = ++tickets;
+    // Hold the replacement lease until the first assertion. On a busy test
+    // runner the retry timer can fire before setImmediate resumes this test.
+    if (ticket > 1) await freshLease;
+    return {
+      url: `wss://market.example/stream/futures?ticket=${ticket}`, route: "gateway",
+      ticketExpiresAt: Date.now() + (ticket === 1 ? -1 : 30_000),
+    };
+  } });
   subscribe(hub);
   await next();
   assert.equal(Socket.instances.length, 0, "expired ticket must not reach the socket constructor");
+  releaseFreshLease();
   await delay(20);
   assert.equal(tickets, 2);
   assert.equal(Socket.instances.length, 1);

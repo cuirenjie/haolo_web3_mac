@@ -1,3 +1,9 @@
+import { CodexProviderConversations } from "./codex-provider-conversation.mjs";
+import { channelCodexInput, CHANNEL_CODEX_INSTRUCTIONS } from "./channel-codex-input.mjs";
+import { CodexBusinessTools, CODEX_BUSINESS_TOOLS, CODEX_TRADING_INSTRUCTIONS } from "./codex-business-tools.mjs";
+import { CodexTradingArtifacts } from "./codex-trading-artifacts.mjs";
+import { cloudReportFromResponse } from "./cloud-plan-contract.mjs";
+import { workflowCodexIntakeHooks } from "./codex-workflow-intake.mjs";
 import { withModelToolNetwork } from "./model-tool-network.mjs";
 import { errorSignals } from "./error-signals.mjs";
 import { sharedSnapshotPosition, sharedSnapshotTime } from "./binance-account/shared-snapshot.mjs";
@@ -44,8 +50,9 @@ import { ToolRuntimeManager } from "./tool-runtime-manager.mjs";
 import { GitHubMcpBridge } from "./github-mcp-bridge.mjs";
 import { PersonalContextMcpBridge } from "./personal-context/mcp-bridge.mjs";
 import { PersonalContextService } from "./personal-context/service.mjs";
+import { createSharedBinanceAccountReader } from "./binance-account/shared-reader.mjs";
 import { PersonalMemoryStore } from "./personal-context/memory-store.mjs";
-import { createCloudTradingPreferences } from "./personal-context/cloud-trading-preferences.mjs";
+import { createCloudTradingPreferences, cloudTradingPreferenceFailure } from "./personal-context/cloud-trading-preferences.mjs";
 import { createCloudStrategyRuntime } from "./trading-strategy-runtime/cloud-runtime.mjs";
 import {createCloudPlans} from './trading-strategy-runtime/cloud-plans.mjs';
 import {createCloudAlertFeed} from './trading-strategy-runtime/cloud-alert-feed.mjs';
@@ -165,7 +172,7 @@ import {
   buildTradingAutomationDeveloperInstructions,
   isTradingAutomationJob,
   normalizeTradingAutomationContext,
-  resolveTradingAutomationRoute,
+  resolveTradingAutomationAnalysis,
   tradingAutomationBinanceInterval,
 } from "./automation/trading-profile.mjs";
 import { installSkillPackage, uninstallSkillPackage } from "./skill-installer.mjs";
@@ -173,6 +180,7 @@ import { prepareUserSkillPromotionTarget } from "./skill-sync-resilience.mjs";
 import { migrateLegacyDefaultCodexHome } from "./legacy-codex-home-migration.mjs";
 import { stripWindowsLocalFileDescriptionSuffix, stripWindowsSourceLocationSuffix } from "./local-file-reference.mjs";
 import { createTaskbarUnreadBadgeBitmap, normalizeTaskbarUnreadCount } from "./taskbar-unread-badge.mjs";
+import { TaskbarMarketQuote } from "./taskbar-market-quote.mjs";
 import { constrainWindowMoveBoundsToWorkArea } from "./window-bounds.mjs";
 import { ensureWorkspaceDirectory, workspaceCodexHomePath, workspaceDirectoryStatus } from "./workspace-directory-policy.mjs";
 import {
@@ -260,23 +268,9 @@ import {
 } from "./trading-expert-transcript.mjs";
 import { CloudTradingCatalog } from './trading-strategy-runtime/cloud-catalog.mjs';
 import {
-  buildGeneralRequestRoutingPrompt,
-  deterministicGeneralRequestRouting,
-  normalizeGeneralRequestRoutingModelResponse,
-} from "./trading-analysis/general-request-router.mjs";
-import {
-  classifyTradingQuestionKinds,
-  normalizeTradingRoutingText,
-} from "./trading-analysis/request-routing-policy.mjs";
-import {
   assistantOutputLanguageInstruction,
   withAssistantOutputLanguageMessage,
 } from "./assistant-output-language.mjs";
-import {
-  buildExternalTradingRoutingPrompt,
-  normalizeExternalTradingRoutingModelResponse,
-  repairExternalTradingRoutingFromText,
-} from "./trading-analysis/external-strategy-router.mjs";
 import { createTradingAnalysisModelProviderRegistry } from "./trading-analysis/model-provider.mjs";
 import { tradingAnalysisTurnPolicy } from "./trading-analysis-turn-policy.mjs";
 import { ANALYSIS_RECOVERY_MODEL, ANALYSIS_RECOVERY_EFFORT, ANALYSIS_RECOVERY_PROVIDER, isRecoverableAnalysisModelFailure } from "./analysis-model-recovery.mjs";
@@ -402,6 +396,7 @@ let mainWindow = null;
 let developmentSourceUpdatePrompt = null;
 let appTray = null;
 let taskbarUnreadConversationCount = 0;
+let taskbarMarketQuote = null;
 const taskbarUnreadBadgeImages = new Map();
 let client = null;
 const appServerClients = new Map();
@@ -427,6 +422,15 @@ let haoloServiceNetworkFetch = null;
 let haoloNetworkTransport = null;
 let githubMcpBridge = null;
 let personalContextMcpBridge = null;
+let businessMcpBridge = null;
+const activeChannelCodexRequests = new Map();
+const codexBusinessTools = new CodexBusinessTools({
+  artifacts: new CodexTradingArtifacts({ directory: () => path.join(app.getPath("userData"), "trading-skill-results") }),
+  accountRead: args => getPersonalContextService().invoke({ tool: "read_binance_account_context", arguments: args }),
+  owner: () => String(getYouleApiClient().sessionSummary()?.profile?.id || "anonymous"),
+  dispatch: (sender, payload) => { if (sender && !sender.isDestroyed()) sender.send("codex:businessTool", payload); },
+});
+ipcMain.handle("codex:businessToolResult", (event, payload) => codexBusinessTools.resolve(event.sender, payload));
 let chromeNativeBroker = null;
 let chromeNativeHostManager = null;
 let chromeToolRuntime = null;
@@ -2839,6 +2843,7 @@ function createWindow() {
     ...windowOptions,
   });
   const mainWebContentsId = mainWindow.webContents.id;
+  mainWindow.webContents.on("did-start-loading", () => taskbarMarketQuote?.update(null));
 
   if (icon) {
     mainWindow.setIcon(icon);
@@ -2896,6 +2901,8 @@ function createWindow() {
   });
   mainWindow.webContents.once("did-finish-load", () => sendWindowState(mainWindow));
   mainWindow.on("closed", () => {
+    taskbarMarketQuote?.dispose();
+    taskbarMarketQuote = null;
     cancelExternalAgentOwnersForWebContents(mainWebContentsId);
     cancelTradingAnalysisRequestsForWebContents(mainWebContentsId);
     mainWindow = null;
@@ -2904,6 +2911,7 @@ function createWindow() {
     console.error("[main-window] did-fail-load", { errorCode, errorDescription, validatedURL });
   });
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    taskbarMarketQuote?.update(null);
     voiceSessionOwner = null;
     void voiceRecognizer?.cancel().catch(() => {});
     cancelExternalAgentOwnersForWebContents(mainWebContentsId);
@@ -4616,6 +4624,8 @@ function getBinanceAccountService() {
 }
 
 async function resetBinanceNetworkRuntimeAfterAuthChange() {
+  for (const request of activeChannelCodexRequests.values()) request.controller.abort();
+  for (const id of codexBusinessTools.contexts.keys()) codexBusinessTools.cancel(id, "Account changed.");
   const pendingPublicMarketService = binancePublicMarketService;
   binancePublicMarketService = null;
   binanceGatewayNetworkFetch = null;
@@ -4685,7 +4695,14 @@ function getPersonalContextService() {
   if (!personalContextService) {
     personalContextService = new PersonalContextService({
       memoryStore: getPersonalMemoryStore(),
-      getAccountService: getBinanceAccountService,
+      getAccountService: () => createSharedBinanceAccountReader({
+        resolveOwner: requireHaoloAccountOwner,
+        readStatus: readBinanceAccountStatusWithSharedBinding,
+        readSharedSnapshot: async (connectionId) => normalizeSharedBinanceSnapshot(
+          await getYouleApiClient().getAccountConnectionSnapshot(connectionId),
+        ),
+        getLocalService: getBinanceAccountService,
+      }),
       resolveOwner: requireHaoloAccountOwner,
     });
   }
@@ -6913,7 +6930,9 @@ function wrapYouleApiClient(apiClient) {
         prop === "load" ||
         prop === "save" ||
         prop === "clearModelAuth" ||
-        prop === "businessModelCredential"
+        prop === "businessModelCredential" ||
+        prop === "requireAuth" ||
+        prop === "authHeaders"
       ) {
         return value.bind(target);
       }
@@ -8058,6 +8077,7 @@ function isMeaningfulAutomaticTurnRecoveryProgress(message) {
 function handleAutomaticTurnRecoveryEvent(event) {
   const threadId = String(event?.threadId || "");
   const turnId = String(event?.turnId || event?.failedTurnId || "");
+  if (threadId && ["exhausted", "cancelled"].includes(event?.event)) codexBusinessTools.cancel(threadId, "Automatic recovery ended.");
   appendAppServerLogLine(
     "auto-recovery",
     `${safeLogToken(event?.event)} threadId=${safeLogToken(threadId)} turnId=${safeLogToken(turnId)} attempt=${Number(event?.attempt) || 0} noProgress=${Number(event?.noProgressFailures) || 0}`,
@@ -8071,6 +8091,7 @@ function handleAutomaticTurnRecoveryEvent(event) {
       haoloAutoRecovery: {
         status: event.event,
         chainId: event.chainId,
+        failedTurnId: event.failedTurnId,
         attempt: event.attempt,
         noProgressFailures: event.noProgressFailures,
         noProgressFailureLimit: event.noProgressFailureLimit,
@@ -8110,9 +8131,10 @@ async function startAutomaticTurnRecovery({ threadId, prompt, isCurrent = () => 
       });
       if (!isCurrent()) throw new DOMException("Recovery cancelled", "AbortError");
       rootRecoveryModelsByThread.set(normalizedThreadId, ANALYSIS_RECOVERY_MODEL);
+      codexBusinessTools.resume(normalizedThreadId, serverClient);
       const result = await requestAppServer(serverClient, "turn/start", {
         threadId: normalizedThreadId,
-        input: [{ type: "text", text: prompt, textElements: [] }],
+        input: [{ type: "text", text: codexBusinessTools.input(normalizedThreadId, prompt), textElements: [] }],
         cwd,
         model: ANALYSIS_RECOVERY_MODEL,
         effort: ANALYSIS_RECOVERY_EFFORT,
@@ -8270,11 +8292,18 @@ function handleClientNotification(message, serverClient = getClient(), options =
     turnAutoRecoveryCoordinator.noteProgress(threadId);
   }
   const terminalStatus = automaticTurnRecoveryTerminalStatus(message);
-  if (threadId && message?.method === "turn/started") turnAutoRecoveryCoordinator.noteTurnStarted(threadId, turnId);
+  if (threadId && message?.method === "turn/started") {
+    turnAutoRecoveryCoordinator.noteTurnStarted(threadId, turnId);
+    codexBusinessTools.start(threadId, turnId, serverClient);
+  }
   if (threadId && message?.method === "turn/completed" && !["failed", "error"].includes(terminalStatus)) {
     turnAutoRecoveryCoordinator.noteSuccessfulTurn(threadId, turnId);
   }
   const autoRecoveryDecision = automaticTurnRecoveryDecision(message, { threadId, turnId });
+  if (threadId && message?.method === "turn/completed") {
+    if (["scheduled", "cooling_down"].includes(autoRecoveryDecision?.status)) codexBusinessTools.suspend(threadId, turnId);
+    else codexBusinessTools.cancel(threadId, "Codex turn ended.", turnId);
+  }
   message = withAutomaticTurnRecoveryDecision(message, autoRecoveryDecision);
   sendToRenderer("codex:notification", boundedCodexNotificationForRenderer(message));
   if (message?.method === "skills/changed") {
@@ -9928,6 +9957,7 @@ async function refreshSkillsDeveloperInstructions(
   imageGenerationSize = null,
   imageGenerationSizeField = null,
   videoGenerationOptions = {},
+  contextPolicy = {},
 ) {
   const startedAt = performanceTimingStart();
   let skillsInstructions = "";
@@ -9943,9 +9973,10 @@ async function refreshSkillsDeveloperInstructions(
       imageGenerationSize,
       imageGenerationSizeField,
       videoGenerationOptions,
+      contextPolicy,
     );
     const tradingPreferenceInstructions = await buildPersonalTradingPreferenceDeveloperInstructions();
-    return [desktopInstructions, tradingPreferenceInstructions].filter(Boolean).join("\n\n");
+    return [desktopInstructions, CODEX_TRADING_INSTRUCTIONS, tradingPreferenceInstructions].filter(Boolean).join("\n\n");
   } finally {
     if (startedAt) {
       logPerformanceTiming("refresh-skills-developer-instructions", startedAt, {
@@ -10329,6 +10360,7 @@ function buildDesktopDeveloperInstructions(
   imageGenerationSize = null,
   imageGenerationSizeField = null,
   videoGenerationOptions = {},
+  contextPolicy = {},
 ) {
   const outputDir = path.join(cwd || desktopWorkspace(), "outputs");
   const outputLanguage = appLanguage();
@@ -10337,7 +10369,8 @@ function buildDesktopDeveloperInstructions(
     : "深圳市HaoLo科技有限公司";
   fs.mkdirSync(outputDir, { recursive: true });
   const groupContextInstructions = buildThreadGroupContextInstructions(threadGroupContext);
-  const groupMemoryInstructions = buildThreadGroupMemoryInstructions(cwd || desktopWorkspace());
+  const groupMemoryInstructions = contextPolicy.includeConversationMemory === false
+    ? null : buildThreadGroupMemoryInstructions(cwd || desktopWorkspace());
   const mediaRoutingInstructions = buildHaoloMediaDeveloperInstructions(cwd || desktopWorkspace());
   const conversationModeInstructions = buildConversationModeDeveloperInstructions(
     conversationMode,
@@ -10829,15 +10862,8 @@ function compactTradingAutomationAnalysis(route, result, artifactPath) {
   };
 }
 
-async function executeTradingAutomationAnalysis({ job, run, prompt, abortController, eventWrites }) {
-  if (!isTradingAutomationJob(job)) return null;
-  const coordinator = getCloudTradingCatalog();
-  const strategies = coordinator.listStrategies().strategies;
-  const route = resolveTradingAutomationRoute({
-    prompt,
-    context: job.tradingContext,
-    strategies,
-  });
+async function executeTradingAutomationAnalysis({ job, run, prompt, abortController, eventWrites, toolArgs = null }) {
+  const route = resolveTradingAutomationAnalysis({ args: toolArgs, context: job.tradingContext });
   eventWrites.push(getAutomationStore().appendRunEvent(run.id, {
     source: "trading_automation",
     eventType: "trading.route",
@@ -10850,14 +10876,17 @@ async function executeTradingAutomationAnalysis({ job, run, prompt, abortControl
     throw error;
   }
   const strategyId = route.strategyId || 'price-action';
+  const toolRunId = toolArgs ? crypto.randomUUID() : null;
   const baseParams = {
     marketId:route.marketId,symbol:route.symbol,interval:route.interval,
     analysisWindowCount:600,instruction:String(prompt||'').trim(),
-    drawingRequested:true,executionPlanRequested:true,language:appLanguage(),
+    drawingRequested:toolArgs?.drawingRequested !== false,executionPlanRequested:true,language:appLanguage(),
+    ...(toolArgs && !toolArgs.strategyId ? { analysisKind: "general" } : {}),
+    positionManagementRequested: toolArgs?.positionManagementRequested === true,
   };
   const personalizedParams = await tradingStrategyParamsWithPersonalRisk(baseParams);
   const result = await getCloudStrategyRuntime().run(
-    strategyId, {...personalizedParams, analysisJobId:`automation:${run.id}`},
+    strategyId, {...personalizedParams, analysisJobId:`automation:${run.id}${toolRunId ? `:${toolRunId}` : ""}`},
     { signal: abortController.signal },
   );
   const report = String(
@@ -10866,7 +10895,7 @@ async function executeTradingAutomationAnalysis({ job, run, prompt, abortControl
       || result?.report
       || "交易分析已完成，但没有返回文字报告。",
   ).trim();
-  const artifactPath = path.join(run.runDir, "trading-analysis.json");
+  const artifactPath = path.join(run.runDir, toolRunId ? `trading-analysis-${toolRunId}.json` : "trading-analysis.json");
   await fs.promises.writeFile(artifactPath, `${JSON.stringify({
     schemaVersion: 1,
     executionProfile: TRADING_AUTOMATION_EXECUTION_PROFILE,
@@ -10890,6 +10919,7 @@ async function executeTradingAutomationAnalysis({ job, run, prompt, abortControl
     },
   }));
   return {
+    ...(toolArgs?.action === "analyze_only" ? { skillResult: { report, cloudReports: cloudReportFromResponse(result), marketId: route.marketId, symbol: route.symbol, interval: route.interval, analysisJobId: result.origin?.analysisJobId || `automation:${run.id}:${toolRunId}` } } : {}),
     status: "success",
     summary: report,
     hasFindings: true,
@@ -10904,14 +10934,6 @@ async function executeTradingAutomationAnalysis({ job, run, prompt, abortControl
 }
 
 async function executeAutomationTurn({ job, run, prompt, workspacePath, abortController, eventWrites }) {
-  const tradingAnalysisResult = await executeTradingAutomationAnalysis({
-    job,
-    run,
-    prompt,
-    abortController,
-    eventWrites,
-  });
-  if (tradingAnalysisResult) return tradingAnalysisResult;
   const consumptionStartedAt = new Date().toISOString();
   const workspaceCwd = path.resolve(workspacePath || job.workspacePath || autoTaskWorkspacePath(job) || desktopWorkspace());
   const serverClient = getClientForCwd(workspaceCwd);
@@ -10960,16 +10982,39 @@ async function executeAutomationTurn({ job, run, prompt, workspacePath, abortCon
       await injectLatestSkillsInstructions(threadId, developerInstructions);
     }
   }
-  const startTurn = () =>
-    requestAppServer(serverClient, "turn/start", {
+  const tradingToolArtifacts = [];
+  const startTurn = () => {
+    codexBusinessTools.bind(threadId, { client: serverClient, userText: prompt,
+      executeTrading: async args => {
+        if (args.action === "context") return { chart: job.tradingContext || null };
+        if (args.action === "catalog") return getCloudTradingCatalog().listStrategies();
+        if (args.action === "market_data") return { chart: job.tradingContext || null, source: "automation-context" };
+        if (args.action === "draw") return { result: { status: "artifact-saved", artifacts: args.artifact?.result?.artifacts || [] }, presentationItems: [] };
+        if (args.action === "present") {
+          const result = args.artifact?.result;
+          if (!result?.report) throw new Error("No verified automation report.");
+          return { result: { analysisJobId: result.analysisJobId }, presentationItems: [{
+            id: `trading-result-${args.analysisRef}`, type: "agentMessage", text: result.report,
+            __youleExecutionPlanPresentation: args.metadata?.positionManagementRequested ? "position-plan" : "execution-plan",
+            __youleCloudReports: result.cloudReports,
+          }] };
+        }
+        if (!["analyze", "analyze_only"].includes(args.action)) throw new Error("Interactive draft confirmation requires the desktop conversation.");
+        const result = await executeTradingAutomationAnalysis({ job, run, prompt: args.instruction || prompt, abortController, eventWrites, toolArgs: args });
+        tradingToolArtifacts.push(...(result?.artifacts || []));
+        return args.action === "analyze_only" ? { result: { ...result.skillResult, artifacts: result.artifacts }, presentationItems: [] } : result;
+      },
+    });
+    return requestAppServer(serverClient, "turn/start", {
       threadId,
-      input: [{ type: "text", text: buildTurnInputWithGroupMemory(String(prompt || job.promptTemplate || "").trim(), workspaceCwd), textElements: [] }],
+      input: [{ type: "text", text: codexBusinessTools.input(threadId, buildTurnInputWithGroupMemory(String(prompt || job.promptTemplate || "").trim(), workspaceCwd)), textElements: [] }],
       cwd: workspaceCwd,
       model: job.model || undefined,
       effort: job.reasoningEffort || undefined,
       approvalPolicy: automationRuntimeApprovalPolicy(job),
       sandboxPolicy: normalizeSandboxPolicy(automationRuntimeSandbox(job)),
     });
+  };
   let turnResult;
   try {
     turnResult = await startTurn();
@@ -11021,6 +11066,8 @@ async function executeAutomationTurn({ job, run, prompt, workspacePath, abortCon
     reportConsumptionFact(consumptionRecord);
   }
   const finishConsumption = (result) => {
+    result.artifacts = [...(result.artifacts || []), ...tradingToolArtifacts];
+    codexBusinessTools.cancel(threadId);
     if (consumptionRecord) {
       completeConsumptionInteraction({
         turnId,
@@ -11034,6 +11081,7 @@ async function executeAutomationTurn({ job, run, prompt, workspacePath, abortCon
   let userCancelled = false;
   let noOutputTimedOut = false;
   const abortTurn = () => {
+    codexBusinessTools.cancel(threadId, "Automation cancelled.");
     if (turnId) {
       void requestAppServer(serverClient, "turn/interrupt", { threadId, turnId }, 10_000).catch(() => {});
     }
@@ -13923,15 +13971,134 @@ function preparedPersonalStrategySourceContextForRequest(params = {}) {
   return prepared;
 }
 
-ipcMain.handle("youle:sendProviderChat", async (_event, params = {}) => {
+let codexProviderConversations = null;
+function getCodexProviderConversations() {
+  if (!codexProviderConversations) codexProviderConversations = new CodexProviderConversations({
+    indexPath: path.join(app.getPath("userData"), "codex-provider-conversations.json"),
+    owner: () => String(getYouleApiClient().sessionSummary()?.profile?.id || "anonymous"),
+    broker: codexBusinessTools,
+    request: (client, method, params) => method === "thread/start"
+      ? requestWorkflowInternalThreadStart(client, params)
+      : requestAppServer(client, method, params),
+    registerThread: (id, client) => { workflowInternalThreadIds.add(id); rememberThreadClient(id, client); },
+    unregisterThread: (id, { deleted, turnIds }) => {
+      appServerClientByThreadId.delete(id);
+      if (deleted) {
+        workflowInternalThreadIds.delete(id);
+        for (const turnId of turnIds) workflowInternalTurnIds.delete(turnId);
+      }
+    },
+    onToolCompleted: ({ rootThreadId, item, params }) => codexBusinessTools.deliverPresentation(
+      rootThreadId, item, ["workflow-intake", "channel-codex"].includes(params.provider),
+    ),
+    recoverTurn: async ({ client, threadId, params, signal }) => {
+      await waitForModelTransportRecovery(8_000, signal);
+      const cwd = params.cwd || currentSkillsCwd || desktopWorkspace();
+      await resumeThreadForRequestedProvider({
+        serverClient: client, threadId, cwd,
+        targetSettings: { model: ANALYSIS_RECOVERY_MODEL, modelProvider: ANALYSIS_RECOVERY_PROVIDER, effort: ANALYSIS_RECOVERY_EFFORT, serviceTier: null },
+      });
+      return { model: ANALYSIS_RECOVERY_MODEL, effort: ANALYSIS_RECOVERY_EFFORT, [HAOLO_REASONING_FIXED_EFFORT_FIELD]: ANALYSIS_RECOVERY_EFFORT };
+    },
+    configure: async params => {
+      const cwd = params.cwd || currentSkillsCwd || desktopWorkspace();
+      const isolated = params.provider === "channel-codex";
+      const instructions = await refreshSkillsDeveloperInstructions(cwd, "provider-root", null, null, null, null, null, {}, { includeConversationMemory: !isolated });
+      return threadConfigurationParams({ cwd, model: ["workflow-intake", "channel-codex"].includes(params.provider) ? params.model || ANALYSIS_PRIMARY_MODEL : ANALYSIS_PRIMARY_MODEL,
+        ...(isolated ? { modelProvider: params.modelProvider, reasoningEffort: params.reasoningEffort,
+          approvalPolicy: "never", sandboxPolicy: "danger-full-access" } : {}) }, {
+        developerInstructions: isolated ? `${instructions}\n\n${CHANNEL_CODEX_INSTRUCTIONS}` : instructions,
+      });
+    },
+  });
+  return codexProviderConversations;
+}
+
+async function sendChannelCodexMessage(event, input = {}) {
+  assertExternalModelsIpcSender(event);
+  const { params, mediaInputs } = channelCodexInput(input);
+  if (activeChannelCodexRequests.has(params.interactionId)) throw new Error("Channel request already running.");
+  const controller = new AbortController();
+  const record = { controller, sender: event.sender, threadId: params.threadId };
+  activeChannelCodexRequests.set(params.interactionId, record);
+  const cwd = params.cwd || currentSkillsCwd || desktopWorkspace();
+  const interaction = {
+    interactionId: params.interactionId, conversationId: params.threadId, threadId: params.threadId,
+    sourceType: params.sourceType, question: params.visibleQuestion, status: "running",
+    startedAt: new Date().toISOString(),
+  };
+  let rootThreadId, status = "failed", answer = "";
+  rememberConsumptionInteraction(interaction);
+  reportConsumptionFact(interaction);
+  try {
+    await snapshotThreadArtifacts(params.threadId, cwd);
+    const result = await getCodexProviderConversations().run({
+      client: getClientForCwd(cwd),
+      sender: event.sender, params, mediaInputs, isolated: true, signal: controller.signal,
+      cancel: () => controller.abort(),
+      onThreadReady: id => {
+        rootThreadId = id;
+        rememberConsumptionChildInteraction(interaction, id);
+      },
+    });
+    status = "complete";
+    answer = result.text;
+    await notifyThreadArtifactsChanged(params.threadId, cwd, { turnId: params.interactionId, finalMessage: answer })
+      .catch(error => console.warn("[channel] artifact indexing failed", error?.message));
+    return result;
+  } catch (error) {
+    status = record.cancelled ? "canceled" : "failed";
+    throw error;
+  } finally {
+    if (rootThreadId) completeConsumptionChildInteraction(rootThreadId, { status, answer });
+    completeConsumptionInteraction({ turnId: params.interactionId, threadId: params.threadId, status, answer });
+    if (activeChannelCodexRequests.get(params.interactionId) === record) activeChannelCodexRequests.delete(params.interactionId);
+  }
+}
+ipcMain.handle("codex:sendChannelMessage", sendChannelCodexMessage);
+ipcMain.handle("codex:interruptChannelMessage", async (event, params = {}) => {
+  assertExternalModelsIpcSender(event);
+  const request = activeChannelCodexRequests.get(params.interactionId);
+  if (!request || request.sender !== event.sender || request.threadId !== params.threadId) return { interrupted: false };
+  request.cancelled = true;
+  request.controller.abort();
+  return { interrupted: true };
+});
+
+ipcMain.handle("youle:sendProviderChat", async (event, params = {}) => {
+  assertExternalModelsIpcSender(event);
+  // These are domain-model calls made from an already-running root tool.
+  const originThreadId = firstString(params.threadId, params.conversationId);
+  if (String(params.sourceType || "").startsWith("personal-strategy-understanding") &&
+      [...codexBusinessTools.contexts.values()].some(context =>
+        context.sender === event.sender && (context.visibleThreadId || context.threadId) === originThreadId)) {
+    return executeSelectedProviderChat(event, params);
+  }
+  const controller = new AbortController();
+  const interactionId = firstString(params.interactionId, params.interaction_id);
+  const threadId = firstString(params.threadId, params.conversationId);
+  if (interactionId) activeProviderChatsByInteractionId.set(interactionId, { controller, threadId });
+  try {
+    return await getCodexProviderConversations().run({
+      client: getClientForCwd(params.cwd || currentSkillsCwd || desktopWorkspace()),
+      sender: event.sender, params, signal: controller.signal,
+      selectedModel: () => executeSelectedProviderChat(event, params, controller),
+      cancel: () => controller.abort(),
+    });
+  } finally {
+    if (activeProviderChatsByInteractionId.get(interactionId)?.controller === controller) activeProviderChatsByInteractionId.delete(interactionId);
+  }
+});
+
+async function executeSelectedProviderChat(_event, params = {}, rootAbortController = null) {
   const threadId = String(params.threadId || params.thread_id || params.conversationId || params.conversation_id || "").trim();
   const interactionId = firstString(params.interactionId, params.interaction_id);
   const sourceType = String(params.sourceType || params.source_type || "").trim();
   const isPersonalStrategyRequest = sourceType.startsWith("personal-strategy-understanding");
   const strategyRequestStartedAt = Date.now();
   let lastStrategyDiagnosticProgress = "";
-  const providerChatAbortController = new AbortController();
-  if (interactionId) {
+  const providerChatAbortController = rootAbortController || new AbortController();
+  if (interactionId && !rootAbortController) {
     activeProviderChatsByInteractionId.set(interactionId, {
       controller: providerChatAbortController,
       threadId,
@@ -14150,14 +14317,14 @@ ipcMain.handle("youle:sendProviderChat", async (_event, params = {}) => {
     throw error;
   } finally {
     if (
-      interactionId
+      !rootAbortController && interactionId
       && activeProviderChatsByInteractionId.get(interactionId)?.controller
         === providerChatAbortController
     ) {
       activeProviderChatsByInteractionId.delete(interactionId);
     }
   }
-});
+}
 
 ipcMain.handle("youle:interruptProviderChat", (event, params = {}) => {
   assertExternalModelsIpcSender(event);
@@ -14207,6 +14374,17 @@ function assertWorkflowExecutionEnabled() {
   }
 }
 
+function workflowCodexIntake(event, params) {
+  return workflowCodexIntakeHooks({
+    run: request => getCodexProviderConversations().run({
+      ...request,
+      client: getClientForCwd(params.cwd || currentSkillsCwd || desktopWorkspace()),
+      sender: event.sender,
+    }),
+    release: () => codexBusinessTools.dispatch(event.sender, { release: true, contextId: params.businessContextId }),
+  }, params);
+}
+
 ipcMain.handle("workflow:startRun", async (event, params = {}) => {
   assertExternalModelsIpcSender(event);
   assertWorkflowExecutionEnabled();
@@ -14242,6 +14420,7 @@ ipcMain.handle("workflow:startRun", async (event, params = {}) => {
   }
   return runtime.start({
     ...params,
+    ...workflowCodexIntake(event, params),
     cwd: params.cwd || currentSkillsCwd || desktopWorkspace(),
   });
 });
@@ -14278,6 +14457,7 @@ ipcMain.handle("workflow:startSpecRun", async (event, params = {}) => {
   );
   return runtime.startSpec({
     ...params,
+    ...workflowCodexIntake(event, params),
     cwd: params.cwd || currentSkillsCwd || desktopWorkspace(),
   });
 });
@@ -14368,7 +14548,6 @@ ipcMain.handle("externalModels:testConnection", async (event, params = {}) => {
 });
 
 const activeTradingAnalysisControllers = new Map();
-const activeTradingRoutingControllers = new Map();
 const activeTradingAlertIntentControllers = new Map();
 let tradingAnalysisModelRegistry = null;
 let cloudTradingCatalog = null;
@@ -14384,8 +14563,6 @@ function cancelTradingAnalysisRequestsForWebContents(ownerId) {
     activeTradingAnalysisControllers.delete(key);
     activeTradingAlertIntentControllers.delete(key);
   }
-  activeTradingRoutingControllers.get(ownerId)?.abort(tradingAnalysisAbortError("Trading renderer was closed or navigated"));
-  activeTradingRoutingControllers.delete(ownerId);
 }
 
 function normalizeTradingAnalysisJobId(params = {}) {
@@ -14876,29 +15053,6 @@ function isPersonalStrategyId(strategyId) {
   return /^personal-[a-z][a-z0-9-]{1,63}$/u.test(String(strategyId || "").trim());
 }
 
-function personalStrategyInstructionText(text, name = "") {
-  let source = String(text || "").replace(/\u0000/g, "").trim();
-  for (const token of [`@策略:${name}`, `@策略：${name}`]) source = source.split(token).join("");
-  return source.trim().slice(0, 12_000);
-}
-
-function classifyPersonalStrategyText(text, strategy) {
-  const source = personalStrategyInstructionText(text, strategy?.name || strategy?.manifest?.display?.name || "");
-  const symbol = source.match(/\b([A-Z]{2,10}(?:USDT|USDC|USD|BTC|ETH)?)\b/u)?.[1] || null;
-  const intervalMatch = source.match(/\b(\d{1,3}(?:m|min|h|d|w)|\d{1,3}分钟|\d{1,2}小时|日线|周线)\b/iu);
-  const interval = intervalMatch?.[1] ? String(intervalMatch[1]).toUpperCase().replace(/分钟/u, "M").replace(/小时/u, "H").replace(/日线/u, "1D").replace(/周线/u, "1W") : null;
-  const chartRequested = /(K\s*线|行情|盘面|走势|图表|图上|看盘|分析|支撑|阻力|入场|止损|止盈|复盘)/iu.test(source);
-  return {
-    mode: chartRequested ? "chart-analysis" : "conversation",
-    instruction: source,
-    symbol,
-    interval,
-    lookbackMs: null,
-    lookbackLabel: null,
-    drawingRequested: chartRequested,
-  };
-}
-
 function personalStrategyErrorEnvelope(error, fallbackCode = "PERSONAL_STRATEGY_FAILED") {
   return {
     ok: false,
@@ -15146,31 +15300,23 @@ async function personalStrategyRecord(ownerId, strategyId) {
   return record;
 }
 
-async function classifyPersonalStrategyRequest(strategyId, params = {}) {
-  const ownerId = await personalStrategyOwner();
-  const record = await personalStrategyRecord(ownerId, strategyId);
-  const request = classifyPersonalStrategyText(params?.text, record);
-  return {
-    ok: true,
-    strategyId,
-    request,
-    classification: {
-      schemaVersion: 1,
-      mode: request.mode,
-      intent: request.mode === "chart-analysis" ? "chart-drawing" : "conversation",
-      confidence: request.mode === "chart-analysis" ? 0.99 : 0.86,
-      source: "personal-strategy-deterministic",
-    },
-    model: null,
-  };
-}
-
 async function runPersonalStrategyRequest(strategyId, params = {}) {
   const ownerId = await personalStrategyOwner();
   const record = await personalStrategyRecord(ownerId, strategyId);
+  let candles = Array.isArray(params.candles) ? params.candles : [];
+  if (candles.length < 2) {
+    const market = /^BINANCE:(SPOT|FUTURES):([^:]+)$/u.exec(String(params.marketId || ""));
+    if (!market) throw new Error("Personal strategy analysis requires a captured market candle window.");
+    candles = await tradingAutomationFetchCandles(
+      { marketType: market[1] === "SPOT" ? "spot" : "futures", symbol: market[2] },
+      params.interval || "60", Math.min(600, Math.max(100, Number(params.analysisWindowCount) || 600)), params.signal,
+    );
+  }
+  if (params.signal?.aborted) throw tradingAnalysisAbortError("Personal strategy analysis cancelled.");
+  if (candles.length < 2) throw new Error("No usable market candles were returned for the personal strategy.");
   const result = evaluatePersonalStrategy(
     { ...record.spec, strategyId },
-    params?.candles,
+    candles,
     {
       marketId: String(params?.marketId || "UNKNOWN:UNKNOWN"),
       interval: String(params?.interval || "1D"),
@@ -15179,6 +15325,7 @@ async function runPersonalStrategyRequest(strategyId, params = {}) {
   );
   return {
     ...result,
+    snapshot: { ...result.snapshot, candles },
     strategy: { id: strategyId, version: record.version },
     personalStrategy: { id: strategyId, name: record.name, version: record.version },
   };
@@ -15201,205 +15348,7 @@ function getCloudStrategyRuntime() {
 }
 
 function getCloudTradingCatalog() {
-  return cloudTradingCatalog ||= new CloudTradingCatalog({modelRegistry:getTradingAnalysisModelRegistry(),providerId:DEFAULT_TRADING_ANALYSIS_PROVIDER_ID});
-}
-
-async function classifyTradingStrategyRequest(event, strategyId, params = {}) {
-  assertExternalModelsIpcSender(event);
-  if (isPersonalStrategyId(strategyId)) {
-    try {
-      return await classifyPersonalStrategyRequest(strategyId, params);
-    } catch (error) {
-      return personalStrategyErrorEnvelope(error, "TRADING_STRATEGY_ROUTING_FAILED");
-    }
-  }
-  const coordinator = getCloudTradingCatalog();
-  const errors = coordinator.strategyErrors(strategyId);
-  const ownerId = event.sender.id;
-  activeTradingRoutingControllers.get(ownerId)?.abort(
-    tradingAnalysisAbortError(errors.routingReplacementMessage),
-  );
-  const controller = new AbortController();
-  activeTradingRoutingControllers.set(ownerId, controller);
-  try {
-    const selectedModel = firstString(params.model, params.modelId, params.model_id);
-    await assertExecutionModelMembership(selectedModel);
-    await requireFreshTradingPremiumAccess();
-    return await coordinator.classify(strategyId, params, {
-      signal: controller.signal,
-      requestId: `${strategyId}-route-${crypto.randomUUID()}`,
-      modelRegistry: getTradingAnalysisModelRegistry(selectedModel, {
-        explicitModelSelection: params.explicitModelSelection === true,
-      }),
-    });
-  } catch (error) {
-    const cancelled = controller.signal.aborted || String(error?.name || "") === "AbortError";
-    return {
-      ok: false,
-      error: {
-        code: cancelled
-          ? "TRADING_ANALYSIS_CANCELLED"
-          : String(error?.code || errors.routingCode),
-        message: cancelled
-          ? errors.routingCancelledMessage
-          : String(error?.message || errors.routingFailureMessage).slice(0, 300),
-      },
-    };
-  } finally {
-    if (activeTradingRoutingControllers.get(ownerId) === controller) {
-      activeTradingRoutingControllers.delete(ownerId);
-    }
-  }
-}
-
-async function classifyExternalTradingRequest(event, params = {}) {
-  assertExternalModelsIpcSender(event);
-  const ownerId = event.sender.id;
-  activeTradingRoutingControllers.get(ownerId)?.abort(
-    tradingAnalysisAbortError("A newer external trading request replaced this request"),
-  );
-  const controller = new AbortController();
-  activeTradingRoutingControllers.set(ownerId, controller);
-  const coordinator = getCloudTradingCatalog();
-  const strategies = coordinator.listStrategies().strategies.filter((strategy) => strategy.enabled !== false);
-  const requestId = `external-trading-route-${crypto.randomUUID()}`;
-  const text = String(params?.text || "").replace(/\u0000/g, "").slice(0, 12_000);
-  // A fully explicit request should never wait for a model timeout. Keep the
-  // LLM path for fuzzy/ambiguous language, while this narrow high-confidence
-  // repair handles phrases such as “用缠论分析 ETH 1h 的 K 线” immediately.
-  const explicitRoute = repairExternalTradingRoutingFromText({
-    text,
-    strategies,
-    route: {
-      mode: "clarification",
-      strategyId: null,
-      symbol: null,
-      interval: null,
-      lookbackMs: null,
-      lookbackLabel: null,
-      confidence: 0,
-      clarificationQuestion: null,
-    },
-  });
-  if (explicitRoute.mode === "analysis") {
-    if (activeTradingRoutingControllers.get(ownerId) === controller) {
-      activeTradingRoutingControllers.delete(ownerId);
-    }
-    return {
-      ok: true,
-      request: explicitRoute,
-      classification: {
-        schemaVersion: 1,
-        mode: explicitRoute.mode,
-        strategyId: explicitRoute.strategyId,
-        confidence: explicitRoute.confidence,
-      },
-      model: { providerId: "deterministic-explicit-route", modelId: "text-repair" },
-    };
-  }
-  try {
-    const selectedModel = firstString(params.model, params.modelId, params.model_id);
-    await assertExecutionModelMembership(selectedModel);
-    await requireFreshTradingPremiumAccess();
-    const model = await getTradingAnalysisModelRegistry(selectedModel, {
-      explicitModelSelection: params.explicitModelSelection === true,
-    }).analyze(
-      DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
-      {
-        schemaVersion: 1,
-        requestId,
-        task: "external-trading-request-routing",
-        theoryId: "external_trading",
-        snapshotId: requestId,
-        prompt: buildExternalTradingRoutingPrompt({
-          text,
-          strategies,
-          pendingContext: params?.pendingContext,
-        }),
-        responseFormat: "json",
-      },
-      { signal: controller.signal },
-    );
-    const routed = repairExternalTradingRoutingFromText({
-      text,
-      strategies,
-      route: normalizeExternalTradingRoutingModelResponse(model.text, strategies),
-    });
-    return {
-      ok: true,
-      request: routed,
-      classification: {
-        schemaVersion: 1,
-        mode: routed.mode,
-        strategyId: routed.strategyId,
-        confidence: routed.confidence,
-      },
-      model: {
-        providerId: model.providerId,
-        modelId: model.modelId,
-        latencyMs: model.latencyMs,
-      },
-    };
-  } catch (error) {
-    const cancelled = controller.signal.aborted || String(error?.name || "") === "AbortError";
-    if ([
-      "HAOLO_AUTH_REQUIRED",
-      "HAOLO_ACCOUNT_ID_REQUIRED",
-      "TRIAL_REQUIRED",
-      "INSUFFICIENT_BALANCE",
-      "TRADING_ENTITLEMENT_UNAVAILABLE",
-    ].includes(String(error?.code || ""))) {
-      return {
-        ok: false,
-        error: {
-          code: String(error.code),
-          message: String(error.message || "暂时无法验证会员权益，请稍后重试").slice(0, 300),
-          retryable: error?.retryable === true,
-        },
-      };
-    }
-    const fallback = repairExternalTradingRoutingFromText({
-      text,
-      strategies,
-      route: {
-        mode: "clarification",
-        strategyId: null,
-        symbol: null,
-        interval: null,
-        lookbackMs: null,
-        lookbackLabel: null,
-        confidence: 0,
-        clarificationQuestion: null,
-      },
-    });
-    const hasTradingSignal = /K\s*线|行情|盘面|走势|趋势|复盘|分析|缠论|波浪|威科夫|订单流|ICT|SMC|SMT/iu.test(text);
-    if (!cancelled && (fallback.mode === "analysis" || fallback.strategyId || fallback.symbol || fallback.interval || hasTradingSignal)) {
-      return {
-        ok: true,
-        request: fallback,
-        classification: {
-          schemaVersion: 1,
-          mode: fallback.mode,
-          strategyId: fallback.strategyId,
-          confidence: fallback.confidence,
-        },
-        model: null,
-      };
-    }
-    return {
-      ok: false,
-      error: {
-        code: cancelled ? "TRADING_ANALYSIS_CANCELLED" : "EXTERNAL_TRADING_ROUTING_FAILED",
-        message: cancelled
-          ? "外部通道交易请求识别已取消"
-          : String(error?.message || "外部通道交易请求识别失败").slice(0, 300),
-      },
-    };
-  } finally {
-    if (activeTradingRoutingControllers.get(ownerId) === controller) {
-      activeTradingRoutingControllers.delete(ownerId);
-    }
-  }
+  return cloudTradingCatalog ||= new CloudTradingCatalog();
 }
 
 async function tradingStrategyParamsWithPersonalRisk(params = {}) {
@@ -15561,11 +15510,14 @@ async function runTradingStrategyRequest(event, strategyId, params = {}) {
     };
   }
   if (isPersonalStrategyId(strategyId)) {
+    const { controller, controllerKey } = beginTradingAnalysisRequest(event, params, "Personal strategy analysis replaced.");
     try {
-      return await runPersonalStrategyRequest(strategyId, params);
+      return await runPersonalStrategyRequest(strategyId, { ...params, signal: controller.signal });
     } catch (error) {
       recordTradingAnalysisFailure(error, { ...params, strategyId });
       return personalStrategyErrorEnvelope(error, "TRADING_STRATEGY_ANALYSIS_FAILED");
+    } finally {
+      finishTradingAnalysisRequest(controllerKey, controller);
     }
   }
   const errors = {analysisCode: "CLOUD_ANALYSIS_FAILED", analysisFailureMessage: "云端策略分析暂不可用，请稍后重试。",
@@ -15713,21 +15665,6 @@ const cloudTradingPreferences = createCloudTradingPreferences({
   owner: requireHaoloAccountOwner,
   api: getYouleApiClient,
 });
-function cloudTradingPreferenceFailure(error) {
-  const detail = error?.payload?.detail || error?.detail || {};
-  const code = String(detail.code || error?.code || "TRADING_PREFERENCE_SAVE_FAILED");
-  const messages = {
-    PREFERENCE_VERSION_CONFLICT: "其他设备已修改交易偏好，请重新加载后核对；本次修改尚未保存。",
-    PREFERENCE_IMPORT_RESOLUTION_REQUIRED: "请先核对本地与云端的交易偏好。",
-    PREFERENCE_SAVE_PENDING: "交易偏好正在保存，请稍候。",
-    TRADING_PREFERENCE_SAVE_PENDING: "交易偏好正在保存，请稍候。",
-    TRADING_PREFERENCE_OWNER_CHANGED: "登录账号已变化，请重新打开交易偏好。",
-    TRADING_PREFERENCE_NOT_UNDERSTOOD: "自定义内容无法明确理解或与其他设置冲突，请修改。",
-    TRADING_PREFERENCE_MODEL_UNAVAILABLE: "大模型理解服务暂不可用或请求超时，请稍后重试。",
-  };
-  return { ok: false, error: { code, fieldId: String(detail.fieldId || ""),
-    message: messages[code] || "交易偏好保存失败，已保留你的修改，请重试。" } };
-}
 ipcMain.handle("personalContext:saveTradingPreferences", async (event, params = {}) => {
   assertExternalModelsIpcSender(event);
   try { return await cloudTradingPreferences.save(params); }
@@ -15738,14 +15675,6 @@ ipcMain.handle("personalContext:resolveTradingPreferenceImport", async (event, r
   try { return await cloudTradingPreferences.resolveImport(resolutions); }
   catch (error) { return cloudTradingPreferenceFailure(error); }
 });
-
-ipcMain.handle("tradingStrategy:classify", async (event, params = {}) => (
-  classifyTradingStrategyRequest(event, String(params?.strategyId || ""), params)
-));
-
-ipcMain.handle("tradingStrategy:classifyExternal", async (event, params = {}) => (
-  classifyExternalTradingRequest(event, params)
-));
 
 ipcMain.handle("tradingStrategy:run", async (event, params = {}) => (
   runTradingStrategyRequest(event, String(params?.strategyId || ""), params)
@@ -15762,133 +15691,11 @@ ipcMain.handle("tradingStrategy:cancel", async (event, params = {}) => {
     const candidateJobId = key.slice(ownerPrefix.length);
     return candidateJobId === analysisJobId || candidateJobId.startsWith(`${analysisJobId}:pane:`);
   });
-  const routingController = analysisJobId ? null : activeTradingRoutingControllers.get(ownerId);
-  const controllers = [routingController, ...matchingAnalysisEntries.map(([, controller]) => controller)].filter(Boolean);
+  const controllers = matchingAnalysisEntries.map(([, controller]) => controller).filter(Boolean);
   if (!controllers.length) return { cancelled: false };
   controllers.forEach((controller) => controller.abort(tradingAnalysisAbortError()));
-  if (!analysisJobId) activeTradingRoutingControllers.delete(ownerId);
   matchingAnalysisEntries.forEach(([key]) => activeTradingAnalysisControllers.delete(key));
   return { cancelled: true };
-});
-
-ipcMain.handle("tradingAnalysis:classifyGeneralRequest", async (event, params = {}) => {
-  assertExternalModelsIpcSender(event);
-  const ownerId = event.sender.id;
-  activeTradingRoutingControllers.get(ownerId)?.abort(
-    tradingAnalysisAbortError("A newer general market request classification replaced this request"),
-  );
-  const controller = new AbortController();
-  activeTradingRoutingControllers.set(ownerId, controller);
-  const requestId = `general-route-${crypto.randomUUID()}`;
-  const text = String(params?.text || "").slice(0, 12_000);
-  try {
-    const selectedModel = firstString(params.model, params.modelId, params.model_id);
-    await assertExecutionModelMembership(selectedModel);
-    await requireFreshTradingPremiumAccess();
-    const model = await getTradingAnalysisModelRegistry(selectedModel, {
-      explicitModelSelection: params.explicitModelSelection === true,
-    }).analyze(
-      DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
-      {
-        schemaVersion: 1,
-        requestId,
-        task: "general-market-request-routing",
-        theoryId: "general_market",
-        snapshotId: requestId,
-        prompt: buildGeneralRequestRoutingPrompt({
-          text,
-          hasImageAttachment: params?.hasImageAttachment === true,
-          hasCurrentAnalysis: params?.hasCurrentAnalysis === true,
-        }),
-        responseFormat: "json",
-      },
-      { signal: controller.signal },
-    );
-    const routed = normalizeGeneralRequestRoutingModelResponse(model.text, text, {
-      hasCurrentAnalysis: params?.hasCurrentAnalysis === true,
-    });
-    return {
-      ok: true,
-      request: routed.request,
-      classification: {
-        ...routed.classification,
-        source: "model-first-unified-intent",
-      },
-      model: {
-        providerId: model.providerId,
-        modelId: model.modelId,
-        latencyMs: model.latencyMs,
-      },
-    };
-  } catch (error) {
-    const cancelled = controller.signal.aborted || String(error?.name || "") === "AbortError";
-    if (!cancelled) {
-      const deterministicFallback = deterministicGeneralRequestRouting(text, {
-        hasImageAttachment: params?.hasImageAttachment === true,
-        hasCurrentAnalysis: params?.hasCurrentAnalysis === true,
-      }) || {
-        request: {
-          mode: "conversation",
-          instruction: normalizeTradingRoutingText(text),
-          symbol: null,
-          interval: null,
-          lookbackMs: null,
-          lookbackLabel: null,
-          forecastHorizonMs: null,
-          questionKinds: classifyTradingQuestionKinds(text),
-          drawingRequested: false,
-          analysisFollowup: false,
-        },
-        classification: {
-          schemaVersion: 1,
-          mode: "conversation",
-          intent: "general-question",
-          confidence: 0.5,
-          source: "deterministic-recovery",
-        },
-      };
-      return {
-        ok: true,
-        request: deterministicFallback.request,
-        classification: {
-          ...deterministicFallback.classification,
-          source: "deterministic-recovery",
-        },
-        model: { providerId: "deterministic-recovery", modelId: "general-request-v2", latencyMs: 0 },
-      };
-    }
-    return {
-      ok: false,
-      error: {
-        code: cancelled
-          ? "TRADING_ANALYSIS_CANCELLED"
-          : String(error?.code || "TRADING_GENERAL_ROUTING_FAILED"),
-        message: cancelled
-          ? "盘面分析意图识别已取消"
-          : String(error?.message || "盘面分析意图识别失败").slice(0, 300),
-      },
-    };
-  } finally {
-    if (activeTradingRoutingControllers.get(ownerId) === controller) {
-      activeTradingRoutingControllers.delete(ownerId);
-    }
-  }
-});
-
-ipcMain.handle("tradingAnalysis:classifyChanRequest", async (event, params = {}) => {
-  return classifyTradingStrategyRequest(event, "chan", params);
-});
-
-ipcMain.handle("tradingAnalysis:classifyOrderFlowRequest", async (event, params = {}) => {
-  return classifyTradingStrategyRequest(event, "order-flow", params);
-});
-
-ipcMain.handle("tradingAnalysis:classifyWaveRequest", async (event, params = {}) => {
-  return classifyTradingStrategyRequest(event, "wave", params);
-});
-
-ipcMain.handle("tradingAnalysis:classifyWyckoffRequest", async (event, params = {}) => {
-  return classifyTradingStrategyRequest(event, "wyckoff", params);
 });
 
 ipcMain.handle("tradingAnalysis:runChanTest", async (event, params = {}) => {
@@ -15980,12 +15787,10 @@ ipcMain.handle("tradingAnalysis:cancel", async (event, params = {}) => {
     const candidateJobId = key.slice(ownerPrefix.length);
     return candidateJobId === analysisJobId || candidateJobId.startsWith(`${analysisJobId}:pane:`);
   });
-  const routingController = analysisJobId ? null : activeTradingRoutingControllers.get(ownerId);
-  const controllers = [routingController, ...matchingAnalysisEntries.map(([, controller]) => controller)]
+  const controllers = matchingAnalysisEntries.map(([, controller]) => controller)
     .filter(Boolean);
   if (!controllers.length) return { cancelled: false };
   controllers.forEach((controller) => controller.abort(tradingAnalysisAbortError()));
-  if (!analysisJobId) activeTradingRoutingControllers.delete(ownerId);
   matchingAnalysisEntries.forEach(([key]) => activeTradingAnalysisControllers.delete(key));
   return { cancelled: true };
 });
@@ -16227,6 +16032,13 @@ ipcMain.handle("youle:showExternalChannelAttention", async (_event, params = {})
 ipcMain.handle("app:setTaskbarUnreadCount", async (_event, params = {}) => {
   const count = setTaskbarUnreadConversationCount(params.count);
   return { ok: true, count };
+});
+
+ipcMain.handle("app:setTaskbarMarketQuote", (event, quote) => {
+  if (AUTOMATION_BACKGROUND || process.platform !== "win32" || appShuttingDown
+    || event.sender !== mainWindow?.webContents || event.senderFrame !== mainWindow?.webContents.mainFrame) return { ok: false };
+  taskbarMarketQuote ??= new TaskbarMarketQuote(() => mainWindow);
+  return { ok: taskbarMarketQuote.update(quote) };
 });
 
 ipcMain.handle("youle:replyExternalChannelMessage", async (_event, params = {}) => {
@@ -17343,6 +17155,7 @@ async function runCancellableVideoGeneration(params, operation) {
     return await operation({
       ...params,
       signal: controller.signal,
+      cancel: () => controller.abort(),
     });
   } finally {
     if (
@@ -17355,13 +17168,20 @@ async function runCancellableVideoGeneration(params, operation) {
   }
 }
 
-ipcMain.handle("youle:generateVideo", async (_event, params = {}) => {
-  return runCancellableVideoGeneration(params, generateVideoFromFirstFrame);
-});
-
-ipcMain.handle("youle:resumeVideo", async (_event, params = {}) => {
-  return runCancellableVideoGeneration(params, resumeLatestVideoGeneration);
-});
+async function runCodexVideoConversation(event, params, operation) {
+  assertExternalModelsIpcSender(event);
+  return runCancellableVideoGeneration(params, async bound => {
+    return getCodexProviderConversations().run({
+      client: getClientForCwd(params.cwd || currentSkillsCwd || desktopWorkspace()),
+      sender: event.sender, signal: bound.signal,
+      params: { ...params, provider: "video", text: params.prompt || params.text || "继续生成视频" },
+      selectedModel: () => operation(bound),
+      cancel: bound.cancel,
+    });
+  });
+}
+ipcMain.handle("youle:generateVideo", (event, params = {}) => runCodexVideoConversation(event, params, generateVideoFromFirstFrame));
+ipcMain.handle("youle:resumeVideo", (event, params = {}) => runCodexVideoConversation(event, params, resumeLatestVideoGeneration));
 
 ipcMain.handle("youle:interruptVideoGeneration", (event, params = {}) => {
   assertExternalModelsIpcSender(event);
@@ -19058,6 +18878,8 @@ ipcMain.handle("codex:sendMessage", async (_event, params = {}) => {
       await snapshotThreadArtifacts(nextThreadId, cwd);
     };
     const startTurn = async () => {
+      codexBusinessTools.bind(threadId, { client: serverClient, sender: _event.sender,
+        contextId: params.businessContextId, userText: visibleQuestion, visibleThreadId: threadId });
       const turnStartedAt = performanceTimingStart();
       rootRecoveryModelsByThread.set(String(threadId), executionSelection.model || ANALYSIS_PRIMARY_MODEL);
       try {
@@ -19066,13 +18888,13 @@ ipcMain.handle("codex:sendMessage", async (_event, params = {}) => {
           input: [
             {
               type: "text",
-              text: buildTurnInputWithGroupMemory(text, cwd, {
+              text: codexBusinessTools.input(threadId, buildTurnInputWithGroupMemory(text, cwd, {
                 threadId,
                 requestId: mediaRequestId,
                 conversationMode:
                   params.conversationMode || params.conversation_mode,
                 ...videoGenerationOptions,
-              }),
+              })),
               textElements: [],
             },
             ...(threadReferenceContext?.mediaInputs || []),
@@ -19099,6 +18921,7 @@ ipcMain.handle("codex:sendMessage", async (_event, params = {}) => {
         }
         return turnResult;
       } catch (error) {
+        codexBusinessTools.cancel(threadId, "Codex turn could not start.");
         if (turnStartedAt) {
           logPerformanceTiming("codex-send-message-turn-start", turnStartedAt, {
             cwdHash: diagnosticsHash(cwd),
@@ -19237,6 +19060,7 @@ ipcMain.handle("codex:interruptTurn", async (_event, params = {}) => {
     throw new Error("No running turn found to interrupt.");
   }
   turnAutoRecoveryCoordinator.cancel(threadId, "user_interrupt");
+  codexBusinessTools.cancel(threadId, "User interrupted the turn.");
   const source = safeLogToken(params.source);
   appendAppServerLogLine(
     "interrupt",
@@ -19276,6 +19100,7 @@ ipcMain.handle("codex:steerTurn", async (_event, params = {}) => {
     clientUserMessageId: params.clientUserMessageId || undefined,
     additionalContext: params.additionalContext || undefined,
   }, 30000);
+  codexBusinessTools.updateInput(threadId, { client: serverClient, sender: _event.sender, userText: visibleQuestion });
   if (interaction && visibleQuestion) {
     reportConsumptionFact({
       ...interaction,
@@ -22402,6 +22227,8 @@ async function cleanupAndExit(exitCode = 0) {
   if (appCleanupStarted) return;
   appCleanupStarted = true;
   appShuttingDown = true;
+  taskbarMarketQuote?.dispose();
+  taskbarMarketQuote = null;
   developmentSourceUpdatePrompt?.dispose();
   developmentSourceUpdatePrompt = null;
   rendererConfirmationBroker.dispose();
@@ -22415,6 +22242,7 @@ async function cleanupAndExit(exitCode = 0) {
   stopWechatExternalChannelBackendPolling();
   clearVoiceCredentialCache();
   voiceSessionOwner = null;
+  if (businessMcpBridge) await businessMcpBridge.stop();
   if (personalContextMcpBridge) {
     try {
       await withShutdownTimeout("Personal context MCP bridge", personalContextMcpBridge.stop());
@@ -22705,6 +22533,15 @@ app.whenReady().then(async () => {
     delete process.env.HAOLO_GITHUB_BROKER_TOKEN;
     console.warn("[github-mcp] bridge initialization failed", error?.message || error);
   }
+  businessMcpBridge = new PersonalContextMcpBridge({
+    envPrefix: "HAOLO_BUSINESS",
+    tools: CODEX_BUSINESS_TOOLS.map(tool => ({ ...tool, inputSchema: {
+      ...tool.inputSchema, properties: { ...tool.inputSchema.properties, context_id: { type: "string", description: "Current turn's Host business context_id." } },
+      required: [...(tool.inputSchema.required || []), "context_id"],
+    }})),
+    invoke: payload => codexBusinessTools.invokeBound(payload),
+  });
+  Object.assign(process.env, await businessMcpBridge.start());
   try {
     personalContextMcpBridge = new PersonalContextMcpBridge({
       invoke: (payload) => getPersonalContextService().invoke(payload),

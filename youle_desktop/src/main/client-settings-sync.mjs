@@ -18,7 +18,17 @@ export async function clientSettingsRequest(api, params = {}) {
     });
   } catch (error) {
     if (error?.payload?.detail?.code === 'SETTINGS_CLOCK_INVALID') throw new Error('SETTINGS_CLOCK_INVALID');
-    throw error;
+    const detail = error?.payload?.detail;
+    // A validation rejection is atomic. Only explicit per-operation unsupported
+    // errors permit rebuilding the outbox; transport failures keep its exact ID.
+    const unsupported = writing && Number(error?.status) === 422 && Array.isArray(detail) && detail.length > 0
+      && detail.every(item => item?.type === 'value_error'
+        && item?.msg === 'Value error, Unsupported setting or value'
+        && item?.loc?.length === 3 && item.loc[0] === 'body' && item.loc[1] === 'operations'
+        && Number.isInteger(item.loc[2]) && typeof params.body.operations[item.loc[2]]?.key === 'string');
+    if (!unsupported) throw error;
+    result = { rejected: 'SETTINGS_UNSUPPORTED_FIELDS',
+      keys: [...new Set(detail.map(item => params.body.operations[item.loc[2]].key))] };
   }
   if (!api.token || owner !== String(api.profile?.id || api.profile?.user_id || '') || baseUrl !== api.baseUrl.replace(/\/$/, '')) throw new Error('SETTINGS_ACCOUNT_CHANGED');
   return result;

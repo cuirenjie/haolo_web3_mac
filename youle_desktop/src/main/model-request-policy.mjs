@@ -1,5 +1,5 @@
 import zlib from "node:zlib";
-import { assertAllowedModelRequest } from "./retired-model-policy.mjs";
+import { assertAllowedModelRequest, isRetiredExecutionModel } from "./retired-model-policy.mjs";
 import { migrateDeepSeekModelSelection } from "./deepseek-model-policy.mjs";
 
 // Inspect the actual wire envelope, including already-compressed requests.
@@ -8,7 +8,7 @@ export function assertAllowedModelBody(body, encoding = "", maxBytes = 128 * 102
   normalizeModelRequestBody(body, encoding, maxBytes);
 }
 
-export function normalizeModelRequestBody(body, encoding = "", maxBytes = 128 * 1024 * 1024) {
+export function normalizeModelRequestBody(body, encoding = "", maxBytes = 128 * 1024 * 1024, resolveHistoryModel) {
   if (body == null || body.length === 0) return body;
   let bytes = Buffer.isBuffer(body) ? body : Buffer.from(body);
   const format = String(encoding || "").trim().toLowerCase();
@@ -20,8 +20,23 @@ export function normalizeModelRequestBody(body, encoding = "", maxBytes = 128 * 
   let payload;
   try { payload = JSON.parse(bytes.toString("utf8")); } catch { return body; }
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return body;
-  assertAllowedModelRequest(payload);
-  const migrated = migrateDeepSeekModelSelection(payload);
+  // Codex can compact with the previous turn's model even after settings/update.
+  // Only a host-confirmed selection for this exact runtime thread may replace
+  // that stale model. Generic transports and explicit retired selections remain
+  // rejected, and no transcript/history item is rewritten.
+  let compatible = payload;
+  const envelope = payload.type === "response.create" && payload.response && typeof payload.response === "object"
+    ? payload.response : payload;
+  if (isRetiredExecutionModel(envelope.model) && typeof resolveHistoryModel === "function") {
+    const selection = resolveHistoryModel(envelope.prompt_cache_key);
+    if (selection?.model && !isRetiredExecutionModel(selection.model)) {
+      const migratedEnvelope = { ...envelope, model: selection.model,
+        ...(envelope.reasoning ? { reasoning: { ...envelope.reasoning, effort: selection.effort || "low" } } : {}) };
+      compatible = envelope === payload ? migratedEnvelope : { ...payload, response: migratedEnvelope };
+    }
+  }
+  assertAllowedModelRequest(compatible);
+  const migrated = migrateDeepSeekModelSelection(compatible);
   if (migrated === payload) return body;
   const serialized = Buffer.from(JSON.stringify(migrated));
   const compress = { gzip: zlib.gzipSync, deflate: zlib.deflateSync, br: zlib.brotliCompressSync, zstd: zlib.zstdCompressSync }[format];

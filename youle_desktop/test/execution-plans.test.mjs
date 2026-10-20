@@ -685,7 +685,7 @@ test("the final assistant bubble, plan empty state, and both themes are wired to
   assert.match(planEventBlock, /closest<HTMLButtonElement>\("\[data-execution-plan-filter\]"\)/);
   assert.match(planEventBlock, /root\.addEventListener\("keydown"[\s\S]*event\.key !== "Escape"/);
   assert.doesNotMatch(renderer, /querySelectorAll<HTMLButtonElement>\("\[data-execution-plan-action\]"\)/);
-  assert.match(planCardBlock, /renderExecutionPlanCardContent\(plan\.content\)/);
+  assert.match(planCardBlock, /executionPlanCardBody\(lines, state\.settings\.language, \{hideAction:true\}\)/);
   assert.match(planCardBlock, /executionPlanCardTitle\([\s\S]*fallbackTitle: plan\.title/);
   assert.doesNotMatch(planCardBlock, /tradingLastAnalysisLabelForThread/);
   assert.doesNotMatch(planCardBlock, /execution-plan-card-mark|<svg/);

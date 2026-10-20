@@ -33,7 +33,6 @@ function expandedComposerHarness() {
     "newThreadModeForThread", "isMediaCreationMode", "isExpandedTradingExpertConversation",
     "isTradingExpertExecutionThreadId", "usesUnifiedExecutionModelPicker", "composerModelKindForThread",
     "switchNewThreadMode", "selectComposerModelForThread", "selectedChatModelRequestOptions",
-    "tradingExpertAgentTextForSend",
   ];
   const parsed = ts.createSourceFile("main.ts", source, ts.ScriptTarget.Latest, true);
   const functions = parsed.statements.filter((node) => ts.isFunctionDeclaration(node) && names.includes(node.name?.text));
@@ -127,7 +126,6 @@ test("an established trading conversation switches image/video/execution in plac
     assert.deepEqual(fixture.state.composerQuote, draft.composerQuote);
     assert.deepEqual(fixture.state.composerThreadReferences, draft.composerThreadReferences);
     assert.equal(fixture.isTradingExpertExecutionThreadId("trading-existing"), false);
-    assert.equal(fixture.tradingExpertAgentTextForSend("trading-existing", "@缠论", "media prompt"), "media prompt");
     assert.deepEqual(fixture.selectedChatModelRequestOptions("trading-existing"), { model: fixture.gpt.value, modelProvider: "haolo_ai", serviceTier: null });
     assert.equal(fixture.selected, fixture.deepSeek, "media fallback must not overwrite the execution preference");
     assert.equal(fixture.persisted.at(-1).mode, mode);
@@ -158,9 +156,8 @@ test("media switching does not change running, loading, cancelled, or newly sele
 test("trading media sends bypass every chart/onboarding/alert router and retain workspace identity on reload", () => {
   const send = sourceBlock("async function sendCurrentMessage", "async function sendCurrentProviderMessage");
   assert.doesNotMatch(send, /isTradingExpertThreadId\(threadId\)/);
-  for (const candidate of ["tradingStrategyAtSend", "personalStrategyConversationAtSend", "personalStrategyCandidateAtSend", "tradingAlertCandidateAtSend", "tradingGeneralCandidateAtSend"]) {
-    assert.match(send, new RegExp(`const ${candidate} = isTradingExpertExecutionThreadId\\(threadId\\)`));
-  }
+  assert.match(send, /codexTradingTools\.capture/);
+  assert.doesNotMatch(send, /await (?:classifyTrading|runTradingGeneralChartRequest|runTradingStrategyChartRequest|runTradingAlertConversation)/);
   assert.match(source, /new Set<string>\(threadPreferences\.tradingExpertThreads\)/);
   assert.match(source, /tradingExpertThreads: \[\.\.\.tradingExpertThreadIds\]\.filter/);
   assert.match(source, /tradingExpertThreads: Array\.isArray\(parsed\.tradingExpertThreads\)/);

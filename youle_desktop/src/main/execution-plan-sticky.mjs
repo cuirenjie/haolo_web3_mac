@@ -67,7 +67,12 @@ function renderStickyWindow(state) {
     if (height === current.height) return;
     window.setBounds({ ...current, height, y: Math.max(workArea.y, Math.min(current.y, workArea.y + workArea.height - height)) });
     state.bounds = { width: current.width, height };
-  }).catch(() => {}); // A newer zoom render or a closed note can abort the load.
+  }).catch(() => {}).finally(async () => {
+    // A newer zoom render or a closed note can abort the load.
+    if (window.isDestroyed() || state.payload !== renderedPayload) return;
+    await window.webContents.executeJavaScript("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => { document.querySelector('.card')?.removeAttribute('data-sizing'); resolve(); })))").catch(() => {});
+    if (!window.isDestroyed() && state.payload === renderedPayload && !window.isVisible()) window.showInactive();
+  });
 }
 
 function stickyResizePoint(value) {
@@ -207,6 +212,8 @@ export function createExecutionPlanStickyWindow(input = {}) {
       nodeIntegration: false,
       sandbox: true,
       devTools: false,
+      // Measure the first layout before showing the frameless window.
+      backgroundThrottling: false,
     },
   });
   const state = {
@@ -247,9 +254,6 @@ export function createExecutionPlanStickyWindow(input = {}) {
   window.on("will-resize", (_event, nextBounds) => {
     state.autoSize = false;
     state.bounds = { width: nextBounds.width, height: nextBounds.height };
-  });
-  window.once("ready-to-show", () => {
-    if (!window.isDestroyed()) window.showInactive();
   });
   window.on("closed", () => stickyWindows.delete(window));
   renderStickyWindow(state);

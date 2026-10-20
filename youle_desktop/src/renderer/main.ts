@@ -1,3 +1,9 @@
+import { alertConfirmationIntentPrompt, parseAlertConfirmationIntent } from "../main/trading-confirmation-intent.mjs";
+import { CodexTradingWorkflowSteps } from "./codex-trading-workflows";
+import { CodexTradingTools } from "./codex-trading-tools";
+import { ExternalChannelRecoveryTurns } from "./external-channel-recovery.mjs";
+import { businessPresentationItems, businessPresentationResult } from "../shared/codex-business-presentation.mjs";
+import { completedTradingAnalysisReport, isCompletedTradingAnalysisReport } from "./trading-analysis-completion";
 import {createCloudPlanRefresher,cloudPlanSyncMessage} from './cloud-plan-sync';
 import {createExecutionPlanAutoActivator} from './execution-plan-auto-activation';
 import { accountSettingsSync, type SettingValues } from './account-settings-sync.ts';
@@ -14,7 +20,8 @@ import {
 } from "./trading-preference-choices";
 import { createTradingPreferenceSettings } from "./trading-preference-settings.ts";
 import "../main/execution-plan-card.css";
-import { executionPlanCardHeading, executionPlanCardBody, executionPlanCardFooter } from "../main/execution-plan-card-view.mjs";
+import { executionPlanStickyLayout } from "./execution-plan-card-layout.ts";
+import { executionPlanCardHeading, executionPlanCardBody, executionPlanCardFooter, executionPlanCardAction } from "../main/execution-plan-card-view.mjs";
 import "./trading-watchlist.css";
 import { renderTradingWatchlistHost, renderTradingWatchlistToggle } from "./trading-watchlist-ui.ts";
 import { deferTradingChartShellRender } from "./trading-chart-interaction.ts";
@@ -111,6 +118,7 @@ import {
   rebindTradingExpertAnalysisTargetStorageSession,
   releaseTradingExpertAnalysisTarget,
   runTradingExpertStrategyConversation,
+  applyDeferredTradingDrawings,
   syncTradingExpertMarketWorkspace,
   refreshTradingExpertSharedFavorites,
   syncTradingExpertOrderLineSnapshot,
@@ -136,33 +144,8 @@ import {
   hyperliquidTradingMarketAssetLogoUrl,
   renderTradingMarketAssetLogo,
 } from "./trading-expert-market-identity";
-import {
-  reconcileTradingStrategyCatalog,
-  tradingIndicatorCatalog,
-  tradingIndicatorMentionOptions,
-  tradingStrategyById,
-  tradingStrategyByDisplayName,
-  tradingStrategyCatalog,
-  tradingStrategyMentionedByText,
-  tradingStrategiesMentionedByText,
-  MAX_TRADING_STRATEGY_MENTIONS,
-  tradingStrategyMentionOptions,
-  type TradingStrategyCatalogItem,
-  type TradingStrategyPublicManifest,
-  type TradingStrategyRequest,
-} from "./trading-strategy-runtime/catalog";
-import {
-  classifyTradingQuestionKinds,
-  deterministicMarketChartRouting,
-  extractExplicitTradingParameters,
-  normalizeTradingRoutingText,
-} from "../main/trading-analysis/request-routing-policy.mjs";
-import { classifyTradingStrategyForSend } from "./trading-strategy-runtime/client";
-import {
-  buildTradingAnalysisFollowupPrompt,
-  type TradingAnalysisContext,
-  type TradingGeneralRequest,
-} from "./trading-expert-general-request";
+import { reconcileTradingStrategyCatalog, tradingIndicatorCatalog, tradingIndicatorMentionOptions, tradingStrategyById, tradingStrategyByDisplayName, tradingStrategyCatalog, MAX_TRADING_STRATEGY_MENTIONS, tradingStrategyMentionOptions, type TradingStrategyCatalogItem, type TradingStrategyPublicManifest, type TradingStrategyRequest } from "./trading-strategy-runtime/catalog";
+import { type TradingGeneralRequest } from "./trading-expert-general-request";
 import {
   TRADING_EXPERT_DEFAULT_MODEL_VALUE,
   TRADING_EXPERT_REASONING_EFFORT,
@@ -604,6 +587,7 @@ const WORKFLOW_FINAL_META_END = "</haolo_final_meta>";
 const THREAD_REFERENCE_DISPLAY_START = "<haolo_referenced_threads>";
 const THREAD_REFERENCE_DISPLAY_END = "</haolo_referenced_threads>";
 const HAOLO_INTERNAL_MESSAGE_BLOCKS = [
+  ["<haolo_host_context>", "</haolo_host_context>"],
   [TURN_GROUP_MEMORY_START, TURN_GROUP_MEMORY_END],
   ["<haolo_trading_chan_expert_prompt>", "</haolo_trading_chan_expert_prompt>"],
   ["<haolo_trading_order_flow_expert_prompt>", "</haolo_trading_order_flow_expert_prompt>"],
@@ -1497,6 +1481,8 @@ type DesktopApi = {
     theme: AppTheme;
     language: AppLanguage;
     fontSize: number;
+    baseFontSize?: number;
+    cardWidth?: number;
     lines: Array<{
       label: string;
       text: string;
@@ -1757,7 +1743,8 @@ type DesktopApi = {
     attachments?: any[];
   }): Promise<any>;
   prepareGroupChatContext?(params: any): Promise<LocalGroupChatContextPreparation>;
-  sendProviderChat?(params: { provider: string; model?: string; modelPool?: string; modelCapability?: string; text: string; messages?: Array<{ role: string; content: string | Array<Record<string, unknown>>; contextTurnId?: string; attachments?: MessageAttachment[] }>; attachments?: MessageAttachment[]; interactionId?: string; conversationId?: string; sourceType?: string; threadId?: string; cwd?: string; explicitPaths?: string[]; currentGroupContext?: { protocolVersion: 1; source: "group_picker"; groupId: string; groupName: string; workspaceSlug: string; externalPath: string | null; requestId: string }; threadReferences?: any[]; threadReferencePreparationId?: string | null; currentContextTokens?: number | null; modelContextWindow?: number | null; messageTokens?: number; stream?: boolean; groupChatContextPreparationId?: string; groupChatThreadId?: string; groupChatMemberId?: string; maxTransportAttempts?: number; personalStrategySourcePreparationId?: string | null;
+  sendProviderChat?(params: {
+    businessContextId?: string; provider: string; model?: string; modelPool?: string; modelCapability?: string; text: string; messages?: Array<{ role: string; content: string | Array<Record<string, unknown>>; contextTurnId?: string; attachments?: MessageAttachment[] }>; attachments?: MessageAttachment[]; interactionId?: string; conversationId?: string; sourceType?: string; threadId?: string; cwd?: string; explicitPaths?: string[]; currentGroupContext?: { protocolVersion: 1; source: "group_picker"; groupId: string; groupName: string; workspaceSlug: string; externalPath: string | null; requestId: string }; threadReferences?: any[]; threadReferencePreparationId?: string | null; currentContextTokens?: number | null; modelContextWindow?: number | null; messageTokens?: number; stream?: boolean; groupChatContextPreparationId?: string; groupChatThreadId?: string; groupChatMemberId?: string; maxTransportAttempts?: number; personalStrategySourcePreparationId?: string | null;
   }): Promise<any>;
   interruptProviderChat?(params: { threadId: string; interactionId: string }): Promise<{
     interrupted?: boolean;
@@ -1826,22 +1813,6 @@ type DesktopApi = {
     compile?: { readyForSimulation?: boolean; readyForConfirmation?: boolean; questions?: string[]; warnings?: string[] };
     error?: { code?: string; message?: string };
   }>;
-  classifyTradingStrategyRequest?(params: {
-    strategyId: string;
-    text: string;
-    hasImageAttachment?: boolean;
-    hasCurrentAnalysis?: boolean;
-    model?: string | null;
-    reasoningEffort?: "max";
-    explicitModelSelection?: boolean;
-  }): Promise<any>;
-  classifyExternalTradingRequest?(params: {
-    text: string;
-    pendingContext?: string;
-    model?: string | null;
-    reasoningEffort?: "max";
-    explicitModelSelection?: boolean;
-  }): Promise<any>;
   runTradingStrategyAnalysis?(params: {
     strategyId: string;
     model?: string | null;
@@ -1901,16 +1872,6 @@ type DesktopApi = {
       volume?: number;
     }>;
   }): Promise<any>;
-  classifyTradingChanRequest?(params: {
-    text: string;
-    hasImageAttachment?: boolean;
-    hasCurrentAnalysis?: boolean;
-  }): Promise<any>;
-  classifyTradingOrderFlowRequest?(params: {
-    text: string;
-    hasImageAttachment?: boolean;
-    hasCurrentAnalysis?: boolean;
-  }): Promise<any>;
   runTradingOrderFlowAnalysis?(params: {
     model?: string | null;
     modelId?: string | null;
@@ -1947,11 +1908,6 @@ type DesktopApi = {
     }>;
     orderFlow: Record<string, unknown>;
   }): Promise<any>;
-  classifyTradingWaveRequest?(params: {
-    text: string;
-    hasImageAttachment?: boolean;
-    hasCurrentAnalysis?: boolean;
-  }): Promise<any>;
   runTradingWaveAnalysis?(params: {
     model?: string | null;
     modelId?: string | null;
@@ -1986,11 +1942,6 @@ type DesktopApi = {
       }>;
     }>;
   }): Promise<any>;
-  classifyTradingWyckoffRequest?(params: {
-    text: string;
-    hasImageAttachment?: boolean;
-    hasCurrentAnalysis?: boolean;
-  }): Promise<any>;
   runTradingWyckoffAnalysis?(params: {
     model?: string | null;
     modelId?: string | null;
@@ -2013,14 +1964,6 @@ type DesktopApi = {
       close: number;
       volume?: number;
     }>;
-  }): Promise<any>;
-  classifyTradingGeneralRequest?(params: {
-    text: string;
-    hasImageAttachment?: boolean;
-    hasCurrentAnalysis?: boolean;
-    model?: string | null;
-    reasoningEffort?: "max";
-    explicitModelSelection?: boolean;
   }): Promise<any>;
   recordTradingAnalysisFailure?(params: Record<string, unknown>): Promise<{ diagnosticId: string }>;
   runTradingGeneralAnalysis?(params: {
@@ -2093,9 +2036,9 @@ type DesktopApi = {
   loadProviderChatThreads?(): Promise<any>;
   saveProviderChatThreads?(params: { records: Record<string, { items: CodexItem[]; touchedAt?: string | null }>;
   }): Promise<any>;
-  generateVideo?(params: { prompt: string; imageUrl?: string; imageUrls?: string[]; lastFrameUrl?: string; videoUrls?: string[]; audioUrls?: string[]; inputMode?: VideoExpertInputMode; model: string; aspectRatio: string; duration: string; resolution?: string; size?: string; cwd?: string | null; interactionId?: string; conversationId?: string;
+  generateVideo?(params: { businessContextId?: string; prompt: string; imageUrl?: string; imageUrls?: string[]; lastFrameUrl?: string; videoUrls?: string[]; audioUrls?: string[]; inputMode?: VideoExpertInputMode; model: string; aspectRatio: string; duration: string; resolution?: string; size?: string; cwd?: string | null; interactionId?: string; conversationId?: string;
   }): Promise<any>;
-  resumeVideo?(params: { model?: string; duration?: string; cwd?: string | null; conversationId: string; interactionId?: string;
+  resumeVideo?(params: { businessContextId?: string; text?: string; model?: string; duration?: string; cwd?: string | null; conversationId: string; interactionId?: string;
   }): Promise<any>;
   interruptVideoGeneration?(params: { threadId: string; interactionId: string }): Promise<{
     interrupted?: boolean;
@@ -2255,6 +2198,9 @@ type DesktopApi = {
   rejectChromeRequest?(params: { id: string; reason?: string }): Promise<any>;
   setTaskbarUnreadCount?(params: { count: number;
   }): Promise<{ ok?: boolean; count?: number }>;
+  setTaskbarMarketQuote?(quote: {
+    marketId: string; name: string; price: number | null; priceText: string; changePercent: number | null;
+  } | null): Promise<{ ok?: boolean }>;
   startThread(params?: any): Promise<any>;
   persistTradingTranscript?(params: {
     threadId: string;
@@ -2304,6 +2250,8 @@ type DesktopApi = {
   }): Promise<any>;
   prepareThreadReferences?(params: any): Promise<any>;
   sendMessage(params: any): Promise<any>;
+  sendChannelCodexMessage?(params: any): Promise<any>;
+  interruptChannelCodexMessage?(params: { threadId: string; interactionId: string }): Promise<any>;
   recoverUnavailableLocalProxy?(params: {
     threadId: string;
     cwd: string;
@@ -2331,6 +2279,8 @@ type DesktopApi = {
   revealWindowModeTransition?(): Promise<WindowState & { ok?: boolean; revealed?: boolean }> | void;
   onStatus(callback: (payload: any) => void): () => void;
   onLog(callback: (payload: any) => void): () => void;
+  onBusinessTool?(callback: (payload: any) => void): () => void;
+  resolveBusinessTool?(payload: any): Promise<boolean>;
   onNotification(callback: (payload: JsonRpcMessage) => void): () => void;
   onAutomationOpenThread?(callback: (payload: any) => void): () => void;
   onAutomationThreadNotification?(callback: (payload: JsonRpcMessage) => void): () => void;
@@ -2383,7 +2333,7 @@ type CodexItem = {
   __youleTurnStartedAt?: string | number | null;
   __youleTurnCompletedAt?: string | number | null;
   __youleTurnStatus?: string | null;
-  __youleExecutionPlanPresentation?: "execution-plan" | "plain" | null;
+  __youleExecutionPlanPresentation?: "execution-plan" | "position-plan" | "plain" | null;
   __youleCloudReports?: CloudTradingReport[];
   [key: string]: unknown;
 };
@@ -3654,6 +3604,7 @@ type ContactPreferences = {
 };
 
 type QueuedSend = {
+  businessContextId?: string;
   id: string;
   threadId: string;
   agentText: string;
@@ -4047,7 +3998,7 @@ type MessageUiMeta = Message & {
   localGroupMemberEvent?: LocalGroupChatMemberEvent | null;
   localGroupMemberId?: string | null;
   localGroupThinkingMemberId?: string | null;
-  executionPlanPresentation?: "execution-plan" | "plain" | null;
+  executionPlanPresentation?: "execution-plan" | "position-plan" | "plain" | null;
   cloudReports?: CloudTradingReport[];
 };
 
@@ -4151,6 +4102,7 @@ type ContextWindowRecoveryReplayStatus = "armed" | "recovering" | "replaying";
 
 type ContextWindowRecoveryReplay = {
   threadId: string;
+  businessContextId?: string;
   agentText: string;
   visibleQuestion: string;
   threadReferences: ComposerThreadReference[];
@@ -4668,8 +4620,6 @@ const displayedWechatChannelMessageIds = new Set<string>();
 const displayedFeishuChannelMessageIds = new Set<string>();
 const displayedTelegramChannelMessageIds = new Set<string>();
 const acknowledgedFeishuChannelMessageIds = new Set<string>();
-const acknowledgedExternalTradingMessageIds = new Set<string>();
-const pendingExternalTradingRequests = new Map<ExternalChannelId, { text: string; updatedAt: number }>();
 const interruptedWechatChannelThreadIds = new Set<string>();
 const interruptedExternalChannelReplyKeys = new Set<string>();
 const channelMessageRefreshTimers = new Map<string, number[]>();
@@ -5797,6 +5747,8 @@ const contextWindowRecoveryReplays = new Map<string, ContextWindowRecoveryReplay
 const contextWindowRecoveryPromises = new Map<string, Promise<void>>();
 const localProxyRecoveryPromises = new Map<string, Promise<void>>();
 const automaticTurnRecoveryNoticeKeys = new Set<string>();
+const externalChannelRecoveryTurns = new ExternalChannelRecoveryTurns();
+const activeChannelCodexInteractions = new Map<string, { id: string; cancelled: boolean }>();
 const AUTOMATIC_TURN_RECOVERY_MARKER = "<haolo_automatic_turn_recovery>";
 const threadContinuationCreationPromises = new Map<string, Promise<string | null>>();
 const threadContinuationDrainTimers = new Map<string, number>();
@@ -5888,6 +5840,99 @@ let skillsSearchFocusRestoreToken = 0;
 let contactsSearchFocusRestoreToken = 0;
 let librarySearchFocusRestoreToken = 0;
 let providerChatPersisting = false;
+const codexTradingWorkflowSteps = new CodexTradingWorkflowSteps({
+  api, alertData: tradingAlertResponseData,
+  isForeground: threadId => state.currentThreadId === threadId,
+  showSimulation: showTradingExpertAlertSimulation,
+  presentSimulation: threadId => presentExternalTradingChart(threadId, true),
+  clearSimulation: clearTradingExpertAlertSimulation,
+  setPending: (threadId, kind, pending) => {
+    if (kind === "alert") {
+      if (pending) tradingAlertConversationByThreadId.set(threadId, pending);
+      else tradingAlertConversationByThreadId.delete(threadId);
+    } else if (pending) setPersonalStrategyConversationState(threadId, pending);
+    else deletePersonalStrategyConversationState(threadId);
+  },
+  append: persistTradingAlertAssistantItem,
+  prepare: (threadId, kind, text, context) => kind === "alert"
+    ? runTradingAlertConversation(threadId, text, { ...context, skillOperation: "prepare" })
+    : runPersonalStrategyConversation(threadId, text, context.attachments, { ...context, skillOperation: "prepare" }),
+  confirm: (threadId, kind, text, context) => kind === "alert"
+    ? runTradingAlertConversation(threadId, text, { ...context, skillOperation: "confirm" })
+    : runPersonalStrategyConversation(threadId, text, context.attachments, { ...context, skillOperation: "confirm" }),
+  confirmDelete: kind => confirmInApp({
+    title: kind === "alert" ? "删除预警" : "删除计划",
+    message: kind === "alert" ? "确定删除这个预警吗？历史触发证据将保留在审计记录中。" : "确定删除这个计划吗？",
+    confirmLabel: "删除", tone: "danger",
+  }),
+  refreshAlerts: () => refreshTradingAlerts(),
+  refreshPlans: () => refreshCloudExecutionPlans(),
+});
+const codexTradingTools = new CodexTradingTools({
+  responseId: threadId => activeChannelCodexInteractions.get(threadId)?.id || (isProviderThreadBusy(threadId)
+    ? activeProviderInteractionByThreadId.get(threadId) || null
+    : activeTurnIdForThread(threadId)),
+  completed: async (threadId, item, persist) => {
+    // A workflow intake runs in an internal Codex thread. Copy its cards into
+    // the idle visible thread before any canvas node/final turn can start.
+    const cards = businessPresentationItems(item);
+    if (persist && cards.length) await persistTradingExpertTranscriptItems(threadId, cards);
+    upsertItem(threadId, item);
+    saveProviderChatThreads();
+  },
+  api, catalog: async () => {
+    const catalog = await api.listTradingStrategies?.();
+    if (catalog?.strategies?.length) reconcileTradingStrategyCatalog(catalog.strategies);
+    return [...tradingStrategyCatalog(), ...tradingIndicatorCatalog()];
+  },
+  pending: threadId => ({
+    alert: tradingAlertConversationStateForThread(threadId),
+    personalStrategy: personalStrategyConversationStateForThread(threadId),
+    preferences: tradingPreferenceOnboardingByThreadId.get(threadId)?.stage || null,
+  }),
+  analyze: async (threadId, args, target) => {
+    const request = { ...args, mode: "chart-analysis" as const, instruction: String(args.instruction || ""), drawingRequested: args.drawingRequested === true };
+    if (args.marketId && args.marketId !== target?.marketId) target = null;
+    if (args.strategyId) {
+      const strategy = tradingStrategyById(args.strategyId);
+      if (!strategy || strategy.enabled === false) throw new Error("Unknown or disabled strategy. Read the current catalog before selecting a strategy.");
+      if (target) tradingStrategyAnalysisTargetByRequest.set(request, target);
+      return runTradingStrategyChartRequest(threadId, strategy, request);
+    }
+    return runTradingGeneralChartRequest(threadId, request, target);
+  },
+  draw: async (threadId, artifact) => {
+    const result = artifact?.result;
+    if (!Array.isArray(result?.drawingArtifacts)) throw new Error("No verified drawing artifacts.");
+    const analysisId = beginTradingExpertAnalysisJob(threadId, "drawing");
+    try {
+      const drawn = await applyDeferredTradingDrawings(result.drawingArtifacts, threadId, analysisId);
+      if (drawn.count > 0 && !await presentExternalTradingChart(threadId, false, result)) {
+        throw new Error("Drawings were saved, but the analyzed chart image is unavailable. Open this conversation's analyzed market and interval, then retry haolo_chart_draw. Do not claim the image was sent.");
+      }
+      return drawn;
+    }
+    finally { finishTradingExpertAnalysisJob(threadId, analysisId); }
+  },
+  present: async (threadId, artifact, metadata) => {
+    const result = artifact?.result;
+    if (!result || typeof result.report !== "string") throw new Error("No verified analysis report.");
+    const item = appendTradingExpertReport(threadId, result.report, `trading-result-${metadata.analysisRef}`, undefined,
+      metadata.positionManagementRequested ? "position-plan" : "execution-plan", result.cloudReports);
+    await persistCompletedTradingExpertTranscript(threadId, [item]);
+    return { analysisJobId: result.analysisJobId, marketId: result.marketId, mode: metadata.positionManagementRequested ? "position-management" : "execution-plan" };
+  },
+  workflow: (...args) => codexTradingWorkflowSteps.run(...args),
+  alert: runTradingAlertConversation,
+  personalStrategy: runPersonalStrategyConversation,
+  preferences: (threadId, text) => handleTradingPreferenceOnboardingReply(threadId, text, null),
+  cancel: async threadId => {
+    tradingAlertConversationRunByThreadId.delete(threadId);
+    personalStrategyConversationRunByThreadId.delete(threadId);
+    await Promise.all(activeTradingExpertAnalysisJobIds(threadId).map(id => cancelTradingExpertAnalysis(id)));
+  },
+});
+
 let pendingProviderChatRecords: ProviderChatRecords | null = null;
 let restoredProviderChatRecordsSettled = false;
 const activeProviderInteractionByThreadId = new Map<string, string>();
@@ -7036,6 +7081,7 @@ function wireDesktopEvents() {
     if (state.logs.length > 80) state.logs.shift();
   });
 
+  api.onBusinessTool?.(payload => { void codexTradingTools.handle(payload); });
   api.onNotification(handleNotification);
   api.onWorkflowEvent?.((payload) => {
     applyWorkflowEvent(payload);
@@ -11107,10 +11153,10 @@ function queueFeishuChannelMessage(message: any) {
     activeFeishuChannelMessageId !== messageId &&
     feishuChannelThreadId &&
     hasThreadCodexWork(feishuChannelThreadId) &&
-    activeTurnIdForThread(feishuChannelThreadId)
+    wechatChannelMessageRequestsStop(text)
   ) {
     inFlightFeishuChannelMessageIds.add(messageId);
-    void steerExternalChannelBusyMessage("feishu", message, feishuChannelThreadId)
+    void stopExternalChannelBusyMessage("feishu", message, feishuChannelThreadId)
       .catch((error) => {
         addSystemItem(feishuChannelThreadId!, `飞书补充消息暂未加入当前任务：${errorMessage(error)}`);
       })
@@ -11181,10 +11227,10 @@ function queueTelegramChannelMessage(message: any) {
     activeTelegramChannelMessageId !== messageId &&
     telegramChannelThreadId &&
     hasThreadCodexWork(telegramChannelThreadId) &&
-    activeTurnIdForThread(telegramChannelThreadId)
+    wechatChannelMessageRequestsStop(text)
   ) {
     inFlightTelegramChannelMessageIds.add(messageId);
-    void steerExternalChannelBusyMessage("telegram", message, telegramChannelThreadId)
+    void stopExternalChannelBusyMessage("telegram", message, telegramChannelThreadId)
       .catch((error) => {
         addSystemItem(telegramChannelThreadId!, `Telegram 补充消息暂未加入当前任务：${errorMessage(error)}`);
       })
@@ -11290,19 +11336,6 @@ function queueWechatChannelMessage(message: any) {
         });
       return;
     }
-    if (wechatChannelThreadId && activeTurnIdForThread(wechatChannelThreadId)) {
-      wechatDebugLog("wechat.queue.busy_steer", { messageId, activeWechatChannelMessageId, threadId: wechatChannelThreadId });
-      inFlightWechatChannelMessageIds.add(messageId);
-      void steerExternalChannelBusyMessage("wechat", message, wechatChannelThreadId)
-        .catch((error) => {
-          addSystemItem(wechatChannelThreadId!, `微信补充消息暂未加入当前任务：${errorMessage(error)}`);
-        })
-        .finally(() => {
-          inFlightWechatChannelMessageIds.delete(messageId);
-          render();
-        });
-      return;
-    }
     wechatDebugLog("wechat.queue.busy_enqueue", { messageId, activeWechatChannelMessageId, threadId: wechatChannelThreadId });
   }
   inFlightWechatChannelMessageIds.add(messageId);
@@ -11384,18 +11417,14 @@ async function handleFeishuChannelMessage(message: any) {
   setMessageStreamFollow(threadId, true);
   render();
   await sendFeishuChannelProcessingAck(threadId, messageId);
-  if (await handleExternalTradingChannelMessage({
-    channel: "feishu",
-    threadId,
-    messageId,
-    text: explicitText,
-  })) return;
   const beforeIds = new Set(state.itemOrder[threadId] || []);
   const reply = await runFeishuChannelAgent(
     threadId,
     agentText,
     beforeIds,
     consumptionVisibleQuestion(explicitText, attachments),
+    attachments,
+    messageId,
   );
   const replyText = externalChannelAgentReplyText(reply.text.trim(), explicitText, attachments) || "我这边处理超时了，你再发一次试试。";
   const replyScope = {
@@ -11462,18 +11491,14 @@ async function handleTelegramChannelMessage(message: any) {
   state.threads = sortThreadsForList(mergeThreadsWithoutSorting(state.threads, [telegramChannelThreadSummary(threadId)]));
   setMessageStreamFollow(threadId, true);
   render();
-  if (await handleExternalTradingChannelMessage({
-    channel: "telegram",
-    threadId,
-    messageId,
-    text: explicitText,
-  })) return;
   const beforeIds = new Set(state.itemOrder[threadId] || []);
   const reply = await runTelegramChannelAgent(
     threadId,
     agentText,
     beforeIds,
     consumptionVisibleQuestion(explicitText, attachments),
+    attachments,
+    messageId,
   );
   const replyText = externalChannelAgentReplyText(reply.text.trim(), explicitText, attachments) || "我这边处理超时了，你再发一次试试。";
   const replyScope = {
@@ -11542,12 +11567,6 @@ async function handleWechatChannelMessage(message: any) {
   state.threads = sortThreadsForList(mergeThreadsWithoutSorting(state.threads, [wechatChannelThreadSummary(threadId)]));
   setMessageStreamFollow(threadId, true);
   render();
-  if (await handleExternalTradingChannelMessage({
-    channel: "wechat",
-    threadId,
-    messageId,
-    text: explicitText,
-  })) return;
   let beforeIds = new Set(state.itemOrder[threadId] || []);
   let reply: Awaited<ReturnType<typeof runWechatChannelAgent>>;
   try {
@@ -11557,6 +11576,8 @@ async function handleWechatChannelMessage(message: any) {
       agentText,
       beforeIds,
       consumptionVisibleQuestion(explicitText, agentAttachments),
+      agentAttachments,
+      messageId,
     );
   } catch (error) {
     if (!isUnavailableWechatChannelThreadError(error)) throw error;
@@ -11575,6 +11596,8 @@ async function handleWechatChannelMessage(message: any) {
       agentText,
       beforeIds,
       consumptionVisibleQuestion(explicitText, agentAttachments),
+      agentAttachments,
+      messageId,
     );
   }
   wechatDebugLog("wechat.handle.agent_reply", {
@@ -11628,67 +11651,6 @@ async function handleWechatChannelMessage(message: any) {
   wechatDebugLog("wechat.handle.remembered", { messageId });
 }
 
-type ExternalTradingRoute = {
-  mode: "analysis" | "conversation" | "clarification";
-  strategyId: string | null;
-  symbol: string | null;
-  interval: string | null;
-  lookbackMs: number | null;
-  lookbackLabel: string | null;
-  confidence?: number;
-  clarificationQuestion?: string | null;
-};
-
-function externalTradingRequestLikely(text: string) {
-  return /(?:K\s*线|行情|盘面|走势|趋势|支撑|阻力|复盘|缠论|波浪|威科夫|订单流|ICT|SMC|SMT|分析|看看|看下|研判)/iu.test(String(text || ""));
-}
-
-function externalTradingPendingText(channel: ExternalChannelId, text: string) {
-  const current = pendingExternalTradingRequests.get(channel);
-  const clean = String(text || "").trim();
-  if (!current?.text) return clean;
-  if (!clean) return current.text;
-  return `${current.text}\n\n用户补充：${clean}`.slice(-12_000);
-}
-
-function externalTradingClarificationQuestion(route: Partial<ExternalTradingRoute> = {}) {
-  const supplied = String(route.clarificationQuestion || "").trim();
-  if (supplied) return supplied;
-  if (!route.strategyId) return "你想用哪种策略分析？可以直接说缠论、波浪理论、威科夫、订单流或其他策略。";
-  const missing: string[] = [];
-  if (!route.symbol) missing.push("交易对（例如 BTC 或 BTCUSDT）");
-  if (!route.interval) missing.push("K 线周期（例如 1h、15分钟或日线）");
-  return missing.length
-    ? `为了开始${tradingStrategyById(route.strategyId)?.display.name || "策略"}分析，请补充${missing.join("和")}。`
-    : "我还不能确定这次是否要读取实时 K 线。请说明要分析哪个交易对、周期以及使用的策略。";
-}
-
-function externalTradingClarificationError(error: unknown) {
-  const code = String((error as any)?.code || "").toUpperCase();
-  const message = errorMessage(error);
-  return /INSUFFICIENT|UNAVAILABLE|UNSUPPORTED|NOT_FOUND|NO_DATA|MARKET_DATA|RATE[_-]?LIMIT|\b(?:429|451)\b|行情|数据|K\s*线|成交|深度|订单流|周期|不可用|未返回|没有可用|限流|请求失败/iu.test(`${code} ${message}`);
-}
-
-function appendExternalTradingAgentMessage(
-  threadId: string,
-  channel: ExternalChannelId,
-  messageId: string,
-  text: string,
-) {
-  const clean = String(text || "").trim();
-  if (!clean) return;
-  upsertItem(threadId, {
-    id: `external-trading-agent-${channel}-${messageId}`,
-    type: "agentMessage",
-    createdAt: new Date().toISOString(),
-    text: clean,
-    content: [{ text: clean }],
-    external_channel: channel,
-    external_message_id: messageId,
-    phase: "final",
-  });
-}
-
 function externalTradingChartCaptureAttachment(payload: any): MessageAttachment | null {
   const filePath = firstString(payload?.path, payload?.local_path, payload?.localPath);
   if (!filePath) return null;
@@ -11710,13 +11672,24 @@ function externalTradingChartCaptureAttachment(payload: any): MessageAttachment 
   } as MessageAttachment;
 }
 
-async function captureExternalTradingChartAttachment(threadId: string): Promise<MessageAttachment | null> {
+async function captureExternalTradingChartAttachment(
+  threadId: string, simulation = false, expectedChart?: { marketId?: string; interval?: string },
+): Promise<MessageAttachment | null> {
   if (
     !isExternalTradingWorkspaceThreadId(threadId)
     || state.currentThreadId !== threadId
-    || !hasTradingExpertCurrentAnalysis()
+    || (!simulation && !expectedChart && !hasTradingExpertCurrentAnalysis())
     || typeof window.codexDesktop.captureTradingChart !== "function"
   ) return null;
+  const chart = tradingExpertAlertContextSnapshot();
+  if (!chart?.marketId || !chart.interval
+    || (expectedChart?.marketId && chart.marketId !== expectedChart.marketId)
+    || (expectedChart?.interval && chart.interval !== expectedChart.interval)) return null;
+  const matchesCaptureTarget = () => {
+    const current = tradingExpertAlertContextSnapshot();
+    return state.currentThreadId === threadId
+      && current?.marketId === chart.marketId && current?.interval === chart.interval;
+  };
   const workspace = root.querySelector<HTMLElement>("[data-trading-market-workspace]");
   if (!workspace) return null;
 
@@ -11745,9 +11718,11 @@ async function captureExternalTradingChartAttachment(threadId: string): Promise<
     // the capture rectangle. Two frames also allow SVG drawings and labels to
     // repaint after lightweight-charts receives the new viewport dimensions.
     await new Promise<void>((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve())));
+    if (!matchesCaptureTarget()) return null;
     prepareTradingExpertMarketForExternalCapture();
     await new Promise<void>((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve())));
     await waitMs(40);
+    if (!matchesCaptureTarget()) return null;
     const target = root.querySelector<HTMLElement>("[data-trading-market-workspace]");
     if (!target) return null;
     const bounds = target.getBoundingClientRect();
@@ -11760,243 +11735,35 @@ async function captureExternalTradingChartAttachment(threadId: string): Promise<
         height: Math.round(bounds.height),
       },
     });
-    if (result?.ok === false) return null;
+    if (result?.ok === false || !matchesCaptureTarget()) return null;
     return externalTradingChartCaptureAttachment(result);
   } catch (error) {
     console.warn("External trading chart capture failed", error);
     return null;
   } finally {
-    if (!wasFocused) {
+    if (!wasFocused && state.currentThreadId === threadId) {
       restoreTradingExpertChartFocusLayout();
       render();
     }
   }
 }
 
-async function sendExternalTradingReply(
-  threadId: string,
-  channel: ExternalChannelId,
-  messageId: string,
-  text: string,
-  kind: "ack" | "final" = "final",
-  attachments: MessageAttachment[] = [],
+async function presentExternalTradingChart(
+  threadId: string, simulation = false, expectedChart?: { marketId?: string; interval?: string },
 ) {
-  if (!api.replyExternalChannelMessage) return false;
-  try {
-    const response = await api.replyExternalChannelMessage({
-      channel,
-      messageId,
-      text,
-      attachments,
-      kind,
-    });
-    const failure = externalChannelReplyFailureMessage(response);
-    if (failure) {
-      addSystemItem(threadId, `${channel} 回复发送失败：${failure}`);
-      return false;
-    }
-    return true;
-  } catch (error) {
-    addSystemItem(threadId, `${channel} 回复发送失败：${errorMessage(error)}`);
-    return false;
-  }
-}
-
-async function sendExternalTradingProcessingAck(
-  threadId: string,
-  channel: ExternalChannelId,
-  messageId: string,
-) {
-  // The Feishu handler already sends its standard processing acknowledgement
-  // before entering this router. Avoid emitting a second, strategy-specific
-  // acknowledgement for the same inbound message.
-  if (channel === "feishu") return;
-  const key = `${channel}:${messageId}`;
-  if (acknowledgedExternalTradingMessageIds.has(key)) return;
-  acknowledgedExternalTradingMessageIds.add(key);
-  const sent = await sendExternalTradingReply(threadId, channel, messageId, "收到，我正在读取行情并按策略分析。", "ack");
-  if (!sent) acknowledgedExternalTradingMessageIds.delete(key);
-}
-
-function externalTradingResultText(route: ExternalTradingRoute, result: any) {
-  const strategy = tradingStrategyById(route.strategyId || "");
-  const strategyName = strategy?.display.name || route.strategyId || "策略";
-  const report = String(
-    result?.analysisPlan?.report
-      || result?.analysisPlan?.narrative
-      || result?.report
-      || result?.narrative
-      || "策略分析已完成，但没有返回可发送的文字报告。",
-  ).trim();
-  return `【${strategyName} · ${route.symbol} · ${route.interval}】\n${report}`;
-}
-
-async function runExternalTradingStrategyAnalysis(
-  route: ExternalTradingRoute,
-  instruction: string,
-  threadId: string,
-) {
-  if (!route.strategyId || !route.symbol || !route.interval) {
-    throw Object.assign(new Error("策略、交易对和周期尚未完整"), { code: "TRADING_EXTERNAL_REQUEST_INCOMPLETE" });
-  }
-  const strategy = tradingStrategyById(route.strategyId);
-  if (!strategy || strategy.enabled === false) {
-    throw Object.assign(new Error("当前客户端没有可用的该策略"), { code: "TRADING_STRATEGY_NOT_FOUND" });
-  }
-  const analysisId = beginTradingExpertAnalysisJob(threadId, route.strategyId);
-  const progressIdPrefix = `external-trading-${route.strategyId}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  let progressSequence = 0;
-  let latestProgress = "";
-  const onProgress = (phase: string, message: string) => {
-    if (!message || message === latestProgress) return;
-    latestProgress = message;
-    progressSequence += 1;
-    if (phase === "error") clearTradingExpertThinkingState(threadId);
-    else updateTradingExpertThinkingState(threadId, phase, message);
-    appendTradingExpertProgress(
-      threadId,
-      `${progressIdPrefix}-${progressSequence}`,
-      phase,
-      message,
-    );
+  if (!isExternalTradingWorkspaceThreadId(threadId)) return true;
+  const attachment = await captureExternalTradingChartAttachment(threadId, simulation, expectedChart);
+  if (!attachment) return false;
+  const item: CodexItem = {
+    id: `trading-chart-${crypto.randomUUID()}`, type: "agentMessage",
+    createdAt: new Date().toISOString(), text: "", attachments: [attachment],
+    content: [{ text: "", attachments: [attachment] }],
   };
-  onProgress("preparing", `正在读取 ${route.symbol} ${route.interval} K 线并准备${strategy.display.name}分析。`);
-  // Use the same workspace runner as New Task. It owns market-data loading,
-  // strategy-specific adapters, analysis jobs, and drawing-patch playback;
-  // keeping external requests on this path prevents the channel integration
-  // from silently falling back to a text-only/direct response.
-  try {
-    return await runTradingExpertStrategyConversation(route.strategyId, {
-      analysisId,
-      model: selectedChatModelValue(threadId),
-      explicitModelSelection: threadModelSelection(threadId)?.userSelected === true,
-      reasoningEffort: "max",
-      instruction,
-      symbol: route.symbol,
-      interval: route.interval,
-      lookbackMs: route.lookbackMs,
-      lookbackLabel: route.lookbackLabel,
-      drawingRequested: true,
-      strategyDisplayName: strategy.display.name,
-      minimumCandles: strategy.dataRequirements?.candles?.minCount,
-      preferredCandles: strategy.dataRequirements?.candles?.preferredCount,
-      visibleCandlesOnly: Boolean(strategy.dataRequirements?.["visible-candles"]?.required),
-      executionPlanRequested: strategy.capabilities.includes("execution-plan"),
-      contextCandlesRequested: Boolean(strategy.dataRequirements?.["context-candles"]),
-      comparisonCandlesRequested: Boolean(strategy.dataRequirements?.["comparison-candles"]),
-      onProgress,
-    });
-  } finally {
-    finishTradingExpertAnalysisJob(threadId, analysisId);
-    clearTradingExpertThinkingState(threadId);
-    refreshTradingExpertConversationSurface(threadId);
+  if (!codexTradingTools.collect(threadId, [item])) {
+    upsertItem(threadId, item);
+    await persistTradingExpertTranscriptItems(threadId, [item]);
   }
-}
-
-async function handleExternalTradingChannelMessage(params: {
-  channel: ExternalChannelId;
-  threadId: string;
-  messageId: string;
-  text: string;
-}) {
-  const cleanText = String(params.text || "").trim();
-  const pending = pendingExternalTradingRequests.get(params.channel);
-  if (!cleanText && !pending) return false;
-  const combinedText = externalTradingPendingText(params.channel, cleanText);
-  let route: ExternalTradingRoute;
-  if (typeof api.classifyExternalTradingRequest !== "function") {
-    if (!pending && !externalTradingRequestLikely(cleanText)) return false;
-    route = {
-      mode: "clarification",
-      strategyId: null,
-      symbol: null,
-      interval: null,
-      lookbackMs: null,
-      lookbackLabel: null,
-      clarificationQuestion: "我暂时无法判断你要使用哪种策略。请直接说缠论、波浪理论、威科夫或其他策略，并说明交易对和周期。",
-    };
-  } else {
-    try {
-      const result = await api.classifyExternalTradingRequest({
-        text: combinedText,
-        pendingContext: pending?.text || "",
-        model: selectedChatModelValue(params.threadId),
-        reasoningEffort: "max",
-      });
-      if (!result?.ok || !result.request) {
-        if (!pending && !externalTradingRequestLikely(cleanText)) return false;
-        route = {
-          mode: "clarification",
-          strategyId: null,
-          symbol: null,
-          interval: null,
-          lookbackMs: null,
-          lookbackLabel: null,
-          clarificationQuestion: "我暂时无法确认这条消息的分析意图。请说明要用什么策略、分析哪个交易对和哪个周期。",
-        };
-      } else {
-        route = result.request as ExternalTradingRoute;
-      }
-    } catch {
-      if (!pending && !externalTradingRequestLikely(cleanText)) return false;
-      route = {
-        mode: "clarification",
-        strategyId: null,
-        symbol: null,
-        interval: null,
-        lookbackMs: null,
-        lookbackLabel: null,
-        clarificationQuestion: "我暂时无法确认这条消息的分析意图。请说明要用什么策略、分析哪个交易对和哪个周期。",
-      };
-    }
-  }
-  if (route.mode === "conversation") {
-    pendingExternalTradingRequests.delete(params.channel);
-    return false;
-  }
-  if (route.mode === "clarification") {
-    pendingExternalTradingRequests.set(params.channel, { text: combinedText, updatedAt: Date.now() });
-    const question = externalTradingClarificationQuestion(route);
-    appendExternalTradingAgentMessage(params.threadId, params.channel, params.messageId, question);
-    await sendExternalTradingReply(params.threadId, params.channel, params.messageId, question);
-    rememberExternalChannelHandledMessage(params.channel, params.messageId);
-    return true;
-  }
-  await sendExternalTradingProcessingAck(params.threadId, params.channel, params.messageId);
-  try {
-    const result = await runExternalTradingStrategyAnalysis(route, combinedText, params.threadId);
-    const replyText = externalTradingResultText(route, result);
-    pendingExternalTradingRequests.delete(params.channel);
-    appendExternalTradingAgentMessage(params.threadId, params.channel, params.messageId, replyText);
-    const chartAttachment = await captureExternalTradingChartAttachment(params.threadId);
-    await sendExternalTradingReply(
-      params.threadId,
-      params.channel,
-      params.messageId,
-      replyText,
-      "final",
-      chartAttachment ? [chartAttachment] : [],
-    );
-  } catch (error) {
-    if (externalTradingClarificationError(error)) {
-      pendingExternalTradingRequests.set(params.channel, { text: combinedText, updatedAt: Date.now() });
-      const question = `这次${route.strategyId ? `${tradingStrategyById(route.strategyId)?.display.name || "策略"} ` : ""}分析暂时无法开始：${errorMessage(error)}。请补充或更换交易对、周期或范围后再试。`;
-      appendExternalTradingAgentMessage(params.threadId, params.channel, params.messageId, question);
-      await sendExternalTradingReply(params.threadId, params.channel, params.messageId, question);
-    } else {
-      const failure = `策略分析暂时失败：${errorMessage(error)}。你可以稍后重试，或补充交易对和周期。`;
-      appendExternalTradingAgentMessage(params.threadId, params.channel, params.messageId, failure);
-      await sendExternalTradingReply(params.threadId, params.channel, params.messageId, failure);
-    }
-  }
-  rememberExternalChannelHandledMessage(params.channel, params.messageId);
   return true;
-}
-
-function rememberExternalChannelHandledMessage(channel: ExternalChannelId, messageId: string) {
-  if (channel === "wechat") rememberWechatChannelHandledMessage(messageId);
-  else if (channel === "feishu") rememberFeishuChannelHandledMessage(messageId);
-  else rememberTelegramChannelHandledMessage(messageId);
 }
 
 function externalChannelReplyFailureMessage(response: unknown) {
@@ -12123,197 +11890,93 @@ function isTransientWechatChannelThreadHistoryError(error: unknown) {
   return errorMessage(error).toLowerCase().includes("no rollout found for thread id");
 }
 
-async function runWechatChannelAgent(threadId: string, text: string, beforeIds: Set<string>, visibleQuestion: string) {
+async function runIsolatedChannelAgent(channel: "wechat" | "feishu" | "telegram", threadId: string, text: string, beforeIds: Set<string>, visibleQuestion: string, attachments: MessageAttachment[] = [], messageId?: string) {
   await waitForWechatThreadIdle(threadId, WECHAT_CHANNEL_IDLE_WAIT_TIMEOUT_MS);
   const startedAtMs = Date.now();
+  const interactionId = crypto.randomUUID();
+  const record = { id: interactionId, cancelled: false };
+  let sendSequence = beginCodexSend(threadId);
+  activeChannelCodexInteractions.set(threadId, record);
   threadsAwaitingAgentReply.add(threadId);
-  setCodexThreadBusy(threadId, true);
+  setCodexThreadBusy(threadId, true, interactionId);
   setMembersWorking(threadId, true);
-  const sendSequence = beginCodexSend(threadId);
-  let activeThreadId = threadId;
-  let activeBeforeIds = beforeIds;
-  let activeTurnId: string | null = null;
-  if (await confirmInsufficientAvailableBalanceBeforeSend("wechat-channel-send")) {
-    endCodexSend(activeThreadId, sendSequence);
-    appendInsufficientQuotaAgentMessage(activeThreadId);
-    setCodexThreadBusy(activeThreadId, false);
-    setMembersWorking(activeThreadId, false);
-    return { threadId: activeThreadId, beforeIds: activeBeforeIds, text: INSUFFICIENT_QUOTA_MESSAGE, startedAtMs, turnId: activeTurnId };
-  }
+  let businessContextId: string | null = null;
+  const followPersistedThread = (nextThreadId?: string) => {
+    if (!nextThreadId || nextThreadId === threadId) return;
+    activeChannelCodexInteractions.delete(threadId);
+    threadsAwaitingAgentReply.delete(threadId);
+    setCodexThreadBusy(threadId, false, interactionId);
+    setMembersWorking(threadId, false);
+    endCodexSend(threadId, sendSequence);
+    threadId = nextThreadId;
+    sendSequence = beginCodexSend(threadId);
+    activeChannelCodexInteractions.set(threadId, record);
+    threadsAwaitingAgentReply.add(threadId);
+    setCodexThreadBusy(threadId, true, interactionId);
+    setMembersWorking(threadId, true);
+  };
   try {
-    rememberHiddenExternalChannelAgentPrompt(activeThreadId, text);
-    const result = await api.sendMessage({
-      threadId: activeThreadId,
-      text,
-      visibleQuestion,
-      sourceType: "wechat",
-      cwd: threadWorkspaceCwd(activeThreadId),
-      ...selectedChatModelRequestOptions(activeThreadId),
-      approvalPolicy: DESKTOP_APPROVAL_POLICY,
-      sandboxPolicy: DESKTOP_SANDBOX_POLICY,
+    if (await confirmInsufficientAvailableBalanceBeforeSend(channel + "-channel-send")) {
+      appendInsufficientQuotaAgentMessage(threadId);
+      return { threadId, beforeIds, text: INSUFFICIENT_QUOTA_MESSAGE, startedAtMs, turnId: interactionId };
+    }
+    if (!api.sendChannelCodexMessage) throw new Error("请重启开发客户端，加载独立渠道上下文功能。");
+    businessContextId = codexTradingTools.capture(attachments,
+      state.currentThreadId === threadId ? captureTradingExpertAnalysisTarget() : null);
+    const currentUserItem = messageId ? state.items[threadId]?.[`${channel}-user-${messageId}`] : null;
+    if (currentUserItem) followPersistedThread((await persistTradingExpertTranscriptItems(threadId, [currentUserItem]))?.threadId);
+    if (record.cancelled) return { threadId, beforeIds, text: WECHAT_CHANNEL_INTERRUPTED_REPLY_TEXT, startedAtMs, turnId: interactionId };
+    const result = await api.sendChannelCodexMessage({
+      channel, threadId, interactionId, text, visibleQuestion, attachments, businessContextId,
+      cwd: threadWorkspaceCwd(threadId), ...selectedChatModelRequestOptions(threadId),
     });
-    if (result?.replacementThread && firstString(result.replacedThreadId) === activeThreadId) {
-      activeThreadId = adoptReplacementCodexThread(activeThreadId, result.replacementThread, sendSequence);
-      rememberWechatChannelThreadId(activeThreadId);
-      await bindWechatChannelThread(activeThreadId);
-      activeBeforeIds = new Set(state.itemOrder[activeThreadId] || []);
-    }
-    const turnId = firstString(result?.turn?.id, result?.turnId, result?.turn_id);
-    if (turnId) {
-      activeTurnId = turnId;
-      setCodexThreadBusy(activeThreadId, true, turnId);
-    }
+    if (record.cancelled) return { threadId, beforeIds, text: WECHAT_CHANNEL_INTERRUPTED_REPLY_TEXT, startedAtMs, turnId: interactionId };
+    const item: CodexItem = { id: "channel-answer-" + interactionId, type: "agentMessage", phase: "final_answer",
+      turnId: interactionId, text: String(result?.text || ""), createdAt: new Date().toISOString() };
+    if (!item.text) throw new Error("Codex 未返回最终答复。");
+    upsertItem(threadId, item);
+    followPersistedThread((await persistTradingExpertTranscriptItems(threadId, [item]))?.threadId);
+    for (const turn of result?.turnIds || []) externalChannelRecoveryTurns.link(threadId, interactionId, String(turn));
+    return { threadId, beforeIds, text: newAgentReplyText(threadId, beforeIds, { turnId: interactionId }), startedAtMs, turnId: interactionId };
   } catch (error) {
+    if (record.cancelled) return { threadId, beforeIds, text: WECHAT_CHANNEL_INTERRUPTED_REPLY_TEXT, startedAtMs, turnId: interactionId };
     if (isInsufficientQuotaError(error)) {
-      appendInsufficientQuotaAgentMessage(activeThreadId);
-    } else {
-      addSystemItem(activeThreadId, `微信消息发送给智能体失败：${errorMessage(error)}`);
+      appendInsufficientQuotaAgentMessage(threadId);
+      return { threadId, beforeIds, text: INSUFFICIENT_QUOTA_MESSAGE, startedAtMs, turnId: interactionId };
     }
-    setCodexThreadBusy(activeThreadId, false);
-    setMembersWorking(activeThreadId, false);
-    if (isInsufficientQuotaError(error)) {
-      return { threadId: activeThreadId, beforeIds: activeBeforeIds, text: INSUFFICIENT_QUOTA_MESSAGE, startedAtMs, turnId: activeTurnId };
-    }
+    addSystemItem(threadId, "渠道消息处理失败：" + errorMessage(error));
     throw error;
   } finally {
-    endCodexSend(activeThreadId, sendSequence);
+    if (businessContextId) codexTradingTools.release(businessContextId);
+    if (activeChannelCodexInteractions.get(threadId) === record) {
+      activeChannelCodexInteractions.delete(threadId);
+      threadsAwaitingAgentReply.delete(threadId);
+      setCodexThreadBusy(threadId, false, interactionId);
+      setMembersWorking(threadId, false);
+    }
+    endCodexSend(threadId, sendSequence);
   }
-  const replyText = await waitForNewAgentReply(activeThreadId, activeBeforeIds, WECHAT_CHANNEL_REPLY_WAIT_TIMEOUT_MS, {
-    startedAtMs,
-    turnId: activeTurnId,
-  });
-  return { threadId: activeThreadId, beforeIds: activeBeforeIds, text: replyText, startedAtMs, turnId: activeTurnId };
 }
 
-async function runFeishuChannelAgent(threadId: string, text: string, beforeIds: Set<string>, visibleQuestion: string) {
-  await waitForWechatThreadIdle(threadId, WECHAT_CHANNEL_IDLE_WAIT_TIMEOUT_MS);
-  const startedAtMs = Date.now();
-  threadsAwaitingAgentReply.add(threadId);
-  setCodexThreadBusy(threadId, true);
-  setMembersWorking(threadId, true);
-  const sendSequence = beginCodexSend(threadId);
-  let activeThreadId = threadId;
-  let activeBeforeIds = beforeIds;
-  let activeTurnId: string | null = null;
-  if (await confirmInsufficientAvailableBalanceBeforeSend("feishu-channel-send")) {
-    endCodexSend(activeThreadId, sendSequence);
-    appendInsufficientQuotaAgentMessage(activeThreadId);
-    setCodexThreadBusy(activeThreadId, false);
-    setMembersWorking(activeThreadId, false);
-    return { threadId: activeThreadId, beforeIds: activeBeforeIds, text: INSUFFICIENT_QUOTA_MESSAGE, startedAtMs, turnId: activeTurnId };
-  }
-  try {
-    rememberHiddenExternalChannelAgentPrompt(activeThreadId, text);
-    const result = await api.sendMessage({
-      threadId: activeThreadId,
-      text,
-      visibleQuestion,
-      sourceType: "feishu",
-      cwd: threadWorkspaceCwd(activeThreadId),
-      ...selectedChatModelRequestOptions(activeThreadId),
-      approvalPolicy: DESKTOP_APPROVAL_POLICY,
-      sandboxPolicy: DESKTOP_SANDBOX_POLICY,
-    });
-    if (result?.replacementThread && firstString(result.replacedThreadId) === activeThreadId) {
-      activeThreadId = adoptReplacementCodexThread(activeThreadId, result.replacementThread, sendSequence);
-      rememberFeishuChannelThreadId(activeThreadId);
-      await bindFeishuChannelThread(activeThreadId);
-      activeBeforeIds = new Set(state.itemOrder[activeThreadId] || []);
-    }
-    const turnId = firstString(result?.turn?.id, result?.turnId, result?.turn_id);
-    if (turnId) {
-      activeTurnId = turnId;
-      setCodexThreadBusy(activeThreadId, true, turnId);
-    }
-  } catch (error) {
-    if (isInsufficientQuotaError(error)) {
-      appendInsufficientQuotaAgentMessage(activeThreadId);
-    } else {
-      addSystemItem(activeThreadId, `飞书消息发送给智能体失败：${errorMessage(error)}`);
-    }
-    setCodexThreadBusy(activeThreadId, false);
-    setMembersWorking(activeThreadId, false);
-    if (isInsufficientQuotaError(error)) {
-      return { threadId: activeThreadId, beforeIds: activeBeforeIds, text: INSUFFICIENT_QUOTA_MESSAGE, startedAtMs, turnId: activeTurnId };
-    }
-    throw error;
-  } finally {
-    endCodexSend(activeThreadId, sendSequence);
-  }
-  const replyText = await waitForNewAgentReply(activeThreadId, activeBeforeIds, WECHAT_CHANNEL_REPLY_WAIT_TIMEOUT_MS, {
-    startedAtMs,
-    turnId: activeTurnId,
-  });
-  return { threadId: activeThreadId, beforeIds: activeBeforeIds, text: replyText, startedAtMs, turnId: activeTurnId };
+async function runWechatChannelAgent(threadId: string, text: string, beforeIds: Set<string>, visibleQuestion: string, attachments: MessageAttachment[] = [], messageId?: string) {
+  return runIsolatedChannelAgent("wechat", threadId, text, beforeIds, visibleQuestion, attachments, messageId);
 }
 
-async function runTelegramChannelAgent(threadId: string, text: string, beforeIds: Set<string>, visibleQuestion: string) {
-  await waitForWechatThreadIdle(threadId, WECHAT_CHANNEL_IDLE_WAIT_TIMEOUT_MS);
-  const startedAtMs = Date.now();
-  threadsAwaitingAgentReply.add(threadId);
-  setCodexThreadBusy(threadId, true);
-  setMembersWorking(threadId, true);
-  const sendSequence = beginCodexSend(threadId);
-  let activeThreadId = threadId;
-  let activeBeforeIds = beforeIds;
-  let activeTurnId: string | null = null;
-  if (await confirmInsufficientAvailableBalanceBeforeSend("telegram-channel-send")) {
-    endCodexSend(activeThreadId, sendSequence);
-    appendInsufficientQuotaAgentMessage(activeThreadId);
-    setCodexThreadBusy(activeThreadId, false);
-    setMembersWorking(activeThreadId, false);
-    return { threadId: activeThreadId, beforeIds: activeBeforeIds, text: INSUFFICIENT_QUOTA_MESSAGE, startedAtMs, turnId: activeTurnId };
-  }
-  try {
-    rememberHiddenExternalChannelAgentPrompt(activeThreadId, text);
-    const result = await api.sendMessage({
-      threadId: activeThreadId,
-      text,
-      visibleQuestion,
-      sourceType: "telegram",
-      cwd: threadWorkspaceCwd(activeThreadId),
-      ...selectedChatModelRequestOptions(activeThreadId),
-      approvalPolicy: DESKTOP_APPROVAL_POLICY,
-      sandboxPolicy: DESKTOP_SANDBOX_POLICY,
-    });
-    if (result?.replacementThread && firstString(result.replacedThreadId) === activeThreadId) {
-      activeThreadId = adoptReplacementCodexThread(activeThreadId, result.replacementThread, sendSequence);
-      rememberTelegramChannelThreadId(activeThreadId);
-      await bindTelegramChannelThread(activeThreadId);
-      activeBeforeIds = new Set(state.itemOrder[activeThreadId] || []);
-    }
-    const turnId = firstString(result?.turn?.id, result?.turnId, result?.turn_id);
-    if (turnId) {
-      activeTurnId = turnId;
-      setCodexThreadBusy(activeThreadId, true, turnId);
-    }
-  } catch (error) {
-    if (isInsufficientQuotaError(error)) {
-      appendInsufficientQuotaAgentMessage(activeThreadId);
-    } else {
-      addSystemItem(activeThreadId, `Telegram 消息发送给智能体失败：${errorMessage(error)}`);
-    }
-    setCodexThreadBusy(activeThreadId, false);
-    setMembersWorking(activeThreadId, false);
-    if (isInsufficientQuotaError(error)) {
-      return { threadId: activeThreadId, beforeIds: activeBeforeIds, text: INSUFFICIENT_QUOTA_MESSAGE, startedAtMs, turnId: activeTurnId };
-    }
-    throw error;
-  } finally {
-    endCodexSend(activeThreadId, sendSequence);
-  }
-  const replyText = await waitForNewAgentReply(activeThreadId, activeBeforeIds, WECHAT_CHANNEL_REPLY_WAIT_TIMEOUT_MS, {
-    startedAtMs,
-    turnId: activeTurnId,
-  });
-  return { threadId: activeThreadId, beforeIds: activeBeforeIds, text: replyText, startedAtMs, turnId: activeTurnId };
+async function runFeishuChannelAgent(threadId: string, text: string, beforeIds: Set<string>, visibleQuestion: string, attachments: MessageAttachment[] = [], messageId?: string) {
+  return runIsolatedChannelAgent("feishu", threadId, text, beforeIds, visibleQuestion, attachments, messageId);
+}
+
+async function runTelegramChannelAgent(threadId: string, text: string, beforeIds: Set<string>, visibleQuestion: string, attachments: MessageAttachment[] = [], messageId?: string) {
+  return runIsolatedChannelAgent("telegram", threadId, text, beforeIds, visibleQuestion, attachments, messageId);
 }
 
 async function waitForWechatThreadIdle(threadId: string, timeoutMs: number) {
   const started = Date.now();
-  while (hasThreadCodexWork(threadId) && Date.now() - started < timeoutMs) {
+  const busy = () => hasThreadCodexWork(threadId) || activeChannelCodexInteractions.has(threadId);
+  while (busy() && Date.now() - started < timeoutMs) {
     await waitMs(500);
   }
+  if (busy()) throw new Error("The previous channel request is still stopping or running.");
 }
 
 type WechatChannelReplyScope = {
@@ -12445,7 +12108,7 @@ async function recentExternalChannelArtifactAttachments(threadId: string, scope:
       limit: WECHAT_CHANNEL_REPLY_ATTACHMENT_LIMIT * 2,
     });
     return arrayFromResponse<ArtifactItem>(result)
-      .filter((artifact) => externalChannelArtifactMatchesReplyScope(artifact, scope, sinceMs))
+      .filter((artifact) => externalChannelArtifactMatchesReplyScope(artifact, scope, sinceMs, threadId))
       .map(attachmentFromArtifact)
       .filter((attachment): attachment is MessageAttachment => externalChannelAttachmentIsDeliverable(attachment));
   } catch {
@@ -12453,11 +12116,12 @@ async function recentExternalChannelArtifactAttachments(threadId: string, scope:
   }
 }
 
-function externalChannelArtifactMatchesReplyScope(artifact: ArtifactItem, scope: WechatChannelReplyScope, sinceMs: number) {
+function externalChannelArtifactMatchesReplyScope(artifact: ArtifactItem, scope: WechatChannelReplyScope, sinceMs: number, threadId?: string) {
   if (!isVisibleLibraryArtifact(artifact)) return false;
   const artifactTurnId = firstString((artifact as any).turnId, (artifact as any).turn_id);
   const expectedTurnId = firstString(scope.turnId);
-  if (expectedTurnId && artifactTurnId) return artifactTurnId === expectedTurnId;
+  if (expectedTurnId && artifactTurnId) return artifactTurnId === expectedTurnId ||
+    Boolean(threadId && externalChannelRecoveryTurns.matches(threadId, expectedTurnId, artifactTurnId));
   const timestampMs = Math.max(parseLibraryTimeMs(artifact.created_at), parseLibraryTimeMs((artifact as any).updated_at));
   return timestampMs >= sinceMs;
 }
@@ -12513,7 +12177,14 @@ type WechatChannelExternalReply = {
 };
 
 function newAgentReplyText(threadId: string, beforeIds: Set<string>, scope: WechatChannelReplyScope = {}) {
-  return wechatChannelFinalExternalReply(wechatChannelReplyCandidates(threadId, beforeIds, scope)).text;
+  const finalText = wechatChannelFinalExternalReply(wechatChannelReplyCandidates(threadId, beforeIds, scope)).text;
+  const reports = (state.itemOrder[threadId] || [])
+    .filter(id => !beforeIds.has(id))
+    .map(id => state.items[threadId]?.[id])
+    .filter(item => item?.type === "agentMessage" && item.__youleExecutionPlanPresentation && wechatChannelAgentItemMatchesReplyScope(item, scope, threadId))
+    .map(item => assistantVisibleText(itemText(item)).trim())
+    .filter(text => text && !finalText.includes(text));
+  return [...new Set([...reports, finalText].filter(Boolean))].join("\n\n");
 }
 
 function wechatChannelReplyCandidates(threadId: string, beforeIds: Set<string>, scope: WechatChannelReplyScope = {}): WechatChannelReplyCandidate[] {
@@ -12522,24 +12193,25 @@ function wechatChannelReplyCandidates(threadId: string, beforeIds: Set<string>, 
     .map((id) => {
       const item = state.items[threadId]?.[id];
       const text = item?.type === "agentMessage" ? assistantVisibleText(itemText(item)).trim() : "";
-      return item && item.type === "agentMessage" && text && wechatChannelCanUseAgentItemForExternalReply(item, scope)
+      return item && item.type === "agentMessage" && text && wechatChannelCanUseAgentItemForExternalReply(item, scope, threadId)
         ? { id, item, phase: wechatChannelAgentItemPhase(item), text, segment: wechatChannelFinalExternalReplySegment(text) }
         : null;
     })
     .filter((candidate): candidate is WechatChannelReplyCandidate => candidate !== null);
 }
 
-function wechatChannelCanUseAgentItemForExternalReply(item: CodexItem, scope: WechatChannelReplyScope = {}) {
-  if (!wechatChannelAgentItemMatchesReplyScope(item, scope)) return false;
+function wechatChannelCanUseAgentItemForExternalReply(item: CodexItem, scope: WechatChannelReplyScope = {}, threadId?: string) {
+  if (!wechatChannelAgentItemMatchesReplyScope(item, scope, threadId)) return false;
   const phase = wechatChannelAgentItemPhase(item);
   return phase !== "commentary";
 }
 
-function wechatChannelAgentItemMatchesReplyScope(item: CodexItem, scope: WechatChannelReplyScope) {
+function wechatChannelAgentItemMatchesReplyScope(item: CodexItem, scope: WechatChannelReplyScope, threadId?: string) {
   const expectedTurnId = firstString(scope.turnId);
   if (!expectedTurnId) return true;
   const itemTurn = itemTurnId(item);
-  if (itemTurn) return itemTurn === expectedTurnId;
+  if (itemTurn) return itemTurn === expectedTurnId ||
+    Boolean(threadId && externalChannelRecoveryTurns.matches(threadId, expectedTurnId, itemTurn));
   return false;
 }
 
@@ -13598,31 +13270,16 @@ function userMessageDisplayParts(item: CodexItem): { text: string; quote: Messag
   };
 }
 
-async function steerExternalChannelBusyMessage(
+async function stopExternalChannelBusyMessage(
   channel: "wechat" | "feishu" | "telegram",
   message: any,
   threadId: string,
 ) {
-  if (typeof api.steerTurn !== "function") throw new Error("turn/steer is unavailable");
   const messageId = firstString(message?.id, message?.message_id, message?.messageId);
   const text = wechatChannelMessageText(message);
-  const attachments = wechatChannelMessageFileAttachments(message);
-  if (!messageId || (!text && !attachments.length)) throw new Error("补充消息为空");
-  const explicitText = wechatChannelExplicitInstructionText(text, attachments);
-  const agentText = wechatChannelAgentTextWithAttachments(explicitText, attachments);
-  const visibleQuestion = consumptionVisibleQuestion(explicitText, attachments);
-  const targetTurnId = activeTurnIdForThread(threadId);
-  if (!targetTurnId || !hasThreadCodexWork(threadId)) throw new Error("上一轮已经结束");
-  const supplementId = `${channel}-${messageId}`;
-  const steerText = conversationSupplementSteerText(agentText, supplementId);
-  await api.steerTurn({
-    threadId,
-    expectedTurnId: targetTurnId,
-    clientUserMessageId: supplementId,
-    text: steerText,
-    visibleQuestion,
-    input: [{ type: "text", text: steerText, textElements: [] }],
-  });
+  if (!messageId || !wechatChannelMessageRequestsStop(text)) return;
+  await interruptCurrentTurn(threadId, `${channel}-stop`);
+  await api.replyExternalChannelMessage?.({ channel, messageId, text: WECHAT_CHANNEL_STOP_ACK_TEXT, attachments: [] });
   if (channel === "wechat") rememberWechatChannelHandledMessage(messageId);
   else if (channel === "feishu") rememberFeishuChannelHandledMessage(messageId);
   else rememberTelegramChannelHandledMessage(messageId);
@@ -18437,12 +18094,13 @@ function isTradingExpertConversationCollapseLocked(threadId: string | null | und
       && (
         submittingComposerThreadIds.has(threadId)
         || tradingExpertThinkingStateByThreadId.has(threadId)
-        || isThreadBusy(threadId)
+        || (isThreadBusy(threadId) && !hasActiveCompletedTradingAnalysis(threadId))
       ),
   );
 }
 
 function isConversationThreadWorking(threadId: string | null | undefined) {
+  if (hasActiveCompletedTradingAnalysis(threadId)) return false;
   return (
     isThreadBusy(threadId) ||
     isProviderThreadBusy(threadId) ||
@@ -18455,10 +18113,30 @@ function isConversationThreadWorking(threadId: string | null | undefined) {
 }
 
 function isComposerThreadBusy(threadId: string | null | undefined) {
+  if (hasActiveCompletedTradingAnalysis(threadId)) return false;
   return (
     isThreadBusy(threadId) ||
     Boolean(threadId && localGroupChatBusyThreadIds.has(threadId))
   );
+}
+
+function completedTradingAnalysisForTurn(threadId: string, turnId: string | null) {
+  return completedTradingAnalysisReport(
+    (state.itemOrder[threadId] || []).map(id => state.items[threadId]?.[id]),
+    turnId,
+  );
+}
+
+function hasActiveCompletedTradingAnalysis(threadId: string | null | undefined) {
+  // Only the standalone Codex conversation can safely queue a new send while
+  // its transport finishes. Provider/group/workflow runners retain their own
+  // busy contracts, as do new analysis jobs already in progress.
+  if (!threadId || !isTradingExpertSurfaceThreadId(threadId)
+    || isProviderThreadBusy(threadId) || activeWorkflowRunForThread(threadId)
+    || localGroupChatBusyThreadIds.has(threadId) || submittingComposerThreadIds.has(threadId)
+    || tradingExpertThinkingStateByThreadId.has(threadId)) return false;
+  return Boolean(activeCodexThreadIds.has(threadId)
+    && completedTradingAnalysisForTurn(threadId, activeTurnIdForThread(threadId)));
 }
 
 function hasThreadCodexSendInFlight(threadId: string | null | undefined) {
@@ -18566,6 +18244,7 @@ function conversationSupplementRoutingStateForThread(threadId: string | null | u
 }
 
 function isConversationSupplementWindowOpen(threadId: string | null | undefined) {
+  if (hasActiveCompletedTradingAnalysis(threadId)) return false;
   return shouldOpenConversationSupplementWindow(conversationSupplementRoutingStateForThread(threadId));
 }
 
@@ -21294,7 +20973,7 @@ function forgetThreadContextUsage(threadId: string) {
   delete state.threadContextUsage[threadId];
   contextCompactionPromises.delete(threadId);
   contextCompactionStartedAtMs.delete(threadId);
-  contextWindowRecoveryReplays.delete(threadId);
+  clearContextWindowRecoveryReplay(threadId);
   contextWindowRecoveryPromises.delete(threadId);
   localProxyRecoveryPromises.delete(threadId);
 }
@@ -22468,6 +22147,7 @@ function handleNotification(message: JsonRpcMessage) {
         ? notificationFailureReason(message)
         : null;
       const automaticRecovery = automaticTurnRecoveryMeta(message);
+      if (threadId) externalChannelRecoveryTurns.note(threadId, completedTurnId, automaticRecovery);
       const automaticRecoveryQueued = Boolean(
         completedTurnFailed && automaticTurnRecoveryIsQueued(automaticRecovery),
       );
@@ -22620,6 +22300,7 @@ function handleNotification(message: JsonRpcMessage) {
         rememberTurnResultStatus(threadId, failedTurnId, "failed", formatTurnFailureMessage(reason, automaticRecovery));
         break;
       }
+      if (threadId) externalChannelRecoveryTurns.note(threadId, failedTurnId, automaticRecovery);
       if (threadId && (automaticRecoveryQueued || automaticRecovery?.status === "exhausted")) announceAutomaticTurnRecovery(threadId, automaticRecovery);
       // HAOLO-TURN-DIAGNOSTICS-BEGIN: removable failed-turn lookup
       const failedTurnDiagnosticId = diagnosticIdForTurn(threadId, failedTurnId, message);
@@ -22695,6 +22376,11 @@ function handleNotification(message: JsonRpcMessage) {
         const turnId = notificationTurnId(message);
         const activeTurnId = activeTurnIdForThread(threadId);
         if (turnId && activeTurnId && turnId !== activeTurnId) break;
+        externalChannelRecoveryTurns.note(threadId, turnId, recovery);
+        if (recovery?.status === "starting") {
+          const replay = contextWindowRecoveryReplays.get(threadId);
+          if (replay) replay.turnId = null;
+        }
         if (recovery?.status === "exhausted") {
           const error = formatTurnFailureMessage(null, recovery);
           const settled = settleUnfinishedContextCompactions(threadId, turnId, error);
@@ -23188,12 +22874,17 @@ function armContextWindowRecoveryReplay(
   visibleQuestion: string,
   threadReferences: ComposerThreadReference[],
   options: {
+    businessContextId?: string;
     replayCount?: number;
     localProxyRecoveryReplayCount?: number;
     failedTurnId?: string | null;
   } = {},
 ) {
   const previous = contextWindowRecoveryReplays.get(threadId);
+  if (previous?.businessContextId !== options.businessContextId) {
+    if (previous?.businessContextId) codexTradingTools.unhold(previous.businessContextId);
+    if (options.businessContextId) codexTradingTools.hold(options.businessContextId);
+  }
   const replayCount = Math.max(0, Math.floor(options.replayCount ?? 0));
   const localProxyRecoveryReplayCount = Math.max(
     0,
@@ -23201,6 +22892,7 @@ function armContextWindowRecoveryReplay(
   );
   const replay: ContextWindowRecoveryReplay = {
     threadId,
+    businessContextId: options.businessContextId,
     agentText,
     visibleQuestion,
     threadReferences: cloneComposerThreadReferences(threadReferences),
@@ -23220,6 +22912,7 @@ function bindContextWindowRecoveryReplayTurn(threadId: string, turnId?: string |
   if (!id || !replay || replay.status === "recovering" || contextCompactionPromises.has(threadId)) return false;
   if (replay.turnId && replay.turnId !== id) return false;
   replay.turnId = id;
+  if (replay.failedTurnId) externalChannelRecoveryTurns.link(threadId, replay.failedTurnId, id);
   const context = ensureThreadContextUsage(threadId);
   if (context.awaitingPostRecoveryUsage) {
     context.postRecoveryUsageTurnId = id;
@@ -23232,6 +22925,7 @@ function clearContextWindowRecoveryReplay(threadId: string, turnId?: string | nu
   const id = firstString(turnId);
   if (!replay || (id && replay.turnId && replay.turnId !== id)) return false;
   contextWindowRecoveryReplays.delete(threadId);
+  if (replay.businessContextId) codexTradingTools.unhold(replay.businessContextId);
   return true;
 }
 
@@ -23244,7 +22938,7 @@ function queueContextWindowRecovery(
   const id = firstString(failedTurnId);
   if (id && replay?.failedTurnId === id) return true;
   if (replay && !canReplayContextWindowFailure(replay.replayCount)) {
-    contextWindowRecoveryReplays.delete(threadId);
+    clearContextWindowRecoveryReplay(threadId);
     return false;
   }
   if (contextWindowRecoveryPromises.has(threadId)) return true;
@@ -23260,7 +22954,7 @@ function queueContextWindowRecovery(
     .then(() => recoverContextWindowFailure(threadId, replay, reason))
     .catch((error) => {
       if (contextWindowRecoveryReplays.get(threadId) === replay) {
-        contextWindowRecoveryReplays.delete(threadId);
+        clearContextWindowRecoveryReplay(threadId);
       }
       appendAgentNotice(threadId, `上下文自动恢复失败：${errorMessage(error)}。请重试。`);
       scheduleProtectedRender({ sourceThreadId: threadId });
@@ -23285,7 +22979,7 @@ async function recoverContextWindowFailure(
   const compacted = await requestAutomaticThreadContextCompaction(threadId);
   if (contextWindowRecoveryReplays.get(threadId) !== replay) return;
   if (!compacted) {
-    contextWindowRecoveryReplays.delete(threadId);
+    clearContextWindowRecoveryReplay(threadId);
     const continuationPrepared = await prepareThreadContinuationAfterCompactionFailure(
       threadId,
       ensureThreadContextUsage(threadId).lastCompactionError || failureReason,
@@ -23304,7 +22998,7 @@ async function recoverContextWindowFailure(
   );
   if (contextWindowRecoveryReplays.get(threadId) !== replay) return;
   if (!referencePreparation.ok) {
-    contextWindowRecoveryReplays.delete(threadId);
+    clearContextWindowRecoveryReplay(threadId);
     appendAgentNotice(threadId, "上下文已整理，但引用会话恢复失败。请重试。");
     scheduleProtectedRender({ sourceThreadId: threadId });
     return;
@@ -23322,6 +23016,7 @@ async function recoverContextWindowFailure(
     referencePreparation.preparationId,
     replay.visibleQuestion,
     {
+      businessContextId: replay.businessContextId,
       contextWindowRecoveryReplayCount: replay.replayCount + 1,
       contextWindowRecoveryFailedTurnId: replay.failedTurnId,
       localProxyRecoveryReplayCount: replay.localProxyRecoveryReplayCount,
@@ -23358,7 +23053,7 @@ function queueLocalProxyRecovery(
     .then(() => recoverLocalProxyFailure(threadId, replay, reason))
     .catch((error) => {
       if (contextWindowRecoveryReplays.get(threadId) === replay) {
-        contextWindowRecoveryReplays.delete(threadId);
+        clearContextWindowRecoveryReplay(threadId);
       }
       appendAgentNotice(threadId, `代理自动恢复失败：${errorMessage(error)}。请重试。`);
       scheduleProtectedRender({ sourceThreadId: threadId });
@@ -23386,7 +23081,7 @@ async function recoverLocalProxyFailure(
   });
   if (contextWindowRecoveryReplays.get(threadId) !== replay) return;
   if (!result?.recovered) {
-    contextWindowRecoveryReplays.delete(threadId);
+    clearContextWindowRecoveryReplay(threadId);
     const deferred = result?.reason === "other-turns-active";
     appendAgentNotice(
       threadId,
@@ -23405,7 +23100,7 @@ async function recoverLocalProxyFailure(
   );
   if (contextWindowRecoveryReplays.get(threadId) !== replay) return;
   if (!referencePreparation.ok) {
-    contextWindowRecoveryReplays.delete(threadId);
+    clearContextWindowRecoveryReplay(threadId);
     appendAgentNotice(threadId, "代理已自动恢复，但引用会话恢复失败。请重试。");
     scheduleProtectedRender({ sourceThreadId: threadId });
     return;
@@ -23424,6 +23119,7 @@ async function recoverLocalProxyFailure(
     referencePreparation.preparationId,
     replay.visibleQuestion,
     {
+      businessContextId: replay.businessContextId,
       contextWindowRecoveryReplayCount: replay.replayCount,
       contextWindowRecoveryFailedTurnId: replay.failedTurnId,
       localProxyRecoveryReplayCount: replay.localProxyRecoveryReplayCount + 1,
@@ -24024,6 +23720,14 @@ function rememberInternalSubagentThreadsFromItem(parentThreadId: string, item: C
 }
 
 function upsertItem(threadId: string, item: CodexItem, options: { updateThreadPreview?: boolean } = {}) {
+  item = codexTradingTools.bindPresentation(threadId, item);
+  if (item.type === "mcpToolCall" || item.type === "dynamicToolCall") {
+    for (const presentation of businessPresentationItems(item)) upsertItem(threadId, presentation, options);
+    const analysisJobId = businessPresentationResult(item)?.result?.analysisJobId;
+    if (analysisJobId && item.status === "completed") {
+      void api.tradingCloudRecovery?.("acknowledgeGroup", analysisJobId).catch(() => {});
+    }
+  }
   rememberInternalSubagentThreadsFromItem(threadId, item);
   if (internalSubagentThreadIds.has(threadId)) return;
   ensureThreadState(threadId);
@@ -26471,6 +26175,7 @@ async function requestLocalGroupChatHaoloAgentReply(
       throw new Error("群聊中的 Haolo Agent 需要可用的 GPT 执行模型");
     }
     const result = await api.sendMessage({
+      businessContextId: codexTradingTools.capture([], null),
       threadId: internalThreadId,
       text: params.agentText,
       visibleQuestion: params.visibleQuestion,
@@ -26627,6 +26332,7 @@ async function requestLocalGroupChatMemberReply(params: {
           }),
         }
       : await api.sendProviderChat!({
+          businessContextId: codexTradingTools.capture(params.readyAttachments, null),
           provider: params.coordination.assignment.provider,
           model,
           text: params.agentText,
@@ -27337,85 +27043,17 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
   if (threadId === state.currentThreadId && isTradingExpertSurfaceThreadId(threadId)) {
     collapseTradingExpertWatchlist();
   }
-  const tradingExpertRoutingText = isTradingExpertExecutionThreadId(threadId)
-    ? canonicalizeTradingExpertMentionText(text)
-    : text;
-  const tradingStrategiesAtSend = isTradingExpertExecutionThreadId(threadId)
-    ? tradingStrategiesMentionedByText(tradingExpertRoutingText)
-    : [];
-  if (tradingStrategiesAtSend.length > MAX_TRADING_STRATEGY_MENTIONS) {
-    showToast(translateAppText("最多同时选择3个不同策略。", state.settings.language), 3600);
-    return;
+  if (!state.serverReady && isBlankNewThread(threadId) && !isLocalBlankThreadId(threadId)) {
+    if (!(await ensureServerReadyForComposerSend())) return;
   }
-  const tradingStrategyAtSend = isTradingExpertExecutionThreadId(threadId)
-    ? tradingStrategiesAtSend[0] || tradingStrategyMentionedByText(tradingExpertRoutingText)
-    : null;
-  const tradingStrategiesToRunAtSend = tradingStrategiesAtSend.length
-    ? tradingStrategiesAtSend
-    : tradingStrategyAtSend
-      ? [tradingStrategyAtSend]
-      : [];
-  const personalStrategyConversationAtSend = isTradingExpertExecutionThreadId(threadId)
-    ? personalStrategyConversationStateForThread(threadId)
-    : null;
-  const explicitPersonalStrategyCreationAtSend = isPersonalStrategyCreationCommand(text);
-  const explicitTradingAlertAtSend = tradingAlertMentioned(tradingExpertRoutingText);
-  const personalStrategyCandidateAtSend = isTradingExpertExecutionThreadId(threadId)
-    && !tradingStrategyAtSend
-    && (explicitPersonalStrategyCreationAtSend
-      || (!explicitTradingAlertAtSend && Boolean(personalStrategyConversationAtSend)
-        && (personalStrategyConversationAtSend?.stage !== "active" || personalStrategyFeedbackIntent(text))));
-  const tradingAlertCandidateAtSend = isTradingExpertExecutionThreadId(threadId)
-    && !tradingStrategyAtSend
-    && !explicitPersonalStrategyCreationAtSend
-    && (explicitTradingAlertAtSend || Boolean(tradingAlertConversationStateForThread(threadId)));
-  const tradingGeneralCandidateAtSend = isTradingExpertExecutionThreadId(threadId)
-    && !tradingStrategyAtSend
-    && !personalStrategyCandidateAtSend
-    && !tradingAlertCandidateAtSend;
-  let tradingAnalysisTargetAtSend: TradingAnalysisTaskTarget | null = (
-    tradingStrategyAtSend || tradingGeneralCandidateAtSend
-  )
-    ? captureTradingExpertAnalysisTarget()
-    : null;
-  if (
-    isTradingExpertExecutionThreadId(threadId)
-    && tradingPreferenceOnboardingByThreadId.has(threadId)
-    && await handleTradingPreferenceOnboardingReply(threadId, text, input || null)
-  ) {
-    releaseTradingExpertAnalysisTarget(tradingAnalysisTargetAtSend);
-    return;
-  }
-  if (
-    isTradingExpertExecutionThreadId(threadId)
-    && tradingAlertCandidateAtSend
-    && !inMemoryTradingAlertConversationForThread(threadId)
-    && !state.tradingAlerts.loaded
-    && api.tradingAlertsSnapshot
-  ) {
-    await refreshTradingAlerts();
-  }
-  let tradingStrategyRequestAtSend: TradingStrategyRequest | null = null;
-  const tradingStrategyRequestsAtSend: TradingStrategyRequest[] = [];
-  let tradingGeneralRequestAtSend: TradingGeneralRequest | null = null;
-  if (
-    !state.serverReady
-    && (
-      personalStrategyCandidateAtSend
-      || tradingAlertCandidateAtSend
-      || (isBlankNewThread(threadId) && !isLocalBlankThreadId(threadId))
-    )
-  ) {
-    if (!(await ensureServerReadyForComposerSend())) {
-      releaseTradingExpertAnalysisTarget(tradingAnalysisTargetAtSend);
-      return;
-    }
-  }
+  const tradingAnalysisTargetAtSend = captureTradingExpertAnalysisTarget();
+  const businessContextId = codexTradingTools.capture(state.attachments, tradingAnalysisTargetAtSend);
+  let businessContextHandedOff = false;
   recoverStaleCodexWorkForComposer(threadId);
   if (isConversationSupplementWindowOpen(threadId)) {
     const supplementDisposition = await sendConversationSupplementFromComposer(threadId, input, text);
     if (supplementDisposition !== "send-as-follow-up") {
-      releaseTradingExpertAnalysisTarget(tradingAnalysisTargetAtSend);
+      codexTradingTools.release(businessContextId);
       return;
     }
   }
@@ -27427,7 +27065,6 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
   submittingComposerThreadIds.add(originalThreadId);
   expandSystemDashboardForNewMessage();
   let pendingSend: PendingComposerSendState | null = null;
-  let tradingSendThinkingState: TradingExpertThinkingState | undefined;
   try {
     const snapshotAttachments = cloneLocalAttachments(state.attachments);
     const submissionSnapshotAttachments =
@@ -27439,113 +27076,30 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
     // so the bubble must not depend on compaction completing successfully.
     if (!submissionSnapshotAttachments.some((attachment) => attachment.uploadStatus === "error")) {
       pendingSend = beginPendingComposerSend(threadId, text, submissionSnapshotAttachments, snapshotQuote, snapshotThreadReferences, input);
-      if (tradingStrategyAtSend) clearTradingExpertComposerAfterSend(threadId);
-      else if (personalStrategyCandidateAtSend) clearTradingExpertComposerAfterSend(threadId);
-      else if (tradingAlertCandidateAtSend) clearTradingExpertComposerAfterSend(threadId);
-      else if (tradingGeneralCandidateAtSend) clearTradingExpertComposerAfterSend(threadId);
+      clearTradingExpertComposerAfterSend(threadId);
       // The local item must exist before the blank thread is assigned to a
       // non-default group, but both mutations must finish before the first
       // render so the row never flashes in the history section.
       commitSelectedNewThreadGroupForSend(threadId, composerGroupIdForSend);
       if (revealThreadGroupForComposerSend(threadId)) saveThreadPreferences();
       state.error = null;
-      if (tradingStrategyAtSend || personalStrategyCandidateAtSend || tradingAlertCandidateAtSend || tradingGeneralCandidateAtSend) {
-        refreshTradingExpertConversationSurface(threadId);
-      } else {
-        render();
-      }
+      render();
     }
-    if (tradingStrategiesToRunAtSend.length) {
-      updateTradingExpertThinkingState(
-        originalThreadId,
-        "classifying",
-        tradingStrategiesToRunAtSend.length === 1
-          ? tradingStrategiesToRunAtSend[0].ui.classificationMessage
-          : `正在按顺序准备 ${tradingStrategiesToRunAtSend.length} 个策略分析。`,
-      );
-      tradingSendThinkingState = tradingExpertThinkingStateByThreadId.get(originalThreadId);
-      refreshTradingExpertConversationSurface(originalThreadId);
-      for (const strategy of tradingStrategiesToRunAtSend) {
-        tradingStrategyRequestAtSend = await classifyTradingStrategyForSend(
-          api,
-          strategy,
-          tradingExpertRoutingText,
-          snapshotAttachments.some(isImageAttachment),
-          hasTradingExpertCurrentAnalysis(strategy.id),
-          selectedChatModelValue(threadId),
-          threadModelSelection(threadId)?.userSelected === true,
-        );
-        tradingStrategyRequestsAtSend.push(tradingStrategyRequestAtSend);
-      }
-      tradingStrategyRequestAtSend = tradingStrategyRequestsAtSend[0] || null;
-      if (tradingStrategyRequestsAtSend.some((request) => request.mode === "chart-analysis")) {
-        // Keep immediate feedback visible while access, thread creation and
-        // transcript persistence finish. The analysis runner takes over next.
-        updateTradingExpertThinkingState(originalThreadId, "preparing", tradingStrategiesToRunAtSend[0].ui.preparingMessage);
-        tradingSendThinkingState = tradingExpertThinkingStateByThreadId.get(originalThreadId);
-      } else {
-        clearTradingExpertThinkingState(originalThreadId);
-      }
-      refreshTradingExpertConversationSurface(originalThreadId);
-    } else if (tradingGeneralCandidateAtSend) {
-      updateTradingExpertThinkingState(
-        originalThreadId,
-        "classifying",
-        "正在由大模型识别问题意图；需要盘面时将进入行情分析与画线智能体。",
-      );
-      tradingSendThinkingState = tradingExpertThinkingStateByThreadId.get(originalThreadId);
-      refreshTradingExpertConversationSurface(originalThreadId);
-      tradingGeneralRequestAtSend = await classifyTradingGeneralRequestForSend(
-        text,
-        snapshotAttachments.some(isImageAttachment),
-        hasTradingExpertCurrentAnalysis(),
-        selectedChatModelValue(threadId),
-        threadModelSelection(threadId)?.userSelected === true,
-      );
-      if (tradingGeneralRequestAtSend?.mode === "chart-analysis") {
-        updateTradingExpertThinkingState(originalThreadId, "preparing", "");
-        tradingSendThinkingState = tradingExpertThinkingStateByThreadId.get(originalThreadId);
-      } else {
-        clearTradingExpertThinkingState(originalThreadId);
-      }
-      refreshTradingExpertConversationSurface(originalThreadId);
-    }
-    if (
-      !tradingStrategyRequestsAtSend.some((request) => request.mode === "chart-analysis")
-      && !personalStrategyCandidateAtSend
-      && !tradingAlertCandidateAtSend
-      && tradingGeneralRequestAtSend?.mode !== "chart-analysis"
-    ) {
-      const initialBaseAgentText = workflowContractAtSend
-        ? workflowInvocationExecutionPrompt(text)
-        : composerAgentText(text, submissionSnapshotAttachments, snapshotQuote, snapshotThreadReferences);
-      const initialAgentText = tradingExpertAgentTextForSend(
-        originalThreadId,
-        text,
-        initialBaseAgentText,
-        tradingGeneralRequestAtSend,
-      );
-      const initialBudget = await prepareContextBudgetForSend(threadId, initialAgentText, { deferWhileBusy: true });
-      if (!initialBudget.ok) {
-        if (pendingSend) failPendingComposerSend(threadId, pendingSend.itemId, "发送前准备未通过");
-        render();
-        return;
-      }
+    const initialAgentText = workflowContractAtSend
+      ? workflowInvocationExecutionPrompt(text)
+      : composerAgentText(text, submissionSnapshotAttachments, snapshotQuote, snapshotThreadReferences);
+    const initialBudget = await prepareContextBudgetForSend(threadId, initialAgentText, { deferWhileBusy: true });
+    if (!initialBudget.ok) {
+      if (pendingSend) failPendingComposerSend(threadId, pendingSend.itemId, "发送前准备未通过");
+      render(); return;
     }
     if (!pendingSend && submissionSnapshotAttachments.some((attachment) => attachment.uploadStatus === "uploading")) {
       pendingSend = beginPendingComposerSend(threadId, text, submissionSnapshotAttachments, snapshotQuote, snapshotThreadReferences, input);
-      if (tradingStrategyAtSend) clearTradingExpertComposerAfterSend(threadId);
-      else if (personalStrategyCandidateAtSend) clearTradingExpertComposerAfterSend(threadId);
-      else if (tradingAlertCandidateAtSend) clearTradingExpertComposerAfterSend(threadId);
-      else if (tradingGeneralCandidateAtSend) clearTradingExpertComposerAfterSend(threadId);
+      clearTradingExpertComposerAfterSend(threadId);
       commitSelectedNewThreadGroupForSend(threadId, composerGroupIdForSend);
       if (revealThreadGroupForComposerSend(threadId)) saveThreadPreferences();
       state.error = null;
-      if (tradingStrategyAtSend || personalStrategyCandidateAtSend || tradingAlertCandidateAtSend || tradingGeneralCandidateAtSend) {
-        refreshTradingExpertConversationSurface(threadId);
-      } else {
-        render();
-      }
+      render();
     }
     if (pendingSend?.attachments.some((attachment) => attachment.uploadStatus === "uploading")) {
       const completedPending = await waitForPendingComposerSendUploads(threadId, pendingSend.itemId);
@@ -27579,6 +27133,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
     const composerQuote = pendingSend ? pendingSend.quote : snapshotQuote;
     const composerThreadReferences = pendingSend ? pendingSend.threadReferences : snapshotThreadReferences;
     const readyAttachments = composerAttachments.filter((attachment) => attachment.uploadStatus === "uploaded");
+    codexTradingTools.updateAttachments(businessContextId, readyAttachments.map(messageAttachmentFromLocal));
     const failedAttachments = pendingSend ? [] : composerAttachments.filter((attachment) => attachment.uploadStatus === "error");
     let workflowInvocationInputs: Record<string, unknown[]> | null = null;
     if (workflowContractAtSend) {
@@ -27615,31 +27170,6 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       return;
     }
 
-    const requiresPremiumTradingAccess = Boolean(
-      tradingStrategyRequestsAtSend.some((request) => request.mode === "chart-analysis")
-      || personalStrategyCandidateAtSend
-      || tradingAlertCandidateAtSend
-      || tradingGeneralRequestAtSend?.mode === "chart-analysis",
-    );
-    if (requiresPremiumTradingAccess) {
-      const accessState = await confirmPremiumTradingAccessBeforeSend("trading-analysis-send");
-      if (accessState !== "available") {
-        if (accessState === "membership-required" || accessState === "insufficient") {
-          if (pendingSend) failPendingComposerSend(originalThreadId, pendingSend.itemId, INSUFFICIENT_QUOTA_MESSAGE);
-          else appendInsufficientQuotaAgentMessage(originalThreadId);
-          state.error = null;
-          render();
-          return;
-        }
-        const message = "暂时无法验证会员权益，请稍后重试";
-        state.error = message;
-        if (pendingSend) failPendingComposerSend(originalThreadId, pendingSend.itemId, message);
-        showToast(message, 5000);
-        render();
-        return;
-      }
-    }
-
     commitSelectedNewThreadGroupForSend(threadId, composerGroupIdForSend);
 
     let sendableThreadId: string | null = null;
@@ -27659,10 +27189,6 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
     }
     threadId = sendableThreadId;
     if (threadId !== originalThreadId) submittingComposerThreadIds.add(threadId);
-    tradingAnalysisTargetAtSend = rebindTradingExpertAnalysisTargetStorageSession(
-      tradingAnalysisTargetAtSend,
-      threadId,
-    );
     if (pendingSend && threadId !== originalThreadId) {
       pendingSend = movePendingComposerSend(originalThreadId, threadId, pendingSend.itemId) || pendingSend;
     }
@@ -27683,7 +27209,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
         quote: composerQuote,
         input,
         pendingLocalItemId: pendingSend?.itemId || null,
-      });
+      }).finally(() => codexTradingTools.release(businessContextId));
       return;
     }
     const provider = providerFromThreadId(threadId);
@@ -27704,7 +27230,9 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
         render();
         return;
       }
+      businessContextHandedOff = true;
       void sendCurrentProviderMessage({
+        businessContextId,
         threadId,
         provider,
         text,
@@ -27723,18 +27251,8 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
     const baseAgentText = workflowContractAtSend
       ? workflowInvocationExecutionPrompt(text)
       : composerAgentText(text, readyAttachments, composerQuote, composerThreadReferences);
-    const agentText = tradingExpertAgentTextForSend(
-      threadId,
-      text,
-      baseAgentText,
-      tradingGeneralRequestAtSend,
-    );
-    if (
-      !tradingStrategyRequestsAtSend.some((request) => request.mode === "chart-analysis")
-      && !personalStrategyCandidateAtSend
-      && !tradingAlertCandidateAtSend
-      && tradingGeneralRequestAtSend?.mode !== "chart-analysis"
-    ) {
+    const agentText = baseAgentText;
+    {
       const currentBudget = await prepareContextBudgetForSend(threadId, agentText, { deferWhileBusy: true });
       if (!currentBudget.ok) {
         if (pendingSend) failPendingComposerSend(threadId, pendingSend.itemId, "发送前准备未通过");
@@ -27799,112 +27317,6 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       syncComposerMentionHighlights();
     }
     state.error = null;
-    const isTradingChartAnalysisSend = Boolean(
-      tradingStrategyRequestsAtSend.some((request) => request.mode === "chart-analysis")
-      || personalStrategyCandidateAtSend
-      || tradingAlertCandidateAtSend
-      || tradingGeneralRequestAtSend?.mode === "chart-analysis",
-    );
-    if (isTradingChartAnalysisSend) {
-      try {
-        if (!submittedUserItem) throw new Error("找不到待保存的用户消息");
-        const persistenceResult = await persistTradingExpertTranscriptItems(threadId, [submittedUserItem], {
-          title: conversationTitleFromText(userMessageDisplayText(submittedUserItem)),
-        });
-        const persistedThreadId = firstString(persistenceResult?.threadId);
-        if (persistedThreadId && persistedThreadId !== threadId) {
-          threadId = persistedThreadId;
-          submittingComposerThreadIds.add(threadId);
-          tradingAnalysisTargetAtSend = rebindTradingExpertAnalysisTargetStorageSession(
-            tradingAnalysisTargetAtSend,
-            threadId,
-          );
-          if (pendingSend) {
-            pendingSend = pendingComposerSendForThread(threadId, pendingSend.itemId)
-              || { ...pendingSend, threadId };
-          }
-          const submittedItemId = itemStableId(submittedUserItem);
-          if (submittedItemId) {
-            submittedUserItem = state.items[threadId]?.[submittedItemId] || submittedUserItem;
-          }
-        }
-        scheduleThreadListRefresh(0);
-      } catch (error) {
-        threadId = resolvedTradingAlertThreadId(threadId);
-        if (submittedUserItem) {
-          queueTradingExpertTranscriptPersistenceRetry(threadId, [submittedUserItem], {
-            title: conversationTitleFromText(userMessageDisplayText(submittedUserItem)),
-          });
-        }
-        // Conversation storage is not part of the analysis critical path. Keep
-        // the optimistic message and run the chart request; the retry queue will
-        // reconcile the transcript after the store becomes available again.
-        console.warn("[trading-transcript] initial persistence deferred", error);
-        // HAOLO-TURN-DIAGNOSTICS-BEGIN: initial transcript persistence failure
-        recordRendererTranscriptDiagnostic("renderer.initial_deferred", threadId, error, { itemCount: 1 });
-        // HAOLO-TURN-DIAGNOSTICS-END: initial transcript persistence failure
-      }
-    }
-    if (tradingStrategyAtSend && tradingStrategyRequestAtSend?.mode === "chart-analysis") {
-      if (tradingStrategiesToRunAtSend.length === 1) {
-        if (tradingAnalysisTargetAtSend) {
-          tradingStrategyAnalysisTargetByRequest.set(
-            tradingStrategyRequestAtSend,
-            tradingAnalysisTargetAtSend,
-          );
-        }
-        localHistoryAheadThreadIds.add(threadId);
-        if (pendingSend) clearPendingComposerSend(threadId, pendingSend.itemId);
-        clearTradingExpertComposerAfterSend(threadId);
-        refreshTradingExpertConversationSurface(threadId);
-        await runTradingStrategyChartRequest(threadId, tradingStrategyAtSend, tradingStrategyRequestAtSend);
-        return;
-      }
-    }
-    if (tradingStrategiesToRunAtSend.length > 1 && tradingStrategyRequestsAtSend.some((request) => request.mode === "chart-analysis")) {
-      for (let index = 0; index < tradingStrategiesToRunAtSend.length; index += 1) {
-        const strategy = tradingStrategiesToRunAtSend[index];
-        const request = tradingStrategyRequestsAtSend[index];
-        if (!request || request.mode !== "chart-analysis") continue;
-        if (tradingAnalysisTargetAtSend) {
-          tradingStrategyAnalysisTargetByRequest.set(request, tradingAnalysisTargetAtSend);
-        }
-        localHistoryAheadThreadIds.add(threadId);
-        if (pendingSend) clearPendingComposerSend(threadId, pendingSend.itemId);
-        clearTradingExpertComposerAfterSend(threadId);
-        refreshTradingExpertConversationSurface(threadId);
-        await runTradingStrategyChartRequest(threadId, strategy, request);
-      }
-      return;
-    }
-    if (personalStrategyCandidateAtSend) {
-      localHistoryAheadThreadIds.add(threadId);
-      if (pendingSend) clearPendingComposerSend(threadId, pendingSend.itemId);
-      clearTradingExpertComposerAfterSend(threadId);
-      refreshTradingExpertConversationSurface(threadId);
-      await runPersonalStrategyConversation(threadId, text, readyAttachments);
-      return;
-    }
-    if (tradingAlertCandidateAtSend) {
-      localHistoryAheadThreadIds.add(threadId);
-      if (pendingSend) clearPendingComposerSend(threadId, pendingSend.itemId);
-      clearTradingExpertComposerAfterSend(threadId);
-      refreshTradingExpertConversationSurface(threadId);
-      await runTradingAlertConversation(threadId, tradingExpertRoutingText);
-      return;
-    }
-    if (tradingGeneralRequestAtSend?.mode === "chart-analysis") {
-      localHistoryAheadThreadIds.add(threadId);
-      if (pendingSend) clearPendingComposerSend(threadId, pendingSend.itemId);
-      clearTradingExpertComposerAfterSend(threadId);
-      refreshTradingExpertConversationSurface(threadId);
-      await runTradingGeneralChartRequest(
-        threadId,
-        tradingGeneralRequestAtSend,
-        tradingAnalysisTargetAtSend,
-      );
-      return;
-    }
     if (isMultiModelClusterThread(threadId)) {
       const executeCurrentCanvas = Boolean(workflowContractAtSend);
       const canExecuteCurrentCanvas = Boolean(
@@ -27938,6 +27350,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       try {
         const modelOptions = selectedChatModelRequestOptions(threadId);
         const workflowStartParams = {
+          businessContextId,
           threadId,
           prompt: agentText,
           visibleQuestion,
@@ -27971,6 +27384,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
         } else {
           run = await api.startWorkflowRun!(workflowStartParams);
         }
+        businessContextHandedOff = true;
         applyWorkflowEvent({ runId: run.id, threadId, sequence: run.sequence, type: "run.started", run });
       } catch (error) {
         const message = `多模型集群启动失败：${errorMessage(error)}`;
@@ -27989,7 +27403,9 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       return;
     }
     if (hasThreadCodexWork(threadId)) {
+      businessContextHandedOff = true;
       state.queuedSends.push({
+        businessContextId,
         id: `queued-${Date.now()}-${Math.random().toString(16).slice(2)}`,
         threadId,
         agentText,
@@ -28018,6 +27434,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
     if (pendingSend) clearPendingComposerSend(threadId, pendingSend.itemId);
     render();
 
+    businessContextHandedOff = true;
     await sendAgentText(
       threadId,
       agentText,
@@ -28025,29 +27442,18 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       composerThreadReferences,
       threadReferencePreparation.preparationId,
       visibleQuestion,
+      { businessContextId },
     );
   } finally {
-    releaseTradingExpertAnalysisTarget(tradingAnalysisTargetAtSend);
+    if (!businessContextHandedOff) codexTradingTools.release(businessContextId);
     submittingComposerThreadIds.delete(originalThreadId);
     submittingComposerThreadIds.delete(threadId);
-    // A failed preflight must not leave a spinner behind, including when a
-    // new/recovered thread inherited it. Never clear a later analysis status.
-    const thinkingThreadId = resolveTradingExpertAnalysisThreadId(threadId);
-    if (tradingSendThinkingState && tradingExpertThinkingStateByThreadId.get(thinkingThreadId) === tradingSendThinkingState) {
-      clearTradingExpertThinkingState(thinkingThreadId);
-      refreshTradingExpertConversationSurface(thinkingThreadId);
-    }
-    syncComposerSendButton();
-    if (
-      isTradingExpertThreadId(state.currentThreadId)
-      && (state.currentThreadId === originalThreadId || state.currentThreadId === threadId)
-    ) {
-      syncTradingExpertCollapseControlsState();
-    }
+    syncTradingExpertCollapseControlsState();
   }
 }
 
 async function sendCurrentProviderMessage(params: {
+  businessContextId?: string;
   threadId: string;
   provider: ProviderChatProvider;
   text: string;
@@ -28218,6 +27624,7 @@ async function sendCurrentProviderMessage(params: {
       agentText,
     );
     const result = await api.sendProviderChat({
+      businessContextId: params.businessContextId || codexTradingTools.capture(params.attachments),
       provider: meta.apiProvider || selectedProvider,
       model: selectedModel,
       text: agentText,
@@ -28371,6 +27778,7 @@ function applyVideoGenerationBillingSession(result: any) {
 }
 
 async function sendCurrentVideoExpertMessage(params: {
+  businessContextId?: string;
   threadId: string;
   provider: ProviderChatProvider;
   text: string;
@@ -28538,12 +27946,15 @@ async function sendCurrentVideoExpertMessage(params: {
     }).catch(() => {});
     const result = recoveryRequested
       ? await api.resumeVideo!({
+          businessContextId: params.businessContextId,
+          text: prompt,
           model,
           duration,
           conversationId: params.threadId,
           interactionId,
         })
       : await api.generateVideo!({
+          businessContextId: params.businessContextId,
           prompt,
           ...(firstFrameUrl ? { imageUrl: firstFrameUrl } : {}),
           ...(imageUrls.length ? { imageUrls } : {}),
@@ -28565,7 +27976,7 @@ async function sendCurrentVideoExpertMessage(params: {
     applyVideoGenerationBillingSession(result);
     removeThreadItem(params.threadId, pendingItemId);
     const attachment = videoAttachmentFromGenerationResult(result);
-    const completionText = "视频已生成。";
+    const completionText = result?.text || "视频已生成。";
     void api.reportConsumptionEvent?.({
       interactionId,
       conversationId: params.threadId,
@@ -29953,6 +29364,7 @@ async function sendAgentText(
   threadReferencePreparationId: string | null = null,
   visibleQuestion = agentText,
   options: {
+    businessContextId?: string;
     contextWindowRecoveryReplayCount?: number;
     contextWindowRecoveryFailedTurnId?: string | null;
     localProxyRecoveryReplayCount?: number;
@@ -29960,6 +29372,7 @@ async function sendAgentText(
 ) {
   let activeThreadId = threadId;
   if (await confirmInsufficientAvailableBalanceBeforeSend("codex-chat-send")) {
+    if (options.businessContextId) codexTradingTools.release(options.businessContextId);
     clearContextWindowRecoveryReplay(activeThreadId);
     endCodexSend(activeThreadId, sendSequence);
     appendInsufficientQuotaAgentMessage(activeThreadId);
@@ -29968,7 +29381,11 @@ async function sendAgentText(
     void flushQueuedSend();
     return;
   }
+  const businessContextId = options.businessContextId || codexTradingTools.capture(
+    [], activeThreadId === state.currentThreadId ? captureTradingExpertAnalysisTarget() : null,
+  );
   armContextWindowRecoveryReplay(activeThreadId, agentText, visibleQuestion, threadReferences, {
+    businessContextId,
     replayCount: options.contextWindowRecoveryReplayCount,
     localProxyRecoveryReplayCount: options.localProxyRecoveryReplayCount,
     failedTurnId: options.contextWindowRecoveryFailedTurnId,
@@ -29985,6 +29402,7 @@ async function sendAgentText(
   try {
     const referenceParams = threadReferenceRequestParams(threadId, threadReferences, requestAgentText);
     const result = await api.sendMessage({
+      businessContextId,
       threadId: activeThreadId,
       // HAOLO-TURN-DIAGNOSTICS-BEGIN: removable client correlation field
       clientRequestId: diagnosticId,
@@ -30062,6 +29480,7 @@ async function sendAgentText(
     endCodexSend(activeThreadId, sendSequence);
   } catch (error) {
     endCodexSend(activeThreadId, sendSequence);
+    codexTradingTools.release(businessContextId);
     const sendErrorMessage = errorMessage(error);
     const missingContinuationTarget = sendErrorMessage.includes("续接任务数据已不存在");
     const contextWindowExhausted = isContextWindowExhaustedError(sendErrorMessage);
@@ -30142,6 +29561,7 @@ async function flushQueuedSend() {
       // the actual dispatch boundary before marking the thread busy.
       const budget = await prepareContextBudgetForSend(next.threadId, next.agentText);
       if (!budget.ok) {
+        if (next.businessContextId) codexTradingTools.release(next.businessContextId);
         addSystemItem(next.threadId, "排队消息未发送：发送前准备失败，请重试。");
         scheduleProtectedRender({ sourceThreadId: next.threadId });
         continue;
@@ -30152,6 +29572,7 @@ async function flushQueuedSend() {
         next.agentText,
       );
       if (!threadReferencePreparation.ok) {
+        if (next.businessContextId) codexTradingTools.release(next.businessContextId);
         addSystemItem(next.threadId, "排队消息未发送：引用会话上下文准备失败，请重试。");
         scheduleProtectedRender({ sourceThreadId: next.threadId });
         continue;
@@ -30169,6 +29590,7 @@ async function flushQueuedSend() {
         next.threadReferences || [],
         threadReferencePreparation.preparationId,
         next.visibleQuestion,
+        { businessContextId: next.businessContextId },
       );
     }
     if (!shouldDelayBackgroundHydration()) {
@@ -30247,7 +29669,7 @@ function releaseExternalChannelQueueForInterruptedThread(threadId: string, sourc
   });
 }
 
-type InterruptTurnSource = "composer-submit" | "composer-click" | "wechat-stop" | "unknown";
+type InterruptTurnSource = "composer-submit" | "composer-click" | "wechat-stop" | "feishu-stop" | "telegram-stop" | "unknown";
 
 function settleInterruptedVideoGeneration(
   threadId: string,
@@ -30265,6 +29687,13 @@ function settleInterruptedVideoGeneration(
 
 async function interruptCurrentTurn(threadIdOverride?: string | null, source: InterruptTurnSource = "unknown") {
   const threadId = firstString(threadIdOverride, currentComposerThreadId(), state.currentThreadId);
+  const channelInteraction = threadId ? activeChannelCodexInteractions.get(threadId) : null;
+  if (threadId && channelInteraction) {
+    channelInteraction.cancelled = true;
+    await api.interruptChannelCodexMessage?.({ threadId, interactionId: channelInteraction.id });
+    finishInterruptedTurnLocally(threadId, channelInteraction.id, source);
+    return;
+  }
   if (threadId && localGroupChatBusyThreadIds.has(threadId)) {
     stopLocalGroupChatRun(threadId);
     return;
@@ -30466,7 +29895,11 @@ function finishInterruptedTurnLocally(threadId: string, turnId: string | null, s
   setMembersWorking(threadId, false);
   releaseExternalChannelQueueForInterruptedThread(threadId, source, turnId);
   appendAgentNotice(threadId, interruptNoticeText(source));
-  state.queuedSends = state.queuedSends.filter((item) => item.threadId !== threadId);
+  state.queuedSends = state.queuedSends.filter((item) => {
+    if (item.threadId !== threadId) return true;
+    if (item.businessContextId) codexTradingTools.release(item.businessContextId);
+    return false;
+  });
   scheduleProtectedRender({ sourceThreadId: threadId });
   void flushQueuedSend();
 }
@@ -30716,7 +30149,7 @@ function appendTradingExpertReport(
   text: string,
   itemId?: string,
   actions?: MessageAction[],
-  presentation: "execution-plan" | "plain" = "plain",
+  presentation: "execution-plan" | "position-plan" | "plain" = "plain",
   cloudReports?: CloudTradingReport[],
 ) {
   localHistoryAheadThreadIds.add(threadId);
@@ -30741,20 +30174,8 @@ function appendTradingExpertReport(
   return item;
 }
 
-function tradingAlertMentioned(text: string) {
-  return /(^|\s)@预警(?=\s|$|[:：])/u.test(String(text || ""));
-}
-
 function stripTradingAlertMention(text: string) {
   return String(text || "").replace(/(^|\s)@预警(?=\s|$|[:：])\s*[:：]?\s*/u, "$1").trim();
-}
-
-function tradingAlertAffirmative(text: string) {
-  return /^(是|对|对的|没错|正确|确认|确认创建|就这样|可以|好的|好|没问题|同意|按这个|yes|y|confirm|ok)[。.!！\s]*$/iu.test(String(text || "").trim());
-}
-
-function tradingAlertCancelled(text: string) {
-  return /^(取消|不要|不创建|先不创建|算了|停止|退出|放弃|cancel|no)[。.!！\s]*$/iu.test(String(text || "").trim());
 }
 
 function resolvedTradingAlertThreadId(threadId: string) {
@@ -30968,10 +30389,11 @@ type PersonalStrategyTurnIntentResult = {
   failure?: ReturnType<typeof classifyPersonalStrategyFailure>;
 };
 
-async function classifyPersonalStrategyTurnIntent(
+async function classifyTradingConfirmationIntent(
   threadId: string,
   text: string,
-  previous: PersonalStrategyConversationState,
+  previous: Pick<PersonalStrategyConversationState, "conversation" | "name" | "understanding"> & { sourceText?: string },
+  kind: "personal" | "alert" = "personal",
 ): Promise<PersonalStrategyTurnIntentResult> {
   if (typeof api.sendProviderChat !== "function") {
     return { ok: false, intent: "unclear", error: "当前客户端没有可用的确认意图理解桥。" };
@@ -30987,7 +30409,9 @@ async function classifyPersonalStrategyTurnIntent(
   const lastAssistantMessage = [...(previous.conversation || [])]
     .reverse()
     .find((item) => item.role === "assistant")?.text || "";
-  const prompt = strategyConfirmationIntentPrompt({
+  const prompt = kind === "alert" ? alertConfirmationIntentPrompt({
+    userText: text, lastAssistantMessage, sourceText: previous.sourceText,
+  }) : strategyConfirmationIntentPrompt({
     userText: text,
     strategyName: previous.name || previous.understanding?.name || "",
     lastAssistantMessage,
@@ -31025,7 +30449,7 @@ async function classifyPersonalStrategyTurnIntent(
         result?.output_text,
         result?.data?.text,
       ) || "";
-      const parsed = parseStrategyConfirmationIntent(raw);
+      const parsed = kind === "alert" ? parseAlertConfirmationIntent(raw) : parseStrategyConfirmationIntent(raw);
       if (!parsed.ok) {
         throw personalStrategyPipelineError(
           "PERSONAL_STRATEGY_MODEL_RESPONSE_INVALID",
@@ -31259,6 +30683,7 @@ async function runPersonalStrategyConversation(
   threadId: string,
   rawText: string,
   attachments: MessageAttachment[] = [],
+  bound?: { analysisTarget: TradingAnalysisTaskTarget | null; chart: any; skillOperation?: "prepare" | "confirm" },
 ) {
   const requiredApi = api.createPersonalStrategyDraft && api.simulatePersonalStrategy && api.confirmPersonalStrategy;
   if (!requiredApi) {
@@ -31266,17 +30691,21 @@ async function runPersonalStrategyConversation(
     return;
   }
   let previous = personalStrategyConversationStateForThread(threadId);
+  if (bound?.skillOperation === "prepare" && previous?.stage === "confirmation") {
+    previous = { ...previous, stage: "clarification", simulationId: undefined };
+    setPersonalStrategyConversationState(threadId, previous);
+  }
   const startsNew = isPersonalStrategyCreationCommand(rawText) && Boolean(previous);
   if (startsNew) {
     deletePersonalStrategyConversationState(threadId);
-    clearTradingExpertAlertSimulation();
+    if (state.currentThreadId === threadId) clearTradingExpertAlertSimulation();
     previous = null;
   }
-  const answer = personalStrategyCreationDescription(rawText) || (previous ? rawText.trim() : "");
+  const answer = personalStrategyCreationDescription(rawText) || (previous || bound?.skillOperation ? rawText.trim() : "");
   let turnIntent: PersonalStrategyTurnIntent = "revise";
   let turnIntentFailure: PersonalStrategyTurnIntentResult | null = null;
   if (previous && answer && !attachments.length) {
-    const classifiedIntent = await classifyPersonalStrategyTurnIntent(threadId, answer, previous);
+    const classifiedIntent = await classifyTradingConfirmationIntent(threadId, answer, previous);
     if (classifiedIntent.ok) {
       turnIntent = classifiedIntent.intent;
     } else {
@@ -31327,7 +30756,7 @@ async function runPersonalStrategyConversation(
   }
   if (previous?.stage === "confirmation" && turnIntent === "cancel") {
     deletePersonalStrategyConversationState(threadId);
-    clearTradingExpertAlertSimulation();
+    if (state.currentThreadId === threadId) clearTradingExpertAlertSimulation();
     await persistPersonalStrategyAssistantItem(threadId, "已取消本次策略创建，模拟图层已移除；没有写入策略列表。 ");
     return;
   }
@@ -31340,7 +30769,11 @@ async function runPersonalStrategyConversation(
     await persistPersonalStrategyAssistantItem(threadId, reply);
     return;
   }
-  const confirmsDraftCreation = previous?.stage === "confirmation" && turnIntent === "confirm";
+  const confirmsDraftCreation = bound?.skillOperation !== "prepare" && previous?.stage === "confirmation" && turnIntent === "confirm";
+  if (bound?.skillOperation === "confirm" && !confirmsDraftCreation) {
+    await persistPersonalStrategyAssistantItem(threadId, "本轮没有确认当前预演。请回复“确认并启用”，或说明需要修改的规则后重新模拟。");
+    return { confirmed: false };
+  }
   // A model-classified confirmation is an acknowledgement, not a new strategy
   // description. If the prior run never reached a completed simulation, stop
   // here instead of sending the acknowledgement back to the understanding model
@@ -31386,7 +30819,7 @@ async function runPersonalStrategyConversation(
       const confirmed = await api.confirmPersonalStrategy!({ draftId: previous!.draftId!, simulationId: confirmationSimulationId });
       if (confirmed?.ok !== true || !confirmed.strategy) throw new Error(String(confirmed?.error?.message || "策略确认失败，请重新预演"));
       const strategy = await refreshPersonalStrategiesAfterConfirmation(confirmed.strategy.id);
-      clearTradingExpertAlertSimulation();
+      if (state.currentThreadId === threadId) clearTradingExpertAlertSimulation();
       state.personalStrategies.draft = strategy;
       state.personalStrategies.simulation = strategy.simulation || null;
       setPersonalStrategyConversationState(threadId, {
@@ -31398,7 +30831,7 @@ async function runPersonalStrategyConversation(
         conversation: [...(previous?.conversation || []), { role: "user" as const, text: answer }].slice(-32),
       });
       await persistPersonalStrategyCreationSuccessItem(threadId, strategy);
-      return;
+      return { confirmed: true, strategyId: strategy.id };
     }
 
     let sourceText = answer;
@@ -31513,12 +30946,21 @@ async function runPersonalStrategyConversation(
       return;
     }
 
+    if (bound?.skillOperation === "prepare") {
+      const chart = bound.chart;
+      const pending: PersonalStrategyConversationState = { draftId: draft.id, name: draft.name,
+        sourceText: draft.sourceText, understanding, stage: "clarification", conversation: conversationForTurn.slice(-32) };
+      setPersonalStrategyConversationState(threadId, pending);
+      return { kind: "personal", prepared: true, summary: understandingSummary, pending,
+        simulationInput: { draftId: draft.id, candles: [...(bound.analysisTarget?.candles || [])],
+          marketId: chart?.marketId || "SIMULATION", interval: chart?.interval || "1d" } };
+    }
     updateTradingExpertThinkingState(threadId, "drawing", "规则已经形成，正在左侧图表播放独立的模拟 K 线触发路径…");
     refreshTradingExpertConversationSurface(threadId);
-    const chart = tradingExpertAlertContextSnapshot();
+    const chart = bound ? bound.chart : tradingExpertAlertContextSnapshot();
     const simulated = await api.simulatePersonalStrategy!({
       draftId: draft.id,
-      candles: tradingExpertPersonalStrategyCandles(),
+      candles: bound ? [...(bound.analysisTarget?.candles || [])] : tradingExpertPersonalStrategyCandles(),
       marketId: chart?.marketId || "SIMULATION",
       interval: chart?.interval || "1d",
     });
@@ -31528,10 +30970,11 @@ async function runPersonalStrategyConversation(
     state.personalStrategies.simulation = simulated.simulation;
     let visualizationWarning = "";
     try {
+      if (bound && state.currentThreadId !== threadId) throw new Error("Simulation is saved for the originating conversation.");
       showTradingExpertAlertSimulation(simulated.simulation, "primary");
     } catch (error) {
       console.error("[personal-strategy] simulation overlay failed", error);
-      clearTradingExpertAlertSimulation();
+      if (state.currentThreadId === threadId) clearTradingExpertAlertSimulation();
       visualizationWarning = "\n\n文字规则与预演已经完成，但当前图表暂时无法显示模拟图层；请先按文字核对。";
     }
     const report = String(simulated.simulation.report || "已完成规则预演");
@@ -31540,7 +30983,7 @@ async function runPersonalStrategyConversation(
     await persistPersonalStrategyAssistantItem(threadId, reply);
   } catch (error) {
     if (!isCurrentRun()) return;
-    clearTradingExpertAlertSimulation();
+    if (state.currentThreadId === threadId) clearTradingExpertAlertSimulation();
     const phase = String((error as any)?.phase || "").toLowerCase() === "attachments"
       ? "attachments"
       : String((error as any)?.phase || "").toLowerCase() === "compiler"
@@ -31667,32 +31110,55 @@ async function handleTradingAlertTriggered(payload: {
   showToast(`${firstString(payload?.title) || "交易预警"} 已真实触发`, 5000);
 }
 
-async function runTradingAlertConversation(threadId: string, rawText: string) {
+async function runTradingAlertConversation(threadId: string, rawText: string, bound?: { analysisTarget: TradingAnalysisTaskTarget | null; chart: any; skillOperation?: "prepare" | "confirm" }) {
+  if (!state.tradingAlerts.loaded) await refreshTradingAlerts();
   const apiMissing = !api.tradingAlertsCompile || !api.tradingAlertsSimulate || !api.tradingAlertsConfirm || !api.tradingAlertsSnapshot;
   if (apiMissing) {
     await persistTradingAlertAssistantItem(threadId, "当前客户端缺少智能预警运行桥，请更新客户端后重试；你的指令没有被创建为不完整预警。");
     return;
   }
-  const previous = tradingAlertConversationStateForThread(threadId);
-  const answer = stripTradingAlertMention(rawText) || rawText.trim();
-  if (previous?.stage === "confirmation" && tradingAlertCancelled(answer)) {
-    tradingAlertConversationByThreadId.delete(threadId);
-    clearTradingExpertAlertSimulation();
-    await persistTradingAlertAssistantItem(threadId, "已取消本次创建，模拟图层已移除，没有启动后台监控。");
-    return;
+  let previous = tradingAlertConversationStateForThread(threadId);
+  if (bound?.skillOperation === "prepare" && previous?.stage === "confirmation") {
+    previous = { ...previous, stage: "clarification", simulationId: undefined, confirmationId: undefined };
+    tradingAlertConversationByThreadId.set(threadId, previous);
   }
-  const confirmsDraftCreation = previous?.stage === "confirmation" && tradingAlertAffirmative(answer);
+  const answer = stripTradingAlertMention(rawText) || rawText.trim();
   const runToken = Symbol(`trading-alert-${threadId}`);
   tradingAlertConversationRunByThreadId.set(threadId, runToken);
   const isCurrentRun = () => tradingAlertConversationRunByThreadId.get(threadId) === runToken;
-  updateTradingExpertThinkingState(
-    threadId,
-    confirmsDraftCreation ? "alert-confirming" : "alert-analyzing",
-    confirmsDraftCreation ? "正在校验你的确认与规则版本…" : "正在把自然语言条件编译为可验证的预警规则…",
-  );
-  refreshTradingExpertConversationSurface(threadId);
   try {
-    if (confirmsDraftCreation) {
+    let intent: PersonalStrategyTurnIntent = "revise";
+    if (previous?.stage === "confirmation" && bound?.skillOperation !== "prepare") {
+      const decision = await classifyTradingConfirmationIntent(threadId, answer, previous, "alert");
+      // A slow semantic decision cannot authorize a replaced/cancelled draft.
+      if (!isCurrentRun() || tradingAlertConversationStateForThread(threadId) !== previous) return { confirmed: false };
+      intent = decision.ok ? decision.intent : "unclear";
+      if (intent === "cancel") {
+        tradingAlertConversationByThreadId.delete(threadId);
+        if (state.currentThreadId === threadId) clearTradingExpertAlertSimulation();
+        await persistTradingAlertAssistantItem(threadId, "已取消本次创建，模拟图层已移除，没有启动后台监控。");
+        return { confirmed: false, cancelled: true };
+      }
+      if (intent === "unclear") {
+        await persistTradingAlertAssistantItem(threadId, "请说明是接受当前模拟、修改条件，还是取消；明确接受后才会创建预警。");
+        return { confirmed: false, needsClarification: true };
+      }
+      if (intent === "revise") {
+        previous = { ...previous, stage: "clarification", simulationId: undefined, confirmationId: undefined };
+        tradingAlertConversationByThreadId.set(threadId, previous);
+        if (state.currentThreadId === threadId) clearTradingExpertAlertSimulation();
+      }
+    }
+    const confirmsDraftCreation = bound?.skillOperation !== "prepare" && previous?.stage === "confirmation" && intent === "confirm";
+    if (bound?.skillOperation === "confirm" && !confirmsDraftCreation) {
+      await persistTradingAlertAssistantItem(threadId, "本轮没有确认当前模拟。请说明需要修改的条件后重新模拟，或明确接受当前模拟。");
+      return { confirmed: false, ...(intent === "revise" ? { needsRevision: true } : {}) };
+    }
+    updateTradingExpertThinkingState(threadId,
+      confirmsDraftCreation ? "alert-confirming" : "alert-analyzing",
+      confirmsDraftCreation ? "正在校验你的确认与规则版本…" : "正在把自然语言条件编译为可验证的预警规则…");
+    refreshTradingExpertConversationSurface(threadId);
+    if (confirmsDraftCreation && previous) {
       const confirmed = tradingAlertResponseData(await api.tradingAlertsConfirm!({
         draftId: previous.draftId,
         simulationId: previous.simulationId,
@@ -31715,7 +31181,7 @@ async function runTradingAlertConversation(threadId: string, rawText: string) {
         monitoringStateMessage,
         "仅在 Haolo 客户端运行且数据连接正常时监控；停机或断线期间不补触发，恢复后只建立新基线，卡片会显示监控空档。",
       ].join("\n\n"), alertId);
-      return;
+      return { confirmed: true, alertId };
     }
 
     let compileResult: any;
@@ -31726,7 +31192,7 @@ async function runTradingAlertConversation(threadId: string, rawText: string) {
     if (previous?.stage === "dependency" && /^(已连接|已接入|已授权|完成|done|connected)[。.!！\s]*$/iu.test(answer) && api.tradingAlertsResumeDraft) {
       compileResult = tradingAlertResponseData(await api.tradingAlertsResumeDraft({ draftId: previous.draftId }));
     } else {
-      const chart = tradingExpertAlertContextSnapshot();
+      const chart = bound ? bound.chart : tradingExpertAlertContextSnapshot();
       if (chart?.marketId && chart?.interval) await api.tradingAlertsSyncDrawings?.({ marketId: chart.marketId, interval: chart.interval, drawings: chart.drawings || [] });
       compileResult = tradingAlertResponseData(await api.tradingAlertsCompile!({
         ...(previous ? { draftId: previous.draftId } : {}),
@@ -31753,26 +31219,34 @@ async function runTradingAlertConversation(threadId: string, rawText: string) {
     }
     if (!draft.rule) throw new Error("规则尚不完整，不能进入模拟");
     const chartSwitch = compileResult?.chartSwitch;
-    if (chartSwitch) await prepareTradingExpertAlertContext(chartSwitch.marketId, chartSwitch.interval);
+    if (chartSwitch && (!bound || state.currentThreadId === threadId)) await prepareTradingExpertAlertContext(chartSwitch.marketId, chartSwitch.interval);
     if (!isCurrentRun()) return;
-    const frames = await tradingExpertAlertSimulationFrames(draft.rule);
+    const frames = await tradingExpertAlertSimulationFrames(draft.rule, bound?.analysisTarget, bound !== undefined);
     if (!isCurrentRun()) return;
+    if (bound?.skillOperation === "prepare") {
+      const pending: TradingAlertConversationState = { draftId: draft.draftId, sourceText: sourceTextForTurn,
+        stage: "clarification", conversation: conversationForTurn };
+      tradingAlertConversationByThreadId.set(threadId, pending);
+      return { kind: "alert", prepared: true, summary: draft.rule.normalizedSummary || draft.rule.title,
+        pending, rule: draft.rule, simulationInput: { draftId: draft.draftId, frames } };
+    }
     updateTradingExpertThinkingState(threadId, "drawing", "正在用与真实监控相同的公式反推合法 OHLCV，并在独立图层标注触发路径…");
     refreshTradingExpertConversationSurface(threadId);
     const simulated = tradingAlertResponseData(await api.tradingAlertsSimulate!({ draftId: draft.draftId, frames }));
     if (!isCurrentRun()) return;
     let visualizationWarning = "";
     try {
+      if (bound && state.currentThreadId !== threadId) throw new Error("Simulation is saved for the originating conversation.");
       showTradingExpertAlertSimulation(simulated.simulation, draft.rule.evaluationPolicy.anchorContextId, draft.rule);
     } catch (visualizationError) {
       // Rule compilation and deterministic simulation have already succeeded at
       // this point. A chart overlay lifecycle problem must not discard that
       // work or misleadingly report an intent-creation failure.
       console.error("[trading-alert] simulation overlay failed", visualizationError);
-      clearTradingExpertAlertSimulation();
+      if (state.currentThreadId === threadId) clearTradingExpertAlertSimulation();
       visualizationWarning = "\n\n规则和模拟已经生成，但本次图表标注暂时没有显示。请先按上面的文字条件核对；未确认前不会写入预警存储。";
     }
-    const question = `${String(simulated.question || "模拟已完成，是否按这种情况创建预警？")}${visualizationWarning}\n\n回复“确认”后才会创建监控，回复“取消”则不会创建，也可以直接说明要修改的条件。`;
+    const question = `${String(simulated.question || "模拟已完成，是否按这种情况创建预警？")}${visualizationWarning}\n\n明确表示接受当前模拟后才会创建监控；也可以取消，或直接说明需要修改的条件。`;
     tradingAlertConversationByThreadId.set(threadId, {
       draftId: draft.draftId,
       sourceText: sourceTextForTurn,
@@ -31785,7 +31259,7 @@ async function runTradingAlertConversation(threadId: string, rawText: string) {
   } catch (error) {
     const code = String((error as Error & { code?: string })?.code || "");
     if (!isCurrentRun() || code === "TRADING_ANALYSIS_CANCELLED") return;
-    clearTradingExpertAlertSimulation();
+    if (state.currentThreadId === threadId) clearTradingExpertAlertSimulation();
     if (isInsufficientQuotaError(error)) {
       appendInsufficientQuotaAgentMessage(threadId);
       return;
@@ -31824,7 +31298,7 @@ function tradingTranscriptPayloadFromItem(item: CodexItem) {
     ...(completedAt ? { completedAt } : {}),
     ...(role === "assistant" && actions?.length ? { actions } : {}),
     ...(role === 'assistant' && item.__youleCloudReports?.length ? {cloudReports:normalizeCloudReports(item.__youleCloudReports)} : {}),
-    ...(role === "assistant" && (executionPlanPresentation === "execution-plan" || executionPlanPresentation === "plain")
+    ...(role === "assistant" && (executionPlanPresentation === "execution-plan" || executionPlanPresentation === "position-plan" || executionPlanPresentation === "plain")
       ? { executionPlanPresentation }
       : {}),
   } as const;
@@ -31908,6 +31382,9 @@ async function persistCompletedTradingExpertTranscript(
   items: CodexItem[],
   options: { title?: string } = {},
 ) {
+  // The CLI has not durably accepted the tool result yet. Keep the cloud
+  // recovery journal until the canonical MCP completion is received.
+  if (codexTradingTools.collect(threadId, items)) return false;
   try {
     let activeThreadId = threadId;
     if (isLocalBlankThreadId(activeThreadId)) {
@@ -32039,6 +31516,7 @@ async function runTradingGeneralChartRequest(
   try {
     const result = await runTradingExpertGeneralConversation({
       sourceThreadId:targetThreadId(),
+      marketId: request.marketId,
       analysisId,
       analysisTarget,
       model: selectedChatModelValue(threadId),
@@ -32050,6 +31528,7 @@ async function runTradingGeneralChartRequest(
       lookbackMs: request.lookbackMs,
       lookbackLabel: request.lookbackLabel,
       drawingRequested: request.drawingRequested,
+      deferPresentation: request.deferPresentation,
       positionManagementRequested: request.positionManagementRequested,
       analysisContext: request.analysisContext || null,
       onProgress: updateProgress,
@@ -32061,6 +31540,10 @@ async function runTradingGeneralChartRequest(
         : `${result.modelName} 已完成 ${result.symbol} ${result.candleCount} 根 K 线的通用盘面分析${request.drawingRequested ? "与绘图" : "，原画线保持不变"}。`,
     );
     clearTradingExpertThinkingState(targetThreadId());
+    if (request.deferPresentation) {
+      await persistCompletedTradingExpertTranscript(targetThreadId(), transcriptItems);
+      return { ...result, analysisJobId: analysisId };
+    }
     const reportItem = appendTradingExpertReport(
       targetThreadId(),
       result.report,
@@ -32072,7 +31555,9 @@ async function runTradingGeneralChartRequest(
     if(await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem])) {
       await api.tradingCloudRecovery?.("acknowledgeGroup",analysisId).catch(()=>{});
     }
+    return { ...result, analysisJobId: analysisId };
   } catch (error) {
+    if (codexTradingTools.isToolTurn(threadId)) throw error;
     recordTradingRendererFailure(error, { analysisJobId: analysisId, strategyId: "general", stage: "analysis" });
     if (isTradingAnalysisCancellation(error)) {
       updateProgress("complete", "已按你的要求停止本次盘面分析。");
@@ -32130,9 +31615,10 @@ async function runTradingStrategyChartRequest(
   };
   updateProgress("preparing", strategy.ui.preparingMessage);
   try {
-    ensureTradingExpertChartIndicatorVisible(strategy.chartIndicator);
+    if (state.currentThreadId === threadId) ensureTradingExpertChartIndicatorVisible(strategy.chartIndicator);
     const result = await runTradingExpertStrategyConversation(strategy.id, {
       sourceThreadId:targetThreadId(),
+      marketId: request.marketId,
       analysisId,
       analysisTarget,
       model: selectedChatModelValue(threadId),
@@ -32144,6 +31630,7 @@ async function runTradingStrategyChartRequest(
       lookbackMs: request.lookbackMs,
       lookbackLabel: request.lookbackLabel,
       drawingRequested: request.drawingRequested,
+      deferPresentation: request.deferPresentation,
       strategyDisplayName: strategy.display.name,
       minimumCandles: strategy.dataRequirements?.candles?.minCount,
       preferredCandles: strategy.dataRequirements?.candles?.preferredCount,
@@ -32161,6 +31648,10 @@ async function runTradingStrategyChartRequest(
         : `${result.modelName} 已完成 ${result.symbol} ${strategy.ui.completionMetric(result)}${request.drawingRequested ? "与绘图" : "，原画线保持不变"}。`,
     );
     clearTradingExpertThinkingState(targetThreadId());
+    if (request.deferPresentation) {
+      await persistCompletedTradingExpertTranscript(targetThreadId(), transcriptItems);
+      return { ...result, analysisJobId: analysisId };
+    }
     const reportItem = appendTradingExpertReport(
       targetThreadId(),
       result.report,
@@ -32172,7 +31663,9 @@ async function runTradingStrategyChartRequest(
     if(await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem])) {
       await api.tradingCloudRecovery?.("acknowledgeGroup",analysisId).catch(()=>{});
     }
+    return { ...result, analysisJobId: analysisId };
   } catch (error) {
+    if (codexTradingTools.isToolTurn(threadId)) throw error;
     recordTradingRendererFailure(error, { analysisJobId: analysisId, strategyId: strategy.id, stage: "analysis" });
     if (isTradingAnalysisCancellation(error)) {
       updateProgress("complete", "已按你的要求停止本次盘面分析。");
@@ -35137,119 +34630,6 @@ function composerAgentText(
   ].join("\n"), quote);
 }
 
-function tradingExpertAgentTextForSend(
-  threadId: string,
-  visibleText: string,
-  baseAgentText: string,
-  generalRequest: TradingGeneralRequest | null = null,
-) {
-  if (!isTradingExpertExecutionThreadId(threadId)) return baseAgentText;
-  const strategy = tradingStrategyMentionedByText(
-    canonicalizeTradingExpertMentionText(visibleText),
-  );
-  if (strategy) return strategy.ui.buildExpertPrompt(baseAgentText);
-  // A visible chart/old analysis is context, not an instruction.  Only an
-  // explicit semantic follow-up may receive the follow-up prompt; otherwise
-  // ordinary education, recommendations and account questions go to the
-  // normal conversation agent unchanged.
-  if (generalRequest?.analysisFollowup === true && hasTradingExpertCurrentAnalysis()) {
-    return buildTradingAnalysisFollowupPrompt(baseAgentText);
-  }
-  return baseAgentText;
-}
-
-function fallbackAnalysisContext(request: Pick<TradingGeneralRequest, "mode" | "symbol" | "interval" | "lookbackMs" | "lookbackLabel" | "questionKinds" | "drawingRequested" | "analysisFollowup" | "positionManagementRequested">): TradingAnalysisContext {
-  return {
-    intent: request.positionManagementRequested ? "position-management" : request.mode === "chart-analysis" ? "chart-drawing" : "general-question",
-    needsMarketData: request.mode === "chart-analysis",
-    drawingRequested: request.drawingRequested === true,
-    directAnswer: request.positionManagementRequested === true,
-    analysisFollowup: request.analysisFollowup === true,
-    questionKinds: request.questionKinds || [],
-    market: {
-      symbol: request.symbol || null,
-      interval: request.interval || null,
-      lookbackMs: request.lookbackMs ?? null,
-      lookbackLabel: request.lookbackLabel || null,
-    },
-    position: {
-      side: "unknown",
-      entries: [],
-      liquidationPrice: null,
-      requestedActions: [],
-    },
-  };
-}
-
-function deterministicTradingGeneralFallback(text: string): TradingGeneralRequest {
-  const normalizedText = normalizeTradingRoutingText(text);
-  const routed = deterministicMarketChartRouting(normalizedText);
-  if (routed) return {
-    ...routed.request,
-    analysisContext: fallbackAnalysisContext(routed.request),
-  };
-  const request: TradingGeneralRequest = {
-    mode: "conversation",
-    instruction: normalizedText,
-    ...extractExplicitTradingParameters(normalizedText),
-    questionKinds: classifyTradingQuestionKinds(normalizedText),
-    drawingRequested: false,
-    analysisFollowup: false,
-  };
-  return { ...request, analysisContext: fallbackAnalysisContext(request) };
-}
-
-async function classifyTradingGeneralRequestForSend(
-  text: string,
-  hasImageAttachment: boolean,
-  hasCurrentAnalysis = false,
-  model?: string | null,
-  explicitModelSelection = false,
-): Promise<TradingGeneralRequest> {
-  // Legacy source contract retained for downstream integrations while the
-  // structured model context is rolled out: drawingRequested: chartAnalysis && !explicitNoDrawingRequested(fallback.instruction)
-  // Legacy target names were previously selected as symbol: chartAnalysis ? fallback.symbol : null
-  // and interval: chartAnalysis ? fallback.interval : null.
-  if (typeof api.classifyTradingGeneralRequest !== "function") {
-    return deterministicTradingGeneralFallback(text);
-  }
-  try {
-    const result = await api.classifyTradingGeneralRequest({
-      text,
-      hasImageAttachment,
-      hasCurrentAnalysis,
-      model,
-      reasoningEffort: "max",
-      explicitModelSelection,
-    });
-    const request = result?.ok === true ? result.request : null;
-    if (!request || (request.mode !== "conversation" && request.mode !== "chart-analysis")) {
-      return deterministicTradingGeneralFallback(text);
-    }
-    const structuredRequest = request.analysisContext
-      ? request
-      : { ...request, analysisContext: fallbackAnalysisContext(request) };
-    return {
-      ...structuredRequest,
-      mode: structuredRequest.mode,
-      instruction: String(structuredRequest.instruction || normalizeTradingRoutingText(text)),
-      symbol: structuredRequest.mode === "chart-analysis" ? structuredRequest.symbol ?? null : null,
-      interval: structuredRequest.mode === "chart-analysis" ? structuredRequest.interval ?? null : null,
-      lookbackMs: structuredRequest.mode === "chart-analysis" ? structuredRequest.lookbackMs ?? null : null,
-      lookbackLabel: structuredRequest.mode === "chart-analysis" ? structuredRequest.lookbackLabel ?? null : null,
-      forecastHorizonMs: structuredRequest.mode === "chart-analysis" ? structuredRequest.forecastHorizonMs ?? null : null,
-      questionKinds: Array.isArray(structuredRequest.questionKinds) ? structuredRequest.questionKinds : [],
-      positionManagementRequested: structuredRequest.mode === "chart-analysis"
-        && structuredRequest.positionManagementRequested === true,
-      drawingRequested: structuredRequest.mode === "chart-analysis" && structuredRequest.drawingRequested !== false,
-      analysisFollowup: structuredRequest.mode === "conversation" && structuredRequest.analysisFollowup === true,
-      analysisContext: structuredRequest.analysisContext ?? null,
-    };
-  } catch {
-    return deterministicTradingGeneralFallback(text);
-  }
-}
-
 function applyComposerQuoteContext(agentText: string, quote: ComposerQuotePayload | null | undefined) {
   if (!quote) return agentText;
   const userContent = String(agentText || "").trim();
@@ -36225,6 +35605,7 @@ function render() {
   syncConsumptionRefreshTimer();
   scheduleThreadSwitchRevealAfterRender(renderedThreadId);
   ensureBinanceAccountLiveRefresh();
+  scheduleTradingPreferenceSetupPrompt();
   if (renderStartedAt) reportRendererPerformanceTiming("renderer-render", renderStartedAt, () => renderPerformancePayload("app"));
 }
 
@@ -36692,7 +36073,6 @@ function applySharedAppSettings(values: SettingValues) {
 
 function activateAccountSettingsSync() {
   const sync = accountSettingsSync();
-  sync.onStatus = () => document.querySelectorAll('[data-settings-sync-status]').forEach(element => { element.textContent = settingsSyncStatusText(); });
   if (!sharedAppSettingsRegistered) {
     sharedAppSettingsRegistered = true;
     sync.register('app', {
@@ -36709,16 +36089,6 @@ function activateAccountSettingsSync() {
     });
   }
   sync.activate(state.auth.authenticated ? String(state.auth.profile?.id || '') : '', state.auth.baseUrl);
-}
-
-function settingsSyncStatusText() {
-  const status = accountSettingsSync().status;
-  const index = state.settings.language === 'en' ? 1 : state.settings.language === 'zh-TW' ? 2 : 0;
-  return (status === 'synced'
-    ? ['设置已同步', 'Settings synced', '設定已同步']
-    : status === 'pending'
-    ? ['设置已保存在本机，正在同步', 'Settings saved on this device; syncing', '設定已儲存在本機，正在同步']
-    : ['设置尚未同步，将自动重试', 'Settings not yet synced; retrying automatically', '設定尚未同步，將自動重試'])[index];
 }
 
 function selectAppTheme(theme: AppTheme) {
@@ -39416,6 +38786,11 @@ function renderMessageExecutionPlan(
   candidateOffset = 0,
 ): {bubbleContent:string; cards:string} | null {
   const presentation = (message as MessageUiMeta).executionPlanPresentation;
+  if (presentation === "position-plan") {
+    const title = state.settings.language === "en" ? "Position management plan" : state.settings.language === "zh-TW" ? "倉位調整方案" : "仓位调整方案";
+    return { bubbleContent: "", cards: `<section class="message-execution-plan execution-plan-surface" data-trading-result-kind="position-management"><h3>${escapeHtml(title)}</h3><div class="execution-plan-card-content">${formatMessageText(text, options)}</div></section>` };
+  }
+
   const rawReports=(message as MessageUiMeta).cloudReports;
   let legacyReports:CloudTradingReport[]=[];
   try {legacyReports=rawReports?.length?normalizeCloudReports(rawReports).filter(report=>report.executionPolicy==='right-legacy-v1'):[];} catch {return null;}
@@ -39548,7 +38923,9 @@ function renderExecutionPlanActions(plan: SavedExecutionPlan) {
 }
 
 function renderExecutionPlanCard(plan: SavedExecutionPlan) {
-  const cloudCard=plan.cloudReport?cloudPlanCard(plan.cloudReport,{hideExpiry:plan.status==='executing',language:state.settings.language}):null;
+  const cloudCard=plan.cloudReport?cloudPlanCard(plan.cloudReport,{hideExpiry:plan.status==='executing',separateAction:true,language:state.settings.language}):null;
+  const lines = executionPlanDisplayLines(plan.content);
+  const action = cloudCard?.actionHtml ?? executionPlanCardAction(lines, state.settings.language);
   const createdLabel = executionPlanCreatedLabel(plan.createdAt);
   const status = executionPlanStatusMeta(plan);
   const title = executionPlanCardTitle({
@@ -39560,13 +38937,15 @@ function renderExecutionPlanCard(plan: SavedExecutionPlan) {
   return `
     <article class="execution-plan-card execution-plan-surface" data-execution-plan-id="${escapeAttr(plan.id)}">
       ${!cloudCard || plan.status !== 'pending' ? `<header>
-        ${cloudCard?'':executionPlanCardHeading(title, executionPlanDisplayLines(plan.content), state.settings.language)}
+        ${cloudCard?'':executionPlanCardHeading(title, lines, state.settings.language)}
         ${plan.status !== 'pending' ? `<span class="execution-plan-card-status ${escapeAttr(status.tone)}">${escapeHtml(status.label)}</span>` : ''}
       </header>` : ''}
-      <div class="execution-plan-card-content">${executionPlanCardFooter(
-        cloudCard?.html || renderExecutionPlanCardContent(plan.content),
+      <div class="execution-plan-card-content">${cloudCard?.html || executionPlanCardBody(lines, state.settings.language, {hideAction:true})}</div>
+      ${executionPlanCardFooter(
+        '',
         createdLabel ? `<time class="execution-plan-created-at" datetime="${escapeAttr(plan.createdAt)}">${escapeHtml(createdLabel)}</time>` : '',
-      )}</div>
+        action,
+      )}
     </article>
   `;
 }
@@ -47285,6 +46664,11 @@ type TradingPreferenceOnboardingFlow = {
 let tradingPreferenceProfileLoadStatus: "idle" | "loading" | "loaded" | "error" = "idle";
 let tradingPreferenceProfileCompleted = false;
 let tradingPreferenceProfileLoadGeneration = 0;
+// A feature-specific key survives later app updates; dismissing the prompt is
+// enough, even when the user chooses not to save any preferences.
+const TRADING_PREFERENCE_SETUP_PROMPT_KEY = "haolo.trading-preference-setup.left-entry.v1";
+const tradingPreferenceSetupPromptSeen = new Set<string>();
+let tradingPreferenceSetupPromptScheduled = false;
 const tradingPreferenceOnboardingByThreadId = new Map<string, TradingPreferenceOnboardingFlow>();
 const tradingPreferenceSettings = createTradingPreferenceSettings({
   resolveMigration: async (resolutions) => {
@@ -47318,6 +46702,49 @@ function resetTradingPreferenceProfileState() {
   tradingPreferenceOnboardingByThreadId.clear();
 }
 
+function tradingPreferenceSetupPromptStorageKey() {
+  const accountId = firstString(state.auth.profile?.id, state.auth.profile?.email);
+  if (!state.auth.authenticated || !accountId) return "";
+  return `${TRADING_PREFERENCE_SETUP_PROMPT_KEY}:${JSON.stringify([state.auth.baseUrl, accountId])}`;
+}
+
+function canShowTradingPreferenceSetupPrompt() {
+  return state.auth.authenticated
+    && !state.loading
+    && !shouldShowLoginWindow()
+    && tradingPreferenceProfileLoadStatus === "loaded"
+    && !tradingPreferenceProfileCompleted
+    && Boolean(tradingPreferenceSetupPromptStorageKey());
+}
+
+function scheduleTradingPreferenceSetupPrompt() {
+  if (tradingPreferenceSetupPromptScheduled || !canShowTradingPreferenceSetupPrompt()) return;
+  const key = tradingPreferenceSetupPromptStorageKey();
+  if (tradingPreferenceSetupPromptSeen.has(key)) return;
+  try {
+    if (localStorage.getItem(key) === "1") {
+      tradingPreferenceSetupPromptSeen.add(key);
+      return;
+    }
+  } catch {
+    // Still suppress repeat prompts in this session if storage is unavailable.
+  }
+  tradingPreferenceSetupPromptScheduled = true;
+  window.requestAnimationFrame(() => {
+    tradingPreferenceSetupPromptScheduled = false;
+    // Startup, logout and profile saves can finish between render and this frame.
+    if (!canShowTradingPreferenceSetupPrompt() || key !== tradingPreferenceSetupPromptStorageKey()) return;
+    tradingPreferenceSetupPromptSeen.add(key);
+    try {
+      localStorage.setItem(key, "1");
+    } catch {
+      // The in-memory marker also guards the renders triggered below.
+    }
+    openSettingsDialog("trading");
+    showToast("请设置交易偏好，新增左侧入场策略", 6000);
+  });
+}
+
 async function tradingPreferenceBinanceIsConnected() {
   if (state.binanceAccount.status?.bound === true) return true;
   if (binanceAccountLoadPromise) {
@@ -47341,7 +46768,7 @@ async function tradingPreferenceBinanceIsConnected() {
 
 async function loadTradingPreferenceProfile(options: { renderAfter?: boolean } = {}) {
   if (!state.auth.authenticated || typeof api.getTradingPreferenceProfile !== "function") {
-    tradingPreferenceProfileLoadStatus = "loaded";
+    tradingPreferenceProfileLoadStatus = "idle";
     tradingPreferenceProfileCompleted = false;
     if (options.renderAfter !== false) render();
     return false;
@@ -47351,6 +46778,7 @@ async function loadTradingPreferenceProfile(options: { renderAfter?: boolean } =
   try {
     const result = await api.getTradingPreferenceProfile();
     if (generation !== tradingPreferenceProfileLoadGeneration) return false;
+    if (result?.ok !== true || !result.profile) throw new Error("Trading preferences unavailable");
     tradingPreferenceProfileCompleted = result?.completed === true
       || result?.profile?.onboardingCompleted === true;
     tradingPreferenceProfileLoadStatus = "loaded";
@@ -47586,6 +47014,10 @@ function appendTradingPreferenceMessage(
         __youleLocalStatus: true,
         ...(actions.length ? { actions } : {}),
       };
+  if (codexTradingTools.isToolTurn(threadId)) {
+    if (role === "user") return item;
+    codexTradingTools.collect(threadId, [item]);
+  }
   upsertItem(threadId, item);
   flow.itemIds.push(id);
   if (role === "assistant" && (typeof flow.stage === "number" || flow.stage === "save-error")) flow.questionItemId = id;
@@ -47727,7 +47159,7 @@ async function handleTradingPreferenceOnboardingReply(
 ) {
   const flow = tradingPreferenceOnboardingByThreadId.get(threadId);
   if (!flow) return false;
-  if (state.attachments.length) {
+  if (!codexTradingTools.isToolTurn(threadId) && state.attachments.length) {
     showToast("交易偏好问答只需要文字，请先移除附件", 3200);
     return true;
   }
@@ -53188,6 +52620,7 @@ function executionPlanCandidateKey(threadId: string, messageId: string, candidat
 
 function renderAddToPlanAction(message: Message, text: string, candidateOffset = 0, selectedCandidateIndex?: number): string {
   const presentation = (message as MessageUiMeta).executionPlanPresentation;
+  if (presentation === "position-plan") return "";
   const rawReports=(message as MessageUiMeta).cloudReports;
   let legacyReports:CloudTradingReport[]=[];
   try {legacyReports=rawReports?.length?normalizeCloudReports(rawReports).filter(report=>report.executionPolicy==='right-legacy-v1'):[];} catch {return "";}
@@ -53299,7 +52732,7 @@ function localSendStatusFromRecord(record: Record<string, unknown> | Message | C
     (record as Record<string, unknown> | null | undefined)?.__youleLocalSendStatus,
     (record as Record<string, unknown> | null | undefined)?.localSendStatus,
   );
-  // Quota and membership notices belong in the assistant recharge bubble.
+  // Quota notices belong in the assistant recharge bubble; membership failures retain their own reason.
   // Read the error metadata here as well so restored legacy sends cannot bring
   // back a red status below the user's original message.
   if (status === "failed" && isInsufficientQuotaError(firstString(
@@ -61058,6 +60491,10 @@ function renderSettingsDialog() {
               <img class="settings-nav-icon" src="${escapeAttr(SETTINGS_PROFILE_ICON_URL)}" alt="" />
               <span>个人资料</span>
             </button>
+            <button type="button" class="settings-nav-item ${activeTab === "trading" ? "active" : ""}" data-settings-tab="trading">
+              <svg class="settings-nav-icon settings-trading-nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z" /></svg>
+              <span>交易偏好</span>
+            </button>
             <button type="button" class="settings-nav-item" data-action="open-consumption">
               <img class="settings-nav-icon" src="${escapeAttr(SETTINGS_CONSUMPTION_ICON_URL)}" alt="" />
               <span>消耗明细</span>
@@ -61083,10 +60520,6 @@ function renderSettingsDialog() {
             <button type="button" class="settings-nav-item ${activeTab === "general" ? "active" : ""}" data-settings-tab="general">
               <img class="settings-nav-icon" src="${escapeAttr(SETTINGS_GENERAL_ICON_URL)}" alt="" />
               <span>通用设置</span>
-            </button>
-            <button type="button" class="settings-nav-item ${activeTab === "trading" ? "active" : ""}" data-settings-tab="trading">
-              <svg class="settings-nav-icon settings-trading-nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z" /></svg>
-              <span>交易偏好</span>
             </button>
             <button type="button" class="settings-nav-item ${activeTab === "about" ? "active" : ""}" data-settings-tab="about">
               <img class="settings-nav-icon" src="${escapeAttr(SETTINGS_ABOUT_ICON_URL)}" alt="" />
@@ -61125,7 +60558,6 @@ function renderSettingsDialog() {
               ? tradingPreferenceSettings.render()
               : `
                 <div class="settings-general-list">
-                  ${state.auth.authenticated ? `<p class="settings-row-description" data-settings-sync-status role="status">${escapeHtml(settingsSyncStatusText())}</p>` : ''}
                   ${renderSettingsLanguageRow()}
                   ${renderSettingsSwitchRow("固定在桌面任务栏", "taskbar")}
                   ${renderSettingsSwitchRow("固定在开始菜单", "startMenu")}
@@ -67178,13 +66610,13 @@ async function createExecutionPlanStickyFromMessageCard(card: HTMLElement) {
     sourceText: candidate.content,
     language: state.settings.language,
   });
-  const fontSize = loadMessageExecutionPlanFontSize(source.key);
+  const layout = executionPlanStickyLayout(root.querySelector<HTMLElement>(".desktop-body"));
   const result = await api.createExecutionPlanSticky({
     ...(candidate.cloudReport?{cloudReport:candidate.cloudReport}:{}),
     title,
     theme: document.documentElement.dataset.theme === "light" ? "light" : "dark",
     language: state.settings.language,
-    fontSize,
+    ...layout,
     lines: executionPlanDisplayLines(candidate.content).map((line) => ({
       label: line.label,
       text: line.text,
@@ -75155,6 +74587,7 @@ function turnResultProcessIndexes(messages: Message[], finalIndex: number) {
 function isTurnResultGroupComplete(threadId: string, turnKey: string, isLatestGroup: boolean) {
   if (isLatestGroup && tradingExpertThinkingStateByThreadId.has(threadId)) return false;
   const turnId = turnIdFromResultKey(turnKey);
+  if (completedTradingAnalysisForTurn(threadId, turnId)) return true;
   if (turnId && hasGptPlanProcessForInteraction(threadId, turnId)) {
     const finalItem = (state.itemOrder[threadId] || [])
       .map((itemId) => state.items[threadId]?.[itemId])
@@ -75301,6 +74734,7 @@ function turnResultDisplayStatus(threadId: string, turnKey: string, indexes: num
   // A terminal transport event does not turn progress commentary into a
   // deliverable. Keep the group pending until a final answer is present.
   if (phases.length && !phases.includes("final_answer")) return "pending";
+  if (items.some(isCompletedTradingAnalysisReport)) return "handled";
   // Synthetic turns restored from the durable trading transcript carry their
   // completed state on every item. Treat that state as authoritative even if
   // a stale consumption record still says the old transport turn is pending.
@@ -75345,9 +74779,13 @@ function turnResultElapsedLabel(
   const itemEnd = maxFinite(items.map(turnItemEndMs));
   const sortStart = minFinite(items.map(itemSortTime));
   const sortEnd = maxFinite(items.map(itemSortTime));
-  const running = Boolean(turnId && activeTurnIdForThread(threadId) === turnId && isThreadBusy(threadId));
+  const completedAnalysis = completedTradingAnalysisForTurn(threadId, turnId);
+  const analysisCompletedAt = completedAnalysis
+    ? sortTimeFromValues(completedAnalysis.createdAt, completedAnalysis.created_at)
+    : null;
+  const running = Boolean(!completedAnalysis && turnId && activeTurnIdForThread(threadId) === turnId && isThreadBusy(threadId));
   let startMs = timing?.startedAtMs ?? itemStart ?? sortStart ?? (running ? Date.now() : null);
-  const endMs = running ? Date.now() : (timing?.completedAtMs ?? itemEnd ?? sortEnd ?? startMs ?? Date.now());
+  const endMs = running ? Date.now() : (analysisCompletedAt ?? timing?.completedAtMs ?? itemEnd ?? sortEnd ?? startMs ?? Date.now());
   if (!running && finalIndex >= 0 && (startMs == null || endMs <= startMs)) {
     const previousUserStart = previousTurnResultUserStartMs(threadId, messages, finalIndex);
     if (previousUserStart != null && previousUserStart < endMs) startMs = previousUserStart;
@@ -76226,7 +75664,7 @@ function itemToMessage(threadId: string, id: string, item: CodexItem): Message {
         ? item.__youleVideoGenerationActor
         : null,
     executionPlanPresentation:
-      item.__youleExecutionPlanPresentation === "execution-plan" ||
+      item.__youleExecutionPlanPresentation === "execution-plan" || item.__youleExecutionPlanPresentation === "position-plan" ||
       item.__youleExecutionPlanPresentation === "plain"
         ? item.__youleExecutionPlanPresentation
         : null,

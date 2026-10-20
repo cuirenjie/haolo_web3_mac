@@ -546,28 +546,13 @@ test("reselecting a trading history always refreshes the durable transcript surf
   assert.match(rendererSource, /payload\?\.status === "completed" && \(stage === "model" \|\| stage === "analysis_pipeline"\)\) return/);
 });
 
-test("generic strategy and general chart-analysis start after persistence or a non-blocking retry handoff", () => {
-  const dispatch = sourceBlock(
-    rendererSource,
-    "const isTradingChartAnalysisSend = Boolean(",
-    "if (isMultiModelClusterThread(threadId))",
-  );
-  const persistIndex = dispatch.indexOf("await persistTradingExpertTranscriptItems");
-  assert.ok(persistIndex >= 0);
-  for (const runner of [
-    "runTradingStrategyChartRequest",
-    "runTradingGeneralChartRequest",
-  ]) {
-    assert.ok(dispatch.indexOf(`await ${runner}`) > persistIndex, `${runner} must run after parent persistence`);
-  }
-  assert.doesNotMatch(dispatch, /任务未执行：顶层会话保存失败/);
-  assert.match(dispatch, /queueTradingExpertTranscriptPersistenceRetry/);
-  assert.doesNotMatch(dispatch, /会话记录将在后台自动重试保存，盘面分析继续/);
-  assert.doesNotMatch(rendererSource, /会话记录将在后台自动重试保存，不影响本次回答/);
+test("root turn owns strategy dispatch and durable native report cards", () => {
+  const dispatch = sourceBlock(rendererSource, "async function sendCurrentMessage", "async function sendCurrentProviderMessage");
+  assert.match(dispatch, /await sendAgentText/);
+  assert.doesNotMatch(dispatch, /await runTradingStrategyChartRequest|await runTradingGeneralChartRequest/);
+  assert.match(rendererSource, /codexTradingTools.collect\(threadId, items\)/);
+  assert.match(rendererSource, /businessPresentationItems\(item\)/);
   assert.match(rendererSource, /payload\.slice\(index \* 32, index \* 32 \+ 32\)/);
-  assert.match(dispatch, /threadId = persistedThreadId/);
-  assert.match(rendererSource, /adoptReplacementCodexThread\(previousThreadId, result\.replacementThread, 0\)/);
-  assert.match(rendererSource, /movePendingComposerSend\(previousThreadId, activeThreadId, pending\.itemId\)/);
 });
 
 test("strategy and general chart-analysis runners persist completed, unavailable and degraded terminal answers", () => {

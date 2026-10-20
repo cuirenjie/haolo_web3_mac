@@ -28,7 +28,15 @@ for(const route of ['protect','touch'])for(const locale of ['zh-CN','zh-Hant','e
   assert.deepEqual(restored,report);
   const savedReport=structuredClone(report);savedReport.planRecords[0].status='pending';
   const saved=mergeCloudExecutionPlans([savedReport],[])[0];
-  for(const html of [renderCurrentReports([restored]).rendered.cards,renderCurrentSavedPlan(saved,language),executionPlanStickyHtml({cloudReport:report,language})])assert.ok(html.includes(card.html));
+  assert.ok(renderCurrentReports([restored]).rendered.cards.includes(card.html));
+  const savedCard=cloudPlanCard(report,{language,separateAction:true});
+  const savedHtml=renderCurrentSavedPlan(saved,language);
+  assert.ok(savedHtml.includes(savedCard.html),'saved plan preserves the original body');
+  assert.ok(savedCard.actionHtml && savedHtml.includes(savedCard.actionHtml),'saved plan retains its action');
+  const stickyCard=cloudPlanCard(report,{language,separateAction:true});
+  const sticky=executionPlanStickyHtml({cloudReport:report,language});
+  assert.ok(sticky.includes(stickyCard.html),'sticky preserves the original plan body');
+  assert.ok(stickyCard.actionHtml && sticky.includes(stickyCard.actionHtml),'sticky retains the condition action in its footer');
   assert.match(renderCurrentReports([report]).actions,/add-to-plan/);
   assert.deepEqual(report,before);
 });

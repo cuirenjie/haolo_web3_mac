@@ -32,7 +32,7 @@ import { appLanguageLocale, translateAppText, translateTradingPeriodLabel, type 
 import type { TradingAnalysisContext } from "./trading-expert-general-request";
 import { renderTradingChartBrand } from "./trading-chart-brand.ts";
 import { TradingChartExtremaOverlay } from "./trading-chart-extrema.ts";
-import { TradingDrawingVisibility } from './trading-drawing-visibility.ts';
+import { TradingDrawingVisibility, TRADING_VISIBILITY_LAYERS } from './trading-drawing-visibility.ts';
 import { TradingChartFrameUpdate } from "./trading-chart-frame-update.ts";
 import { TradingChartCalculationCache } from "./trading-chart-calculation-cache.ts";
 import { TradingHollowHistogram, type TradingHistogramStyle } from './trading-hollow-histogram.ts';
@@ -525,6 +525,7 @@ export interface TradingAnalysisTaskTarget {
   readonly splitPanes?: ReturnType<typeof captureCloudAnalysisPanes<TradingSplitPaneAnalysisSnapshot>>;
 }
 export interface TradingChanConversationRequest extends TradingExecutionModelSelection {
+  marketId?: string;
   analysisId?: string | null;
   analysisTarget?: TradingAnalysisTaskTarget | null;
   instruction: string;
@@ -533,10 +534,12 @@ export interface TradingChanConversationRequest extends TradingExecutionModelSel
   lookbackMs?: number | null;
   lookbackLabel?: string | null;
   drawingRequested?: boolean;
+  deferPresentation?: boolean;
   onProgress?: (phase: TradingChanConversationPhase, message: string) => void;
 }
 export interface TradingChanConversationResult {
   cloudReports?: CloudTradingReport[];
+  drawingArtifacts?: TradingDeferredDrawing[];
   report: string;
   narrative: string;
   marketId: string;
@@ -560,10 +563,12 @@ export interface TradingOrderFlowConversationRequest extends TradingExecutionMod
   lookbackMs?: number | null;
   lookbackLabel?: string | null;
   drawingRequested?: boolean;
+  deferPresentation?: boolean;
   onProgress?: (phase: TradingOrderFlowConversationPhase, message: string) => void;
 }
 export interface TradingOrderFlowConversationResult {
   cloudReports?: CloudTradingReport[];
+  drawingArtifacts?: TradingDeferredDrawing[];
   report: string;
   narrative: string;
   marketId: string;
@@ -588,10 +593,12 @@ export interface TradingWaveConversationRequest extends TradingExecutionModelSel
   lookbackMs?: number | null;
   lookbackLabel?: string | null;
   drawingRequested?: boolean;
+  deferPresentation?: boolean;
   onProgress?: (phase: TradingWaveConversationPhase, message: string) => void;
 }
 export interface TradingWaveConversationResult {
   cloudReports?: CloudTradingReport[];
+  drawingArtifacts?: TradingDeferredDrawing[];
   report: string;
   narrative: string;
   marketId: string;
@@ -615,10 +622,12 @@ export interface TradingWyckoffConversationRequest extends TradingExecutionModel
   lookbackMs?: number | null;
   lookbackLabel?: string | null;
   drawingRequested?: boolean;
+  deferPresentation?: boolean;
   onProgress?: (phase: TradingWyckoffConversationPhase, message: string) => void;
 }
 export interface TradingWyckoffConversationResult {
   cloudReports?: CloudTradingReport[];
+  drawingArtifacts?: TradingDeferredDrawing[];
   report: string;
   narrative: string;
   marketId: string;
@@ -631,6 +640,7 @@ export interface TradingWyckoffConversationResult {
 type TradingGeneralAnalysisResponse = TradingChanAnalysisResponse;
 export type TradingGeneralConversationPhase = "loading" | "analyzing" | "drawing" | "complete";
 export interface TradingGeneralConversationRequest extends TradingExecutionModelSelection {
+  marketId?: string;
   analysisId?: string | null;
   analysisTarget?: TradingAnalysisTaskTarget | null;
   instruction: string;
@@ -639,6 +649,7 @@ export interface TradingGeneralConversationRequest extends TradingExecutionModel
   lookbackMs?: number | null;
   lookbackLabel?: string | null;
   drawingRequested?: boolean;
+  deferPresentation?: boolean;
   strategyDisplayName?: string | null;
   minimumCandles?: number | null;
   preferredCandles?: number | null;
@@ -652,9 +663,14 @@ export interface TradingGeneralConversationRequest extends TradingExecutionModel
   analysisContext?: TradingAnalysisContext | null;
   onProgress?: (phase: TradingGeneralConversationPhase, message: string) => void;
 }
+export type TradingDeferredDrawing = {
+  job: TradingAnalysisJobContext; paneIndex: number;
+  drawingPatch?: TradingAiDrawingPatch; indicatorDrawingPatch?: TradingIndicatorAiDrawingPatch;
+};
 export interface TradingGeneralConversationResult {
   tradeCount: number;
   cloudReports?: CloudTradingReport[];
+  drawingArtifacts?: TradingDeferredDrawing[];
   report: string;
   narrative: string;
   marketId: string;
@@ -2147,6 +2163,7 @@ function normalizeTradingLastDrawingWorkspace(value: unknown): TradingLastDrawin
 }
 interface TradingSplitPaneAnalysisReport {
   cloudReports?: CloudTradingReport[];
+  drawingArtifacts?: TradingDeferredDrawing[];
   paneIndex: number;
   heading: string;
   report: string;
@@ -5073,6 +5090,7 @@ class TradingExpertMarketWorkspace {
   private loadingHistory = false;
   private historyCooldownTimer: number | null = null;
   private disposed = false;
+  private taskbarQuoteTimer: number | null = null;
   private marketLoading = true;
   private selectedSymbol = DEFAULT_SYMBOL;
   private selectedMarketId = `BINANCE:FUTURES:${DEFAULT_SYMBOL}`;
@@ -5279,13 +5297,42 @@ class TradingExpertMarketWorkspace {
     this.favoriteMarketRecords = new Map(
       storedFavorites.records.map((record) => [record.id, record]),
     );
+    // Import actual saved stars once; the suggested tickers of a fresh account
+    // must not populate its watchlist or overwrite an initialized cloud list.
+    const favoriteKeys = tradingFavoriteStorageKeys(favoriteStorageAccountIdentity);
+    let hasSavedFavorites = false;
+    try {
+      hasSavedFavorites = storedFavorites.migratedFromLegacy
+        || window.localStorage.getItem(favoriteKeys.symbols) !== null
+        || window.localStorage.getItem(favoriteKeys.records) !== null;
+    } catch { /* Storage can be disabled. */ }
+    const savedStarRecords = new Map(storedFavorites.records
+      .filter((record) => this.isMarketFavorite(marketFromFavoriteRecord(record)))
+      .map((record) => [record.id, record]));
+    let repairedStarRecords = false;
+    // Older installations stored only Binance IDs/symbols, without metadata.
+    for (const favoriteId of storedFavorites.symbols) {
+      const legacySymbol = normalizeBinanceMarketSymbol(favoriteId.replace(/^BINANCE:/, ""));
+      const id = BINANCE_MARKET_ID_PATTERN.test(favoriteId)
+        ? favoriteId : legacySymbol ? `BINANCE:FUTURES:${legacySymbol}` : "";
+      if (!id || savedStarRecords.has(id)) continue;
+      const record = normalizeBinanceFavoriteMarketRecord({ provider: "binance", id });
+      if (record) {
+        savedStarRecords.set(record.id, record);
+        this.favoriteMarketRecords.set(record.id, record);
+        this.favoriteSymbols.delete(favoriteId);
+        this.favoriteSymbols.add(record.id);
+        repairedStarRecords = true;
+      }
+    }
+    this.watchlist.migrateStarFavorites(hasSavedFavorites ? [...savedStarRecords.values()] : []);
     if (!lastDrawingWorkspace || !this.restoreLastDrawingWorkspace(lastDrawingWorkspace)) {
       this.restoreLastAnalysisSelection();
     }
     this.loadPersistedAlertSimulation();
     this.restoreAlertSimulationSelection();
     this.favoriteStorageMigratedFromLegacy = storedFavorites.migratedFromLegacy;
-    if (this.favoriteStorageMigratedFromLegacy) this.saveFavoriteSymbols();
+    if (this.favoriteStorageMigratedFromLegacy || repairedStarRecords) this.saveFavoriteSymbols();
     this.renderFavoriteTickerBar();
     this.syncFavoriteTickerStreams();
     this.indicatorSettings = this.loadIndicatorSettings();
@@ -5313,6 +5360,8 @@ class TradingExpertMarketWorkspace {
     });
     this.updateCountdown();
     this.countdownTimer = window.setInterval(() => this.updateCountdown(), 1000);
+    this.syncTaskbarQuote();
+    this.taskbarQuoteTimer = window.setInterval(() => this.syncTaskbarQuote(), 1000);
     void this.loadFinnhubStatus();
     void this.loadIfindStatus();
     void this.syncFavoriteServer(true);
@@ -5409,7 +5458,7 @@ class TradingExpertMarketWorkspace {
     }
     if (action === "restore-chart-settings") {
       this.chartSettingsNavigation()?.setVerticalLocked(false);
-      this.drawingVisibilitySettings.setLayers({ aiHidden: false, manualHidden: false });
+      this.drawingVisibilitySettings.setAll(false);
       this.chartSettings = cloneTradingChartSettings(DEFAULT_TRADING_CHART_SETTINGS);
       this.persistAndApplyChartSettings({ rebuildSeries: true });
       this.refreshChartSettingsDialog();
@@ -5761,9 +5810,9 @@ class TradingExpertMarketWorkspace {
       this.syncChartNavigationControls();
       return;
     }
-    if (key === 'drawingVisibility.aiHidden' || key === 'drawingVisibility.manualHidden') {
-      const layer = key === 'drawingVisibility.aiHidden' ? 'aiHidden' : 'manualHidden';
-      this.drawingVisibilitySettings.setLayers({ [layer]: target.checked });
+    if (key.startsWith('drawingVisibility.')) {
+      const layer = TRADING_VISIBILITY_LAYERS.find(({ key: layerKey }) => key === `drawingVisibility.${layerKey}`);
+      if (layer) this.drawingVisibilitySettings.setLayers({ [layer.key]: target.checked });
       return;
     }
     const previousStyle = this.chartSettings.chartStyle;
@@ -5806,7 +5855,6 @@ class TradingExpertMarketWorkspace {
       || key === "showPriceLine"
       || key === "showPriceLabel"
       || key === "showCountdown"
-      || key === "hideKlineAnnotations"
       || key === "autoScale"
     ) {
       this.chartSettings[key] = target.checked;
@@ -5834,8 +5882,10 @@ class TradingExpertMarketWorkspace {
 
   private syncDrawingVisibilityControls() {
     const state = this.drawingVisibilitySettings.layers();
+    this.host.classList.toggle('kline-annotations-hidden', state.dataHidden);
     this.chartSettingsBackdrop?.querySelectorAll<HTMLInputElement>('[data-chart-setting^="drawingVisibility."]').forEach(input => {
-      input.checked = input.dataset.chartSetting === 'drawingVisibility.aiHidden' ? state.aiHidden : state.manualHidden;
+      const layer = TRADING_VISIBILITY_LAYERS.find(({ key }) => input.dataset.chartSetting === `drawingVisibility.${key}`);
+      if (layer) input.checked = state[layer.key];
     });
   }
 
@@ -5921,7 +5971,8 @@ class TradingExpertMarketWorkspace {
   }
 
   private applyKlineAnnotationVisibility() {
-    this.host.classList.toggle("kline-annotations-hidden", this.chartSettings.hideKlineAnnotations);
+    this.drawingVisibilitySettings.migrateLegacyDataVisibility(this.chartSettings.hideKlineAnnotations);
+    this.syncDrawingVisibilityControls();
   }
 
   private applyDrawingToolsSetting() {
@@ -6900,9 +6951,8 @@ class TradingExpertMarketWorkspace {
       try {
         let response = await client.listTradingFavorites();
         const initialized = response?.initialized === true;
-        // The mobile collection is the source of truth for the right-side
-        // watchlist.  Title-bar star tickers and custom groups remain local
-        // desktop features and must never be merged into this collection.
+        // Initialize from the local default list before flushing changes: an
+        // add can itself initialize the server and must not drop existing rows.
         const localRecords = this.watchlist.groups.find((group) => group.id === "watchlist")?.markets || [];
         if (!initialized && localRecords.length && typeof client.addTradingFavorite === "function") {
           for (const record of localRecords) {
@@ -6911,14 +6961,21 @@ class TradingExpertMarketWorkspace {
           }
           response = await client.listTradingFavorites();
         }
+        if (this.watchlist.pendingMemberships.size) {
+          await this.flushFavoriteServerMemberships();
+          response = await client.listTradingFavorites();
+        }
         const remoteRecords = Array.isArray(response?.items)
           ? response.items.map(tradingFavoriteRecordFromApi).filter(Boolean) as TradingFavoriteMarketRecord[]
           : [];
         if (response?.initialized === true || initialized === false) {
-          this.watchlist.replaceGroupMarkets("watchlist", remoteRecords);
-          this.syncWatchlistPicker();
-          this.watchlistPanel.refresh();
-          this.syncWatchlistChanges();
+          const previousRecords = this.watchlist.groups[0].markets;
+          this.watchlist.mergeSharedSnapshot(remoteRecords);
+          const retained = new Set(this.watchlist.groups[0].markets.map((record) => record.id));
+          for (const record of previousRecords) {
+            if (!retained.has(record.id)) this.removeFavoriteMarket(marketFromFavoriteRecord(record));
+          }
+          this.commitFavoriteMarketChanges();
         }
         this.favoriteServerVersion = Number.isInteger(response?.version) ? Number(response.version) : null;
         this.favoriteServerReady = true;
@@ -6933,12 +6990,17 @@ class TradingExpertMarketWorkspace {
   }
 
   private syncWatchlistMembership(record: TradingFavoriteMarketRecord, added: boolean) {
-    if (!this.favoriteStorageAccountIdentity) return;
-    this.syncFavoriteServerMembership(marketFromFavoriteRecord(record), added);
+    if (this.watchlist.activeGroupId !== "watchlist") return;
+    this.watchlist.setSharedMembership(record, added);
+    if (!added) {
+      this.removeFavoriteMarket(marketFromFavoriteRecord(record));
+      this.commitFavoriteMarketChanges();
+    }
+    void this.syncFavoriteServerMembership();
   }
 
   private syncWatchlistOrder(records: TradingFavoriteMarketRecord[]) {
-    if (!this.favoriteStorageAccountIdentity) return;
+    if (!this.favoriteStorageAccountIdentity || this.watchlist.activeGroupId !== "watchlist") return;
     this.syncFavoriteServerOrder(
       records.map((record) => record.id),
       new Map(records.map((record) => [record.id, record])),
@@ -6949,20 +7011,38 @@ class TradingExpertMarketWorkspace {
     void this.syncFavoriteServer(true);
   }
 
-  private syncFavoriteServerMembership(market: TradingMarket, added: boolean) {
+  private async flushFavoriteServerMemberships() {
     const client = (window as any).codexDesktop;
-    if (!this.favoriteStorageAccountIdentity) return;
-    return this.queueFavoriteServer(async () => {
+    for (const change of [...this.watchlist.pendingMemberships.values()]) {
+      const { record, added } = change;
+      const market = marketFromFavoriteRecord(record);
+      let response;
       if (added && typeof client?.addTradingFavorite === "function") {
-        const response = await client.addTradingFavorite(tradingFavoriteApiPayload(market));
-        this.favoriteServerVersion = Number.isInteger(response?.version) ? Number(response.version) : this.favoriteServerVersion;
+        response = await client.addTradingFavorite(tradingFavoriteApiPayload(market));
       } else if (!added && typeof client?.removeTradingFavorite === "function") {
         const marketKey = tradingFavoriteApiPayload(market).id;
-        const response = await client.removeTradingFavorite({ marketId: marketKey });
+        response = await client.removeTradingFavorite({ marketId: marketKey });
+      } else continue;
+      this.favoriteServerVersion = Number.isInteger(response?.version) ? Number(response.version) : this.favoriteServerVersion;
+      if (added && typeof client?.reorderTradingFavorites === "function") {
+        // The add endpoint appends. Persist the current local order before
+        // acknowledging, so failed order writes remain retryable after restart.
+        response = await client.reorderTradingFavorites({
+          marketIds: this.watchlist.groups[0].markets.map((item) =>
+            tradingFavoriteApiPayload(marketFromFavoriteRecord(item)).id),
+          ...(this.favoriteServerVersion ? { version: this.favoriteServerVersion } : {}),
+        });
         this.favoriteServerVersion = Number.isInteger(response?.version) ? Number(response.version) : this.favoriteServerVersion;
       }
-      this.favoriteServerReady = true;
-    }).catch((error) => {
+      this.watchlist.acknowledgeSharedMembership(change);
+    }
+  }
+
+  private syncFavoriteServerMembership() {
+    if (!this.favoriteStorageAccountIdentity) return;
+    if (!this.favoriteServerReady && typeof (window as any).codexDesktop?.listTradingFavorites === "function")
+      return this.syncFavoriteServer(true);
+    return this.queueFavoriteServer(() => this.flushFavoriteServerMemberships()).catch((error) => {
       console.warn(
         "[trading-favorites] membership sync failed",
         error instanceof Error ? error.message : String(error),
@@ -7430,22 +7510,40 @@ class TradingExpertMarketWorkspace {
   private toggleFavoriteMarket(market: TradingMarket) {
     const wasFavorite = this.isMarketFavorite(market);
     if (wasFavorite) {
-      this.favoriteSymbols.delete(market.id);
-      if (market.provider === "binance") this.favoriteSymbols.delete(market.symbol);
-      this.favoriteMarketRecords.delete(market.id);
+      this.removeFavoriteMarket(market);
+      this.watchlist.setSharedMembership(tradingFavoriteRecord(market), false);
+      void this.syncFavoriteServerMembership();
     } else {
       this.addFavoriteMarket(market);
     }
     this.commitFavoriteMarketChanges();
   }
 
+  private removeFavoriteMarket(market: TradingMarket) {
+    this.favoriteSymbols.delete(market.id);
+    if (market.provider === "binance") this.favoriteSymbols.delete(market.symbol);
+    this.favoriteMarketRecords.delete(market.id);
+  }
+
   private addFavoriteMarket(market: TradingMarket) {
     const alreadyFavorite = this.isMarketFavorite(market);
     const hasStableFavorite = this.favoriteSymbols.has(market.id)
       && this.favoriteMarketRecords.has(market.id);
-    if (alreadyFavorite && hasStableFavorite) return false;
+    const inWatchlist = this.watchlist.groups[0].markets.some((record) => record.id === market.id);
+    if (!inWatchlist) {
+      this.watchlist.setSharedMembership(tradingFavoriteRecord(market), true);
+      void this.syncFavoriteServerMembership();
+    }
+    if (alreadyFavorite && hasStableFavorite) return !inWatchlist;
     this.favoriteSymbols.add(market.id);
-    this.favoriteMarketRecords.set(market.id, tradingFavoriteRecord(market));
+    // Insert before the ticker limit is applied, and ahead of any saved
+    // mixed index/market drag order, without moving the remaining favorites.
+    this.favoriteMarketRecords.delete(market.id);
+    this.favoriteMarketRecords = new Map([
+      [market.id, tradingFavoriteRecord(market)],
+      ...this.favoriteMarketRecords,
+    ]);
+    this.indexFavorites.prepend(market.id);
     return true;
   }
 
@@ -7454,7 +7552,8 @@ class TradingExpertMarketWorkspace {
     this.saveFavoriteSymbols();
     if (renderMarkets) this.renderMarkets();
     this.renderFavoriteTickerBar();
-    this.syncFavoriteTickerStreams();
+    this.watchlistPanel.refresh();
+    this.syncWatchlistChanges();
   }
 
   private favoriteMarketFromId(marketId: string) {
@@ -8819,7 +8918,7 @@ class TradingExpertMarketWorkspace {
     if(migrateFromSessionId)migrateCloudIndicatorPatches(migrateFromSessionId,drawingStorageSessionId);
     this.drawingStorageSessionId = drawingStorageSessionId;
     this.drawingVisibilitySettings.switchSession(drawingStorageSessionId, Boolean(migrateFromSessionId) && migrateFromSessionId === previousStorageSessionId);
-    this.syncDrawingVisibilityControls();
+    this.applyKlineAnnotationVisibility();
     this.drawingController?.switchStorageSession(drawingStorageSessionId, {
       migrateFromSessionId: migrateFromSessionId || undefined,
     });
@@ -8973,6 +9072,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private updateSymbolUi() {
+    this.syncTaskbarQuote();
     const logo = this.host.querySelector<HTMLElement>(".trading-market-symbol [data-market-logo-shell]");
     if (this.selectedIndex) {
       if (logo) logo.outerHTML = renderTradingMarketAssetLogo(this.selectedIndex.code, 'binance', true, 'index', indexName(this.selectedIndex));
@@ -9116,6 +9216,7 @@ class TradingExpertMarketWorkspace {
     analysisProgressPhase: string;
     drawingProgressPhase: string;
     drawingsRequested: boolean;
+    deferredDrawings?: TradingDeferredDrawing[];
     onProgress?: (phase: any, message: string) => void;
     analyze: (snapshot: TradingSplitPaneAnalysisSnapshot) => Promise<TradingChanAnalysisResponse>;
   }): Promise<TradingSplitPaneAnalysisResult> {
@@ -9150,6 +9251,8 @@ class TradingExpertMarketWorkspace {
             throw Object.assign(new Error(response?.error?.message || `${options.analysisLabel}没有返回绘图计划`), {code: response?.error?.code});
           }
           const analysisPlan = response.analysisPlan;
+          options.deferredDrawings?.push({ job: options.job, paneIndex: snapshot.paneIndex,
+            drawingPatch: analysisPlan.drawingPatch, indicatorDrawingPatch: analysisPlan.indicatorDrawingPatch });
           const {drawingDeferred} = await settleTradingAnalysisDrawing({
             isActive: () => tradingAnalysisJobs.isActive(options.job.analysisId),
             onFailure: error => recordTradingRendererFailure(error, {
@@ -10898,6 +11001,7 @@ class TradingExpertMarketWorkspace {
         analysisContext: request.analysisContext || null,
         responseMode: directResponseRequested ? "direct" : "full",
         lookbackMs: requestedLookbackMs,
+        ...(strategyId?.startsWith("personal-") ? { candles: analysisCandles } : {}),
         ...windowHint,
       }) as TradingGeneralAnalysisResponse;
       if (!tradingAnalysisJobs.isActive(job.analysisId)) {
@@ -10913,8 +11017,11 @@ class TradingExpertMarketWorkspace {
       }
       const analysisPlan = response.analysisPlan;
       const modelName = tradingAnalysisModelDisplayName(response.model, job.language);
+      const drawingArtifacts: TradingDeferredDrawing[] = request.deferPresentation ? [{
+        job, paneIndex: 0, drawingPatch: analysisPlan.drawingPatch, indicatorDrawingPatch: analysisPlan.indicatorDrawingPatch,
+      }] : [];
       let drawingDeferred = false;
-      if (request.drawingRequested !== false) {
+      if (request.drawingRequested !== false && !request.deferPresentation) {
         request.onProgress?.(
           "drawing",
           `${modelName} ${cloudAnalysisText('drawing',job.language)}`,
@@ -10953,7 +11060,8 @@ class TradingExpertMarketWorkspace {
         analysisLabel: `${analysisName}分析`,
         analysisProgressPhase: "analyzing",
         drawingProgressPhase: "drawing",
-        drawingsRequested: request.drawingRequested !== false,
+        drawingsRequested: request.drawingRequested !== false && !request.deferPresentation,
+        deferredDrawings: request.deferPresentation ? drawingArtifacts : undefined,
         onProgress: request.onProgress,
         analyze: async (snapshot) => {
           return api({
@@ -10973,6 +11081,7 @@ class TradingExpertMarketWorkspace {
             analysisContext: request.analysisContext || null,
             responseMode: directResponseRequested ? "direct" : "full",
             lookbackMs: requestedLookbackMs,
+            ...(strategyId?.startsWith("personal-") ? { candles: snapshot.candles } : {}),
             ...cloudAnalysisWindow(strategyId,snapshot.candles,preferredCandles),
           }) as Promise<TradingGeneralAnalysisResponse>;
         },
@@ -10980,7 +11089,7 @@ class TradingExpertMarketWorkspace {
       if (!tradingAnalysisJobs.isActive(job.analysisId)) {
         throw new Error("盘面分析已由用户停止");
       }
-      if (request.drawingRequested !== false) rememberTradingAnalysisJobContext(job);
+      if (request.drawingRequested !== false && !request.deferPresentation) rememberTradingAnalysisJobContext(job);
       request.onProgress?.("complete", `${modelName} ${drawingDeferred
         ? describeTradingAnalysisFailure(null, { stage: "drawing", language: job.language }).summary
         : directResponseRequested
@@ -11005,6 +11114,7 @@ class TradingExpertMarketWorkspace {
         ? String(response.analysisPlan.narrative || responseReport || "盘面分析已完成")
         : questionLead || String(response.analysisPlan.narrative || "盘面分析已完成");
       const result: TradingGeneralConversationResult = {
+        ...(request.deferPresentation ? { drawingArtifacts } : {}),
         cloudReports: [...cloudReportFromResponse(response), ...splitResult.reports.flatMap(row=>row.cloudReports||[])],
         report: combineTradingAnalysisReports(
           tradingAnalysisPaneHeading(targetMarket, job.interval),
@@ -12149,6 +12259,38 @@ class TradingExpertMarketWorkspace {
     this.loadedInterval = this.activeInterval;
   }
 
+  private syncTaskbarQuote() {
+    const publish = window.codexDesktop?.setTaskbarMarketQuote;
+    if (!publish) return;
+    if (this.disposed || !this.host.isConnected) {
+      void publish(null).catch(() => {});
+      return;
+    }
+    const index = this.selectedIndex;
+    const market = this.selectedMarketMeta
+      || this.markets.find((candidate) => candidate.id === this.selectedMarketId)
+      || this.favoriteMarketFromId(this.selectedMarketId);
+    // Match the titlebar ticker's latest trade / mid price, not the futures
+    // mark price. Never associate the previous selection's stats with a new pair.
+    const stats = this.loadedMarketId === this.selectedMarketId ? this.stats : null;
+    const ticker = this.favoriteTickerMarketsById.get(this.selectedMarketId);
+    const candidate = index ? index.value : stats
+      ? (this.selectedMarketType === "spot" ? stats.markPrice : stats.midPrice)
+      : ticker?.quoteAvailable ? ticker.markPrice : null;
+    const price = typeof candidate === "number" && Number.isFinite(candidate) && candidate > 0 ? candidate : null;
+    const changePercent = index ? index.changePercent
+      : stats && stats.prevDayPrice > 0 && price !== null
+        ? (price - stats.prevDayPrice) / stats.prevDayPrice * 100
+        : ticker?.quoteAvailable ? ticker.changePercent : null;
+    const name = index ? `${indexName(index)} ${indexCopy("指数", "Index")}`
+      : `${market?.displaySymbol || `${baseAssetFromSymbol(this.selectedSymbol)}/${MARKET_QUOTE}`} ${market?.tag || (this.selectedMarketType === "spot" ? "现货" : "永续")}`;
+    void publish({
+      marketId: this.selectedMarketId, name, price,
+      priceText: price === null ? "--" : formatMarketPrice(price),
+      changePercent: typeof changePercent === "number" && Number.isFinite(changePercent) ? changePercent : null,
+    }).catch(() => {});
+  }
+
   private updateStatsUi() {
     if (!this.stats) return;
     this.applyMarketPriceFormat(this.stats.markPrice);
@@ -12471,6 +12613,12 @@ class TradingExpertMarketWorkspace {
     this.chartNavigation = new TradingChartNavigation(
       this.chartElement, () => this.chart, () => this.synchronizeVisibleChartGeometry(),
       {
+        onRemoveAllDrawings: () => {
+          // These controllers share storage, but each keeps its own live history.
+          for (const controller of [this.drawingController, ...this.indicatorDrawingControllers.values()]) {
+            controller?.clearAllDrawings({ allScopes: true });
+          }
+        },
         onFocus: (index) => {
           this.drawingController?.focusPane(index);
           this.indicatorDrawingControllers.forEach((controller) => controller.focusPane(index));
@@ -13797,6 +13945,9 @@ class TradingExpertMarketWorkspace {
     if (this.watchlistQuoteTimer !== null) window.clearInterval(this.watchlistQuoteTimer);
     if (this.disposed) return;
     this.disposed = true;
+    if (this.taskbarQuoteTimer !== null) window.clearInterval(this.taskbarQuoteTimer);
+    this.taskbarQuoteTimer = null;
+    void window.codexDesktop?.setTaskbarMarketQuote?.(null).catch(() => {});
     if (this.loadingPresentationFrame !== null) window.cancelAnimationFrame(this.loadingPresentationFrame);
     this.crosshairFrame.cancel();
     this.loadGeneration += 1;
@@ -13905,6 +14056,30 @@ let activeWorkspace: TradingExpertMarketWorkspace | null = null;
 let activeWorkspaceHost: HTMLElement | null = null;
 let activeWorkspaceFavoriteStorageAccountIdentity = "";
 const tradingAnalysisTargetWorkspaces = new Map<string, TradingExpertMarketWorkspace>();
+
+export async function applyDeferredTradingDrawings(
+  artifacts: TradingDeferredDrawing[], threadId: string, analysisId: string,
+) {
+  if (!artifacts.length) return { status: "no-drawings", count: 0 };
+  const source = artifacts[0].job;
+  if (!source || artifacts.some(item => item.job.storageSessionId !== threadId)) {
+    throw new Error("Drawing artifacts belong to another conversation.");
+  }
+  const job = tradingAnalysisJobs.start({ ...source, analysisId, storageSessionId: threadId });
+  try {
+    for (const artifact of artifacts) {
+      if (!tradingAnalysisJobs.isActive(job.analysisId)) throw new Error("Drawing cancelled.");
+      if (artifact.drawingPatch) await commitTradingAnalysisDrawingPatch(job, artifact.drawingPatch, artifact.paneIndex);
+      if (artifact.indicatorDrawingPatch) await commitTradingIndicatorAnalysisDrawingPatch(job, artifact.indicatorDrawingPatch, artifact.paneIndex);
+    }
+    rememberTradingAnalysisJobContext(job);
+    tradingAnalysisJobs.complete(job.analysisId);
+    return { status: "drawn", count: artifacts.length };
+  } catch (error) {
+    tradingAnalysisJobs.fail(job.analysisId, error);
+    throw error;
+  }
+}
 
 async function commitTradingAnalysisDrawingPatch(
   job: TradingAnalysisJobContext,
@@ -14084,9 +14259,10 @@ export async function prepareTradingExpertAlertContext(marketId?: string | null,
   return activeWorkspace.prepareAlertContext(marketId, interval);
 }
 
-export async function tradingExpertAlertSimulationFrames(rule: any) {
-  if (!activeWorkspace) throw new Error("交易专家行情工作区尚未就绪");
-  return activeWorkspace.alertSimulationFrames(rule);
+export async function tradingExpertAlertSimulationFrames(rule: any, target?: TradingAnalysisTaskTarget | null, bound = false) {
+  const workspace = bound ? (target ? tradingAnalysisTargetWorkspaces.get(target.targetId) : null) : activeWorkspace;
+  if (!workspace) throw new Error("交易专家行情工作区尚未就绪");
+  return workspace.alertSimulationFrames(rule);
 }
 
 export function focusTradingExpertAlertEvidence(evidence: any, rule?: any) {
@@ -14236,6 +14412,9 @@ export async function runTradingExpertStrategyConversation(
   strategyId: string,
   request: TradingStrategyConversationRequest,
 ): Promise<TradingStrategyConversationResult> {
+  if (!request.analysisTarget && request.sourceThreadId) {
+    return runTradingExpertDetachedConversation(request, strategyId);
+  }
   const runner = BUILTIN_TRADING_STRATEGY_CONVERSATION_RUNNERS[
     strategyId as keyof typeof BUILTIN_TRADING_STRATEGY_CONVERSATION_RUNNERS
   ];
@@ -14248,7 +14427,76 @@ export async function runTradingExpertStrategyConversation(
 export async function runTradingExpertGeneralConversation(
   request: TradingGeneralConversationRequest,
 ) {
+  if (!request.analysisTarget && request.sourceThreadId) {
+    return runTradingExpertDetachedConversation(request);
+  }
   const workspace = tradingExpertWorkspaceForAnalysisTarget(request.analysisTarget);
   if (!workspace) throw new Error("交易专家行情工作区尚未就绪");
   return workspace.runGeneralConversation(request);
+}
+
+// A request from an ordinary/provider/group conversation has no visible chart.
+// It still uses the same cloud engine and Drawing Gateway, scoped to its own
+// conversation, and must never borrow the workspace the user switches to.
+export async function runTradingExpertDetachedConversation(
+  request: TradingGeneralConversationRequest,
+  strategyId?: string,
+): Promise<TradingGeneralConversationResult> {
+  const symbol = String(request.symbol || request.marketId?.split(":").at(-1) || "").trim().toUpperCase();
+  const marketId = request.marketId || (/^[A-Z0-9]{2,30}(USDT|USDC|BUSD)$/.test(symbol)
+    ? `BINANCE:FUTURES:${symbol}` : "");
+  const interval = selectTradingAnalysisInterval({ interval: request.interval, currentInterval: "60", explicitSymbol: true });
+  if (!marketId || !symbol || !request.sourceThreadId) throw new Error("Specify the exchange, symbol and interval.");
+  if (!tradingViewResolutionDurationMs(interval)) throw new Error(`Unsupported candle interval: ${interval}`);
+  const api = strategyId ? window.codexDesktop.runTradingStrategyAnalysis : window.codexDesktop.runTradingGeneralAnalysis;
+  if (!api) throw new Error("Trading analysis service is unavailable.");
+  const job = tradingAnalysisJobs.start({
+    analysisId: request.analysisId, theory: strategyId || "price-action",
+    storageSessionId: request.sourceThreadId, marketId, symbol, interval,
+    language: activeTradingAnalysisLanguage(),
+  });
+  try {
+    request.onProgress?.("loading", cloudAnalysisText("submit", job.language, {market: symbol, interval}));
+    const response = await api({
+      ...request, ...(strategyId ? { strategyId } : {}),
+      analysisJobId: job.analysisId, sourceThreadId: request.sourceThreadId, storageSessionId: job.storageSessionId,
+      marketId: job.marketId, interval: job.interval, language: job.language,
+      snapshotTime: Date.now(), reasoningEffort: "max", onProgress: undefined,
+      ...cloudAnalysisWindow(strategyId, [], request.preferredCandles || 100),
+      responseMode: request.drawingRequested === false || request.positionManagementRequested ? "direct" : "full",
+    } as any) as TradingGeneralAnalysisResponse;
+    if (!tradingAnalysisJobs.isActive(job.analysisId)) throw new Error("盘面分析已由用户停止");
+    if (!response.ok || !response.analysisPlan) {
+      const error = new Error(response.error?.message || "交易分析未返回有效结果");
+      Object.assign(error, response.error);
+      throw error;
+    }
+    const plan = response.analysisPlan;
+    let drawingDeferred = false;
+    if (request.drawingRequested && !request.deferPresentation) {
+      ({ drawingDeferred } = await settleTradingAnalysisDrawing({
+        isActive: () => tradingAnalysisJobs.isActive(job.analysisId),
+        onFailure: error => recordTradingRendererFailure(error, { analysisJobId: job.analysisId, stage: "drawing" }),
+        commit: async () => {
+          if (plan.drawingPatch) await commitTradingAnalysisDrawingPatch(job, plan.drawingPatch);
+          if (plan.indicatorDrawingPatch) await commitTradingIndicatorAnalysisDrawingPatch(job, plan.indicatorDrawingPatch);
+          if (!plan.drawingPatch && !plan.indicatorDrawingPatch) throw new Error("No drawing plan was returned.");
+        },
+      }));
+      rememberTradingAnalysisJobContext(job);
+    }
+    if (!tradingAnalysisJobs.isActive(job.analysisId)) throw new Error("盘面分析已由用户停止");
+    tradingAnalysisJobs.complete(job.analysisId);
+    return {
+      ...(request.deferPresentation ? { drawingArtifacts: [{job, paneIndex: 0, drawingPatch: plan.drawingPatch, indicatorDrawingPatch: plan.indicatorDrawingPatch}] } : {}),
+      cloudReports: cloudReportFromResponse(response), report: String(plan.report || plan.narrative || ""),
+      narrative: String(plan.narrative || plan.report || ""), marketId: job.marketId,
+      symbol, interval: job.interval, candleCount: response.snapshot?.candles?.length || 0,
+      tradeCount: response.snapshot?.orderFlow?.trades?.length || 0,
+      modelName: tradingAnalysisModelDisplayName(response.model, job.language), drawingDeferred,
+    };
+  } catch (error) {
+    tradingAnalysisJobs.fail(job.analysisId, error);
+    throw error;
+  }
 }

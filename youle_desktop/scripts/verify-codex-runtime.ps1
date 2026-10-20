@@ -26,12 +26,14 @@ foreach ($file in $manifest.files) {
     throw "SHA-256 mismatch for $($file.name): expected $expectedHash, got $actualHash"
   }
 
-  $signature = Get-AuthenticodeSignature -LiteralPath $filePath
-  if ($signature.Status -ne "Valid") {
-    throw "Invalid Authenticode signature for $($file.name): $($signature.Status) $($signature.StatusMessage)"
-  }
-  if ($signature.SignerCertificate.Subject -notmatch "OpenAI") {
-    throw "Unexpected signer for $($file.name): $($signature.SignerCertificate.Subject)"
+  if ($file.signedByOpenAI -eq $true -or $file.name -in @("haolo_ai.exe", "codex-command-runner.exe", "codex-windows-sandbox-setup.exe", "codex-code-mode-host.exe")) {
+    $signature = Get-AuthenticodeSignature -LiteralPath $filePath
+    if ($signature.Status -ne "Valid") {
+      throw "Invalid Authenticode signature for $($file.name): $($signature.Status) $($signature.StatusMessage)"
+    }
+    if ($signature.SignerCertificate.Subject -notmatch "OpenAI") {
+      throw "Unexpected signer for $($file.name): $($signature.SignerCertificate.Subject)"
+    }
   }
 }
 
@@ -42,4 +44,4 @@ if ($LASTEXITCODE -ne 0 -or $versionOutput -ne $expectedVersionOutput) {
   throw "Unexpected Codex version output: expected '$expectedVersionOutput', got '$versionOutput'"
 }
 
-Write-Host "Verified Codex runtime $($manifest.version): $($manifest.files.Count) signed files and matching SHA-256 hashes."
+Write-Host "Verified Codex runtime $($manifest.version): $($manifest.files.Count) file hashes and required OpenAI signatures."

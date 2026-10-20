@@ -208,7 +208,7 @@ test("bundled runtime config uses per-model context defaults and pins remote plu
   assertWebsocketCompatibilityMode(config);
   assert.match(
     config,
-    /^http_headers\s*=\s*\{\s*version\s*=\s*"0\.157\.1",\s*"X-Haolo-Model-Pool"\s*=\s*"execution",\s*"X-Haolo-Model-Capability"\s*=\s*"root_execution"\s*\}\s*$/m,
+    /^http_headers\s*=\s*\{\s*version\s*=\s*"0\.163\.0",\s*"X-Haolo-Model-Pool"\s*=\s*"execution",\s*"X-Haolo-Model-Capability"\s*=\s*"root_execution"\s*\}\s*$/m,
   );
   assert.match(config, /^\[model_providers\.deepseek\]$/m);
   assert.match(config, /^wire_api\s*=\s*"responses"$/m);
@@ -226,7 +226,7 @@ test("runtime provider overrides always send the bundled Codex version without f
   assert.ok(args.includes("features.network_proxy.enabled=false"));
   assert.ok(args.includes("features.multi_agent_v2.max_concurrent_threads_per_session=1"));
   assert.equal(args.some((arg) => arg.startsWith("agents.max_threads=")), false);
-  assert.ok(args.includes('model_providers.haolo_ai.http_headers.version="0.157.1"'));
+  assert.ok(args.includes('model_providers.haolo_ai.http_headers.version="0.163.0"'));
   assert.ok(args.includes('model_providers.haolo_ai.http_headers.X-Haolo-Model-Pool="execution"'));
   assert.ok(args.includes('model_providers.haolo_ai.http_headers.X-Haolo-Model-Capability="root_execution"'));
   assert.ok(args.includes('model_providers.deepseek.name="DeepSeek"'));
@@ -600,7 +600,7 @@ test(`default resource sync upgrades the ${previousVersion} Codex provider heade
     });
     const migrated = fs.readFileSync(path.join(codexHome, "config.toml"), "utf8");
 
-    assert.equal([...migrated.matchAll(/version = "0\.157\.1"/g)].length, 2);
+    assert.equal([...migrated.matchAll(/version = "0\.163\.0"/g)].length, 2);
     assert.ok(!migrated.includes(`version = "${previousVersion}"`));
     assert.ok(result.copied.includes("config.toml:context-defaults"));
   });

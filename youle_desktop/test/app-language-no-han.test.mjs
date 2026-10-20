@@ -17,6 +17,10 @@ const SOURCE_EXTENSION_PATTERN = /\.(?:html|js|mjs|ts)$/u;
 // complete dynamic messages are also exercised by trading-drawing-language.
 const DRAWING_SOURCE_FILES = new Set([
   "trading-drawing-catalog.ts", "trading-drawing-extra-tools.ts", "trading-expert-drawing.ts",
+  "color-picker.ts", "trading-chart-screenshot.ts", "trading-fibonacci-settings.ts",
+  "trading-horizontal-line-settings.ts", "trading-position-settings.ts",
+  "trading-regression-settings.ts", "trading-volume-settings.ts",
+  "trading-info-line.ts",
 ]);
 const DRAWING_SECTION_LABELS = new Set([
   ...DRAWING_MENU_SECTIONS.flatMap((group) => group.sections.map((section) => section.label)),
@@ -45,7 +49,7 @@ function rendererSourceFiles(directory = RENDERER_ROOT) {
 
 function chineseLiteralFragments(source, file) {
   const fragments = [];
-  const separator = DRAWING_SOURCE_FILES.has(path.basename(file)) ? "\n" : " ";
+  const separator = "\n"; // DOM text nodes are localized independently.
   const append = (literal) => {
     literal = literal.replace(/&#(x[\da-f]+|\d+);/giu, (entity, code) => {
       const point = code[0].toLowerCase() === "x" ? Number.parseInt(code.slice(1), 16) : Number(code);
@@ -54,6 +58,8 @@ function chineseLiteralFragments(source, file) {
     for (const match of literal.matchAll(/(?:aria-label|placeholder|title)="([^"]*)/gsu)) {
       append(match[1]);
     }
+    // Attribute-only helper arguments have no visible text node.
+    if (/^\s*(?:[\w-]+="[^"]*"\s*)+$/u.test(literal)) return;
     const visibleText = literal
       .replace(/<[^>]+>/gsu, separator)
       .replace(/<[^>]*$/gsu, separator)

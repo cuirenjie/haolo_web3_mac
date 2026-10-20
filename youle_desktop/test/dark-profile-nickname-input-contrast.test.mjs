@@ -26,6 +26,6 @@ test("dark profile nickname input remains distinct from its dialog", async () =>
   assert.match(input, /border: 1px solid var\(--line-strong\);/);
   assert.match(input, /background: var\(--surface-interactive-hover\);/);
   assert.doesNotMatch(input, /rgba\(0, 0, 0,/);
-  assert.match(focus, /border-color: var\(--brand-blue\);/);
-  assert.match(focus, /box-shadow: 0 0 0 2px rgba\(91, 157, 255, 0\.18\);/);
+  assert.match(focus, /border-color: var\(--interaction-accent\);/);
+  assert.match(focus, /box-shadow: 0 0 0 2px rgba\(var\(--interaction-rgb\), 0\.18\);/);
 });

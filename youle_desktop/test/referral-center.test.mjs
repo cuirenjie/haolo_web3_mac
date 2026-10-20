@@ -77,12 +77,29 @@ test("the former referral dialog, data state, styles and dedicated IPC/API are r
 
 function styleRule(selector) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const body = stylesSource.match(new RegExp(`(?:^|\\n)${escaped}\\s*\\{([^}]+)\\}`, "m"))?.[1];
-  assert.ok(body, `missing style rule: ${selector}`);
-  return Object.fromEntries(body.split(";").filter((part) => part.includes(":")).map((part) => {
-    const colon = part.indexOf(":");
-    return [part.slice(0, colon).trim(), part.slice(colon + 1).trim()];
-  }));
+  const matches = [...stylesSource.matchAll(new RegExp(`(?:^|\\n)${escaped}\\s*\\{([^}]+)\\}`, "gm"))];
+  assert.ok(matches.length, `missing style rule: ${selector}`);
+  return Object.fromEntries(matches.flatMap(([, body]) => body.replace(/\/\*[\s\S]*?\*\//g, "")
+    .split(";").filter(part => part.includes(":")).map(part => {
+      const colon = part.indexOf(":");
+      return [part.slice(0, colon).trim(), part.slice(colon + 1).trim()];
+    })));
+}
+
+function colorOver(value, background, tokens) {
+  const resolved = value.replace(/var\((--[\w-]+)\)/g, (_, key) => {
+    assert.ok(tokens[key], key);
+    return tokens[key];
+  });
+  if (resolved.startsWith("var(")) return colorOver(resolved, background, tokens);
+  if (resolved.startsWith("#")) return resolved;
+  const rgba = resolved.match(/^rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)$/);
+  assert.ok(rgba, resolved);
+  const hex = background.length === 4 ? [...background.slice(1)].map(c => c + c).join("") : background.slice(1);
+  const base = hex.match(/../g).map(part => parseInt(part, 16));
+  const alpha = Number(rgba[4]);
+  return "#" + base.map((channel, i) => Math.round(Number(rgba[i+1]) * alpha + channel * (1-alpha))
+    .toString(16).padStart(2, "0")).join("");
 }
 
 function contrast(foreground, background) {
@@ -102,27 +119,23 @@ function contrast(foreground, background) {
 
 for (const theme of ["light", "dark"]) {
   test(`referral entry stays legible in ${theme} mode across default, hover, active and focus states`, () => {
-    const selector = ".settings-referral-entry";
-    const prefix = theme === "dark" ? 'html[data-theme="dark"] ' : "";
+    const selector = ".settings-side-actions > button";
+    const tokens = { ...styleRule(":root"), ...(theme === "dark" ? styleRule('html[data-theme="dark"]') : {}) };
+    const panel = theme === "dark" ? styleRule('html[data-theme="dark"] .settings-side').background
+      : colorOver(styleRule(".settings-dialog").background, "#ffffff", tokens);
     const base = styleRule(selector);
-    const themedBase = { ...base, ...styleRule(prefix + selector) };
-    const subtitle = styleRule(prefix + selector + " > span small").color;
-    for (const state of ["", ":hover", ":active"]) {
-      const rule = { ...themedBase, ...styleRule(prefix + selector + state) };
-      const backgrounds = rule.background.match(/#[0-9a-f]{3,6}\b/gi);
-      assert.ok(backgrounds?.length);
-      for (const background of backgrounds) {
-        assert.ok(contrast(rule.color, background) >= 4.5, `${theme}${state}: title contrast`);
-        assert.ok(contrast(subtitle, background) >= 4.5, `${theme}${state}: subtitle contrast`);
-      }
+    const hover = { ...base, ...styleRule(selector + ":hover:not(:disabled)") };
+    for (const [state, rule] of [["default", base], ["hover", hover],
+      ["active", { ...hover, ...styleRule(selector + ":active:not(:disabled)") }]]) {
+      const background = colorOver(rule.background, panel, tokens);
+      const foreground = colorOver(rule.color, background, tokens);
+      assert.ok(contrast(foreground, background) >= 4.5, `${theme}/${state}: label and icon contrast`);
     }
-    const icon = { ...styleRule(selector + "-icon"), ...styleRule(prefix + selector + "-icon") };
-    assert.ok(contrast(icon.color, icon.background) >= 3, `${theme}: icon contrast`);
-    const focus = { ...styleRule(selector + ":focus-visible"), ...styleRule(prefix + selector + ":focus-visible") };
-    assert.match(focus.outline, /3px solid/);
-    const focusColor = focus["outline-color"] || focus.outline.match(/#[0-9a-f]{3,6}\b/i)?.[0];
-    for (const background of themedBase.background.match(/#[0-9a-f]{3,6}\b/gi)) {
-      assert.ok(contrast(focusColor, background) >= 3, `${theme}: focus contrast`);
-    }
+    assert.equal(styleRule(selector + " svg").stroke, "currentColor");
+    const focus = styleRule(selector + ":focus-visible");
+    assert.match(focus.outline, /^2px solid /);
+    assert.equal(focus["outline-offset"], "2px");
+    const ring = colorOver(focus.outline.replace(/^2px solid /, ""), panel, tokens);
+    assert.ok(contrast(ring, panel) >= 3, `${theme}: keyboard focus contrast`);
   });
 }
