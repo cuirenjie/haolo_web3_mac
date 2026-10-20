@@ -42,7 +42,7 @@ function harness(error, result, language = "zh-CN") {
     },
     persistCompletedTradingExpertTranscript: async (_thread, items) => { state.persisted.push(items); },
     recordTradingRendererFailure() {}, describeTradingAnalysisFailure, buildTradingStrategyFailureReport,
-    appLanguageLocale: () => language === "en" ? "en-US" : "zh-CN",
+    appLanguageLocale: () => language === "en" ? "en-US" : language === "zh-Hant" ? "zh-TW" : language,
     appendInsufficientQuotaAgentMessage: () => { state.quotas++; return { quota: true }; },
     finishTradingExpertAnalysisJob: () => { state.finished++; },
   };
@@ -87,13 +87,27 @@ test("explicit strategy errors never silently change engines or create executabl
   }
 });
 
-test("cancellation and membership errors keep their existing UI and never generate plans", async () => {
+test("cancellation and insufficient credit keep their existing UI and never generate plans", async () => {
   for (const code of ["TRADING_ANALYSIS_CANCELLED", "INSUFFICIENT_BALANCE"]) {
     const { state, run } = harness(Object.assign(new Error("fixture"), { code }));
     await run();
     assert.equal(state.generalCalls, 0);
     assert.equal(state.reports.length, 0);
     assert.equal(state.quotas, code === "INSUFFICIENT_BALANCE" ? 1 : 0);
+    assert.equal(state.finished, 1);
+  }
+});
+
+test("model membership failures render in all three locales without a false insufficient-credit prompt", async () => {
+  for (const language of ["zh-CN", "en", "zh-Hant"]) {
+    const error = Object.assign(new Error("private detail"), { code: "MODEL_MEMBERSHIP_REQUIRED", status: 403 });
+    const { state, run } = harness(error, null, language);
+    await run("wave", "Wave");
+    assert.equal(state.quotas, 0);
+    assert.equal(state.generalCalls, 0);
+    assert.equal(state.reports[0].presentation, "plain");
+    assert.ok(state.reports[0].report.includes(describeTradingAnalysisFailure(error, { language }).summary));
+    assert.doesNotMatch(state.reports[0].report, /private detail|积分不足|點數不足|credits are insufficient/);
     assert.equal(state.finished, 1);
   }
 });

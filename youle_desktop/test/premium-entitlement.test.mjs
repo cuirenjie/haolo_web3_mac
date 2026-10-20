@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { modelMembershipAccess } from "../src/main/model-membership-policy.mjs";
 
 import {
   activeMembershipEntitlement,
@@ -13,6 +14,19 @@ import {
 const NOW = Date.parse("2026-09-02T00:00:00Z");
 const FUTURE = "2026-09-03T00:00:00Z";
 
+test("permanent credit admits nonmembers and expired members without granting model tiers", () => {
+  for (const active_membership of [null, { plan_id: "flagship", expires_at: "2000-01-01T00:00:00Z" }]) {
+    const profile = { id: "permanent-fixture", real_balance: 25.125, subscription_balance: 0, active_membership };
+    assert.equal(activeMembershipEntitlement(profile, NOW).active, false);
+    assert.equal(premiumAccessState(profile, NOW), "available");
+    assert.equal(modelMembershipAccess(profile, "gpt-5.6-sol", NOW).allowed, true);
+    for (const model of ["gpt-6-sol", "gpt-6-astra"]) {
+      assert.equal(modelMembershipAccess(profile, model, NOW).allowed, false);
+    }
+    const cache = createPremiumEntitlementCache(profile, { now: NOW });
+    assert.equal(premiumEntitlementCacheAccess(cache, { accountId: profile.id, now: NOW }).ok, true);
+  }
+});
 test("a legacy membership_plan label cannot invent an active trial", () => {
   const profile = {
     membership_plan: "experience",

@@ -66,9 +66,9 @@ test("explicit HTTP fields, wrappers and legacy transport messages retain real s
       assert.equal(modelFailureFacts(error).httpStatus, code);
     }
   }
-  for (const error of [new Error("Payment required (402)"), "insufficient_quota", "会员到期", "积分不足", { code: "ANALYSIS_CREDITS_REQUIRED" }]) {
+  for (const error of [new Error("Payment required (402)"), "insufficient_quota", "积分不足", { code: "ANALYSIS_CREDITS_REQUIRED" }]) {
     assert.equal(isQuotaFailure(error), true);
-    assert.equal(describeTradingAnalysisFailure(error).category, "membership");
+    assert.equal(describeTradingAnalysisFailure(error).category, "credits");
     assert.equal(describeTradingAnalysisFailure(error).allowLocalRecovery, false);
     assert.equal(modelFailureFacts(error).hardFailure, true);
   }
@@ -80,6 +80,20 @@ test("explicit HTTP fields, wrappers and legacy transport messages retain real s
   assert.equal(classifyTurnFailure("HTTP 401"), "authentication");
   assert.equal(isLocalProxyConnectionRefusedError("price 10061.23"), false);
   assert.equal(isLocalProxyConnectionRefusedError("os error 10061"), true);
+});
+
+test("membership denials stay terminal without claiming the wallet is empty", () => {
+  for (const error of ["会员到期", { code: "MEMBERSHIP_EXPIRED" }, { code: "TRIAL_REQUIRED" },
+    { status: 403, code: "MODEL_MEMBERSHIP_REQUIRED" },
+    { cause: { status: 402, code: "MODEL_MEMBERSHIP_REQUIRED" } }]) {
+    assert.equal(isQuotaFailure(error), false);
+    assert.equal(modelFailureFacts(error).hardFailure, true);
+    for (const language of ["zh-CN", "en", "zh-Hant"]) {
+      const failure = describeTradingAnalysisFailure(error, { language });
+      assert.ok(["membership", "model_membership"].includes(failure.category));
+      assert.doesNotMatch(failure.summary, /积分不足|點數不足|credits.*insufficient/);
+    }
+  }
 });
 
 test("arbitrary response content, stack traces and cycles never become billing signals", () => {
