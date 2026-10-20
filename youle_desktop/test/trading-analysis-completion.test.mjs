@@ -256,7 +256,8 @@ test("native delivery projection preserves attachments, errors, prior commentary
 
 for (const hydration of [compactActiveThreadReadResult, compactBackgroundThreadReadResult]) {
   for (const warm of [false, true]) {
-    test(`${hydration.name} ${warm ? "warm refresh" : "cold reopen"} retains long cards and the requested final explanation`, () => {
+    for (const lateCard of [false, true]) {
+    test(`${hydration.name} ${warm ? "warm refresh" : "cold reopen"} ${lateCard ? "late card" : "ordered card"} retains long cards and the requested final explanation`, () => {
       const h = harness(), c = h.context;
       const card = { id: "plan", type: "agentMessage", phase: "final_answer", text: `conditional plan ${"x".repeat(30_000)}`,
         turnId: "turn-1", __youleExecutionPlanPresentation: "execution-plan", __youleNativeResponseComplete: false,
@@ -267,7 +268,8 @@ for (const hydration of [compactActiveThreadReadResult, compactBackgroundThreadR
         result: { content: [{ type: "text", text: JSON.stringify({
           result: { analysisJobId: "run-1", diagnostic: "z".repeat(200_000) }, presentationItems: [card],
         }) }] } };
-      const snapshot = { thread: { turns: [{ id: "turn-1", status: "completed", items: [progress, tool, answer] }] } };
+      const snapshot = { thread: { turns: [{ id: "turn-1", status: "completed", items: lateCard
+        ? [progress, answer, tool] : [progress, tool, answer] }] } };
       c.activeCodexThreadIds.clear(); h.setTurn(null);
       if (warm) c.localHistoryAheadThreadIds.add("origin");
       const existing = warm ? [progress, card, answer] : [];
@@ -278,11 +280,14 @@ for (const hydration of [compactActiveThreadReadResult, compactBackgroundThreadR
       assert.deepEqual(Array.from(visible, item => item.id), ["plan", "answer"]);
       assert.equal(visible[0].text, card.text, "native text must survive even when it alone exceeds the process limit");
       assert.equal(visible[1].executionPlanPresentation, "plain");
+      assert.equal(visible[0].turnResult.expanded, false);
+      assert.equal(visible[1].turnResult, undefined);
       assert.deepEqual(c.state.items.origin.plan.__youleCloudReports, card.__youleCloudReports);
       assert.equal(c.state.items.origin.plan.__youleNativeResponseComplete, false);
       assert.equal(c.state.items.origin.plan.turnId, "turn-1");
       assert.equal(tool.result.content[0].text.includes("process output truncated"), false);
     });
+    }
   }
 }
 
@@ -302,13 +307,56 @@ test("a recovered card or late commentary cannot fold an earlier final answer", 
     assert.equal(visible.find(item => item.id === "answer")?.text, "requested explanation");
     assert.equal(visible.some(item => item.id === "progress"), false);
     assert.equal(visible.some(item => item.id === "late-progress"), false, "late progress belongs in the collapsed process");
-    const anchor = visible.at(-1);
+    assert.equal(visible.at(-1).id, "answer", "the direct answer follows the recovered card");
+    const anchor = visible.find(item => item.turnResult);
+    assert.equal(anchor.id, late.id === "late-card" ? "late-card" : "answer", "processed precedes all answers");
     assert.equal(anchor.turnResult?.expanded, false);
     h.state.resultProcessExpanded[anchor.turnResult.key] = true;
     const expanded = c.messagesForThread("origin");
     assert.equal(expanded.some(item => item.id === "progress"), true, "expanding restores the process");
     if (late.phase === "commentary") assert.equal(expanded.some(item => item.id === "late-progress"), true);
   }
+});
+
+test("processed precedes every plan and the direct answer remains last, even without progress", () => {
+  const h = harness(), c = h.context;
+  c.activeCodexThreadIds.clear(); h.setTurn(null);
+  const original = [
+    { id: "answer", phase: "final_answer", text: "净赚 10 USDT 需要逐笔累积。" },
+    ...["first-plan", "second-plan"].map(id => ({ id, phase: "final_answer", text: `${id} report`,
+      __youleExecutionPlanPresentation: "execution-plan", __youleNativeResponseComplete: false })),
+  ].map(item => ({ ...item, type: "agentMessage", turnId: "turn-1" }));
+  for (const item of original) c.upsertItem("origin", item);
+  for (const expanded of [false, true, false]) {
+    // Use the actual key so this test also exercises production key creation.
+    const initial = c.messagesForThread("origin");
+    h.state.resultProcessExpanded[initial[0].turnResult.key] = expanded;
+    const visible = c.messagesForThread("origin");
+    assert.deepEqual(Array.from(visible, item => item.id), ["first-plan", "second-plan", "answer"]);
+    assert.equal(visible.at(-1).text, original[0].text);
+    assert.equal(visible[0].turnResult.expanded, expanded);
+    assert.equal(visible[0].turnResult.collapsedCount, 0);
+    assert.equal(visible.at(-1).turnResult, undefined);
+    assert.deepEqual(Array.from(visible.slice(0, 2), item => item.text), original.slice(1).map(item => item.text));
+  }
+  assert.deepEqual(Array.from(h.state.itemOrder.origin), original.map(item => item.id), "persisted order is untouched");
+  assert.equal(h.state.items.origin["first-plan"].turnResult, undefined);
+});
+
+test("plan ordering stays inside its request and leaves ordinary answers and unidentified history alone", () => {
+  const answer = (id, turnId) => ({ id, turnId, type: "agentMessage", phase: "final_answer", text: id });
+  const plan = (id, turnId) => ({ ...answer(id, turnId),
+    __youleExecutionPlanPresentation: "execution-plan", __youleNativeResponseComplete: false });
+  const items = [
+    answer("earlier-answer", "first"), { id: "user-next", type: "userMessage", turnId: "next", text: "next request" },
+    plan("late-first-plan", "first"), answer("ordinary", "next"),
+    answer("unknown-answer"), plan("unknown-plan"), answer("live-answer", "live"),
+    plan("live-plan", "live"), answer("followup", "followup"),
+  ];
+  assert.deepEqual(tradingAnalysisDeliveryItems(items).map(item => item.id), [
+    "earlier-answer", "user-next", "late-first-plan", "ordinary", "unknown-answer",
+    "unknown-plan", "live-plan", "live-answer", "followup",
+  ]);
 });
 
 for (const hydrate of [false, true]) {

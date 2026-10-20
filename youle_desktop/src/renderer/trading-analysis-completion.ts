@@ -51,7 +51,7 @@ export function tradingAnalysisDeliveryItems<T extends AnalysisItem>(items: T[])
       reports.set(turnId, { index, complete: item.__youleNativeResponseComplete !== false });
     }
   });
-  return items.flatMap((item, index) => {
+  const delivered = items.flatMap((item, index) => {
     const report = reports.get(item.turnId || item.turn_id || "");
     if (!report || item.type !== "agentMessage" || item.__youleExecutionPlanPresentation) return [item];
     const phase = item.phase || item.message_phase || item.messagePhase;
@@ -59,4 +59,41 @@ export function tradingAnalysisDeliveryItems<T extends AnalysisItem>(items: T[])
       && !item.attachments?.length && !item.actions?.length) return [];
     return [{ ...item, __youleExecutionPlanPresentation: "plain" }];
   });
+  return answersAfterTradingPlans(delivered);
+}
+
+// Native cards can arrive after the root answer (including partial history
+// hydration). Order the display, not the persisted transcript or timestamps.
+function answersAfterTradingPlans<T extends AnalysisItem>(items: T[]): T[] {
+  let segment = 0;
+  let previousTurn: string | null = null;
+  const segments = items.map(item => {
+    const turn = item.turnId || item.turn_id || null;
+    if (item.type === "userMessage" || (turn && previousTurn && turn !== previousTurn)) segment += 1;
+    if (item.type === "userMessage") previousTurn = null;
+    else if (turn) previousTurn = turn;
+    return `${segment}:${turn || ""}`;
+  });
+  const lastReport = new Map<string, number>();
+  items.forEach((item, index) => {
+    if ((item.turnId || item.turn_id) && isCompletedTradingAnalysisReport(item)) {
+      lastReport.set(segments[index], index);
+    }
+  });
+  const deferred = new Map<number, T[]>();
+  const ordered: T[] = [];
+  items.forEach((item, index) => {
+    const reportIndex = lastReport.get(segments[index]);
+    const phase = item.phase || item.message_phase || item.messagePhase;
+    if (reportIndex != null && index < reportIndex && item.type === "agentMessage"
+      && phase === "final_answer" && !isCompletedTradingAnalysisReport(item)) {
+      const answers = deferred.get(reportIndex) || [];
+      answers.push(item);
+      deferred.set(reportIndex, answers);
+    } else {
+      ordered.push(item);
+    }
+    ordered.push(...(deferred.get(index) || []));
+  });
+  return ordered;
 }

@@ -52806,6 +52806,9 @@ function renderTurnResultToggle(meta: TurnResultMeta) {
   const statusLabel = meta.status === "pending"
     ? (state.settings.language === "en" ? "Pending" : "待完成")
     : `${handledStatusLabel()} ${meta.elapsedLabel}`;
+  if (!meta.collapsedCount) {
+    return `<div class="turn-result-toggle" role="status"><span>${escapeHtml(statusLabel)}</span></div>`;
+  }
   return `
     <button
       type="button"
@@ -74553,7 +74556,7 @@ function withCollapsedTurnResults(threadId: string, messages: Message[]) {
   const decorated = [...messages];
   for (const [groupIndex, group] of groups.entries()) {
     if (!isTurnResultGroupComplete(threadId, group.turnKey, groupIndex === groups.length - 1)) continue;
-    const { finalIndex, lateProcessIndexes } = turnResultFoldTargets(
+    const { finalIndex, headerIndex, lateProcessIndexes } = turnResultFoldTargets(
       group.outputIndexes, index => state.items[threadId]?.[messages[index].id],
     );
     const collapsedIndexes = turnResultProcessIndexes(messages, finalIndex)
@@ -74562,11 +74565,12 @@ function withCollapsedTurnResults(threadId: string, messages: Message[]) {
       // A later card or late process event does not make an earlier final
       // answer process output, including historical snapshots with stale order.
       .filter((index) => agentMessagePhase(state.items[threadId]?.[messages[index].id]) !== "final_answer");
-    if (!collapsedIndexes.length) continue;
+    if (!collapsedIndexes.length && headerIndex === finalIndex) continue;
     const key = turnResultStateKey(threadId, group.turnKey);
     const expanded = state.resultProcessExpanded[key] === true;
-    decorated[finalIndex] = {
-      ...decorated[finalIndex],
+    const visibleHeaderIndex = expanded && headerIndex !== finalIndex ? group.outputIndexes[0] : headerIndex;
+    decorated[visibleHeaderIndex] = {
+      ...decorated[visibleHeaderIndex],
       turnResult: {
         key,
         elapsedLabel: turnResultElapsedLabel(
