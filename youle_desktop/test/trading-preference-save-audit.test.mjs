@@ -50,7 +50,7 @@ function fixture() {
 }
 
 const changes = [
-  ...['left', 'right', 'auto'].map(mode => ['entryMode', { selected: [mode], custom: '' }]),
+  ...['left', 'right'].map(mode => ['entryMode', { selected: [mode], custom: '' }]),
   ['risk', { selected: ['1'], custom: '' }],
   ['breakEven', { selected: ['off'], custom: '' }],
   ['ratio', { selected: ['2'], custom: '' }],

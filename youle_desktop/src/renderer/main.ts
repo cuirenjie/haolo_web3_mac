@@ -2191,7 +2191,7 @@ type DesktopApi = {
   listThreads(params?: any): Promise<any>;
   getTradingPreferenceProfile?(): Promise<any>;
   resolveTradingPreferenceImport?(resolutions: Record<string, string | boolean>): Promise<any>;
-  saveTradingPreferenceProfile?(params: { choices: TradingPreferenceChoiceDraft; extraNotes: string; entryMode?: "left" | "right" | "auto"; changedFields?: string[] } | {
+  saveTradingPreferenceProfile?(params: { choices: TradingPreferenceChoiceDraft; extraNotes: string; entryMode?: "left" | "right"; changedFields?: string[] } | {
     userStatement: string;
     entries: Array<{
       scope: string;

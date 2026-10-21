@@ -20,14 +20,15 @@ test("entry approach is the first question, defaults to right and has no custom 
   const view = editor.render();
   assert.ok(view.indexOf('data-preference-field="entryMode"') < view.indexOf('data-preference-field="risk"'));
   const field = view.match(/<fieldset data-preference-field="entryMode"[\s\S]*?<\/fieldset>/)[0];
-  assert.equal((field.match(/type="radio"/g) || []).length, 3);
+  assert.equal((field.match(/type="radio"/g) || []).length, 2);
   assert.match(field, /value="right" checked/);
   assert.doesNotMatch(field, /textarea|value="custom"/);
   assert.match(field, /产品默认值/);
   assert.equal(tradingPreferenceSettingsDraft({entryMode:'right'}).entryMode, 'right');
   const saved = controller({load:async()=>({ok:true,profile:{entryMode:'auto',fieldSources:{entryMode:'user_saved'}}})});
   await saved.load();
-  assert.match(saved.render(), /name="settings-preference-entryMode" value="auto" checked/);
+  assert.match(saved.render(), /name="settings-preference-entryMode" value="right" checked/);
+  assert.doesNotMatch(saved.render(), /value="auto"|自动判断/);
   assert.match(saved.render(), /data-preference-source="entryMode">已保存的偏好/);
 });
 

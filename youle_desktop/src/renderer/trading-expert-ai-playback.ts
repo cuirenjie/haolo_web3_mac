@@ -175,12 +175,26 @@ export class TradingAiDrawingPlaybackController {
     const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
     const requestedSpeed = options.speedMultiplier ?? 1;
     const speed = Number.isFinite(requestedSpeed) && requestedSpeed > 0 ? requestedSpeed : 1;
-    const duration = (normal: number) => reducedMotion ? 0 : normal / speed;
+    const duration = (normal: number) => normal / speed;
     try {
       for (const drawing of drawings) {
         this.assertCurrent(generation);
         const first = drawing.points[0];
         if (!first) continue;
+        if (reducedMotion) {
+          // Windows accessibility/remote-desktop settings can enable reduced
+          // motion. Keep observable steps without cursor travel or flashing;
+          // zero-duration promises otherwise commit the entire patch before paint.
+          this.options.setCursor(null);
+          options.onPhase?.("drawing", drawing);
+          this.options.setDraft(drawing);
+          await this.animate(Math.max(160, 260 / speed), generation, () => {});
+          this.assertCurrent(generation);
+          options.onPhase?.("committing", drawing);
+          this.options.setDraft(null);
+          this.options.commit(drawing);
+          continue;
+        }
         options.onPhase?.("moving", drawing);
         if (this.currentCursor) {
           const origin = this.currentCursor;

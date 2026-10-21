@@ -5,15 +5,38 @@ import ts from 'typescript';
 import {TradingAiDrawingPlaybackController} from '../src/renderer/trading-expert-ai-playback.ts';
 
 const drawing={id:'a',tool:'path',points:[{time:1,price:10},{time:2,price:20}],locked:true};
-async function clocked(run) {
+async function clocked(run, reducedMotion = false) {
   const previous=globalThis.window,queue=[];let time=0;
-  globalThis.window={matchMedia:()=>({matches:false}),setTimeout:(fn,ms)=>queue.push(()=>{time+=ms;fn();}),requestAnimationFrame:fn=>queue.push(()=>fn(time+=16))};
+  globalThis.window={matchMedia:()=>({matches:reducedMotion}),setTimeout:(fn,ms)=>queue.push(()=>{time+=ms;fn();}),requestAnimationFrame:fn=>queue.push(()=>fn(time+=16))};
   try {
     let done=false,error;const promise=run().then(()=>done=true,e=>{error=e;done=true;});
     for(let step=0;!done&&step<2000;step++){queue.shift()?.();await Promise.resolve();}
     assert.equal(done,true,'playback must settle');await promise;if(error)throw error;return time;
   }finally{globalThis.window=previous;}
 }
+
+test('reduced motion paints observable separate objects without moving or flashing the cursor',async()=>{
+  const commits=[],drafts=[],cursors=[];
+  await clocked(async()=>{
+    const playback=new TradingAiDrawingPlaybackController({setDraft:d=>drafts.push(d),commit:d=>commits.push(d.id),setCursor:p=>cursors.push(p)});
+    const playing=playback.play([drawing,{...drawing,id:'b'}],{speedMultiplier:100});
+    await Promise.resolve();await Promise.resolve();
+    assert.deepEqual(commits,[],'microtasks cannot skip the visible frame boundary');
+    await playing;
+  },true);
+  assert.deepEqual(commits,['a','b']);
+  assert.deepEqual(drafts.filter(Boolean).map(d=>d.id),['a','b']);
+  assert.ok(cursors.every(p=>p===null));
+});
+
+test('reduced motion cancellation does not commit the pending object or the rest of the batch',async()=>{
+  let active=true;const commits=[];
+  await clocked(async()=>{
+    const playback=new TradingAiDrawingPlaybackController({setDraft:d=>{if(d)active=false;},commit:d=>commits.push(d.id),setCursor:()=>{}});
+    await playback.play([drawing,{...drawing,id:'b'}],{shouldContinue:()=>active});
+  },true);
+  assert.deepEqual(commits,[]);
+});
 
 test('normal playback still draws intermediate frames and commits every complete shape in order',async()=>{
   const frames=[],commits=[],phases=[];

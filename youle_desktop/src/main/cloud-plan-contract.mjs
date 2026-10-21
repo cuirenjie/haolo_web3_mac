@@ -6,6 +6,7 @@ import {executionPlanCandidatesFromText,executionPlanCandidateWithSourceText,exe
 import {executionPlanCardHeading,executionPlanCardBody,executionPlanStructuredCardBody,executionPlanCardAction} from './execution-plan-card-view.mjs';
 import {cloudPlanAccountView,cloudPlanEntryBasisMismatch} from './cloud-plan-account-view.mjs';
 import {validLeftObservation,leftWatchView,leftRouteView} from './price-action-left-card.mjs';
+import {validConditionalWatch,conditionalWatchCard} from './conditional-watch-card.mjs';
 const uuid = value => typeof value==='string' && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
 const hash = value => typeof value==='string' && /^[a-f0-9]{64}$/.test(value);
 const positive=value=>typeof value==='number'&&Number.isFinite(value)&&value>0;
@@ -47,6 +48,7 @@ export function normalizeCloudReports(value) {
     if(row.executionPlan?.schemaVersion!==2||!Array.isArray(row.executionPlan.scenarios)||row.executionPlan.scenarios.length>1
       ||row.planRecords.length!==row.executionPlan.scenarios.length)fail();
     const plan=row.executionPlan;
+    if(plan.conditionalWatch!==undefined && (plan.scenarios.length || !validConditionalWatch(plan.conditionalWatch,plan,row.strategyId)))fail();
     if(plan.leftObservation!==undefined&&(!validLeftObservation(plan.leftObservation)||row.strategyId!=='price-action'
       ||!['left',null].includes(plan.selectedMode)))fail();
     if(plan.scenarios.length) {
@@ -142,7 +144,7 @@ export function cloudPlanCard(report, { hideExpiry = false, separateAction = fal
   const plan=report.executionPlan,condition=plan.entryCondition,scenario=plan.scenarios[0];
   const language=displayLanguage||(report.locale==='zh-Hant'?'zh-TW':report.locale);
   const watch=leftWatchView(report,language),route=leftRouteView(plan,language);
-  if(plan.outcome?.action!=='plan'||!condition||!scenario) return watch;
+  if(plan.outcome?.action!=='plan'||!condition||!scenario) return conditionalWatchCard(report,language) || watch;
   const predicate=p=>p ? `${t(p.operator)} ${p.operator==='in_zone'?`[${p.lower}, ${p.upper}]`:p.lower}` : '';
   const details=[t(condition.confirmation),predicate(condition.trigger)];
   if(condition.confirmation==='breakout_retest') details.push(condition.breakoutConfirmation==='bar_close'?t('bar_close'):t('touch'),predicate(condition.retest));
