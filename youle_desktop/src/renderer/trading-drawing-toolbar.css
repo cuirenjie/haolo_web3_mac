@@ -99,7 +99,9 @@ html[data-theme="dark"] .trading-range-card > rect { fill: #2a2e39; }
    underneath transparent, and restore the full line in idle/capture states. */
 .trading-drawing-add-text-mask { opacity: 0; }
 .trading-drawing-layer:not(.drawing-active):not(.dragging-drawing) [data-drawing-id]:is(:hover, [data-selected="true"], :has(> .trading-horizontal-line-add-text[data-drawing-text-position="center"]:is([data-line-hover="true"], :focus-within))) .trading-drawing-add-text-mask { opacity: 1; }
+.trading-drawing-layer:not(.drawing-active):not(.dragging-drawing) [data-drawing-id]:is(:hover, [data-selected="true"], :has(> .trading-horizontal-line-add-text[data-drawing-text-position="center"]:is([data-line-hover="true"], :focus-within))) > [data-drawing-placeholder-mask] { mask: var(--trading-drawing-placeholder-mask); }
 .trading-chart-capturing .trading-drawing-add-text-mask { opacity: 0 !important; }
+.trading-chart-capturing [data-drawing-placeholder-mask] { mask: none !important; }
 .trading-drawing-layer:not(.drawing-active):not(.dragging-drawing) [data-drawing-source="manual"] > .trading-drawing-geometry :is(line,polyline,polygon,rect,circle,ellipse,path)[stroke]:not([stroke="none"]) { pointer-events: stroke; cursor: move; }
 .trading-drawing-layer:not(.drawing-active):not(.dragging-drawing) [data-drawing-source="manual"][data-locked="true"] > .trading-drawing-geometry :is(line,polyline,polygon,rect,circle,ellipse,path)[stroke]:not([stroke="none"]) { cursor: not-allowed; }
 .trading-horizontal-line-add-text:is(:hover, :focus-visible) text { opacity: 1; }

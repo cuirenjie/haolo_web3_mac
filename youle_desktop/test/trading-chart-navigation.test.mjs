@@ -58,7 +58,8 @@ function fixture(t) {
     subscribeVisibleLogicalRangeChange: fn => rangeListeners.add(fn), unsubscribeVisibleLogicalRangeChange: fn => rangeListeners.delete(fn),
     subscribeSizeChange: fn => sizeListeners.add(fn), unsubscribeSizeChange: fn => sizeListeners.delete(fn),
     options: () => tsOptions, applyOptions: o => Object.assign(tsOptions, o), height: () => 28, width: () => 540,
-    resetTimeScale: () => { range = { from: 200, to: 500 }; }, scrollPosition: () => 0, scrollToPosition: () => {} };
+    resetTimeScale: () => { range = { from: 200, to: 500 }; }, scrollPosition: () => range.to - 300,
+    scrollToPosition: position => { if (!Number.isFinite(position)) return; const delta = position - (range.to - 300); range = { from: range.from + delta, to: range.to + delta }; } };
   const nativeScroll = [];
   const layout = { fontSize: 11 };
   const chart = { panes: () => panes, priceScale: (side, i) => side === "left" ? { width: () => 0 } : scales[i], timeScale: () => ts,
@@ -74,11 +75,13 @@ function fixture(t) {
   t.after(() => { navigation.destroy(); for (const [k, descriptor] of previous) if (descriptor) Object.defineProperty(globalThis, k, descriptor); else delete globalThis[k]; });
   const send = (type, props = {}, consumed = false, target) => {
     const event = new Event(type, { cancelable: true });
-    Object.assign(event, { pointerId: 1, isPrimary: true, pointerType: "mouse", button: 0, clientX: 250, clientY: 100, deltaX: 0, deltaY: 0, deltaMode: 0 }, props);
+    const { timeStamp, ...values } = props;
+    Object.assign(event, { pointerId: 1, isPrimary: true, pointerType: "mouse", button: 0, clientX: 250, clientY: 100, deltaX: 0, deltaY: 0, deltaMode: 0 }, values);
+    if (timeStamp !== undefined) Object.defineProperty(event, 'timeStamp', { value: timeStamp });
     (target ?? (["pointerdown", "wheel", "dblclick", "keydown"].includes(type) ? element : win)).dispatchEvent(event);
     assert.equal(event.defaultPrevented, consumed, `${type} event ownership`);
   };
-  const paint = () => { const batch = [...frames.values()]; frames.clear(); batch.forEach(fn => fn()); };
+  const paint = (time = 0) => { const batch = [...frames.values()]; frames.clear(); batch.forEach(fn => fn(time)); };
   return { win, chart, scales, panes, element, navigation, options, frames, rangeListeners, sizeListeners, nativeScroll, send, paint, paints: () => paints, range: () => range, focus: () => focus };
 }
 
@@ -90,6 +93,86 @@ function freeDragFixture(t) {
   f.scales[0].changes.length = 0;
   return f;
 }
+
+function momentumFixture(t) {
+  const f = freeDragFixture(t);
+  const moves = [];
+  f.chart.haoloPanByPixels = (x, y, pane) => {
+    moves.push({ x, y, pane });
+    const ts = f.chart.timeScale(); ts.scrollToPosition(ts.scrollPosition() - x / ts.options().barSpacing, false);
+    return { x, y };
+  };
+  f.flick = (start = 0, locked = false) => {
+    f.send('pointerdown', { timeStamp: start }, locked);
+    for (let i = 1; i <= 4; i++) f.send('pointermove', { clientX: 250 + i * 12, clientY: 100 + i * 4, timeStamp: start + i * 16 }, locked);
+    f.send('pointerup', { clientX: 298, clientY: 116, timeStamp: start + 64 });
+  };
+  return { ...f, moves };
+}
+
+test('release momentum holds shell ownership through the last paint and stops naturally', t => {
+  const f = momentumFixture(t); let resumed = 0;
+  f.flick(); assert.ok(f.navigation.coasting);
+  assert.equal(deferTradingChartShellRender(() => resumed++), true);
+  for (let time = 80; time < 2000 && f.navigation.coasting; time += 16) f.paint(time);
+  assert.equal(f.navigation.coasting, null); assert.equal(resumed, 1);
+  assert.ok(f.moves.length > 30); assert.ok(f.moves[0].x > f.moves.at(-1).x);
+  assert.ok(f.moves.some(m => m.y > 0));
+  f.paint(2000); f.paint(2016); assert.equal(f.frames.size, 0);
+});
+
+test('new drag and wheel take over momentum without releasing the chart between gestures', async t => {
+  const f = momentumFixture(t); let resumed = 0;
+  f.flick(); deferTradingChartShellRender(() => resumed++); f.paint(80);
+  f.send('pointerdown', { timeStamp: 90 }); await Promise.resolve();
+  assert.equal(f.navigation.coasting, null); assert.equal(resumed, 0);
+  f.send('pointerup', { timeStamp: 95 }); assert.equal(resumed, 1);
+  f.flick(100); deferTradingChartShellRender(() => resumed++); f.paint(180);
+  f.send('wheel', { deltaY: 12 }, true); assert.equal(f.navigation.coasting, null); assert.equal(resumed, 1);
+  await new Promise(r => setTimeout(r, 150)); assert.equal(resumed, 2);
+});
+
+test('Escape, cancel, blur, context change and destroy stop all release movement', async t => {
+  for (const end of [f => f.send('keydown', { key: 'Escape' }, true), f => f.navigation.cancelGesture(),
+    f => f.win.dispatchEvent(new Event('blur')), f => f.navigation.setVerticalLocked(true), f => f.navigation.destroy()]) {
+    await t.test(String(end), t => {
+      const f = momentumFixture(t); f.flick(); f.paint(80); const count = f.moves.length;
+      end(f); f.paint(96); f.paint(112);
+      assert.equal(f.moves.length, count); assert.equal(f.navigation.coasting, null);
+    });
+  }
+});
+
+test('locked navigation glides horizontally and native boundaries terminate the animation', t => {
+  const f = momentumFixture(t); f.navigation.setVerticalLocked(true); f.flick(0, true); f.paint(80);
+  assert.ok(f.moves.length); assert.ok(f.moves.every(m => m.y === 0));
+  f.chart.haoloPanByPixels = () => ({ x: 0, y: 0 }); f.paint(96);
+  assert.equal(f.navigation.coasting, null);
+});
+
+test('reduced motion, drawing selection, axis adjustment and touch never start mouse momentum', t => {
+  const f = momentumFixture(t);
+  f.win.matchMedia = () => ({ matches: true }); f.flick(); assert.equal(f.navigation.coasting, null);
+  f.win.matchMedia = () => ({ matches: false });
+  for (const props of [{ clientX: 580 }, { pointerType: 'touch' }]) {
+    f.send('pointerdown', { timeStamp: 0, ...props });
+    for (let i = 1; i <= 4; i++) f.send('pointermove', { clientY: 100 + i * 10, timeStamp: i * 16, ...props });
+    f.send('pointerup', { timeStamp: 64, ...props }); assert.equal(f.navigation.coasting, null);
+  }
+  f.navigation.setTool('measure'); f.send('pointerdown', { timeStamp: 100 }, true);
+  f.send('pointermove', { clientX: 350, timeStamp: 132 }, true);
+  f.send('pointerup', { clientX: 350, timeStamp: 148 }, true);
+  assert.equal(f.navigation.coasting, null);
+});
+
+test('horizontal wheel bursts retain every delta and write the native scale only once per frame', t => {
+  const f = fixture(t); let writes = 0;
+  const ts = f.chart.timeScale(), write = ts.scrollToPosition;
+  ts.scrollToPosition = (...args) => { writes++; write(...args); };
+  for (let i = 0; i < 100; i++) f.send('wheel', { deltaX: 2 }, true);
+  assert.equal(writes, 0); f.paint(); assert.equal(writes, 1); assert.deepEqual(f.range(), { from: 100, to: 400 });
+  f.send('wheel', { deltaX: -200 }, true); f.paint(); assert.deepEqual(f.range(), { from: 0, to: 300 });
+});
 
 test('shared navigation buttons preserve the armed tool until click; unrelated controls still cancel', t => {
   const f = fixture(t);
@@ -349,9 +432,9 @@ test("Ctrl wheel always focuses cursor, ordinary wheel uses the configured defau
 });
 test("Shift wheel pans once, preserves bar spacing and Auto, and normalizes line deltas", t => {
   const f = freeDragFixture(t);
-  f.send("wheel", { deltaY: 100, shiftKey: true }, true); assert.deepEqual(f.range(), { from: 50, to: 350 });
-  f.send("wheel", { deltaX: -100, shiftKey: true }, true); assert.deepEqual(f.range(), { from: 0, to: 300 });
-  f.send("wheel", { deltaY: 1, deltaMode: 1, shiftKey: true }, true); assert.deepEqual(f.range(), { from: 16, to: 316 });
+  f.send("wheel", { deltaY: 100, shiftKey: true }, true); f.paint(); assert.deepEqual(f.range(), { from: 50, to: 350 });
+  f.send("wheel", { deltaX: -100, shiftKey: true }, true); f.paint(); assert.deepEqual(f.range(), { from: 0, to: 300 });
+  f.send("wheel", { deltaY: 1, deltaMode: 1, shiftKey: true }, true); f.paint(); assert.deepEqual(f.range(), { from: 16, to: 316 });
   assert.equal(f.scales[0].autoScale, true);
 });
 test("wheel on right price axis scales typography and width without changing candle or price ranges", t => {

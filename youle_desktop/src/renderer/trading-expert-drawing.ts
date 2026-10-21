@@ -7199,7 +7199,12 @@ export class TradingDrawingController {
     const mask = maskedLabel && hideLineNodes
       ? renderTradingDrawingLabelMask(maskId, maskedLabel, bounds, !label) : '';
     const geometryClass = interactive && this.userDrawingEnabled && drawing.source !== 'ai' ? ' class="trading-drawing-geometry"' : '';
-    const geometry = geometryClass || mask ? `<g${geometryClass}${mask ? ` mask="url(#${maskId})"` : ''}>${body}</g>` : body;
+    // An invisible add-text gap must not rasterize a full-pane SVG mask for
+    // every unselected line on every pan frame. CSS activates this same mask
+    // only while its placeholder is visible; authored text keeps its real gap.
+    const geometryMask = !mask ? '' : label ? ` mask="url(#${maskId})"`
+      : ` data-drawing-placeholder-mask="true" style="--trading-drawing-placeholder-mask:url(#${maskId})"`;
+    const geometry = geometryClass || mask ? `<g${geometryClass}${geometryMask}>${body}</g>` : body;
     return `<g data-drawing-id="${escapeHtml(drawing.id)}" data-drawing-source="${drawing.source ?? "manual"}" data-selected="${selected}" data-locked="${Boolean(drawing.locked)}"${hideLineNodes ? ' data-hide-line-nodes="true"' : ''}${authoredText}>${mask}${geometry}${hitTargets}${extra}${lineText}${addText}${centerAddText}${handles}</g>`;
   }
 

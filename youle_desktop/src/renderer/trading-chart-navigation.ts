@@ -3,6 +3,11 @@ import { translateAppText } from "./app-language.mjs";
 import { beginTradingChartInteraction, endTradingChartInteraction } from "./trading-chart-interaction.ts";
 import { withTradingChartSeriesBatch } from './trading-chart-series-data.ts';
 import { rangeMeasurement } from './trading-range-tools.ts';
+import { TradingChartMomentum } from './trading-chart-momentum.ts';
+
+type MomentumChart = IChartApi & {
+  haoloPanByPixels?: (dx: number, dy: number, pane: number) => { x: number; y: number };
+};
 
 /** Native gestures own axes, drag and pinch; wheel zoom uses the same bounds as buttons. */
 export const TRADING_CHART_NAVIGATION_OPTIONS = {
@@ -11,6 +16,8 @@ export const TRADING_CHART_NAVIGATION_OPTIONS = {
     axisPressedMouseMove: { time: true, price: true },
     axisDoubleClickReset: { time: true, price: true }, mouseWheel: true, pinch: true,
   },
+  // Navigation owns cancellable 2D mouse momentum and the shell lifetime.
+  // Do not also start the library's independent horizontal-only animation.
   kineticScroll: { mouse: false, touch: false },
 };
 
@@ -109,11 +116,16 @@ export class TradingChartNavigation {
   private verticalLocked = false;
   private freezeAutoNextFrame = false;
   private pendingWheelZoom: { logFactor: number; anchor: number } | null = null;
+  private pendingWheelPan = 0;
+  private readonly momentum = new TradingChartMomentum();
+  private coasting: { chart: MomentumChart; pane: IPaneApi<Time> } | null = null;
   private priceAxisBaseWidth: number | null = null;
   private priceAxisResizeFrame: number | null = null;
   private priceAxisResizeRange: { from: number; to: number } | null = null;
   private tool: Tool = null;
   private drag: { pointerId: number; x: number; y: number; scale: IPriceScaleApi | null; moved: boolean;
+    momentumPane?: IPaneApi<Time>;
+    momentumMoved?: boolean;
     axis?: { scale: IPriceScaleApi; range: { from: number; to: number }; height: number; y: number };
     lockedScroll?: { position: number; barSpacing: number; pending: number | null } } | null = null;
   private selection: {
@@ -161,6 +173,7 @@ export class TradingChartNavigation {
     window.addEventListener("pointercancel", this.pointerEnd, true);
     window.addEventListener("pointerdown", this.outsidePointerDown, true);
     window.addEventListener("blur", this.cancelGesture);
+    document.addEventListener?.("visibilitychange", this.visibilityChanged);
     this.timeScale = getChart()?.timeScale();
     this.timeScale?.subscribeVisibleLogicalRangeChange(this.viewportChanged);
     this.timeScale?.subscribeSizeChange(this.viewportChanged);
@@ -238,8 +251,8 @@ export class TradingChartNavigation {
     this.schedule();
   }
 
-  setTool(tool: Tool) {
-    this.cancelGesture();
+  setTool(tool: Tool, retainInteraction = false) {
+    this.clearGesture(!retainInteraction);
     this.tool = tool;
     this.root.dataset.chartNavigationTool = tool ?? "";
     this.element.dispatchEvent(new CustomEvent("trading-navigation-tool-change"));
@@ -257,10 +270,17 @@ export class TradingChartNavigation {
   }
 
   private readonly pointerDown = (event: PointerEvent) => {
+    if (this.coasting) {
+      // Keep the host attached through this event, including drawing/tool handlers
+      // that acquire their own gesture after this capture listener returns.
+      this.stopMomentum(false);
+      queueMicrotask(() => this.releaseInteractionIfIdle());
+    }
     if (!event.isPrimary) { this.cancelGesture(); return; }
     if (event.button !== 0 || this.drag || this.isControl(event.target)) return;
     this.finishPriceAxisResize();
     this.flushWheelZoom();
+    this.flushWheelPan();
     if (!this.tool && event.target instanceof Element && event.target.closest(".drawing-active, [data-drawing-id], [data-drawing-handle-index]")) return;
     const pane = this.paneAt(event, false);
     if (!pane) {
@@ -332,12 +352,25 @@ export class TradingChartNavigation {
       this.drag.lockedScroll = { position: ts.scrollPosition(), barSpacing: ts.options().barSpacing, pending: null };
       this.consume(event);
     }
+    if (this.drag && plot && !kind && (event.pointerType === "mouse" || event.pointerType === "pen")
+      && (this.getChart() as MomentumChart)?.haoloPanByPixels) {
+      this.drag.momentumPane = plot;
+      this.momentum.stop();
+      this.momentum.add(event.clientX, event.clientY, event.timeStamp);
+    }
   };
 
   private readonly pointerMove = (event: PointerEvent) => {
     if (this.selection?.awaitingClick) { this.paintSelection(event); return; }
     if (!this.drag || event.pointerId !== this.drag.pointerId) return;
     if (this.selection) { this.paintSelection(event); this.consume(event); return; }
+    if (this.drag.momentumPane) {
+      this.drag.momentumMoved ||= Math.abs(event.clientX - this.drag.x) + Math.abs(event.clientY - this.drag.y) >= 5;
+      // High polling rate mice may supply multiple samples in one event. They
+      // refine release velocity without causing extra chart or DOM work.
+      for (const sample of event.getCoalescedEvents?.() ?? []) this.momentum.add(sample.clientX, sample.clientY, sample.timeStamp);
+      this.momentum.add(event.clientX, event.clientY, event.timeStamp);
+    }
     if (this.drag.lockedScroll) {
       const scroll = this.drag.lockedScroll;
       scroll.pending = scroll.position + (this.drag.x - event.clientX) / scroll.barSpacing;
@@ -387,10 +420,49 @@ export class TradingChartNavigation {
       this.element.dispatchEvent(new CustomEvent("trading-navigation-tool-change"));
       this.consume(event);
     }
+    const pane = this.drag.momentumPane;
+    const chart = this.getChart() as MomentumChart | null;
+    if (pane && this.drag.momentumMoved && chart?.panes().includes(pane) && !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+      && this.momentum.start(event.timeStamp, chart.timeScale().width(), pane.getHeight(),
+        !this.verticalLocked && this.drag.moved && !this.drag.scale?.options().autoScale)) {
+      this.coasting = { chart, pane };
+    }
     this.drag = null;
-    endTradingChartInteraction(this);
+    this.releaseInteractionIfIdle();
     this.schedule();
   };
+
+  private releaseInteractionIfIdle() {
+    if (!this.drag && !this.coasting && this.interactionTimer === null) endTradingChartInteraction(this);
+  }
+
+  private stopMomentum(release = true) {
+    this.coasting = null;
+    this.momentum.stop();
+    if (release) this.releaseInteractionIfIdle();
+  }
+
+  private advanceMomentum(time: number) {
+    const coast = this.coasting;
+    if (!coast) return;
+    if (this.getChart() !== coast.chart || !coast.chart.panes().includes(coast.pane)
+      || this.element.isConnected === false || document.hidden
+      || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      this.stopMomentum(false); return;
+    }
+    const delta = this.momentum.step(time);
+    if (delta) {
+      const moved = coast.chart.haoloPanByPixels!(delta.x, delta.y, coast.pane.paneIndex());
+      // Stop at native time/data boundaries without bouncing or accumulating
+      // a hidden offset that would resist the next reverse drag.
+      for (const axis of ['x', 'y'] as const) {
+        if (Math.abs(moved[axis] - delta[axis]) > 0.01) this.momentum.block(axis);
+      }
+    }
+    if (!this.momentum.active) this.stopMomentum(false);
+  }
+
+  private readonly visibilityChanged = () => { if (document.hidden) this.cancelGesture(); };
 
   private paintSelection(event: { clientX: number; clientY: number }) {
     const s = this.selection!; const b = s.bounds;
@@ -501,14 +573,18 @@ export class TradingChartNavigation {
     this.schedule();
   };
 
-  readonly cancelGesture = () => {
+  readonly cancelGesture = () => this.clearGesture(true);
+
+  private clearGesture(release: boolean) {
+    this.stopMomentum(false);
     this.finishPriceAxisResize();
     this.pendingWheelZoom = null;
+    this.pendingWheelPan = 0;
     this.finishSelection(); this.drag = null; this.clearMeasurement(); this.closeMenu(); this.schedule();
     if (this.interactionTimer !== null) clearTimeout(this.interactionTimer);
     this.interactionTimer = null;
-    endTradingChartInteraction(this);
-  };
+    if (release) endTradingChartInteraction(this);
+  }
 
   private consume(event: Event) { event.preventDefault(); event.stopPropagation(); }
   private isControl(target: EventTarget | null) {
@@ -518,6 +594,7 @@ export class TradingChartNavigation {
   private readonly wheel = (event: WheelEvent) => {
     if (this.isControl(event.target) || !Number.isFinite(event.deltaX) || !Number.isFinite(event.deltaY)) return;
     const chart = this.getChart(); if (!chart) return;
+    this.stopMomentum(false);
     const pane = this.paneAt(event, false);
     const plot = this.paneAt(event);
     const factor = event.deltaMode === 1 ? 32 : event.deltaMode === 2 ? this.element.clientHeight : 1;
@@ -529,18 +606,20 @@ export class TradingChartNavigation {
       // horizontal zoom, price-range scaling, or the surrounding shell.
       this.consume(event);
       if (event.deltaY) this.resizePriceAxis(event.deltaY * factor);
+      this.releaseInteractionIfIdle();
       return;
     }
     this.finishPriceAxisResize();
     // Retain ownership across a burst. Releasing it on every wheel event lets
     // a deferred shell render detach the chart halfway through scrolling.
-    if (this.interactionTimer === null) this.setTool(null);
+    if (this.interactionTimer === null) this.setTool(null, true);
     else clearTimeout(this.interactionTimer);
     beginTradingChartInteraction(this);
     this.interactionTimer = setTimeout(() => {
       this.flushWheelZoom();
+      this.flushWheelPan();
       this.interactionTimer = null;
-      if (!this.drag) endTradingChartInteraction(this);
+      this.releaseInteractionIfIdle();
     }, 120);
     if (pane && !plot && event.deltaY) {
       this.flushWheelZoom();
@@ -564,9 +643,11 @@ export class TradingChartNavigation {
       this.consume(event);
     } else if (event.shiftKey && !(event.ctrlKey || event.metaKey)) {
       // Some browsers convert Shift+wheel into deltaX already. Consume once.
-      this.pan((event.deltaY || event.deltaX) * factor / Math.max(chart.timeScale().options().barSpacing, 0.5));
+      this.flushWheelZoom();
+      this.pendingWheelPan += (event.deltaY || event.deltaX) * factor / Math.max(chart.timeScale().options().barSpacing, 0.5);
       this.consume(event);
     } else if (event.deltaY) {
+      this.flushWheelPan();
       const rightBarStaysOnScroll = !(event.ctrlKey || event.metaKey) && this.options.getScaleAnchor?.() === "right";
       if (chart.timeScale().options().rightBarStaysOnScroll !== rightBarStaysOnScroll) {
         chart.timeScale().applyOptions({ rightBarStaysOnScroll });
@@ -580,7 +661,8 @@ export class TradingChartNavigation {
       // Capture owns the wheel: do not let the native listener zoom a second time.
       this.consume(event);
     } else if (event.deltaX) {
-      this.pan(event.deltaX * factor / Math.max(chart.timeScale().options().barSpacing, 0.5));
+      this.flushWheelZoom();
+      this.pendingWheelPan += event.deltaX * factor / Math.max(chart.timeScale().options().barSpacing, 0.5);
       this.consume(event);
     }
     this.schedule();
@@ -620,12 +702,21 @@ export class TradingChartNavigation {
   }
 
   private pan(bars: number) {
+    this.stopMomentum();
     this.finishPriceAxisResize();
     this.flushWheelZoom();
     this.clearMeasurement();
     const ts = this.getChart()?.timeScale(); const range = ts?.getVisibleLogicalRange();
     if (range && Number.isFinite(bars)) ts!.setVisibleLogicalRange({ from: range.from + bars, to: range.to + bars });
     this.schedule();
+  }
+
+  private flushWheelPan() {
+    const bars = this.pendingWheelPan;
+    this.pendingWheelPan = 0;
+    if (!bars) return;
+    const ts = this.getChart()?.timeScale();
+    if (ts) ts.scrollToPosition(ts.scrollPosition() + bars, false);
   }
 
   zoom(factor: number) {
@@ -663,6 +754,7 @@ export class TradingChartNavigation {
   }
 
   private setMode(mode: 0 | 1 | 2) {
+    this.stopMomentum();
     this.finishPriceAxisResize();
     this.clearMeasurement();
     const chart = this.getChart(); if (!chart) return;
@@ -676,12 +768,13 @@ export class TradingChartNavigation {
     if (event.defaultPrevented || this.isControl(event.target) || event.isComposing) return;
     const chart = this.getChart(); if (!chart) return;
     const key = event.key.toLowerCase(); const ctrl = event.ctrlKey || event.metaKey;
-    if (key === "escape" && (this.tool || this.selection || this.measurement || this.menu)) this.setTool(null);
+    if (key === "escape" && (this.tool || this.selection || this.measurement || this.menu || this.coasting)) this.setTool(null);
     else if (event.altKey && !ctrl && key === "r") this.reset();
     else if (event.altKey && !ctrl && key === "enter") this.toggleChartExpansion();
     else if (event.altKey && !ctrl && key === "l") this.setMode(chart.priceScale("right", 0).options().mode === 1 ? 0 : 1);
     else if (event.altKey && !ctrl && key === "p") this.setMode(chart.priceScale("right", 0).options().mode === 2 ? 0 : 2);
     else if (event.altKey && !ctrl && key === "i") {
+      this.stopMomentum();
       this.clearMeasurement();
       const s = chart.priceScale("right", this.activePane); s.applyOptions({ invertScale: !s.options().invertScale });
     } else if (!event.altKey && !event.shiftKey && (key === "arrowleft" || key === "arrowright")) this.pan((key === "arrowleft" ? -1 : 1) * (ctrl ? 10 : 1));
@@ -828,13 +921,15 @@ export class TradingChartNavigation {
     if (this.destroyed) return;
     this.framesRemaining = Math.max(this.framesRemaining, frames);
     if (this.frame !== null) return;
-    const paint = () => {
+    const paint = (time: number) => {
       if (this.destroyed) return;
       // Keep the frame reserved during painting: native lazy layout may emit
       // another viewport change while an overlay reads its coordinates.
       withTradingChartSeriesBatch(this.getChart(), () => {
         this.flushWheelZoom();
+        this.flushWheelPan();
         this.flushLockedScroll();
+        this.advanceMomentum(time);
         this.syncAutoScale();
       });
       this.redraw();
@@ -848,7 +943,10 @@ export class TradingChartNavigation {
         this.activePane = Math.min(this.activePane, chart.panes().length - 1);
       }
       this.frame = null;
-      if (--this.framesRemaining > 0) this.frame = window.requestAnimationFrame(paint);
+      if (--this.framesRemaining > 0 || this.coasting) this.frame = window.requestAnimationFrame(paint);
+      // Release only after the last overlay paint. A resumed shell render may
+      // destroy this controller, so no chart work may follow it in this frame.
+      this.releaseInteractionIfIdle();
     };
     this.frame = window.requestAnimationFrame(paint);
   };
@@ -871,6 +969,7 @@ export class TradingChartNavigation {
     window.removeEventListener("pointercancel", this.pointerEnd, true);
     window.removeEventListener("pointerdown", this.outsidePointerDown, true);
     window.removeEventListener("blur", this.cancelGesture);
+    document.removeEventListener?.("visibilitychange", this.visibilityChanged);
     delete this.root.dataset.chartNavigationTool;
     this.element.classList.remove("trading-chart-navigable");
   }

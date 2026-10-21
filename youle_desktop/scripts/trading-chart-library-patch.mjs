@@ -34,6 +34,31 @@ export function patchTradingChartLibrary(source) {
   // after every series sees the same revision. Time-domain and data writes stay
   // synchronous. Nested batches and throwing callers still flush in finally.
   source = source.replace('class ChartApi {', `class ChartApi {
+    // Pixel-space navigation uses the native price transform (including log,
+    // percentage and inversion) and native time boundaries. No CSS translation
+    // or synthetic pointer events: candles, indicators and hit tests stay real.
+    haoloPanByPixels(dx, dy, paneIndex) {
+        const model = this._private__chartWidget._internal_model();
+        const pane = model._internal_panes()[paneIndex];
+        const time = model._internal_timeScale();
+        if (!pane || time._internal_isEmpty() || !Number.isFinite(dx) || !Number.isFinite(dy)) return { x: 0, y: 0 };
+        const scale = pane._internal_defaultPriceScale();
+        const before = time._internal_rightOffset();
+        const vertical = dy && !scale._internal_isEmpty() && !scale._internal_isAutoScale() && scale._internal_internalHeight() > 1;
+        this.haoloBatchUpdates(() => {
+            if (vertical) {
+                model._internal_startScrollPrice(pane, scale, 0);
+                try { model._internal_scrollPriceTo(pane, scale, dy); }
+                finally { model._internal_endScrollPrice(pane, scale); }
+            }
+            if (dx) {
+                model._internal_startScrollTime(0);
+                try { model._internal_scrollTimeTo(dx); }
+                finally { model._internal_endScrollTime(); }
+            }
+        });
+        return { x: (before - time._internal_rightOffset()) * time._internal_barSpacing(), y: vertical ? dy : 0 };
+    }
     haoloBatchUpdates(paint) {
         const model = this._private__chartWidget._internal_model();
         model._haoloBatchDepth = (model._haoloBatchDepth || 0) + 1;
@@ -53,6 +78,47 @@ export function patchTradingChartLibrary(source) {
     source = source.replace(signature, `${signature}
         if (this._haoloBatchDepth) { this._haoloBatchDirty = true; return; }`);
   }
+  const replaceOnce = (before, after) => {
+    if (source.split(before).length !== 2) throw new Error('Unexpected native chart navigation hook');
+    source = source.replace(before, after);
+  };
+  // Seed from mouse-down, not the second drag event. The upstream path discarded
+  // the first two movements, felt sticky, and became worse on a busy renderer.
+  replaceOnce(`        this._private__mouseTouchDownEvent();
+        this._private__setCrosshairPosition(event.localX, event.localY, event);`, `        this._private__mouseTouchDownEvent();
+        this._private__pressedMouseTouchMoveEvent(event);
+        this._private__setCrosshairPosition(event.localX, event.localY, event);`);
+  replaceOnce(`        if (!this._private__isScrolling) {
+            return;
+        }`, `        if (!this._private__isScrolling) {
+            this._private__startScrollingPos = null;
+            return;
+        }`);
+  replaceOnce('model._internal_startScrollPrice(this._private__state, priceScale, event.localY);',
+    'model._internal_startScrollPrice(this._private__state, priceScale, this._private__startScrollingPos._internal_localY);');
+  replaceOnce('model._internal_startScrollTime(event.localX);',
+    'model._internal_startScrollTime(this._private__startScrollingPos._internal_localX);');
+  // Keep input synchronous, but calculate the final geometry/hover just once
+  // after both axes have moved. Avoid duplicate crosshair work per mouse sample.
+  replaceOnce(`    _internal_pressedMouseMoveEvent(event) {
+        this._private__onMouseEvent();
+        this._private__pressedMouseTouchMoveEvent(event);
+        this._private__setCrosshairPosition(event.localX, event.localY, event);
+    }`, `    _internal_pressedMouseMoveEvent(event) {
+        const model = this._private__model();
+        model._haoloBatchDepth = (model._haoloBatchDepth || 0) + 1;
+        try {
+            this._private__onMouseEvent();
+            this._private__pressedMouseTouchMoveEvent(event);
+        } finally {
+            model._haoloBatchDepth--;
+            if (!model._haoloBatchDepth && model._haoloBatchDirty) {
+                model._haoloBatchDirty = false;
+                model._internal_recalculateAllPanes();
+            }
+        }
+        this._private__setCrosshairPosition(event.localX, event.localY, event);
+    }`);
   return source;
 }
 
