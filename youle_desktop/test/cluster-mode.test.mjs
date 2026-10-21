@@ -25,6 +25,7 @@ const businessModelPoolsSource = readFile(
 const stylesSource = readFile(new URL("../src/renderer/styles.css", import.meta.url), "utf8");
 
 function sourceBlock(source, startMarker, endMarker) {
+  source = source.replace(/\r\n/g, "\n");
   const start = source.indexOf(startMarker);
   assert.ok(start >= 0, `missing start marker: ${startMarker}`);
   const end = source.indexOf(endMarker, start + startMarker.length);

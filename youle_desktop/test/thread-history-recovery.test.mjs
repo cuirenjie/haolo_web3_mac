@@ -317,6 +317,53 @@ test("missing indexes for nonempty, inherited, active, or unverified tasks remai
   }
 });
 
+test("Windows redirected AppData aliases use the physical home for indexed and empty tasks", { skip: process.platform !== "win32" }, async (t) => {
+  for (const empty of [false, true]) {
+    await t.test(empty ? "empty task" : "indexed task", async (t) => {
+      const f = empty ? emptyFixture(t, { separateSqliteHome: true }) : fixture(t, { separateSqliteHome: true });
+      const logicalHome = path.join(f.root, "Roaming", "runtime");
+      fs.mkdirSync(path.join(logicalHome, "sessions"), { recursive: true });
+      const nativeRealpath = fs.realpathSync.native;
+      // Model package redirection, which JS realpath cannot see. The runtime
+      // supplies a physical rollout path under the same storage directory.
+      t.mock.method(fs.realpathSync, "native", (filePath) => {
+        const relative = path.relative(logicalHome, filePath);
+        if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))) {
+          return nativeRealpath(path.join(f.codexHome, relative));
+        }
+        return nativeRealpath(filePath);
+      });
+      const before = fs.readFileSync(f.rolloutPath);
+      if (empty) {
+        const result = await requestWithThreadHistoryRecovery({
+          ...f, codexHome: logicalHome, method: "thread/read", params: { threadId: THREAD, includeTurns: true },
+        });
+        assert.equal(result.thread.id, THREAD);
+        assert.equal(f.calls.filter((call) => call.method === "thread/metadata/update").length, 1);
+      } else {
+        assert.equal((await repairThreadHistoryIndex({ ...f, codexHome: logicalHome })).status, "repaired");
+      }
+      assert.deepEqual(fs.readFileSync(f.rolloutPath), before);
+      assert.equal(f.database.prepare("SELECT history_mode FROM threads WHERE id = ?").get(THREAD).history_mode, "paginated");
+      assert.equal(fs.readdirSync(path.join(f.sqliteHome, "haolo-history-index-recovery")).length, 1);
+    });
+  }
+});
+
+test("Windows native path resolution still rejects a session junction pointing outside the home", { skip: process.platform !== "win32" }, async (t) => {
+  const f = emptyFixture(t);
+  const outside = path.join(f.root, "outside");
+  fs.mkdirSync(outside);
+  fs.copyFileSync(f.rolloutPath, path.join(outside, "rollout.jsonl"));
+  const junction = path.join(f.codexHome, "sessions", "redirected");
+  fs.symlinkSync(outside, junction, "junction");
+  f.thread.path = path.join(junction, "rollout.jsonl");
+  await assert.rejects(requestWithThreadHistoryRecovery({
+    ...f, method: "thread/read", params: { threadId: THREAD, includeTurns: true },
+  }), (error) => error.data.historyRecoveryReason === "unverified_empty_rollout_path");
+  assert.equal(f.calls.some((call) => call.method === "thread/metadata/update"), false);
+});
+
 test("empty task initialization coalesces concurrent readers and rechecks rollout changes before mutation", async (t) => {
   await t.test("concurrent readers", async (t) => {
     const f = emptyFixture(t);
