@@ -5,6 +5,7 @@ import {normalizePriceActionModelReview} from './price-action-pipeline.mjs';
 import {runValidatedTradingModelReview} from './model-review.mjs';
 import {normalizeTradingMarketSnapshot, validateStrategyDrawingPatch} from './protocol.mjs';
 import {localizeTradingAnalysisResult, withTradingReportLanguage} from './report-language.mjs';
+import {indicatorReviewEvidence} from './indicator-review-evidence.mjs';
 
 export const PRICE_ACTION_INDICATOR_IDS = new Set(['moving-average-analysis', 'macd-analysis',
   'bollinger-bands-analysis', 'rsi-analysis', 'kdj-analysis', 'vpvr-analysis', 'trend-band']);
@@ -42,10 +43,15 @@ export async function combineIndicatorPriceActionAnalysis(strategyId, params, na
     }
     const allowedSides = Object.keys(levels);
     const indicator = native.theoryResult;
-    const indicatorEvidence = (indicator.evidence || []).slice(0, 24);
+    const indicatorEvidence = indicator.evidence || [];
     const indicatorId = `${strategyId}-price-action-context`;
-    const priceActionIds = priceAction.evidence.map(e => `price-action:${e.id}`);
-    const indicatorIds = [indicatorId, ...indicatorEvidence.map(e => e.id)];
+    const evidence = indicatorReviewEvidence({engine: priceAction.engine, marketStructure: priceAction.marketStructure,
+      pivots: priceAction.pivots, zones: priceAction.zones, candlePressure: priceAction.candlePressure,
+      patterns: priceAction.candlestickPatterns.recentPatterns, candidate, allowedSides, levels, evidence: priceAction.evidence},
+    {strategyId, currentState: indicator.currentState, levels: indicator.levels,
+      marketInsights: indicator.marketInsights, actionPlan: native.analysisPlan.actionPlan, evidence: indicatorEvidence}, indicatorId);
+    const priceActionIds = [...evidence.priceAction.ids];
+    const indicatorIds = [indicatorId, ...evidence.indicator.ids].filter((id, index, ids) => ids.indexOf(id) === index);
     const prompt = [
       'Review the frozen Price Action strategy and the selected indicator from the SAME snapshot.',
       'Price Action is the OHLC-only strategy: confirmed HH/HL or LH/LL swings, repeated-reaction zones, candle pressure, named candle patterns, and current setup lifecycle.',
@@ -55,13 +61,10 @@ export async function combineIndicatorPriceActionAnalysis(strategyId, params, na
       `Write summary and rationale in ${params.language || 'zh-CN'}.`,
       'Choose a direction only from allowedSides. Choose wait when there is no active Price Action setup, evidence conflicts, or confirmation is insufficient.',
       'A directional plan must cite at least one ID from EACH source. The host uses the current Price Action setup trigger, structural stop and targets, followed by existing entry/risk checks.',
+      'Use at most 32 exact IDs from priceActionEvidenceIds and indicatorEvidenceIds. Price Action IDs already include the price-action: prefix; do not add or remove it. Metadata such as engine/profile IDs is not evidence.',
       JSON.stringify({instruction: params.instruction || '', userRiskProfile: params.userRiskProfile || {},
         snapshot: {snapshotId: snapshot.snapshotId, marketId: snapshot.marketId, interval: snapshot.interval},
-        priceAction: {engine: priceAction.engine, marketStructure: priceAction.marketStructure,
-          pivots: priceAction.pivots, zones: priceAction.zones, candlePressure: priceAction.candlePressure,
-          patterns: priceAction.candlestickPatterns.recentPatterns, candidate, allowedSides, levels, evidence: priceAction.evidence},
-        indicator: {strategyId, currentState: indicator.currentState, levels: indicator.levels,
-          marketInsights: indicator.marketInsights, actionPlan: native.analysisPlan.actionPlan, evidence: indicatorEvidence}}),
+        priceAction: evidence.priceAction.context, indicator: evidence.indicator.context}),
       JSON.stringify({priceActionEvidenceIds: priceActionIds, indicatorEvidenceIds: indicatorIds, allowedSides}),
     ].join('\n');
     const reviewed = await runValidatedTradingModelReview({
@@ -74,17 +77,30 @@ export async function combineIndicatorPriceActionAnalysis(strategyId, params, na
       validateResponse(text) {
         const review = normalizePriceActionModelReview(text);
         const parsed = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));
-        if (!['wait', ...allowedSides].includes(parsed.planSide) || !Array.isArray(parsed.evidenceIds)
-          || parsed.evidenceIds.length > 32 || parsed.evidenceIds.some(id => ![...priceActionIds, ...indicatorIds].includes(id))) {
+        if (!['wait', ...allowedSides].includes(parsed.planSide)) {
           throw new TypeError('Invalid combined Price Action decision; select wait or an available setup direction');
         }
-        if (parsed.planSide !== 'wait' && (!parsed.evidenceIds.some(id => priceActionIds.includes(id))
-          || !parsed.evidenceIds.some(id => indicatorIds.includes(id)))) throw new TypeError('Both analysis sources are required');
+        if (!Array.isArray(parsed.evidenceIds) || parsed.evidenceIds.length > 32) {
+          throw new TypeError('Combined review evidenceIds must be an array of at most 32 exact evidence IDs');
+        }
+        if (parsed.evidenceIds.some(id => typeof id !== 'string'
+          || (!evidence.priceAction.ids.has(id) && !evidence.indicator.ids.has(id)))) {
+          throw new TypeError('Unknown combined review evidence ID; use only the supplied priceActionEvidenceIds and indicatorEvidenceIds');
+        }
+        if (parsed.planSide !== 'wait' && (!parsed.evidenceIds.some(id => evidence.priceAction.ids.has(id))
+          || !parsed.evidenceIds.some(id => evidence.indicator.ids.has(id)))) throw new TypeError('Both analysis sources are required');
         return {...review, planSide: parsed.planSide, evidenceIds: [...new Set(parsed.evidenceIds)]};
       },
     });
     options.signal?.throwIfAborted();
     const {review, modelResponse} = reviewed;
+    const catalog = new Map([
+      {id: indicatorId, summary: `${strategyId}: ${review.summary}`},
+      ...evidence.priceAction.evidence, ...evidence.indicator.evidence,
+    ].map(item => [item.id, item]));
+    // Downstream plans bound their evidence arrays. Keep the chosen references
+    // before the full catalog so a late zone/swing cannot fall out a second time.
+    const resultEvidenceIds = [...new Set([indicatorId, ...review.evidenceIds, ...catalog.keys()])];
     const analysisId = `${strategyId}-price-action-${crypto.createHash('sha256')
       .update(JSON.stringify([snapshot.inputHash, priceAction.engine.version, review])).digest('hex').slice(0, 18)}`;
     const isStructural = ({drawing}) => !['strategy-entry', 'strategy-stop', 'strategy-target'].includes(drawing.colorToken);
@@ -114,10 +130,7 @@ export async function combineIndicatorPriceActionAnalysis(strategyId, params, na
       candidateId: candidate?.id || null, allowedSides, levels, selectedSide: side,
       evidenceIds: review.evidenceIds, summary: review.summary, rationale: review.rationale};
     return localizeTradingAnalysisResult({...native,
-      theoryResult: {...indicator, priceActionAnalysis, evidence: [
-        {id: indicatorId, summary: `${strategyId}: ${review.summary}`},
-        ...priceAction.evidence.map(e => ({...e, id: `price-action:${e.id}`})),
-        ...(indicator.evidence || [])]},
+      theoryResult: {...indicator, priceActionAnalysis, evidence: resultEvidenceIds.map(id => catalog.get(id))},
       analysisPlan: {...native.analysisPlan, analysisId, report, narrative: review.summary,
         actionPlan, drawingPatch, ...(native.analysisPlan.indicatorDrawingPatch ? {
           indicatorDrawingPatch: {...native.analysisPlan.indicatorDrawingPatch, analysisId},
