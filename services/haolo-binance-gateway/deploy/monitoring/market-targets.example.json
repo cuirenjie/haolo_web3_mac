@@ -1,0 +1,4 @@
+[
+  {"targets":["127.0.0.1:8787"],"labels":{"host_id":"example-hk","release_id":"example-public-instance"}},
+  {"targets":["127.0.0.1:8788"],"labels":{"host_id":"example-hk","release_id":"example-private-instance"}}
+]

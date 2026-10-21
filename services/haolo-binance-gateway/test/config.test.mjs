@@ -20,7 +20,7 @@ const productionEnv = {
 test("tier routing is explicit and cannot start with missing, identical or insecure origins", () => {
   const env = { HAOLO_GATEWAY_ROLE: "market", HAOLO_AUTH_API_ORIGIN: "https://haolo.com", HAOLO_GATEWAY_ALLOW_ANONYMOUS_PUBLIC: "false" };
   assert.equal(loadGatewayConfig(env).marketRoutingMode, "off");
-  assert.equal(loadGatewayConfig(env).marketCompactEnabled, false);
+  assert.equal(loadGatewayConfig(env).marketCompactEnabled, true);
   assert.throws(() => loadGatewayConfig({ ...env, HAOLO_MARKET_ROUTING_MODE: "strict" }), /routing requires/);
   const routed = { ...env, HAOLO_MARKET_ROUTING_MODE: "strict", HAOLO_MARKET_NODE_TIER: "free", HAOLO_MARKET_PAID_ORIGIN: "https://paid.example", HAOLO_MARKET_FREE_ORIGIN: "https://free.example" };
   assert.equal(loadGatewayConfig(routed).marketNodeTier, "free");

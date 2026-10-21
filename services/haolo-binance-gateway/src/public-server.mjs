@@ -7,9 +7,9 @@ import { FixedWindowRateLimiter } from "./rate-limit.mjs";
 import { validateStreamName } from "./stream-pool.mjs";
 import { DrainState, closeHttp } from "./drain.mjs";
 import { createMarketFrameEncoder } from "./market-frame.mjs";
-import { compressionCohort, compressionOptions } from "./ws-compression.mjs";
+import { compactCohort, compressionCohort, compressionOptions } from "./ws-compression.mjs";
 import { marketTier, requireMarketRoute } from "./market-routing.mjs";
-import { TrafficMetrics, streamFamily } from "./traffic-metrics.mjs";
+import { TrafficMetrics, streamFamily, restFamily } from "./traffic-metrics.mjs";
 import { MARKET_WIRE_CODEC } from "./market-wire-codec.mjs";
 import { MarketTicketStore } from "./market-tickets.mjs";
 
@@ -62,6 +62,7 @@ function publicRestEtagEnabled(requestUrl) {
 
 function sendPublicRestJson(request, response, statusCode, body, headers = {}) {
   const payload = JSON.stringify(body);
+  const jsonBytes = Buffer.byteLength(payload);
   const etag = `"${crypto.createHash("sha256").update(payload).digest("hex")}"`;
   const responseHeaders = { ...headers, etag };
   if (etagMatches(request.headers["if-none-match"], etag)) {
@@ -70,17 +71,17 @@ function sendPublicRestJson(request, response, statusCode, body, headers = {}) {
       "content-length": "0",
     });
     response.end();
-    return 0;
+    return { bytes: 0, jsonBytes };
   }
   response.writeHead(statusCode, {
     "content-type": "application/json; charset=utf-8",
-    "content-length": Buffer.byteLength(payload),
+    "content-length": jsonBytes,
     "cache-control": "no-store",
     "x-content-type-options": "nosniff",
     ...responseHeaders,
   });
   response.end(payload);
-  return Buffer.byteLength(payload);
+  return { bytes: jsonBytes, jsonBytes };
 }
 
 function sendMetrics(response, metrics, streamMetrics, privateEgressMetrics = {}, traffic = "") {
@@ -266,7 +267,8 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
           throw new MarketGatewayError("ticket rate limit exceeded", { statusCode: 429, code: "RATE_LIMITED", retryAfterMs: rate.resetAt - Date.now() });
         }
         const body = await readJsonBody(request);
-        const codec = config.marketCompactEnabled && Array.isArray(body?.codecs) && body.codecs.includes(MARKET_WIRE_CODEC) ? MARKET_WIRE_CODEC : "json";
+        const codec = config.marketCompactEnabled && compactCohort(identity.userId, config.marketCompactPercent ?? 100)
+          && Array.isArray(body?.codecs) && body.codecs.includes(MARKET_WIRE_CODEC) ? MARKET_WIRE_CODEC : "json";
         const { ticket, expiresInMs, audit } = await tickets.issue({
           userId: identity.userId, marketTier: marketTier(identity), membershipExpiresAt: identity.membershipExpiresAt || null,
           marketRouting: identity.marketRouting || request.headers["x-haolo-market-routing"] === "1", codec,
@@ -348,7 +350,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       // Never turn an error representation (429/5xx) into a cacheable 304;
       // conditional semantics apply only to successful market JSON.
       const etagEligible = result.statusCode === 200 && publicRestEtagEnabled(request.url);
-      const responseBytes = etagEligible
+      const sent = etagEligible
         ? sendPublicRestJson(request, response, result.statusCode, result.value, {
           "cache-control": "private, max-age=0",
           "x-haolo-cache": result.cacheStatus,
@@ -367,10 +369,13 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
         "x-haolo-request-limit-remaining": String(burstRate.remaining),
         ...result.headers,
       });
+      const responseBytes = etagEligible ? sent.bytes : sent;
       if (responseBytes === 0 && etagEligible) metrics.restNotModified += 1;
       metrics.restPayloadBytes += responseBytes;
       trafficMetrics.record({ tier: marketTier(identity), transport: "rest", market: result.marketType,
-        legacy: request.headers["x-haolo-market-routing"] !== "1", bytes: responseBytes });
+        family: restFamily(request.url),
+        legacy: request.headers["x-haolo-market-routing"] !== "1", bytes: responseBytes,
+        jsonBytes: etagEligible ? sent.jsonBytes : responseBytes });
     } catch (error) {
       metrics.httpErrors += 1;
       const statusCode = Number(error?.statusCode || 500);
@@ -492,6 +497,9 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
     if (compressed) metrics.websocketCompressedClients += 1;
     const disposers = new Map();
     const { route } = context;
+    const releaseTraffic = trafficMetrics.trackSocket(_request.socket, {
+      tier: marketTier(context.identity), transport: "ws", market: route.marketType,
+    });
     const sessionId = crypto.randomUUID();
     const userRef = userReference(context.identity);
     const connectedAt = Date.now();
@@ -567,6 +575,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
         return;
       }
       for (const [stream, frame] of pendingMarketFrames) {
+        if (!disposers.has(stream)) { pendingMarketFrames.delete(stream); continue; }
         if (Number(websocket.bufferedAmount || 0) > WS_SOFT_BUFFER_BYTES) break;
         try {
           sendFrame(frame);
@@ -611,6 +620,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
     const release = () => {
       if (released) return;
       released = true;
+      releaseTraffic();
       clearInterval(heartbeatTimer);
       clearTimeout(leaseTimer);
       clearBackpressure();
@@ -640,6 +650,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       const stream = validateStreamName(streamValue);
       disposers.get(stream)?.();
       disposers.delete(stream);
+      pendingMarketFrames.delete(stream);
     };
     try {
       for (const stream of route.initialStreams) subscribe(stream);

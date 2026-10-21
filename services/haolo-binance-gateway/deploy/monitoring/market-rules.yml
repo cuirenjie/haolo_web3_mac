@@ -1,0 +1,26 @@
+groups:
+  - name: haolo-market-traffic
+    rules:
+      # increase BEFORE sum retains reset handling for every replica.
+      - record: haolo_market:payload_bytes:rate5m
+        expr: sum by (node,tier,transport,market,family,codec,legacy) (rate(haolo_market_traffic_payload_bytes_total[5m]))
+      - record: haolo_market:json_bytes:rate5m
+        expr: sum by (node,tier,transport,market,family,codec,legacy) (rate(haolo_market_traffic_json_bytes_total[5m]))
+      - record: haolo_market:socket_bytes:rate5m
+        expr: sum by (node,tier,transport,market) (rate(haolo_market_socket_bytes_total[5m]))
+      - record: haolo_market:payload_bytes:increase1d
+        expr: sum by (node,tier,transport,market,family,codec,legacy) (increase(haolo_market_traffic_payload_bytes_total[1d]))
+      - alert: HaoloMarketScrapeMissing
+        expr: up{job="haolo-market"} == 0 or absent(up{job="haolo-market"})
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Market traffic collection is incomplete
+      - alert: HaoloMarketAttributionMissing
+        expr: up{job="haolo-market"} == 1 unless on(job,instance) haolo_market_process_start_seconds
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Instance does not expose the current traffic counters

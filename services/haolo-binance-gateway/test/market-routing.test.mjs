@@ -101,6 +101,29 @@ test("legacy clients remain raw and a lease releases all subscriptions before re
   assert.equal(listeners.size, 0);
 });
 
+test("compact rollback and zero-percent cohorts negotiate JSON for capable clients", async (t) => {
+  for (const overrides of [{ marketCompactEnabled: false }, { marketCompactPercent: 0 }]) {
+    const { request } = await fixture(t, overrides);
+    const response = await request("trial", undefined, { body: JSON.stringify({ codecs: ["hmc1", "json"] }) });
+    assert.equal(response.status, 201);
+    assert.equal((await response.json()).codec, "json");
+  }
+});
+
+test("REST attribution counts avoided 304 body bytes against the same JSON baseline", async (t) => {
+  const { request, origin } = await fixture(t);
+  const first = await request('trial', '/fapi/v1/ticker/price');
+  const bytes = Buffer.byteLength(await first.text());
+  const cached = await request('trial', '/fapi/v1/ticker/price', { headers: { 'if-none-match': first.headers.get('etag') } });
+  assert.equal(cached.status, 304);
+  assert.equal(await cached.text(), '');
+  const metrics = await (await fetch(origin + '/metrics', { headers: { authorization: 'Bearer test-metrics-token-at-least-long-enough' } })).text();
+  const counter = name => Number(metrics.split('\n').find(line => line.startsWith(`haolo_market_traffic_${name}{`)).split(' ').at(-1));
+  assert.equal(counter('payload_bytes_total'), bytes);
+  assert.equal(counter('json_bytes_total'), bytes * 2);
+  assert.equal(counter('messages_total'), 2);
+});
+
 test("desktop to independent paid/free gateways selects the correct ticket cache and codec", async (t) => {
   const paid = await fixture(t);
   const free = await fixture(t, { marketNodeTier: "free" });

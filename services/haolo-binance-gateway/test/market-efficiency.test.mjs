@@ -66,6 +66,36 @@ test("recovering a slow quote client cannot deliver an older quote after a new o
   } finally { const closed = once(client, "close"); client.close(); await closed; await gateway.close(); }
 });
 
+test("unsubscribe discards queued slow-client quotes before resubscribe", async () => {
+  let publish;
+  const gateway = createPublicGatewayServer({ config: baseConfig({ allowAnonymousPublic: true }),
+    restGateway: { cache: new GatewayCache() },
+    streamPool: { stats: () => ({}), subscribe(_market, _stream, listener) { publish = listener; return () => {}; } } });
+  await gateway.listen();
+  const client = new WebSocket(`ws://127.0.0.1:${gateway.server.address().port}/stream/futures?streams=btcusdt@ticker`);
+  try {
+    await once(client, "open");
+    let buffered = 600000;
+    Object.defineProperty([...gateway.websocketServer.clients][0], "bufferedAmount", { get: () => buffered });
+    const frames = [];
+    client.on("message", raw => frames.push(JSON.parse(String(raw))));
+    publish({ stream: "btcusdt@ticker", data: { n: 1 } });
+    const ack = once(client, "message");
+    client.send(JSON.stringify({ method: "UNSUBSCRIBE", params: ["btcusdt@ticker"], id: 1 }));
+    await ack;
+    const subscribed = once(client, "message");
+    client.send(JSON.stringify({ method: "SUBSCRIBE", params: ["btcusdt@ticker"], id: 2 }));
+    await subscribed;
+    buffered = 0;
+    await new Promise(resolve => setTimeout(resolve, 80));
+    assert.deepEqual(frames.filter(frame => frame.data), []);
+    const fresh = once(client, "message");
+    publish({ stream: "btcusdt@ticker", data: { n: 2 } });
+    await fresh;
+    assert.deepEqual(frames.filter(frame => frame.data).map(frame => frame.data.n), [2]);
+  } finally { client.terminate(); await gateway.close(); }
+});
+
 for (const percent of [0, 100]) test(`real sockets preserve frames/order with compression ${percent}%`, async () => {
   const listeners = [];
   const gateway = await startGateway({

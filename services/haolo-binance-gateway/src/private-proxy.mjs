@@ -6,6 +6,7 @@ import net from "node:net";
 import { metricsAuthorized, proxyToken, verifyHaoloJwt, verifyPrivateEgressPermit } from "./auth.mjs";
 import { FixedWindowRateLimiter } from "./rate-limit.mjs";
 import { DrainState, closeHttp } from "./drain.mjs";
+import { TrafficMetrics } from "./traffic-metrics.mjs";
 
 const blockedAddresses = new net.BlockList();
 for (const [subnet, prefix] of [
@@ -47,6 +48,7 @@ function reject(socket, statusCode, reason, authenticate = false) {
 export function createPrivateProxyServer({ config, cache = null, lookup = dns.lookup, connect = net.connect } = {}) {
   const tlsEnabled = Boolean(config.privateTlsCertPath && config.privateTlsKeyPath);
   const drain = new DrainState();
+  const trafficMetrics = new TrafficMetrics(config.marketNodeTier);
   let closing;
   const requestHandler = drain.http((request, response) => {
     if (request.url === "/metrics") {
@@ -56,7 +58,7 @@ export function createPrivateProxyServer({ config, cache = null, lookup = dns.lo
         response.end(payload);
         return;
       }
-      const payload = `${Object.entries(metrics).map(([key, value]) => `haolo_private_proxy_${key} ${Number(value)}`).join("\n")}\n`;
+      const payload = `${Object.entries(metrics).map(([key, value]) => `haolo_private_proxy_${key} ${Number(value)}`).join("\n")}\n${trafficMetrics.prometheus()}\n`;
       response.writeHead(200, { "content-type": "text/plain; version=0.0.4; charset=utf-8", "content-length": Buffer.byteLength(payload), "cache-control": "no-store" });
       response.end(payload);
       return;
@@ -159,11 +161,17 @@ export function createPrivateProxyServer({ config, cache = null, lookup = dns.lo
     metrics.activeTunnels += 1;
     metrics.acceptedTunnels += 1;
     const upstream = connect({ host: selected.address, port: target.port, family: selected.family });
+    // Permits do not carry an authoritative membership tier. Do not guess one.
+    const trafficScope = { tier: "unknown", market: target.host === "fapi.binance.com" ? "futures" : "spot" };
+    const releaseClientTraffic = trafficMetrics.trackSocket(clientSocket, { ...trafficScope, transport: "private_client" });
+    const releaseUpstreamTraffic = trafficMetrics.trackSocket(upstream, { ...trafficScope, transport: "private_upstream" });
     tunnelSockets.add(clientSocket);
     tunnelSockets.add(upstream);
     const release = () => {
       if (upstream.__haoloReleased) return;
       upstream.__haoloReleased = true;
+      releaseClientTraffic();
+      releaseUpstreamTraffic();
       metrics.activeTunnels = Math.max(0, metrics.activeTunnels - 1);
       const remaining = Math.max(0, Number(activeByUser.get(identity.userId) || 1) - 1);
       if (remaining) activeByUser.set(identity.userId, remaining); else activeByUser.delete(identity.userId);
