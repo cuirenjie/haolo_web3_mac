@@ -85,6 +85,25 @@ test("ETag 304 reuses exact strings and origin time without renewing an old snap
   await service.close();
 });
 
+for (const [initialTag, returnedTag] of [['W/"same"', '"same"'], ['"same"', 'W/"same"']]) {
+  test(`compressed GET validator ${initialTag} matches equivalent 304 ${returnedTag}`, async () => {
+    let now = 1_800_000_000_000, calls = 0;
+    const service = new BinancePublicMarketService({ now: () => now, fetch: async (_url, init) => {
+      calls++;
+      if (calls > 1) assert.equal(init.headers["if-none-match"], initialTag);
+      return new Response(calls === 1 ? JSON.stringify(body) : null, {
+        status: calls === 1 ? 200 : 304,
+        headers: { etag: calls === 1 ? initialTag : returnedTag, "x-haolo-data-fetched-at": String(now) },
+      });
+    } });
+    await service.request(request); now += 2_001;
+    const result = await service.request(request);
+    assert.equal(result.revalidated, true); assert.notEqual(result.stale, true);
+    assert.deepEqual(result.data, body); assert.equal(result.fetchedAt, now);
+    await service.close();
+  });
+}
+
 for (const mode of ["missing-time", "stale", "wrong-tag"]) test(`304 ${mode} cannot manufacture fresh data`, async () => {
   let now = 1_800_000_000_000, calls = 0;
   const original = now;

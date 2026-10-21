@@ -435,7 +435,11 @@ export class BinancePublicMarketService {
       let data;
       const notModified = response.status === 304;
       if (notModified) {
-        if (!validator || responseEtag(response) !== validator || retained.staleUntil <= this.currentTimeMs()) {
+        // Conditional GET uses weak comparison: a compressing proxy can mark
+        // the 200 tag weak while forwarding the origin's strong tag on 304.
+        const returnedTag = responseEtag(response);
+        if (!validator || !returnedTag || returnedTag.replace(/^W\//, "") !== validator.replace(/^W\//, "")
+          || retained.staleUntil <= this.currentTimeMs()) {
           throw new Error("Market response has no usable matching ETag representation");
         }
         data = retained.data;
