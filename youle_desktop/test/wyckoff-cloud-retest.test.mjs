@@ -9,7 +9,8 @@ import {executionPlanStickyHtml} from '../src/main/execution-plan-sticky-view.mj
 
 // Same synthetic backend-generated fixture is consumed by Flutter. No local
 // trading algorithm is reintroduced into the cloud-only Windows runtime.
-const {cases}=JSON.parse(fs.readFileSync(new URL('./fixtures/wyckoff-retest-public.json',import.meta.url),'utf8'));
+const fixture = process.env.HAOLO_WYCKOFF_RETEST_FIXTURE || new URL('./fixtures/wyckoff-retest-public.json',import.meta.url);
+const {cases}=JSON.parse(fs.readFileSync(fixture,'utf8'));
 for(const sample of cases)test(`${sample.name}: backend retest receipt survives client validation, report and restoration`,()=>{
   const {result,record,kind,locale}=structuredClone(sample),before=structuredClone(result);
   validateCloudEntryResult(result,record);
