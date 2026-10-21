@@ -24,3 +24,7 @@ Windows 使用 `fs.realpathSync.native` 统一解析运行目录、SQLite 目录
 - 工作期间开发版重新启动。北京时间 01:44:44 对原任务连续两次 `thread/read(includeTurns: true)` 成功，索引为 paginated。此次现场调用未触发补建写操作；rollout 内容逐字节保持一致，其他线程索引保持一致。未代用户重新提交分析请求。
 
 本地核验证据位于 `.cache/history-path-20261022/`：`live-repair.json` 和两份 `baseline-*.log`。原未提交的语音资源文件保持原状；未提交、推送、打包或部署。
+
+## 后续发布
+
+2026-10-22 本修复已随 M1-435 Windows 0.1.179 正式包发布官网；本轮全量 4888 项回归通过。源码及发布证据见 [0.1.179 发布记录](windows-release-0.1.179-20261022.md)。

@@ -1,0 +1,387 @@
+{
+  "version": "0.1.179",
+  "task": "M1-435",
+  "owner": "01a15fa6-45fa-75e3-8c09-60c9920eec4e",
+  "sourceCommit": "0ad3e758da51f5cddda637a65333a79a7efd9f22",
+  "sourcePushed": true,
+  "releaseId": "84e31841-b7cf-4971-9deb-cfa24c5bb4df",
+  "published": true,
+  "clientVariant": "haolo_windows_web3",
+  "arch": "x64",
+  "forceUpdate": false,
+  "minSupportedVersion": "0.1.178",
+  "filename": "haolo_desktop-0.1.179-Setup.exe",
+  "bytes": 247850488,
+  "sha256": "89d0b5cf6ca3da8af5623e3ef338f8adf0dbd4121c4849fe913b99cd8d843594",
+  "downloadUrl": "https://assets.haolo.com/app-updates/windows/0.1.179/haolo_windows_web3/haolo_desktop-0.1.179-Setup.exe",
+  "latestUrl": "https://haolo.com/api/app-updates/windows/latest/download?arch=x64&client_variant=haolo_windows_web3",
+  "tests": {
+    "passed": 4888,
+    "total": 4888,
+    "typecheck": true,
+    "productionBuild": true
+  },
+  "signatures": [
+    {
+      "filename": "haolo_desktop.exe",
+      "bytes": 210986952,
+      "sha256": "3f3e1d2c56dcbb07c9b98767816be256b34f37f31668656608edd1be5361d185",
+      "status": "Valid",
+      "thumbprint": "EC6346287B2F343CB7BFA4CF4CAB7DB02379A0AD",
+      "evCodeSigning": true,
+      "digest": "sha256",
+      "timestampSubject": "CN=DigiCert SHA256 RSA4096 Timestamp Responder 2026 1, O=\"DigiCert, Inc.\", C=US"
+    },
+    {
+      "filename": "haolo-chrome-native-host.exe",
+      "bytes": 30664,
+      "sha256": "8d4dadd29c63326e17d3f60354d9744237c30a73c68c3804880a04f863c78735",
+      "status": "Valid",
+      "thumbprint": "EC6346287B2F343CB7BFA4CF4CAB7DB02379A0AD",
+      "evCodeSigning": true,
+      "digest": "sha256",
+      "timestampSubject": "CN=DigiCert SHA256 RSA4096 Timestamp Responder 2026 1, O=\"DigiCert, Inc.\", C=US"
+    },
+    {
+      "filename": "haolo_desktop-0.1.179-Setup.exe",
+      "bytes": 247850488,
+      "sha256": "89d0b5cf6ca3da8af5623e3ef338f8adf0dbd4121c4849fe913b99cd8d843594",
+      "status": "Valid",
+      "thumbprint": "EC6346287B2F343CB7BFA4CF4CAB7DB02379A0AD",
+      "evCodeSigning": true,
+      "digest": "sha256",
+      "timestampSubject": "CN=DigiCert SHA256 RSA4096 Timestamp Responder 2026 1, O=\"DigiCert, Inc.\", C=US"
+    },
+    {
+      "filename": "haolo_desktop-0.1.179-Setup.__uninstaller.exe",
+      "bytes": 284528,
+      "sha256": "8345010ac7cde2ae32791d21939b3aac2a73deed843eb6b3ef96070481891882",
+      "status": "Valid",
+      "thumbprint": "EC6346287B2F343CB7BFA4CF4CAB7DB02379A0AD",
+      "evCodeSigning": true,
+      "digest": "sha256",
+      "timestampSubject": "CN=DigiCert SHA256 RSA4096 Timestamp Responder 2026 1, O=\"DigiCert, Inc.\", C=US"
+    }
+  ],
+  "package": {
+    "sourceFiles": 289,
+    "extraResources": 323,
+    "runtimeVersion": "0.163.0",
+    "runtimeFiles": 47,
+    "asarSha256": "71ce172822569552ad07164de99d229260202fd5bb5c3b8328bb90dfe7a1fbf0"
+  },
+  "startup": {
+    "passed": true,
+    "actualPackagedAsar": true,
+    "isolated": true,
+    "errors": []
+  },
+  "updater": {
+    "passed": true,
+    "resumedFrom": 1048576,
+    "identicalFiles": 398,
+    "auditFiles": 1491
+  },
+  "production": {
+    "before": {
+      "at": "2026-10-21T18:28:54.687365+00:00",
+      "apiCommit": "333c4f9ab93e1b8beef867eced5d728b93af140e",
+      "active": "blue",
+      "services": {
+        "haolo-backend-api-blue": {
+          "id": "d9619d1074dc3323e68f4a64b2ff5de0e57946b4eb2efb671d05fcb9c743b3f4",
+          "image": "sha256:90c4802f09423868df54e46b5b7f1b861f124850f4569d0323cb5cdca603feed",
+          "started": "2026-10-21T18:15:48.479860282Z",
+          "restarts": 0,
+          "health": "healthy",
+          "runtime": {
+            "commit": "333c4f9ab93e1b8beef867eced5d728b93af140e",
+            "files": 1038,
+            "compatibleFiles": 397
+          },
+          "conditionalPlans": {
+            "passed": true,
+            "checks": 116,
+            "strategy_count": 17,
+            "locales": [
+              "zh-CN",
+              "en",
+              "zh-Hant"
+            ],
+            "external_calls": 0,
+            "stored_history_unchanged": true
+          }
+        },
+        "haolo-backend-mobile-worker": {
+          "id": "b4e92be3773eb4be95c174689396f15fd0a9f8a4564c1bea849c3bd6d6f17f6c",
+          "image": "sha256:993cd054d2d766ea844b1588f31970c5dd4d9f47429561fc17db09c39453a476",
+          "started": "2026-10-21T17:31:39.624536186Z",
+          "restarts": 0,
+          "health": "healthy",
+          "runtime": {
+            "commit": "0b07c81a0d26f4f95d5c0783c44daa8ebd3db0f4",
+            "files": 1036,
+            "compatibleFiles": 397
+          },
+          "conditionalPlans": {
+            "passed": true,
+            "checks": 116,
+            "strategy_count": 17,
+            "locales": [
+              "zh-CN",
+              "en",
+              "zh-Hant"
+            ],
+            "external_calls": 0,
+            "stored_history_unchanged": true
+          }
+        },
+        "haolo-backend-worker": {
+          "id": "15738b227468b05d35e9865026950047ab1d58dc6680858a2ab962bb7e53312e",
+          "image": "sha256:7dc6af9701e57d04a1f941b92ad6ceb9d9156bd8d376f313fdd2df6891d5212f",
+          "started": "2026-10-20T10:31:25.278584324Z",
+          "restarts": 0,
+          "health": "healthy"
+        },
+        "haolo-postgres-primary": {
+          "id": "f8a85ea343082c1c786e52951199763c04858c35c3763be84afd980bcfb82fd4",
+          "image": "sha256:cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f",
+          "started": "2026-10-20T10:31:25.256024886Z",
+          "restarts": 0,
+          "health": "healthy"
+        },
+        "haolo-backend-redis-1": {
+          "id": "a1c8cf8025bd014a161d52f053fe7fcf4d1ca346a46ba307e34f0d1b1e87b3c3",
+          "image": "sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf",
+          "started": "2026-10-20T10:32:34.840908347Z",
+          "restarts": 0,
+          "health": "healthy"
+        },
+        "haolo-backend-ingress-v2": {
+          "id": "67930fb9258ceabff2b196fbb57031e2e4f7e2a5e59727cf1e1a1c7cc8c7160d",
+          "image": "sha256:97d490c12ba55b4946b01546d1c3ed324e8d41ab1c9fcb2a616aa470620e5b46",
+          "started": "2026-10-20T10:31:25.249732654Z",
+          "restarts": 0,
+          "health": null
+        }
+      },
+      "receipts": {
+        "api": {
+          "path": "/opt/haolo-backend/bluegreen-releases/20261021T181423Z-6bffbdec/state.json",
+          "phase": "complete"
+        },
+        "worker": {
+          "path": "/opt/haolo-backend/mobile-worker-releases/20261022-conditional-plans-0b07c81a/state.json",
+          "phase": "complete"
+        }
+      },
+      "readiness": {
+        "ready": true,
+        "live_consumers": 1,
+        "protocol": "haolo-mobile-planning3:wyckoff1:chan1:orderflow1:wave1:ictsmc1:smt1:harmonic1:chartpatterns1:dow1:gann1:indicators1:assistant1:alerts1:preferences1:selectedmodel1:windows1:entryv2:1:windowsservice1:rightlegacy1:paleft1:padual1:paprotect1:indexohlc1:leftcondition1:pricealerts1:",
+        "priceAlerts": "inclusive-intrabar-v1"
+      }
+    },
+    "after": {
+      "at": "2026-10-21T18:40:17.487948+00:00",
+      "apiCommit": "c6aa46bd8108450825592a57ec3e50e80551ef56",
+      "active": "green",
+      "services": {
+        "haolo-backend-api-green": {
+          "id": "3c3ae67ca9ec0d0405ef161880cfbf191eda53ca94f4df55f2f0efc0d2e1936a",
+          "image": "sha256:61e4e12e1713735313e651a59762204eefc90959b2faf3e24bf8de8ee486210e",
+          "started": "2026-10-21T18:33:44.27788813Z",
+          "restarts": 0,
+          "health": "healthy",
+          "runtime": {
+            "commit": "c6aa46bd8108450825592a57ec3e50e80551ef56",
+            "files": 1038,
+            "compatibleFiles": 397
+          },
+          "conditionalPlans": {
+            "passed": true,
+            "checks": 116,
+            "strategy_count": 17,
+            "locales": [
+              "zh-CN",
+              "en",
+              "zh-Hant"
+            ],
+            "external_calls": 0,
+            "stored_history_unchanged": true
+          }
+        },
+        "haolo-backend-mobile-worker": {
+          "id": "b4e92be3773eb4be95c174689396f15fd0a9f8a4564c1bea849c3bd6d6f17f6c",
+          "image": "sha256:993cd054d2d766ea844b1588f31970c5dd4d9f47429561fc17db09c39453a476",
+          "started": "2026-10-21T17:31:39.624536186Z",
+          "restarts": 0,
+          "health": "healthy",
+          "runtime": {
+            "commit": "0b07c81a0d26f4f95d5c0783c44daa8ebd3db0f4",
+            "files": 1036,
+            "compatibleFiles": 397
+          },
+          "conditionalPlans": {
+            "passed": true,
+            "checks": 116,
+            "strategy_count": 17,
+            "locales": [
+              "zh-CN",
+              "en",
+              "zh-Hant"
+            ],
+            "external_calls": 0,
+            "stored_history_unchanged": true
+          }
+        },
+        "haolo-backend-worker": {
+          "id": "b662cf2a63a0b3d833ab57ea2953ab119121dc43f906388768131852aa1d992a",
+          "image": "sha256:61e4e12e1713735313e651a59762204eefc90959b2faf3e24bf8de8ee486210e",
+          "started": "2026-10-21T18:37:53.661718781Z",
+          "restarts": 0,
+          "health": "healthy"
+        },
+        "haolo-postgres-primary": {
+          "id": "f8a85ea343082c1c786e52951199763c04858c35c3763be84afd980bcfb82fd4",
+          "image": "sha256:cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f",
+          "started": "2026-10-20T10:31:25.256024886Z",
+          "restarts": 0,
+          "health": "healthy"
+        },
+        "haolo-backend-redis-1": {
+          "id": "a1c8cf8025bd014a161d52f053fe7fcf4d1ca346a46ba307e34f0d1b1e87b3c3",
+          "image": "sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf",
+          "started": "2026-10-20T10:32:34.840908347Z",
+          "restarts": 0,
+          "health": "healthy"
+        },
+        "haolo-backend-ingress-v2": {
+          "id": "67930fb9258ceabff2b196fbb57031e2e4f7e2a5e59727cf1e1a1c7cc8c7160d",
+          "image": "sha256:97d490c12ba55b4946b01546d1c3ed324e8d41ab1c9fcb2a616aa470620e5b46",
+          "started": "2026-10-20T10:31:25.249732654Z",
+          "restarts": 0,
+          "health": null
+        }
+      },
+      "receipts": {
+        "api": {
+          "path": "/opt/haolo-backend/bluegreen-releases/20261021T183220Z-3b6aa1eb/state.json",
+          "phase": "complete"
+        },
+        "worker": {
+          "path": "/opt/haolo-backend/mobile-worker-releases/20261022-conditional-plans-0b07c81a/state.json",
+          "phase": "complete"
+        }
+      },
+      "readiness": {
+        "ready": true,
+        "live_consumers": 1,
+        "protocol": "haolo-mobile-planning3:wyckoff1:chan1:orderflow1:wave1:ictsmc1:smt1:harmonic1:chartpatterns1:dow1:gann1:indicators1:assistant1:alerts1:preferences1:selectedmodel1:windows1:entryv2:1:windowsservice1:rightlegacy1:paleft1:padual1:paprotect1:indexohlc1:leftcondition1:pricealerts1:",
+        "priceAlerts": "inclusive-intrabar-v1"
+      }
+    },
+    "concurrentBackendChange": {
+      "apiBefore": "333c4f9ab93e1b8beef867eced5d728b93af140e",
+      "apiAfter": "c6aa46bd8108450825592a57ec3e50e80551ef56",
+      "financialWorkerChanged": true,
+      "owner": "01a15f37-7f79-7f23-b80b-d50cebb948ba",
+      "compatibilityReverified": true,
+      "preservedServices": [
+        "haolo-backend-mobile-worker",
+        "haolo-postgres-primary",
+        "haolo-backend-redis-1",
+        "haolo-backend-ingress-v2"
+      ]
+    },
+    "route": "SSH tunnel to existing app update management API"
+  },
+  "publicVerification": {
+    "at": "2026-10-21T18:32:42.199Z",
+    "checks": {
+      "0.1.177": {
+        "client_variant": "haolo_windows_web3",
+        "update_available": true,
+        "force_update": true,
+        "latest": {
+          "version": "0.1.179",
+          "release_notes": "### 简体中文\r\n\r\n- 优化 K 线拖动与松手后的惯性滑行，减少起步延迟，改善横向滚动和密集画线场景的响应。\r\n- 左右侧分析在暂无合格机会时展示条件预案、待满足条件与确认步骤；交易偏好保留左侧和右侧，历史自动偏好兼容为右侧。\r\n- 修复减少动态效果设置下 AI 绘图一次性出现的问题，保持逐个对象展示。\r\n- 修复部分 Windows AppData 重定向环境中新任务历史读取失败的问题。\r\n- 统一指标联合审阅的证据名单，减少合法分析结果因证据引用遗漏而失败。\r\n\r\n### English\r\n\r\n- Improve chart dragging, momentum after release, horizontal scrolling, and responsiveness with dense drawing layers.\r\n- Show conditional watch plans, unmet conditions, and confirmation steps when left-side or right-side analysis has no qualified opportunity. Trading preferences now offer left and right; legacy automatic preferences use right-side behavior.\r\n- Show AI drawings one object at a time when reduced motion is enabled.\r\n- Fix new-task history loading in Windows environments with redirected AppData paths.\r\n- Align evidence lists used in combined indicator review to prevent valid results from failing because of omitted evidence references.\r\n\r\n### 繁體中文\r\n\r\n- 優化 K 線拖曳與放手後的慣性滑行，減少起步延遲，改善橫向捲動與密集畫線時的反應。\r\n- 左右側分析在暫無合格機會時顯示條件預案、待滿足條件與確認步驟；交易偏好保留左側與右側，歷史自動偏好相容為右側。\r\n- 修復減少動態效果設定下 AI 繪圖一次出現的問題，維持逐個物件顯示。\r\n- 修復部分 Windows AppData 重新導向環境中新任務歷史讀取失敗的問題。\r\n- 統一指標聯合審閱的證據清單，減少合法分析結果因證據引用遺漏而失敗。"
+        },
+        "download": {
+          "client_variant": "haolo_windows_web3",
+          "url": "https://assets.haolo.com/app-updates/windows/0.1.179/haolo_windows_web3/haolo_desktop-0.1.179-Setup.exe",
+          "file_name": "haolo_desktop-0.1.179-Setup.exe",
+          "size_bytes": 247850488,
+          "sha256": "89d0b5cf6ca3da8af5623e3ef338f8adf0dbd4121c4849fe913b99cd8d843594",
+          "fallback_urls": [
+            "https://haolo-prod-assets-sg-183648.oss-ap-southeast-1.aliyuncs.com/app-updates/windows/0.1.179/haolo_windows_web3/haolo_desktop-0.1.179-Setup.exe"
+          ]
+        }
+      },
+      "0.1.178": {
+        "client_variant": "haolo_windows_web3",
+        "update_available": true,
+        "force_update": false,
+        "latest": {
+          "version": "0.1.179",
+          "release_notes": "### 简体中文\r\n\r\n- 优化 K 线拖动与松手后的惯性滑行，减少起步延迟，改善横向滚动和密集画线场景的响应。\r\n- 左右侧分析在暂无合格机会时展示条件预案、待满足条件与确认步骤；交易偏好保留左侧和右侧，历史自动偏好兼容为右侧。\r\n- 修复减少动态效果设置下 AI 绘图一次性出现的问题，保持逐个对象展示。\r\n- 修复部分 Windows AppData 重定向环境中新任务历史读取失败的问题。\r\n- 统一指标联合审阅的证据名单，减少合法分析结果因证据引用遗漏而失败。\r\n\r\n### English\r\n\r\n- Improve chart dragging, momentum after release, horizontal scrolling, and responsiveness with dense drawing layers.\r\n- Show conditional watch plans, unmet conditions, and confirmation steps when left-side or right-side analysis has no qualified opportunity. Trading preferences now offer left and right; legacy automatic preferences use right-side behavior.\r\n- Show AI drawings one object at a time when reduced motion is enabled.\r\n- Fix new-task history loading in Windows environments with redirected AppData paths.\r\n- Align evidence lists used in combined indicator review to prevent valid results from failing because of omitted evidence references.\r\n\r\n### 繁體中文\r\n\r\n- 優化 K 線拖曳與放手後的慣性滑行，減少起步延遲，改善橫向捲動與密集畫線時的反應。\r\n- 左右側分析在暫無合格機會時顯示條件預案、待滿足條件與確認步驟；交易偏好保留左側與右側，歷史自動偏好相容為右側。\r\n- 修復減少動態效果設定下 AI 繪圖一次出現的問題，維持逐個物件顯示。\r\n- 修復部分 Windows AppData 重新導向環境中新任務歷史讀取失敗的問題。\r\n- 統一指標聯合審閱的證據清單，減少合法分析結果因證據引用遺漏而失敗。"
+        },
+        "download": {
+          "client_variant": "haolo_windows_web3",
+          "url": "https://assets.haolo.com/app-updates/windows/0.1.179/haolo_windows_web3/haolo_desktop-0.1.179-Setup.exe",
+          "file_name": "haolo_desktop-0.1.179-Setup.exe",
+          "size_bytes": 247850488,
+          "sha256": "89d0b5cf6ca3da8af5623e3ef338f8adf0dbd4121c4849fe913b99cd8d843594",
+          "fallback_urls": [
+            "https://haolo-prod-assets-sg-183648.oss-ap-southeast-1.aliyuncs.com/app-updates/windows/0.1.179/haolo_windows_web3/haolo_desktop-0.1.179-Setup.exe"
+          ]
+        }
+      },
+      "0.1.179": {
+        "client_variant": "haolo_windows_web3",
+        "update_available": false,
+        "force_update": false,
+        "latest": null,
+        "download": null
+      }
+    },
+    "standardChannelUnchanged": true,
+    "latest": {
+      "status": 302,
+      "url": "https://assets.haolo.com/app-updates/windows/0.1.179/haolo_windows_web3/haolo_desktop-0.1.179-Setup.exe"
+    },
+    "website": {
+      "status": 200,
+      "downloadScript": "js/desktop-download-20260901b-oss.js"
+    },
+    "range": {
+      "status": 206,
+      "bytes": 1048576,
+      "contentRange": "bytes 0-1048575/247850488"
+    },
+    "blockmap": {
+      "bytes": 251471,
+      "sha256": "42358734addfd60009077c4cc8cba5cd512a47c86735ade57f8276b0ae49b3a8",
+      "valid": true
+    },
+    "fullDownload": {
+      "status": 200,
+      "bytes": 247850488,
+      "sha256": "89d0b5cf6ca3da8af5623e3ef338f8adf0dbd4121c4849fe913b99cd8d843594"
+    },
+    "passed": true,
+    "completedAt": "2026-10-21T18:35:11.355Z"
+  },
+  "failures": [
+    "Initial test run used unavailable Python launcher; bundled Python resolved it",
+    "One source assertion assumed LF; normalized CRLF in test helper",
+    "Initial custom builder configuration omitted EV defaults; existing guard aborted; complete configuration restored",
+    "Migrated local update credential rejected with HTTP 401 before publication; verified no release was created; retried with current service credential read via SSH into memory"
+  ],
+  "limitations": [
+    "No real account login, system installation, trading, alert creation, or message delivery performed",
+    "Existing 300-drawing stress workload still misses two strict P95 < 50ms thresholds"
+  ],
+  "evidence": "youle_desktop/release/build-0.1.179-production-20261022",
+  "desktop": "C:/Users/joiec/Desktop/好咯最新安装包/haolo_windows_web3/haolo_desktop-0.1.179-Setup.exe"
+}
