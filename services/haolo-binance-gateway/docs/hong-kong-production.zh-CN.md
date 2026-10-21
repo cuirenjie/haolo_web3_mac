@@ -2,7 +2,11 @@
 
 2026-09-19 已从旧新加坡边缘迁移到香港 **`ecs-user@8.217.125.71`**（4 核 16 GiB）。本服务同时提供公共 REST/WS 和私有 HTTPS CONNECT，属于 Windows 仓库中的服务器组件；部署它不构建或发布桌面安装包。
 
-## 当前活动版本（2026-10-19）
+## 当前活动版本（2026-10-21 12:41核验）
+
+行情归因／hmc1优化已切换新连接：`haolo-binance-gateway-efficiency-1fe4546`，公共／私有端口50987／50988，源码 `1fe454602616a45bb46783ddbe3e8c7f9c1065ee`，镜像 `sha256:35a7ed199ca6e84fbf9895a8ca029eb88031e67021037e234416eb5164f114a7`。12:32:58切流、12:35:33 accept，运行配置enabled=true／percent=10。95项真实Redis测试及6项回收测试通过，19个运行源码与package核对、实际REST／WS／CONNECT通过；最终389.7秒15,259请求零5xx／429。用户本次明确允许保留旧连接自然排空，状态仍 `accepted_retirement_pending`，专用守护器active，不能称旧实例已退役。持久采集已覆盖新旧实例。真实混合行情旁路编码仅减少0.18%～0.38%，K线约25.2%；截至12:39尚无实际线上hmc1帧，未声称CDT已下降。Windows／移动源码推送，安装包渠道未发布。见[完整记录](market-efficiency-release-20261021.zh-CN.md)和[机器回执](verification/market-efficiency-release-20261021.json)。后续必须刷新实时活动指针，不重复使用历史候选或把本次例外视为长期许可。
+
+## 2026-10-19 历史活动版本
 
 dev 完整网关源码已部署并正式验收：活动实例 **`haolo-binance-gateway-dev-5bec9dc`**，端口 **51087/51088**，精确镜像 `e8fb1f678739`，来源 `5bec9dc92e89a039d56c38b58dcf6708d4523b6d`，19 个运行文件及 package.json 与提交匹配。**22:17:09 切换、22:19:29 accept**；真实 Redis 回归88／回收6通过，真实 REST/WS/CONNECT、共享连接与恢复、952根分析对账通过。159秒6049请求零429/5xx，1113鉴权全200/P95 178ms/最长660ms。首轮25次鉴权超时503已拒绝并回退，待另一后端发布完成及完整鉴权稳定窗口通过后重试；失败证据保留，不宣称旧长尾根因已根治。环境、Redis、配额、鉴权超时及关闭的委托／分流配置不变。状态 `accepted_retirement_pending`，旧 ticket-bdb7ad5 由双零守护器自然回收，不强杀连接。Windows仅推送dev，无安装包；客户端尚有13项回归失败和本机严格新鲜度失败。详见[本轮发布记录](dev-source-release-20261019.zh-CN.md)及[机器回执](verification/dev-source-release-20261019.json)。
 
