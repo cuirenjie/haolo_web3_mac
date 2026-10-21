@@ -7,6 +7,7 @@ import { CodexTradingArtifacts } from "./codex-trading-artifacts.mjs";
 import { TRADING_CAPABILITIES, tradingCapabilityArguments, isTradingBusinessTool } from "./codex-trading-capabilities.mjs";
 import { analysisEvidence, ANALYSIS_ANSWER_REQUIRED, POSITION_ANSWER_REQUIRED } from "./codex-analysis-evidence.mjs";
 import { buildPositionReview, positionAccountFresh } from "./position-review-evidence.mjs";
+import { businessToolError, isTerminalAnalysisError, restoreBusinessToolError } from "../shared/business-tool-error.mjs";
 
 // The model returns an opaque, per-turn capability. Host resolves ownership,
 // renderer identity and the chart snapshot; model arguments cannot override them.
@@ -46,6 +47,13 @@ request for trading. Answer ordinary writing, coding, knowledge and file questio
 their appropriate capabilities. Do not read accounts or run strategies for unrelated work.
 Before ending, check that every requested question or deliverable is actually answered.
 Tool success, a scan summary, a saved artifact or a displayed card alone is not completion.
+If analysis returns terminal=true or nextAction=stop, stop the analysis workflow and
+report the reason. Never retry it with changed parameters, another strategy or another
+tool alias. A new actual user message is required before starting another analysis.
+Never use screenshots, shell/UI automation, focus changes or repeated chart opening
+to recover a failed trading tool. The Host handles same-conversation chart rebuilds.
+If one requested strategy failed, explicitly say it did not complete. Retain the
+successful strategy results; do not substitute chart interpretation for a failed engine.
 Always give a substantive final answer that addresses the user's goal, including mixed
 tasks and follow-up explanations. If evidence is missing or a tool failed, state precisely
 what could and could not be established; never claim unperformed checks or unseen advice.
@@ -103,12 +111,13 @@ hasRemainingWork is a compatibility field; it cannot complete or suppress the fi
 </haolo_codex_first>`;
 
 export class CodexBusinessTools {
-  constructor({ dispatch, owner, accountRead, preferencesRead, artifacts = new CodexTradingArtifacts(), timeoutMs = 15 * 60_000 } = {}) {
+  constructor({ dispatch, owner, accountRead, preferencesRead, onAnalysisFailure, artifacts = new CodexTradingArtifacts(), timeoutMs = 15 * 60_000 } = {}) {
     this.dispatch = dispatch;
     this.owner = owner;
     this.timeoutMs = timeoutMs;
     this.accountRead = accountRead;
     this.preferencesRead = preferencesRead;
+    this.onAnalysisFailure = onAnalysisFailure;
     this.artifacts = artifacts;
     this.contexts = new Map();
     this.pending = new Map();
@@ -153,6 +162,8 @@ export class CodexBusinessTools {
     context.userText = userText;
     context.userTurnId = crypto.randomUUID();
     context.inputRevision = (context.inputRevision || 0) + 1;
+    context.analysisFailure = null;
+    context.completedStrategyIds = [];
     return true;
   }
 
@@ -202,6 +213,7 @@ export class CodexBusinessTools {
       if (!context.selectedModel) throw new Error("No external model was selected for this turn.");
       return context.selectedModel();
     }
+    if (context.analysisFailure) throw restoreBusinessToolError(context.analysisFailure);
     const capability = tradingCapabilityArguments(params.tool, args);
     const assertActive = () => {
       if (this.contexts.get(threadId) !== context || context.suspended || context.owner !== this.owner()) throw new Error("Business operation expired.");
@@ -221,7 +233,7 @@ export class CodexBusinessTools {
       }
       if (args.action === "chart_open") {
         if (context.executeTrading) throw new Error("No desktop chart is available in this execution context. Continue explicit-market analysis without claiming a chart was opened.");
-        const result = await execute(args);
+        const result = await this.runAnalysis(context, () => execute(args));
         assertActive();
         if (result?.ready === true && result.chart?.marketId && result.chart?.interval) {
           context.openedChartScope = `${result.chart.marketId}:${result.chart.interval}`;
@@ -253,7 +265,7 @@ export class CodexBusinessTools {
         return { ...result, drafts, latestAnalysis };
       }
       if (args.action === "analyze_only") {
-        if (!context.accountReadAt || Date.now() - context.accountReadAt > 60_000) throw new Error("Read the current Binance account with haolo_account_read before analysis.");
+        if (context.analysisFailure) throw restoreBusinessToolError(context.analysisFailure);
         const source = String(context.userText || "").replace(/@指标/g, "@策略");
         const explicit = source.includes("@") ? resolveExplicitTradingStrategyIds(source, OFFICIAL_TRADING_CATALOG) : [];
         const single = source.includes("@") ? resolveExplicitTradingStrategyId(source, OFFICIAL_TRADING_CATALOG) : null;
@@ -268,7 +280,27 @@ export class CodexBusinessTools {
         if (!args.strategyId) args.strategyId = explicit[0] || (analysisKind === "strategy" ? "price-action" : undefined);
         if (explicitNoDrawingRequested(context.userText)) args.drawingRequested = false;
         const drawingRequested = args.drawingRequested ?? (analysisKind === "strategy");
-        const result = await execute({ ...args, drawingRequested });
+        const result = await this.runAnalysis(context, async () => {
+          // A previous strategy can outlive the account snapshot. Refresh once
+          // in the serialized Host path instead of making the model recover it.
+          if (!context.accountReadAt || Date.now() - context.accountReadAt > 60_000) {
+            const userTurnId = context.userTurnId;
+            try {
+              await this.execute({ tool: "haolo_account_read", arguments: { sections: ["summary", "positions", "open_orders"], force: Boolean(context.accountReadAt) } }, context, threadId, turnId);
+            } catch (error) {
+              assertActive();
+              if (context.userTurnId !== userTurnId || context.turnId !== turnId) throw error;
+              const failure = businessToolError({ message: "Account context refresh failed.", code: "ACCOUNT_CONTEXT_UNAVAILABLE",
+                retryable: false, strategyId: args.strategyId, completedStrategyIds: context.completedStrategyIds || [] });
+              if (!context.executeTrading) {
+                try { await this.requestRenderer(context, { analysisFailure: failure }, 3000); } catch { /* Stop even if the renderer is unavailable. */ }
+              }
+              throw restoreBusinessToolError(failure);
+            }
+          }
+          assertActive();
+          return execute({ ...args, drawingRequested });
+        });
         assertActive();
         const evidence = analysisEvidence(result?.result);
         if (!evidence.report.trim()) {
@@ -281,6 +313,7 @@ export class CodexBusinessTools {
         assertActive();
         await this.artifacts.currentDraft(context.owner, visibleThread, "analysis", analysisRef);
         assertActive();
+        if (args.strategyId) context.completedStrategyIds = [...new Set([...(context.completedStrategyIds || []), args.strategyId])];
         let positionReview;
         if (args.positionManagementRequested) {
           // Long market analysis may outlive the account snapshot. Refresh only
@@ -346,11 +379,9 @@ export class CodexBusinessTools {
       throw new Error("Unknown business tool or action.");
     }
     if (args.action === "analyze") {
+      if (context.analysisFailure) throw restoreBusinessToolError(context.analysisFailure);
       // Old callers enter the same evidence/final-answer contract. Keeping a
       // second renderer analysis path would reintroduce summary-as-completion.
-      if (!context.accountReadAt || Date.now() - context.accountReadAt > 60_000) {
-        await this.execute({ tool: "haolo_account_read", arguments: { sections: ["summary", "positions", "open_orders"] } }, context, threadId, turnId);
-      }
       const { action, ...analysisArgs } = args;
       return this.execute({ tool: "haolo_analysis", arguments: analysisArgs }, context, threadId, turnId);
     }
@@ -365,13 +396,31 @@ export class CodexBusinessTools {
     return this.requestRenderer(context, { arguments: args });
   }
 
+  async runAnalysis(context, execute) {
+    const userTurnId = context.userTurnId, turnId = context.turnId;
+    const isCurrent = () => this.contexts.get(context.threadId) === context
+      && context.owner === this.owner() && context.userTurnId === userTurnId && context.turnId === turnId;
+    try { return await execute(); }
+    catch (error) {
+      if (isCurrent() && isTerminalAnalysisError(error)) {
+        const failure = businessToolError(error);
+        // Retained through transport recovery, cleared only by actual new input.
+        context.analysisFailure = failure;
+        try { await this.onAnalysisFailure?.({ context, threadId: context.threadId, turnId, failure, isCurrent }); }
+        catch { /* Keep the latch and original error even if interrupt delivery fails. */ }
+        throw restoreBusinessToolError(failure);
+      }
+      throw error;
+    }
+  }
+
   deliverPresentation(threadId, item, persist = false) {
     const context = this.contexts.get(String(threadId));
     if (!context || context.owner !== this.owner()) return Promise.reject(new Error("Presentation context expired."));
     return this.requestRenderer(context, { presentation: true, item, persist });
   }
 
-  requestRenderer(context, payload) {
+  requestRenderer(context, payload, timeoutMs = this.timeoutMs) {
     if (!context.sender || context.sender.isDestroyed()) throw new Error("The originating client is unavailable.");
     const { threadId, turnId } = context;
     const requestId = crypto.randomUUID();
@@ -380,7 +429,7 @@ export class CodexBusinessTools {
         this.pending.delete(requestId);
         this.dispatch(context.sender, { requestId, threadId: context.visibleThreadId || threadId, cancel: true });
         reject(new Error("Trading tool timed out. Check the existing run before retrying."));
-      }, this.timeoutMs);
+      }, timeoutMs);
       timer.unref?.();
       this.pending.set(requestId, { resolve, reject, timer, context, threadId, turnId });
       try {
@@ -402,7 +451,7 @@ export class CodexBusinessTools {
     if (!pending || pending.context.sender !== sender || pending.context.owner !== this.owner()) return false;
     this.pending.delete(payload.requestId);
     clearTimeout(pending.timer);
-    if (payload.error) pending.reject(new Error(String(payload.error).slice(0, 4000)));
+    if (payload.error) pending.reject(restoreBusinessToolError(payload.errorDetails || payload.error));
     else pending.resolve(payload.result);
     return true;
   }
@@ -443,6 +492,6 @@ export class CodexBusinessTools {
 export function businessToolResponse(result, error = null) {
   return {
     success: !error,
-    contentItems: [{ type: "inputText", text: JSON.stringify(error ? { error: String(error.message || error) } : result ?? null) }],
+    contentItems: [{ type: "inputText", text: JSON.stringify(error ? { error: businessToolError(error) } : result ?? null) }],
   };
 }

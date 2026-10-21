@@ -29,6 +29,7 @@ function files(dir) {return fs.readdirSync(dir,{withFileTypes:true}).flatMap(ite
 test('every shipped host import resolves within the public package and private implementations are excluded',()=>{
   const selected=files(path.join(root,'src')).map(file=>path.relative(root,file).replaceAll('\\','/')).filter(included);
   assert.ok(selected.includes('src/main/main.mjs'));
+  assert.ok(selected.includes('src/main/trading-strategy-runtime/run-event-stream.mjs'));
   assert.ok(selected.includes('src/main/personal-strategy/pipeline.mjs'));
   assert.ok(selected.includes('src/main/execution-plan-card.css'));
   assert.ok(selected.includes('src/main/execution-plan-sticky-preload.cjs'));
@@ -49,7 +50,7 @@ test('every shipped host import resolves within the public package and private i
       ts.forEachChild(node,visit);
     };visit(parsed);
   }
-  for(const relative of ['src/main/trading-analysis/wave-engine.mjs','src/main/trading-strategy-runtime/coordinator.mjs',
+  for(const relative of ['src/main/trading-analysis/wave-engine.mjs','src/main/trading-analysis/indicator-price-action-analysis.mjs','src/main/trading-strategy-runtime/coordinator.mjs',
     'src/main/trading-strategy-runtime/builtins/index.mjs','src/main/personal-context/trading-preference-compiler.mjs',
     'resources/trading-strategies/builtins/wave/SKILL.md'])assert.equal(included(relative),false,relative);
   assert.equal(pkg.build.afterPack,'scripts/after-pack-cloud.cjs');

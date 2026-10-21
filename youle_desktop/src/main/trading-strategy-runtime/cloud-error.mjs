@@ -1,4 +1,10 @@
 const messages = {
+  PRICE_ALERT_CLOUD_UNAVAILABLE: ['云端价格预警暂未就绪，请稍后重试。','Cloud price alerts are not ready. Please retry shortly.','雲端價格預警暫未就緒，請稍後重試。'],
+  PRICE_ALERT_EMAIL_REQUIRED: ['请先在账号页面绑定邮箱。','Add an email address on the Account page first.','請先在帳號頁面綁定信箱。'],
+  PRICE_ALERT_READBACK_FAILED: ['尚未确认云端保存结果，请重试。','The cloud save could not be verified. Please retry.','尚未確認雲端儲存結果，請重試。'],
+  VERSION_CONFLICT: ['预警已发生变化，请刷新后重试。','The alert has changed. Refresh and try again.','預警已發生變化，請重新整理後重試。'],
+  RULE_COMPLETED: ['预警已触发完成，请重新创建。','This alert has completed. Create a new alert.','預警已觸發完成，請重新建立。'],
+  ALERT_LIMIT: ['预警数量已达上限，请删除不需要的预警后重试。','The alert limit has been reached. Delete unused alerts and retry.','預警數量已達上限，請刪除不需要的預警後重試。'],
   LEFT_DUAL_NOT_ENABLED: ['两套裸K左侧方案尚未启用，当前不能激活新计划。','The two Price Action left-side setups are not enabled; new plans cannot be activated.','兩套裸K左側方案尚未啟用，目前不能啟用新計畫。'],
   LEFT_DUPLICATE_MARKET_PLAN: ['该交易对已有待执行或执行中的左侧计划，请先处理现有计划。','This market already has a pending or active left-side plan. Resolve it first.','該交易對已有待執行或執行中的左側計畫，請先處理現有計畫。'],
   LEFT_ZONE_ATTEMPT_LIMIT: ['该区域已达到左侧尝试次数限制，请等待新的有效结构。','This zone has reached its left-side attempt limit. Wait for a new valid structure.','該區域已達到左側嘗試次數限制，請等待新的有效結構。'],

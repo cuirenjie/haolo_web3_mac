@@ -5,8 +5,9 @@ import {
   type TradingAnalysisTaskTarget,
 } from "./trading-expert-market";
 import { resolveCodexChartTarget, type CodexChartTarget } from "./codex-chart-target.mjs";
+import { businessToolError, isTerminalAnalysisError, restoreBusinessToolError, type BusinessToolError } from "../shared/business-tool-error.mjs";
 
-type Context = { target: TradingAnalysisTaskTarget | null; attachments: any[]; alertContext: any; chartOpened?: boolean; chartOpenFailed?: boolean; held?: boolean; releaseRequested?: boolean };
+type Context = { target: TradingAnalysisTaskTarget | null; attachments: any[]; alertContext: any; chartOpened?: boolean; chartOpenFailed?: boolean; failure?: BusinessToolError; completedStrategyIds?: string[]; responseId?: string; held?: boolean; releaseRequested?: boolean };
 type Dependencies = {
   api: any;
   responseId?: (threadId: string) => string | null;
@@ -22,6 +23,7 @@ type Dependencies = {
   preferences: (threadId: string, text: string) => Promise<unknown>;
   cancel: (threadId: string) => Promise<unknown>;
   completed?: (threadId: string, item: any, persist: boolean) => void | Promise<unknown>;
+  analysisFailed?: (threadId: string, error: BusinessToolError, turnId?: string) => void | Promise<unknown>;
 };
 
 // The only mutable UI references stay inside the renderer. Host/model see an
@@ -106,11 +108,32 @@ export class CodexTradingTools {
       if (this.calls.has(payload.requestId)) await this.deps.cancel(payload.threadId);
       return;
     }
+    if (payload.analysisFailure) {
+      const context = this.contexts.get(payload.contextId);
+      const responseId = this.deps.responseId?.(payload.threadId) || payload.turnId;
+      try {
+        if (context && !context.failure && (!context.responseId || !responseId || context.responseId === responseId)) {
+          const failure = businessToolError(payload.analysisFailure);
+          context.failure = failure;
+          await this.deps.analysisFailed?.(payload.threadId, failure, responseId);
+        }
+      } catch { /* A presentation error must not prevent the Host from stopping. */
+      } finally {
+        await this.deps.api.resolveBusinessTool({ requestId: payload.requestId, result: true });
+      }
+      return;
+    }
     const { requestId, threadId, arguments: args } = payload;
     const context = this.contexts.get(payload.contextId);
     let target = rebindTradingExpertAnalysisTargetStorageSession(context?.target, threadId);
+    const responseId = this.deps.responseId?.(threadId) || payload.turnId;
+    if (context && !context.responseId && responseId) context.responseId = responseId;
+    const analysisAction = ["analyze", "analyze_only"].includes(args.action);
+    const chartAction = args.action === "chart_open";
+    let openingChart = chartAction;
     let result: unknown;
     try {
+      if (context?.failure && (analysisAction || chartAction)) throw restoreBusinessToolError(context.failure);
       if (this.collectors.has(threadId)) throw new Error("Another trading tool is already running in this conversation.");
       if (args.action === "context") {
         result = {
@@ -132,7 +155,6 @@ export class CodexTradingTools {
         this.collectors.set(threadId, items);
         // Capture before awaiting: switching conversations or starting another
         // response must not attach a late report to whichever turn is active.
-        const responseId = this.deps.responseId?.(threadId) || payload.turnId;
         if (responseId) this.presentationResponseIds.set(threadId, responseId);
         if (args.action === "present") this.presentationCompletion.set(threadId, false);
         this.calls.set(requestId, threadId);
@@ -140,13 +162,14 @@ export class CodexTradingTools {
         this.controllers.set(requestId, controller);
         try {
           const openChart = async (reuseOpenedInterval = false) => {
+            openingChart = true;
             if (!context || !this.deps.openChart) throw new Error("Chart opening capability is unavailable.");
             context.chartOpenFailed = true;
             const requested = resolveCodexChartTarget(args, target, { reuseOpenedInterval });
             const next = await this.deps.openChart(threadId, requested, target, controller.signal);
             if (controller.signal.aborted || this.contexts.get(payload.contextId) !== context) {
               releaseTradingExpertAnalysisTarget(next);
-              throw new Error("Chart opening was cancelled or its context expired.");
+              throw restoreBusinessToolError({ message: "Chart opening was cancelled or its context expired.", code: "CHART_OPEN_CANCELLED", retryable: false });
             }
             if (next.marketId !== requested.marketId || next.interval !== requested.interval
                 || next.symbol !== requested.symbol || next.candles.length < 2) {
@@ -163,15 +186,22 @@ export class CodexTradingTools {
           };
           if (args.action === "chart_open") result = await openChart();
           else if (["analyze", "analyze_only"].includes(args.action)) {
-            if (context?.chartOpenFailed) throw new Error("The requested chart did not open. Retry haolo_chart_open successfully before analysis.");
+            if (context?.chartOpenFailed) throw restoreBusinessToolError({ message: "The requested chart did not open. Start a new request after restoring the chart.", code: "CHART_CONTEXT_UNAVAILABLE", retryable: false });
             // Desktop analysis must not outrun a pair/interval change, even if
             // the orchestrator omitted the explicit chart-open step.
             if (target && this.deps.openChart) await openChart(context?.chartOpened === true);
+            openingChart = false;
             result = await this.deps.analyze(threadId, {
               ...args, instruction: args.instruction || payload.userText,
               ...(context?.chartOpened && target ? { marketId: target.marketId, symbol: undefined, interval: target.interval } : {}),
               deferPresentation: args.action === "analyze_only",
+              // One capture belongs to one user message, even across several
+              // analyses or an automatic retry with a new provider response ID.
+              drawingTurnId: payload.contextId || responseId || requestId,
             }, target);
+            if (context && args.strategyId && typeof (result as any)?.report === "string" && (result as any).report.trim()) {
+              context.completedStrategyIds = [...new Set([...(context.completedStrategyIds || []), args.strategyId])];
+            }
           }
           else if (args.action === "draw") {
             if (!this.deps.draw) throw new Error("Drawing capability is unavailable.");
@@ -203,7 +233,28 @@ export class CodexTradingTools {
       }
       await this.deps.api.resolveBusinessTool({ requestId, result });
     } catch (error) {
-      await this.deps.api.resolveBusinessTool({ requestId, error: error instanceof Error ? error.message : String(error) });
+      const original = businessToolError(error);
+      const cancelled = /CANCEL|ABORT/.test(original.code || "") || (error as any)?.name === "AbortError"
+        || /用户停止|已取消|cancelled|canceled|replaced/i.test(original.message);
+      // Chart recovery is bounded by the host. A plain preflight error must not
+      // turn into an unbounded model-driven screenshot/navigation loop.
+      const failure = context?.failure || businessToolError({ ...original,
+        ...(cancelled && !original.code ? { code: "TRADING_ANALYSIS_CANCELLED", retryable: false } : {}),
+        ...((analysisAction || chartAction) && !cancelled && (openingChart || !original.code)
+          ? { code: original.code || (openingChart ? "CHART_OPEN_FAILED" : "ANALYSIS_EXECUTION_FAILED"), retryable: false } : {}),
+        ...(args.strategyId ? { strategyId: args.strategyId } : {}),
+        completedStrategyIds: context?.completedStrategyIds || [],
+      });
+      const currentResponseId = this.deps.responseId?.(threadId);
+      const current = (!context || this.contexts.get(payload.contextId) === context)
+        && (!currentResponseId || !responseId || currentResponseId === responseId);
+      if (current && (analysisAction || chartAction) && isTerminalAnalysisError(failure) && !context?.failure) {
+        if (context) context.failure = failure;
+        // Show the reason and queue persistence before the host interrupts.
+        // A presentation failure must not discard the original machine policy.
+        try { await this.deps.analysisFailed?.(threadId, failure, responseId); } catch { /* Host still stops the run. */ }
+      }
+      await this.deps.api.resolveBusinessTool({ requestId, error: failure.message, errorDetails: failure });
     }
   }
 }

@@ -137,11 +137,11 @@ test("fixed catalog contains exactly the three active GPT models and labels", ()
 
   const classic = FIXED_CHAT_MODEL_OPTIONS.find((option) => option.value === "gpt-5.6-sol");
   assert.ok(classic);
-  assert.equal(DEFAULT_CHAT_MODEL_VALUE, "gpt-5.6-sol");
+  assert.equal(DEFAULT_CHAT_MODEL_VALUE, "deepseek-flash");
   assert.equal(classic.isDefault, true);
   assert.equal(selectedReasoningEffort(classic, undefined), "max");
   assert.equal(fastServiceTier(classic)?.id, "priority");
-  assert.equal(normalizeFixedChatModel("gpt-5.4"), "gpt-5.6-sol");
+  assert.equal(normalizeFixedChatModel("gpt-5.4"), "deepseek-flash");
   assert.equal(normalizeFixedChatModel("GPT-5.6-SOL"), "gpt-5.6-sol");
 
   assert.deepEqual(chatModelOptionsFromList(null), []);
@@ -722,7 +722,7 @@ test("provider errors hide IPC implementation names and localize upstream rate l
   assert.match(formatter, /模型上游当前限流，请稍后重试/);
 });
 
-test("GPT-5.6-Sol is the runtime default", async () => {
+test("the runtime inherits the shared DeepSeek execution default", async () => {
   const appServerClient = await appServerClientSource;
   assert.match(appServerClient, /const DEFAULT_MODEL = DEFAULT_EXECUTION_MODEL/);
   assert.doesNotMatch(appServerClient, /const DEFAULT_MODEL = "gpt-5\.6"/);

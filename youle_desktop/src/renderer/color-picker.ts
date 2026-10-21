@@ -45,12 +45,17 @@ export function colorPickerInput(value: string, attributes: string) {
 }
 type Options = { anchor: HTMLElement; value: string; onChange: (color: string) => void; onClose?: () => void;
   line?: { width: number; style: 'solid' | 'dashed' | 'dotted'; onChange: (width: number, style: 'solid' | 'dashed' | 'dotted') => void } };
-type PickerState = { active: { anchor: HTMLElement; close: (focus?: boolean) => void } | null; installed: boolean };
+type PickerState = { active: { anchor: HTMLElement; popup: HTMLElement; close: (focus?: boolean) => void } | null; installed: boolean };
 // One owner even when development modules are imported under multiple URLs.
 const pickerGlobal = globalThis as typeof globalThis & { __haoloColorPicker?: PickerState };
 const pickerState = pickerGlobal.__haoloColorPicker ??= { active: null, installed: false };
 export function closeColorPicker(owner?: HTMLElement) {
   if (!owner || pickerState.active && owner.contains(pickerState.active.anchor)) pickerState.active?.close();
+}
+// The panel lives in the top layer, outside its owner's DOM subtree.
+export function colorPickerContainsTarget(owner: HTMLElement, target: Node) {
+  const active = pickerState.active;
+  return Boolean(active && owner.contains(active.anchor) && active.popup.contains(target));
 }
 export function openColorPicker(options: Options) {
   const { anchor, onChange } = options;
@@ -190,7 +195,7 @@ export function openColorPicker(options: Options) {
     options.onClose?.();
     if (focus && anchor.isConnected) anchor.focus({ preventScroll: true });
   };
-  pickerState.active = { anchor, close };
+  pickerState.active = { anchor, popup, close };
   document.addEventListener('pointerdown', outside, true);
   document.addEventListener('keydown', keyboard, true);
   renderSaved(); render(); localizeAppTree(popup); position();

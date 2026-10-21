@@ -4,6 +4,7 @@ export function describeTradingAnalysisFailure(error: unknown, options?: { stage
   cancelled: boolean;
   allowLocalRecovery: boolean;
 };
+export function tradingAnalysisStoppedMessage(error: unknown, options?: { language?: string; strategyName?: string; completedStrategyNames?: string[] }): string;
 export function settleTradingAnalysisDrawing(options: {
   commit: () => Promise<unknown>;
   isActive: () => boolean;

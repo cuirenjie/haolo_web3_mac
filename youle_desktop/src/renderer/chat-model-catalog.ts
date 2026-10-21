@@ -105,9 +105,9 @@ export const DEEPSEEK_EXECUTION_CHAT_MODEL_OPTION: Readonly<ChatModelOption> = {
 
 export function normalizeFixedChatModel(value: unknown): string {
   const selected = String(value ?? "").trim().toLowerCase();
+  if (canonicalDeepSeekModel(selected) === DEEPSEEK_EXECUTION_MODEL_VALUE) return DEEPSEEK_EXECUTION_MODEL_VALUE;
   return (
     FIXED_CHAT_MODEL_OPTIONS.find((option) => option.value.toLowerCase() === selected)?.value ||
-    FIXED_CHAT_MODEL_OPTIONS.find((option) => option.isDefault)?.value ||
     DEFAULT_CHAT_MODEL_VALUE
   );
 }

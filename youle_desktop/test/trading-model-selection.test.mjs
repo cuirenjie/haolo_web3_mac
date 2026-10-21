@@ -56,7 +56,7 @@ test("Astra selection remains a distinct request model", async () => {
   assert.equal(calls[0].reasoningEffort, "max");
 });
 
-test("GPT-6 failures retain the existing DeepSeek fallback at max", async () => {
+test("GPT-6 failures use the current GPT fallback at high", async () => {
   const calls = [];
   const provider = createAppServerTradingAnalysisProvider({
     modelId: GPT_6_ASTRA_MODEL,
@@ -73,9 +73,9 @@ test("GPT-6 failures retain the existing DeepSeek fallback at max", async () => 
   const result = await provider.analyze(request);
   assert.deepEqual(calls.map(({ modelId, modelProvider, reasoningEffort }) => ({ modelId, modelProvider, reasoningEffort })), [
     { modelId: GPT_6_ASTRA_MODEL, modelProvider: "haolo_ai", reasoningEffort: "max" },
-    { modelId: "deepseek-flash", modelProvider: "deepseek", reasoningEffort: "max" },
+    { modelId: "gpt-5.6-sol", modelProvider: "haolo_ai", reasoningEffort: "high" },
   ]);
-  assert.equal(result.modelId, "deepseek-flash");
+  assert.equal(result.modelId, "gpt-5.6-sol");
 });
 
 test("concurrent intent routing keeps each request's selected model registry", async () => {

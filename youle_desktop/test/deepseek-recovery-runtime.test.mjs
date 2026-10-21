@@ -15,7 +15,7 @@ import { createProviderSendHost } from "./helpers/provider-send-host.mjs";
 import { ANALYSIS_RECOVERY_WINDOW_MS } from "../src/main/analysis-model-policy.mjs";
 
 const runtime = fileURLToPath(new URL("../resources/bin/haolo_ai.exe", import.meta.url));
-test("bundled runtime changes Sol to DeepSeek in the same task, sends max and completes a market-tool round trip", {
+test("bundled runtime changes DeepSeek to Sol in the same task, sends high and completes a market-tool round trip", {
   skip: process.platform !== "win32" || !fs.existsSync(runtime), timeout: 45_000,
 }, async (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "haolo-deepseek-runtime-"));
@@ -26,7 +26,7 @@ test("bundled runtime changes Sol to DeepSeek in the same task, sends max and co
   const catalogFile = path.join(codexHome, "models.json");
   fs.writeFileSync(catalogFile, JSON.stringify(catalog));
   const calls = [], toolCalls = [], events = [], pending = new Map();
-  let deepSeekCalls = 0, child, nextId = 0, overloadSol = true;
+  let successfulCalls = 0, child, nextId = 0, overloadPrimary = true;
   const server = http.createServer(async (request, response) => {
     const chunks = []; for await (const chunk of request) chunks.push(Buffer.from(chunk));
     if (request.url !== "/v1/responses") { response.writeHead(404).end(); return; }
@@ -37,10 +37,10 @@ test("bundled runtime changes Sol to DeepSeek in the same task, sends max and co
     calls.push({ payload, provider: request.headers["x-test-provider"] });
     const id = `local_${calls.length}`;
     let stream;
-    if (payload.model === "gpt-5.6-sol" && overloadSol) {
+    if (payload.model === "deepseek-flash" && overloadPrimary) {
       stream = [{ type: "response.failed", response: { id, status: "failed", error: { code: "server_is_overloaded", message: "Selected model is at capacity" }, output: [] } }];
     } else {
-      const tool = ++deepSeekCalls === 1;
+      const tool = ++successfulCalls === 1;
       const item = tool
         ? { id: "fc_market", type: "function_call", call_id: "market_call", name: "haolo_candles", arguments: '{"symbol":"ETHUSDT"}', status: "completed" }
         : { id: "msg_result", type: "message", role: "assistant", phase: "final_answer", status: "completed", content: [{ type: "output_text", text: '{"analysis":"complete","snapshotId":"closed-eth-1h"}', annotations: [] }] };
@@ -65,8 +65,8 @@ test("bundled runtime changes Sol to DeepSeek in the same task, sends max and co
     await fs.promises.rm(directory, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
-  const settings = ['model="gpt-5.6-sol"', 'model_provider="haolo_ai"', `model_catalog_json=${JSON.stringify(catalogFile)}`, "features.remote_plugin=false", "features.plugins=false", "features.apps=false"];
-  for (const provider of ["haolo_ai", "deepseek"]) settings.push(
+  const settings = ['model="deepseek-flash"', 'model_provider="deepseek"', `model_catalog_json=${JSON.stringify(catalogFile)}`, "features.remote_plugin=false", "features.plugins=false", "features.apps=false"];
+  for (const provider of ["deepseek", "haolo_ai"]) settings.push(
     `model_providers.${provider}.name="${provider}"`, `model_providers.${provider}.base_url="http://127.0.0.1:${server.address().port}/v1"`,
     `model_providers.${provider}.wire_api="responses"`, `model_providers.${provider}.requires_openai_auth=false`, `model_providers.${provider}.supports_websockets=false`,
     `model_providers.${provider}.request_max_retries=0`, `model_providers.${provider}.stream_max_retries=0`, `model_providers.${provider}.http_headers={ "X-Test-Provider" = "${provider}" }`,
@@ -117,36 +117,36 @@ test("bundled runtime changes Sol to DeepSeek in the same task, sends max and co
 
   const started = await rpc("thread/start", { cwd, approvalPolicy: "never", sandbox: "read-only", dynamicTools: [{ type: "function", name: "haolo_candles", description: "Read synthetic closed candles", inputSchema: { type: "object", properties: { symbol: { type: "string" } }, required: ["symbol"] } }] });
   const threadId = started.thread.id;
-  const first = await rpc("turn/start", { threadId, input: [{ type: "text", text: "Analyze these ETH candles and retain this task", textElements: [] }], model: "gpt-5.6-sol" });
+  const first = await rpc("turn/start", { threadId, input: [{ type: "text", text: "Analyze these ETH candles and retain this task", textElements: [] }], model: "deepseek-flash" });
   assert.equal((await terminal(first.turn.id)).status, "failed");
   let restarts = 0;
   const switched = await applyThreadProviderSwitch({
     request: rpc, baseParams: { threadId, cwd },
-    targetSettings: { model: "deepseek-flash", modelProvider: "deepseek", effort: "max" },
+    targetSettings: { model: "gpt-5.6-sol", modelProvider: "haolo_ai", effort: "high" },
     providerOf: (result) => result.modelProvider,
     restartIdleRuntime: async () => { restarts += 1; await stop(); await start(); },
   });
   assert.equal(restarts, 1);
   assert.equal(switched.thread.id, threadId);
-  assert.equal(switched.modelProvider, "deepseek");
-  const second = await rpc("turn/start", { threadId, model: "deepseek-flash", effort: "max", input: [{ type: "text", text: "Continue the same analysis using the market tool", textElements: [] }] });
+  assert.equal(switched.modelProvider, "haolo_ai");
+  const second = await rpc("turn/start", { threadId, model: "gpt-5.6-sol", effort: "high", input: [{ type: "text", text: "Continue the same analysis using the market tool", textElements: [] }] });
   assert.equal((await terminal(second.turn.id)).status, "completed");
   assert.equal(toolCalls.length, 1);
   assert.equal(toolCalls[0].threadId, threadId);
-  assert.deepEqual(calls.map((c) => c.payload.model), ["gpt-5.6-sol", "deepseek-flash", "deepseek-flash"]);
-  assert.ok(calls.slice(1).every((c) => c.provider === "deepseek" && c.payload.reasoning.effort === "max"));
+  assert.deepEqual(calls.map((c) => c.payload.model), ["deepseek-flash", "gpt-5.6-sol", "gpt-5.6-sol"]);
+  assert.ok(calls.slice(1).every((c) => c.provider === "haolo_ai" && c.payload.reasoning.effort === "high"));
   assert.ok(JSON.stringify(calls.at(-1).payload.input).includes("closed-eth-1h"));
   assert.ok(JSON.stringify(calls[1].payload.input).includes("retain this task"));
-  overloadSol = false;
+  overloadPrimary = false;
   const activatedAt = 1_800_000_000_000;
-  const state = { version: 1, activatedAt, fallbackUntil: activatedAt + ANALYSIS_RECOVERY_WINDOW_MS };
+  const state = { version: 2, activatedAt, fallbackUntil: activatedAt + ANALYSIS_RECOVERY_WINDOW_MS };
   // Exercise the production send IPC, not just the switch utility: previously
   // these ordinary sends changed the model but kept the other provider's key.
   for (const [now, rememberedModel, expectedModel, expectedProvider] of [
-    [state.fallbackUntil, "deepseek-flash", "gpt-5.6-sol", "haolo_ai"],
-    [activatedAt, "gpt-5.6-sol", "deepseek-flash", "deepseek"],
-    [activatedAt, "deepseek-flash", "deepseek-flash", "deepseek"],
-    [state.fallbackUntil, "deepseek-flash", "gpt-5.6-sol", "haolo_ai"],
+    [state.fallbackUntil, "gpt-5.6-sol", "deepseek-flash", "deepseek"],
+    [activatedAt, "deepseek-flash", "gpt-5.6-sol", "haolo_ai"],
+    [activatedAt, "gpt-5.6-sol", "gpt-5.6-sol", "haolo_ai"],
+    [state.fallbackUntil, "gpt-5.6-sol", "deepseek-flash", "deepseek"],
   ]) {
     const host = createProviderSendHost({ request: rpc, cwd, state, now, stop, start });
     const before = calls.length;
@@ -158,11 +158,11 @@ test("bundled runtime changes Sol to DeepSeek in the same task, sends max and co
     assert.ok(JSON.stringify(calls.at(-1).payload.input).includes("retain this task"));
     assert.ok(JSON.stringify(calls.at(-1).payload.input).includes("closed-eth-1h"));
   }
-  const fresh = await rpc("thread/start", { cwd, model: "gpt-5.6-sol", modelProvider: "haolo_ai", approvalPolicy: "never", sandbox: "read-only" });
+  const fresh = await rpc("thread/start", { cwd, model: "deepseek-flash", modelProvider: "deepseek", approvalPolicy: "never", sandbox: "read-only" });
   const freshHost = createProviderSendHost({ request: rpc, cwd, stop, start });
-  const firstSend = await freshHost.send({ threadId: fresh.thread.id, model: "gpt-5.6-sol", text: "First message", approvalPolicy: "never", sandbox: "read-only" });
+  const firstSend = await freshHost.send({ threadId: fresh.thread.id, model: "deepseek-flash", text: "First message", approvalPolicy: "never", sandbox: "read-only" });
   assert.equal((await terminal(firstSend.turn.id)).status, "completed");
-  assert.equal(calls.at(-1).provider, "haolo_ai");
+  assert.equal(calls.at(-1).provider, "deepseek");
   assert.equal(toolCalls.length, 1, "provider changes must not replay the original tool");
-  assert.ok(calls.every((c) => c.provider === (c.payload.model === "deepseek-flash" ? "deepseek" : "haolo_ai")));
+  assert.ok(calls.every((c) => c.provider === (c.payload.model === "gpt-5.6-sol" ? "haolo_ai" : "deepseek")));
 });

@@ -20,7 +20,7 @@ test('account selection consumes server effective consent and excludes missing o
 const configHash='a'.repeat(64);
 const account={ownerId:'account@service',accountId:'account',baseUrl:'https://haolo.example'};
 const params={analysisJobId:'job-1',marketId:'BINANCE:FUTURES:BTCUSDT',interval:'60',preferencesRevision:3,preferencesHash:configHash};
-function setup(handler) {
+function setup(handler, overrides={}) {
   const records=new Map(),calls=[];
   let current=account;
   const journal={async get(owner,key){return structuredClone(records.get(`${owner}:${key}`)??null);},async put(owner,key,value){records.set(`${owner}:${key}`,structuredClone(value));},async list(owner){return [...records].filter(([key])=>key.startsWith(`${owner}:`)).map(([,v])=>v);}};
@@ -49,9 +49,78 @@ function setup(handler) {
     }
     throw Error(operation);
   }};
-  const runtime=createCloudStrategyRuntime({owner:async()=>current,api:()=>api,journal,wait:async()=>{},pollMs:0});
-  return {runtime,journal,calls,records,setOwner(value){current=value;}};
+  const runtime=createCloudStrategyRuntime({owner:async()=>current,api:()=>api,journal,wait:async()=>{},pollMs:0,...overrides});
+  return {runtime,journal,calls,records,api,setOwner(value){current=value;}};
 }
+
+test('pure analysis wakes on events then validates the full result; normal and resumed runs retain polling',async()=>{
+  for(const pure of [true,false]) {
+    let reads=0,streams=0,waits=0;
+    const s=setup(({operation,run})=>operation==='run'&&++reads===1?run:undefined,{wait:async()=>{waits++;}});
+    s.api.waitForTradingCloudRunEvent=async(_id,options)=>{streams++;assert.equal(options.expectedAccountId,account.accountId);return {cursor:4,completed:true};};
+    const result=await s.runtime.run('moving-average-analysis',{...params,pureReferenceAnalysis:pure});
+    assert.equal(result.analysisPlan.report,'云端报告');assert.equal(reads,2);
+    assert.equal(streams,pure?1:0);assert.equal(waits,1);
+    assert.equal(s.calls.filter(c=>c.operation==='createRun').length,1);
+    assert.equal(s.calls.find(c=>c.operation==='createRun').payload.pureReferenceAnalysis,undefined);
+    await s.runtime.resume(params.analysisJobId);assert.equal(streams,pure?1:0);
+  }
+});
+
+test('missing, broken or prematurely ended streams immediately read status and then resume existing polling',async()=>{
+  for(const failure of [404,503,'eof','malformed']) {
+    let reads=0,streams=0,waits=0;
+    const s=setup(({operation,run})=>operation==='run'&&++reads<=2?run:undefined,{wait:async()=>{waits++;}});
+    s.api.waitForTradingCloudRunEvent=async()=>{streams++;if(failure==='eof')return {cursor:0,completed:false};throw Object.assign(Error('stream'),{status:failure});};
+    assert.equal((await s.runtime.run('moving-average-analysis',{...params,pureReferenceAnalysis:true})).ok,true);
+    assert.equal(streams,1);assert.equal(waits,2);assert.equal(reads,3);assert.equal(s.calls.filter(c=>c.operation==='createRun').length,1);
+  }
+});
+
+test('healthy bounded streams reconnect from their cursor, not from the beginning',async()=>{
+  let reads=0;const cursors=[];
+  const s=setup(({operation,run})=>operation==='run'&&++reads<3?run:undefined);
+  s.api.waitForTradingCloudRunEvent=async(_id,options)=>{cursors.push(options.after);return {cursor:7,expired:cursors.length===1,completed:cursors.length===2};};
+  await s.runtime.run('moving-average-analysis',{...params,pureReferenceAnalysis:true});assert.deepEqual(cursors,[0,7]);
+});
+
+test('a buffering stream cannot delay canonical polling and closes when the canonical result arrives',async()=>{
+  let reads=0,streams=0,ticks=0,closed=false;
+  const s=setup(({operation,run})=>operation==='run'&&++reads<3?run:undefined,{wait:async(ms)=>{assert.equal(ms,0);ticks++;}});
+  s.api.waitForTradingCloudRunEvent=(_id,{signal})=>{streams++;return new Promise(resolve=>signal.addEventListener('abort',()=>{closed=true;resolve({cursor:0});},{once:true}));};
+  await s.runtime.run('moving-average-analysis',{...params,pureReferenceAnalysis:true});
+  assert.equal(reads,3);assert.equal(ticks,2);assert.equal(streams,1);assert.equal(closed,true);
+});
+
+test('event completion never bypasses run identity validation',async()=>{
+  let reads=0;
+  const s=setup(({operation,run})=>operation==='run'?(++reads===1?run:{...run,id:'wrong',state:'succeeded'}):undefined);
+  s.api.waitForTradingCloudRunEvent=async()=>({cursor:1,completed:true});
+  await assert.rejects(s.runtime.run('moving-average-analysis',{...params,pureReferenceAnalysis:true}),e=>e.code==='CLOUD_RESULT_CONTEXT_INVALID');
+});
+
+test('stop and account changes during an event wait cannot resume polling or replay admission',async()=>{
+  for(const change of ['stop','owner']) {
+    const controller=new AbortController();const s=setup(({operation,run})=>operation==='run'?run:undefined);
+    s.api.waitForTradingCloudRunEvent=async()=>{if(change==='stop')controller.abort();else s.setOwner({...account,ownerId:'other'});throw Error('disconnected');};
+    await assert.rejects(s.runtime.run('moving-average-analysis',{...params,pureReferenceAnalysis:true},{signal:controller.signal}),
+      e=>e.code===(change==='stop'?'TRADING_ANALYSIS_CANCELLED':'TRADING_PREFERENCE_OWNER_CHANGED'));
+    assert.equal(s.calls.filter(c=>c.operation==='createRun').length,1);assert.equal(s.calls.filter(c=>c.operation==='run').length,1);
+  }
+});
+
+test('only pure analysis overlaps snapshot and account reads, and never admits until both complete',async()=>{
+  for(const pure of [true,false]) {
+    let release,readStarted=false,accountStarted=false;
+    const gate=new Promise(r=>release=r);
+    const s=setup(async({operation})=>{if(operation==='marketSnapshot'){readStarted=true;await gate;}},
+      {connection:async()=>{accountStarted=true;return {id:'bound-account'};}});
+    const pending=s.runtime.run('moving-average-analysis',{...params,pureReferenceAnalysis:pure});
+    await new Promise(r=>setImmediate(r));assert.equal(readStarted,true);assert.equal(accountStarted,pure);
+    assert.equal(s.calls.some(c=>c.operation==='createRun'),false);release();await pending;
+    assert.equal(s.calls.find(c=>c.operation==='createRun').payload.connectionId,'bound-account');
+  }
+});
 
 test('official analysis sends identities and preferences, never local core inputs or credentials',async()=>{
   const {runtime,calls}=setup();

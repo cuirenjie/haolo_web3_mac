@@ -13,6 +13,8 @@ export const APP_LANGUAGE_STORAGE_KEY = "haolo.appearance.language";
 export const APP_LANGUAGES = Object.freeze(["en", "zh-CN", "zh-TW"]);
 
 const ENGLISH_UI_PHRASES = Object.freeze({
+  "已实现盈亏 ÷ 开仓成交金额 × 100%": "Realized P&L ÷ opening notional × 100%",
+  "已實現盈虧 ÷ 開倉成交金額 × 100%": "Realized P&L ÷ opening notional × 100%",
   "请重启开发客户端，加载独立渠道上下文功能。": "Restart the development client to load independent channel contexts.",
   "Codex 未返回最终答复。": "Codex did not return a final answer.",
   "渠道消息处理失败：": "Channel message failed: ",

@@ -119,6 +119,9 @@ test("MCP stdio to authenticated Host round trip preserves errors and context", 
     envPrefix: "HAOLO_BUSINESS",
     tools: [{ name: "haolo_trading", description: "test", inputSchema: { type: "object" } }],
     invoke: async ({ arguments: args }) => {
+      if (args.context_id === "fatal") throw Object.assign(new Error("result mismatch"), {
+        code: "CLOUD_RESULT_CONTEXT_INVALID", retryable: false, terminal: true, nextAction: "stop",
+      });
       if (args.context_id !== "valid") throw new Error("expired");
       return { report: "actual result", runId: "run-1" };
     },
@@ -141,6 +144,11 @@ test("MCP stdio to authenticated Host round trip preserves errors and context", 
     const result = (await call("tools/call", { name: "haolo_trading", arguments: { context_id: "valid" } })).result;
     assert.equal(JSON.parse(result.content[0].text).runId, "run-1");
     assert.equal((await call("tools/call", { name: "haolo_trading", arguments: {} })).result.isError, true);
+    const fatal = (await call("tools/call", { name: "haolo_analysis", arguments: { context_id: "fatal" } })).result;
+    assert.equal(fatal.isError, true);
+    assert.deepEqual(JSON.parse(fatal.content[0].text).error, {
+      message: "result mismatch", code: "CLOUD_RESULT_CONTEXT_INVALID", retryable: false, terminal: true, nextAction: "stop",
+    });
   } finally {
     lines.close(); child.kill(); await bridge.stop();
   }

@@ -6,6 +6,7 @@ import ts from "typescript";
 import { resolveCodexChartTarget } from "../src/renderer/codex-chart-target.mjs";
 import { CodexBusinessTools, CODEX_BUSINESS_TOOLS } from "../src/main/codex-business-tools.mjs";
 import { tradingCapabilityArguments } from "../src/main/codex-trading-capabilities.mjs";
+import { openBoundAnalysisChart } from "../src/renderer/trading-analysis-chart-context.ts";
 
 const btc = { marketId: "BINANCE:FUTURES:BTCUSDT", symbol: "BTCUSDT", interval: "240" };
 test("chart arguments default to 1h and normalize explicit periods without borrowing BTC's period", () => {
@@ -158,16 +159,16 @@ test("bound chart opening rejects foreign conversations and a conversation switc
   const code = ts.transpileModule(fn.replace("export ", ""), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
   let finish;
   const requested = { marketId: "BINANCE:FUTURES:ETHUSDT", symbol: "ETHUSDT", interval: "240" };
-  const workspace = { drawingStorageSessionMatches: id => id === "origin",
+  const workspace = { analysisWorkspaceOwner: () => "account", drawingStorageSessionMatches: id => id === "origin",
     prepareAlertContext: async (_market, _interval, options) => { options.assertActive(); await new Promise(resolve => { finish = resolve; }); options.assertActive(); },
-    captureAnalysisTaskTarget: () => ({ ...requested, targetId: "next", candles: [{}, {}] }),
+    captureAnalysisTaskTarget: () => ({ ...requested, targetId: "next", storageSessionId: "origin", candles: [{}, {}] }),
   };
-  const context = { activeWorkspace: workspace, tradingAnalysisTargetWorkspaces: new Map([["captured", workspace]]) };
+  const context = { openBoundAnalysisChart, activeWorkspace: workspace, tradingAnalysisTargetWorkspaces: new Map([["captured", workspace]]) };
   vm.runInNewContext(`${code}\nthis.open = openTradingExpertAnalysisChart;`, context);
-  const target = { targetId: "captured" }, signal = new AbortController().signal;
+  const target = { targetId: "captured", storageSessionId: "origin" }, signal = new AbortController().signal;
   await assert.rejects(context.open(target, requested, "foreign", signal), /originating/);
   const pending = context.open(target, requested, "origin", signal);
-  context.activeWorkspace = {};
+  context.activeWorkspace = { analysisWorkspaceOwner: () => "account", drawingStorageSessionMatches: () => false };
   finish();
   await assert.rejects(pending, /originating/);
   assert.equal(context.tradingAnalysisTargetWorkspaces.has("next"), false);

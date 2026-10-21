@@ -123,6 +123,21 @@ test('shared navigation buttons preserve the armed tool until click; unrelated c
   }
 });
 
+test('floating toolbar grips do not focus, pan or zoom the chart', t => {
+  const f = fixture(t);
+  const toolbar = new ElementStub('[role=toolbar]'), grip = new ElementStub('span');
+  toolbar.append(grip); f.element.append(toolbar);
+  const editor = new ElementStub('textarea'); editor.focus();
+  const before = f.range();
+  f.navigation.pointerDown({ target: grip, isPrimary: true, button: 0, clientX: 250, clientY: 100 });
+  f.send('pointermove', { clientX: 310, clientY: 140 }); f.send('pointerup');
+  f.navigation.wheel({ target: grip, deltaX: 0, deltaY: -100 }); f.paint();
+  assert.equal(document.activeElement, editor);
+  assert.equal(f.focus(), null);
+  assert.equal(f.navigation.drag, null);
+  assert.deepEqual(f.range(), before);
+});
+
 test('A/L controls are absent; price settings and shortcuts still target main after indicator focus', t => {
   const f = freeDragFixture(t);
   f.send('pointerdown', { clientY: 400 }); f.send('pointerup');

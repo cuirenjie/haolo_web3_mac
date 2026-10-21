@@ -1,3 +1,5 @@
+import {combineIndicatorPriceActionAnalysis} from '../trading-analysis/indicator-price-action-analysis.mjs';
+
 export function createLegacyStrategyAdapter(config) {
   const id = String(config?.id || "").trim();
   if (!id) throw new TypeError("Legacy strategy adapter id is required");
@@ -25,8 +27,9 @@ export function createLegacyStrategyAdapter(config) {
       replacementMessage: String(config.replacementMessage || "A newer strategy analysis replaced this request"),
       routingReplacementMessage: String(config.routingReplacementMessage || "A newer strategy request classification replaced this request"),
     }),
-    run(params, options) {
-      return config.runPipeline(params, options);
+    async run(params, options) {
+      const result = await config.runPipeline(params, options);
+      return combineIndicatorPriceActionAnalysis(id, params, result, options);
     },
   });
 }

@@ -639,7 +639,7 @@ test("completed cluster turns fold planning prompts and every workflow bubble wi
       messages.indexOf("withCollapsedTurnResults(threadId, messagesWithWorkflowRelay)"),
     "workflow relay bubbles must join the turn before its process range is collapsed",
   );
-  assert.match(folding, /const collapsedIndexes = turnResultProcessIndexes\(messages, finalIndex\)/);
+  assert.match(folding, /const collapsedIndexes = group\.pureAnalysis \? group\.pureAnalysis\.processIndexes : turnResultProcessIndexes\(messages, finalIndex\)/);
   assert.match(folding, /if \(!collapsedIndexes\.length && headerIndex === finalIndex\) continue/);
   assert.match(
     folding,

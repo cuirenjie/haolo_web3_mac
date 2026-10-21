@@ -126,8 +126,8 @@ test("an established trading conversation switches image/video/execution in plac
     assert.deepEqual(fixture.state.composerQuote, draft.composerQuote);
     assert.deepEqual(fixture.state.composerThreadReferences, draft.composerThreadReferences);
     assert.equal(fixture.isTradingExpertExecutionThreadId("trading-existing"), false);
-    assert.deepEqual(fixture.selectedChatModelRequestOptions("trading-existing"), { model: fixture.gpt.value, modelProvider: "haolo_ai", serviceTier: null });
-    assert.equal(fixture.selected, fixture.deepSeek, "media fallback must not overwrite the execution preference");
+    assert.deepEqual(fixture.selectedChatModelRequestOptions("trading-existing"), { model: fixture.deepSeek.value, modelProvider: "deepseek", serviceTier: null });
+    assert.equal(fixture.selected, fixture.deepSeek, "media execution routing must not overwrite the execution preference");
     assert.equal(fixture.persisted.at(-1).mode, mode);
   }
   assert.equal(await fixture.selectComposerModelForThread("trading-existing", fixture.gpt, "execution"), true);
@@ -157,7 +157,7 @@ test("trading media sends bypass every chart/onboarding/alert router and retain 
   const send = sourceBlock("async function sendCurrentMessage", "async function sendCurrentProviderMessage");
   assert.doesNotMatch(send, /isTradingExpertThreadId\(threadId\)/);
   assert.match(send, /codexTradingTools\.capture/);
-  assert.doesNotMatch(send, /await (?:classifyTrading|runTradingGeneralChartRequest|runTradingStrategyChartRequest|runTradingAlertConversation)/);
+  assert.doesNotMatch(send, /await (?:classifyTrading|runTradingGeneralChartRequest|runTradingAlertConversation)/);
   assert.match(source, /new Set<string>\(threadPreferences\.tradingExpertThreads\)/);
   assert.match(source, /tradingExpertThreads: \[\.\.\.tradingExpertThreadIds\]\.filter/);
   assert.match(source, /tradingExpertThreads: Array\.isArray\(parsed\.tradingExpertThreads\)/);
@@ -175,7 +175,7 @@ test("streamed completion re-enables the model picker without remounting the com
   const context = {
     state: { currentThreadId: "trading", activeView: "chat" },
     root: { querySelector: () => form }, currentThread: () => ({ id: "trading" }),
-    patchComposerSubmitButton: () => false, patchComposerPendingAttachments: () => false,
+    patchComposerSubmitButton: () => false, patchComposerPendingAttachments: () => false, deferInteractionRender: () => false, syncComposerSendButton() {},
     isComposerModelSelectionDisabled: () => busy, composerPlaceholderForThread: () => "prompt",
   };
   const patch = new Function(...Object.keys(context), `${code}\nreturn patchComposerDynamicState;`)(...Object.values(context));

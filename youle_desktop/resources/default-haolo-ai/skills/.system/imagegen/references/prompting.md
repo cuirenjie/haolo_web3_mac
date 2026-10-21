@@ -1,7 +1,7 @@
 # Prompting best practices
 
 These prompting principles are shared by both supported modes of the skill:
-- locally preset-gated Director through AIHubCC (default)
+- locally preset-gated Director through official Codex (default)
 - explicit `scripts/image_gen.py` CLI fallback
 
 This file is about prompt structure, specificity, and iteration. Fallback-only execution controls such as `quality`, `input_fidelity`, masks, output format, and output paths live in the fallback docs.
@@ -73,7 +73,7 @@ Do not add:
 - Prefer one targeted follow-up at a time over rewriting the whole prompt.
 
 ## Transparent images
-- Use the locally preset-gated Director through AIHubCC first for transparent-image requests. If the subject is clearly too complex for chroma-key removal, explain the fallback and ask before switching to CLI.
+- Use the locally preset-gated Director through official Codex first for transparent-image requests. If the subject is clearly too complex for chroma-key removal, explain the fallback and ask before switching to CLI.
 - Prompt for a perfectly flat solid chroma-key background, usually `#00ff00`; use `#ff00ff` when the subject is green, and avoid key colors that appear in the subject.
 - Explicitly prohibit shadows, gradients, floor planes, reflections, texture, and lighting variation in the background.
 - Ask for crisp edges, generous padding, and no use of the key color inside the subject.
@@ -85,9 +85,9 @@ Do not add:
 - `quality`, `input_fidelity`, explicit masks, output format, and output paths are fallback-only execution controls.
 - Do not assume they are built-in `image_gen` tool arguments.
 - If the user explicitly chooses CLI fallback, see `references/cli.md` and `references/image-api.md` for those controls.
-- In CLI fallback mode, canonical public model `aihubcc/gpt-image-2` is the default. It supports `quality=low|medium|high|auto`; use `low` for fast drafts and thumbnails, and move to `medium`, `high`, or `auto` for final assets.
+- In CLI fallback mode, canonical public model `codex/gpt-image-2` is the default. It supports `quality=low|medium|high|auto`; use `low` for fast drafts and thumbnails, and move to `medium`, `high`, or `auto` for final assets.
 - `gpt-image-2` always uses high fidelity for image inputs, so do not set `input_fidelity` with that model.
-- If a transparent request needs true CLI transparency, ask before using `gpt-image-1.5` unless the user already explicitly chose it. Explain that Director/AIHubCC chroma-key removal is the default path, but `gpt-image-2` does not support `background=transparent`.
+- If a transparent request needs true CLI transparency, ask before using `gpt-image-1.5` unless the user already explicitly chose it. Explain that Director/official Codex chroma-key removal is the default path, but `gpt-image-2` does not support `background=transparent`.
 - If the user asks for 4K-style output with `gpt-image-2`, use `3840x2160` for landscape or `2160x3840` for portrait.
 
 ## Use-case tips

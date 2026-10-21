@@ -14,3 +14,17 @@ export function binanceCredentialErrorResult(error) {
     error: { code: "BINANCE_CREDENTIALS_INVALID", message: BINANCE_REBIND_MESSAGE, retryable: false },
   };
 }
+
+// Electron otherwise strips status/retry-after from thrown IPC exceptions.
+export function binanceAccountReadErrorResult(error) {
+  return binanceCredentialErrorResult(error) || {
+    ok: false,
+    error: {
+      code: String(error?.code || "BINANCE_REQUEST_FAILED"),
+      message: String(error?.message || "账户数据读取失败，请重试。"),
+      status: Number(error?.status) || 0,
+      retryable: error?.retryable !== false,
+      ...(Number(error?.retryAfterMs) > 0 ? { retryAfterMs: Number(error.retryAfterMs) } : {}),
+    },
+  };
+}

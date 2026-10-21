@@ -4,9 +4,10 @@ import test from "node:test";
 import ts from "typescript";
 import { YouleApiClient } from "../src/main/youle-api-client.mjs";
 import { BinanceAccountService } from "../src/main/binance-account/service.mjs";
-import { BINANCE_REBIND_MESSAGE, binanceCredentialErrorResult, isBinanceCredentialError } from "../src/shared/binance-account-errors.mjs";
+import { BINANCE_REBIND_MESSAGE, binanceCredentialErrorResult, binanceAccountReadErrorResult, isBinanceCredentialError } from "../src/shared/binance-account-errors.mjs";
 import { createBinanceAccountUiState, resetBinanceAccountDialog, renderBinanceAccountPage, renderBinanceAccountDialog } from "../src/renderer/binance-account-ui.ts";
 import { translateAppText } from "../src/renderer/app-language.mjs";
+import { loadSharedAccountDetails } from "../src/renderer/binance-account-details.ts";
 
 function source(file) {
   return ts.createSourceFile(file, readFileSync(new URL(file, import.meta.url), "utf8"), ts.ScriptTarget.Latest, true);
@@ -47,7 +48,7 @@ test("code-only backend 422 survives API client, actual main handler and preload
     assertExternalModelsIpcSender() {}, requireBinanceAccountOwner: async () => ({ ownerId: "owner" }),
     readBinanceAccountStatusWithSharedBinding: async () => ({ serverCredentialsBound: true, serverConnectionId: "connection" }),
     getYouleApiClient: () => ({ getAccountConnectionSnapshot: async () => { throw serverError; } }),
-    normalizeSharedBinanceSnapshot: s => s, binanceCredentialErrorResult, console: { info() {} },
+    normalizeSharedBinanceSnapshot: s => s, binanceCredentialErrorResult, binanceAccountReadErrorResult, sameBinanceBindingOwner: () => true, console: { info() {} },
   });
   const envelope = await handler({});
   assert.deepEqual(envelope, binanceCredentialErrorResult(serverError));
@@ -92,7 +93,7 @@ function harness() {
   const state = { activeView: "account", binanceAccount: createBinanceAccountUiState() };
   const stats = { snapshots: 0, binds: [], renders: 0, scheduled: 0 };
   const deps = {
-    state, BINANCE_REBIND_MESSAGE, isBinanceCredentialError, resetBinanceAccountDialog,
+    state, BINANCE_REBIND_MESSAGE, isBinanceCredentialError, resetBinanceAccountDialog, createBinanceAccountUiState, loadSharedAccountDetails,
     api: {
       getBinanceAccountStatus: async () => ({ bound: true, serverCredentialsBound: true }),
       getBinanceAccountSnapshot: async () => { stats.snapshots++; throw invalidKey(); },
@@ -109,7 +110,7 @@ function harness() {
     BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS: 60000, BINANCE_ACCOUNT_AUTO_RETRY_INTERVAL_MS: 1000,
     BINANCE_ACCOUNT_LIVE_RETRY_MAX_INTERVAL_MS: 60000, BINANCE_ACCOUNT_LIVE_RETRY_BASE_INTERVAL_MS: 1000,
   };
-  const names = ["loadBinanceAccountPage", "loadBinanceAccountProfitCalendar", "refreshBinanceAccountSnapshot", "silentlyRefreshBinanceAccountSnapshot", "progressivelyRefreshBinanceAccountSnapshot", "handleBinanceCredentialFailure", "openBinanceAccountDialog", "submitBinanceAccountBinding", "scheduleBinanceAccountLiveRefresh"];
+  const names = ["loadBinanceAccountDetails", "loadBinanceAccountPage", "loadBinanceAccountProfitCalendar", "refreshBinanceAccountSnapshot", "silentlyRefreshBinanceAccountSnapshot", "progressivelyRefreshBinanceAccountSnapshot", "handleBinanceCredentialFailure", "openBinanceAccountDialog", "submitBinanceAccountBinding", "scheduleBinanceAccountLiveRefresh"];
   const code = names.map(name => functionText(renderer, name)).join("\n");
   const fns = new Function(...Object.keys(deps), `
     let binanceAccountLoadSequence=0, binanceAccountSnapshotApplySequence=0, binanceAccountProfitCalendarLoadSequence=0;

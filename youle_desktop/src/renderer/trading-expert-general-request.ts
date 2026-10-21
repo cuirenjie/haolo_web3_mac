@@ -23,6 +23,7 @@ export interface TradingAnalysisContext {
 }
 
 export interface TradingGeneralRequest {
+  drawingTurnId?: string;
   marketId?: string;
   mode: "conversation" | "chart-analysis";
   instruction: string;

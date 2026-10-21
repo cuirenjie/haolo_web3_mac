@@ -137,7 +137,7 @@ test("resource sync migrates both runtime home layouts and is idempotent", (t) =
   assert.equal(second.copied.some((name) => name.endsWith(":gateway-domain")), false);
 });
 
-test("bundled media scripts migrate explicit legacy URLs and cached video polling URLs", () => {
+test("current media scripts share canonical gateway migration and bounded journal writes", () => {
   const skillRoot = path.resolve("resources/default-haolo-ai/skills/.system");
   const script = `
 import importlib.util, io, json, sys, tempfile
@@ -151,15 +151,14 @@ def load(name, relative):
     return module
 image = load('image_test', 'imagegen/scripts/generate_openai_image.py')
 video = load('video_test', 'videogen/scripts/generate_seedance_video.py')
-chat = load('chat_test', 'imagegen/scripts/generate_chat_image.py')
-for module in (image, video, chat):
+for module in (image, video.transport):
     assert module.migrate_gateway_url('http://8.216.5.161:8080/v1') == 'https://haolo.pro/v1'
     assert module.migrate_gateway_url('https://aiapi.youleai.top.evil.example/v1') == 'https://aiapi.youleai.top.evil.example/v1'
     assert module.migrate_gateway_url('http://localhost:9999/v1') == 'http://localhost:9999/v1'
-assert image.normalized_haolo_api_url('https://aiapi.youleai.top/v1/images/generations') == 'https://haolo.pro/v1/images/generations'
+assert image.normalized_haolo_base_url('https://aiapi.youleai.top/v1/images/generations') == 'https://haolo.pro/v1'
 assert image.normalize_base_url('https://aiapi.youleai.top') == 'https://haolo.pro/v1'
-assert video.normalize_base_url('https://aiapi.youleai.top/v1/videos') == 'https://haolo.pro/v1'
-assert video.resolve_status_url('https://haolo.pro/v1', 'grok-imagine-video-1.5', 'task', {'polling_url': 'https://aiapi.youleai.top/v1/media/status?task_id=task'}) == 'https://haolo.pro/v1/media/status?task_id=task'
+assert video.transport.normalize_base_url('https://aiapi.youleai.top/v1/videos') == 'https://haolo.pro/v1'
+assert video.endpoint(video.transport.normalize_base_url('https://aiapi.youleai.top/v1/videos'), 'omni_flash-10s') == 'https://haolo.pro/v1/videos'
 class FakeResponse(io.BytesIO):
     headers = {'Content-Type': 'image/png'}
 class FakeOpener:
@@ -167,10 +166,8 @@ class FakeOpener:
         assert request.full_url == 'https://haolo.pro/v1/files/result?task_id=task'
         assert request.get_header('Authorization') == 'Bearer sk-fixture'
         return FakeResponse(b'fixture-media-bytes')
-image.OPENER = FakeOpener()
-video.get_opener = lambda: FakeOpener()
-video.resolve_http_transport = lambda: 'urllib'
-for module in (image, video):
+video.transport.opener = lambda: FakeOpener()
+for module in (image, video.transport):
     calls = []
     original_replace, original_sleep = module.os.replace, module.time.sleep
     def transient_replace(source, destination):
@@ -201,8 +198,8 @@ for module in (image, video):
         module.os.replace, module.time.sleep = original_replace, original_sleep
 with tempfile.TemporaryDirectory() as temporary:
     legacy_result = 'https://aiapi.youleai.top/v1/files/result?task_id=task'
-    image.download_result(legacy_result, 'sk-fixture', 'https://haolo.pro/v1', temporary, 'image', 'png', 'stamp', 1)
-    video.download_video(legacy_result, 'sk-fixture', 'https://haolo.pro/v1', temporary, 'video')
+    canonical_result = video.transport.migrate_gateway_url(legacy_result, preserve_query=True)
+    video.download_video(canonical_result, 'sk-fixture', 'https://haolo.pro/v1', Path(temporary) / 'video.mp4')
 print(json.dumps({'ok': True}))
 `;
   const result = spawnSync(process.env.PYTHON || (process.platform === "win32" ? "python" : "python3"), ["-c", script, skillRoot], { encoding: "utf8" });

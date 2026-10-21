@@ -11,6 +11,59 @@ class Storage {
   items=new Map();get length(){return this.items.size;}key(i){return [...this.items.keys()][i]??null;}
   getItem(k){return this.items.get(k)??null;}setItem(k,v){this.items.set(k,String(v));}removeItem(k){this.items.delete(k);}
 }
+
+async function editingClient(run) {
+  const previous={window:globalThis.window,document:globalThis.document,localStorage:globalThis.localStorage};
+  const window=new EventTarget(),storage=new Storage();
+  Object.assign(globalThis,{window,localStorage:storage,document:{hidden:false,documentElement:{dataset:{language:'en'}}}});
+  const client={data:[],busy:false,owner:'',pendingSession:null,entries:{},writes:[]};
+  window.codexDesktop={manualDrawings:async p=>{
+    if(p.action==='session'){if(client.pendingSession)await client.pendingSession;return {owner:client.owner};}
+    if(p.action==='write'){client.writes.push(p.body);for(const op of p.body.operations)client.entries[op.id]=structuredClone(op);}
+    return receipt(Object.values(client.entries));
+  }};
+  const sync=new DesktopDrawingSync({session:()=> 'editing',isNewTask:()=>true,symbol:()=> 'BINANCE:FUTURES:BTCUSDT',interval:()=> '60',scope:'main',snapshot:()=>client.data,apply:d=>client.data=d,busy:()=>client.busy,status:()=>{}});
+  const settle=async()=>{for(let i=0;i<100&&sync.running;i++)await new Promise(r=>setTimeout(r,1));assert.equal(sync.running,false);};
+  try { await settle(); await run(client,sync,storage,settle); }
+  finally {sync.destroy();await settle();Object.assign(globalThis,previous);}
+}
+
+test('Signed-out polling retains local text and a blank editing draft',()=>editingClient(async(c,sync)=>{
+  const draft={...drawingFromWire(shape(),'BINANCE:FUTURES:BTCUSDT'),tool:'text',text:''};
+  c.data=[draft];c.busy=true;
+  for(let i=0;i<3;i++){await sync.sync();assert.equal(c.data[0],draft);}
+  draft.text='保留文字';c.busy=false;sync.changed();await new Promise(r=>setTimeout(r,0));
+  await sync.sync();assert.equal(c.data[0],draft);assert.equal(c.writes.length,0);
+}));
+
+test('Delayed initial account lookup waits for editing and saves the completed text alongside an existing cache',()=>editingClient(async(c,sync,storage,settle)=>{
+  c.owner=owner;
+  const cached=shape(),replica=new DrawingReplica();replica.edit([],[cached]);
+  storage.setItem(drawingCacheKey(owner,market,'editing','main'),replica.serialize());
+  let release;c.pendingSession=new Promise(r=>release=r);
+  const request=sync.sync();
+  const draft={...drawingFromWire(shape(),'BINANCE:FUTURES:BTCUSDT'),tool:'text',text:'正在输入'};
+  c.data=[draft];c.busy=true;release();await request;c.pendingSession=null;
+  assert.equal(c.data[0],draft);assert.equal(sync.ready,false);
+  c.busy=false;sync.changed();await settle();await sync.sync();
+  assert.equal(c.data.find(d=>d.id===draft.id)?.text,draft.text);
+  assert.ok(c.data.some(d=>d.id===cached.id));
+  assert.ok(c.writes.some(body=>body.operations.some(op=>op.drawing?.text===draft.text)));
+}));
+
+test('A real account transition clears old-account editing once, then signed-out drafts survive',()=>editingClient(async(c,sync)=>{
+  c.owner=owner;await sync.sync();c.data=[drawingFromWire(shape(),'BINANCE:FUTURES:BTCUSDT')];c.busy=true;
+  c.owner='';await sync.sync();assert.deepEqual(c.data,[]);
+  const draft=drawingFromWire(shape(),'BINANCE:FUTURES:BTCUSDT');c.data=[draft];
+  await sync.sync();assert.equal(c.data[0],draft);
+}));
+
+test('An authenticated remote poll defers replacement while editing, but an account switch is isolated',()=>editingClient(async(c,sync)=>{
+  c.owner=owner;await sync.sync();
+  const draft=drawingFromWire(shape(),'BINANCE:FUTURES:BTCUSDT');c.data=[draft];c.busy=true;
+  await sync.sync();assert.equal(c.data[0],draft);
+  c.owner='other';await sync.sync();assert.deepEqual(c.data,[]);
+}));
 test('Market, interval, pane and UTC coordinates roundtrip',()=>{
   assert.equal(canonicalDrawingMarket('BINANCE:FUTURES:btcusdt'),market);
   assert.notEqual(canonicalDrawingMarket('BINANCE:SPOT:BTCUSDT'),market);

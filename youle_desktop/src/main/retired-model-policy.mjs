@@ -1,6 +1,6 @@
 // Shared by UI selection, host RPC and outbound transports. Keep historical
 // transcripts readable, but never dispatch another request to retired models.
-export const DEFAULT_EXECUTION_MODEL = "gpt-5.6-sol";
+export const DEFAULT_EXECUTION_MODEL = "deepseek-flash";
 
 export function isRetiredExecutionModel(value) {
   const slug = String(value || "").trim().toLowerCase().split("/").at(-1);
@@ -9,7 +9,7 @@ export function isRetiredExecutionModel(value) {
 
 export function migrateRetiredModelSelection(params = {}) {
   if (!isRetiredExecutionModel(params.model)) return params;
-  const next = { ...params, model: DEFAULT_EXECUTION_MODEL, modelProvider: "haolo_ai" };
+  const next = { ...params, model: DEFAULT_EXECUTION_MODEL, modelProvider: "deepseek" };
   delete next.model_provider;
   for (const key of ["effort", "reasoningEffort", "reasoning_effort", "reasoningEffortPolicy", "reasoning_effort_policy", "supportedReasoningEfforts", "supported_reasoning_efforts", "__haoloFixedReasoningEffort", "__haoloSupportedReasoningEfforts"]) delete next[key];
   return next;

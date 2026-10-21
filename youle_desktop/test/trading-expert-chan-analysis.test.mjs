@@ -484,7 +484,7 @@ test("Trading Expert keeps the sent bubble and updates analysis progress without
   assert.match(requestProgressBlock, /const progressIdPrefix = `trading-\$\{strategy\.id\}-progress-/);
   assert.match(requestProgressBlock, /let progressSequence = 0/);
   assert.match(requestProgressBlock, /progressSequence \+= 1/);
-  assert.match(requestProgressBlock, /`\$\{progressIdPrefix\}-\$\{progressSequence\}`/);
+  assert.match(requestProgressBlock, /`\$\{progressIdPrefix\}-\$\{earlyReportItem && phase === "error" \? "notice-" : ""\}\$\{progressSequence\}`/);
   assert.match(requestProgressBlock, /appendTradingExpertProgress\([\s\S]*?phase,[\s\S]*?message/);
   assert.match(allChartProgressBlock, /正在优先读取左侧当前选择的品种、周期和可见 K 线/);
   assert.match(allChartProgressBlock, /updateProgress\("preparing", strategy\.ui\.preparingMessage\)/);

@@ -57,10 +57,13 @@ html[data-theme="dark"] { --trading-note-background: #242832; --trading-note-tex
 .trading-drawing-layer .trading-x-post-link:focus-visible { outline: 1px solid #2962ff; }
 
 .trading-drawing-selection-action[data-horizontal-line-settings][hidden] { display: none; }
-.trading-ai-text-size-toolbar > button[data-ai-text-size-action="toggle-visibility"] > svg {
+.trading-ai-text-size-toolbar > button:is([data-ai-text-size-action="toggle-visibility"], [data-ai-text-size-action="next-drawing"]) > svg {
   width: 20px; height: 20px; fill: none; stroke: currentColor;
   stroke-width: 1.25; stroke-linecap: round; stroke-linejoin: round;
 }
+.trading-ai-text-size-toolbar > button[hidden] { display: none !important; }
+.trading-ai-text-size-toolbar > button[data-ai-text-size-action="next-drawing"] { display: flex; align-items: center; justify-content: center; width: auto; gap: 4px; padding-inline: 6px; }
+.trading-ai-text-size-toolbar > button [data-ai-drawing-set-position] { font-size: 11px; font-variant-numeric: tabular-nums; }
 .trading-ai-text-size-toolbar > button[aria-pressed="true"],
 .trading-drawing-selection-action[data-drawing-selection-action="toggle-visibility"][aria-pressed="true"] {
   color: var(--trading-market-accent); background: var(--trading-market-accent-soft);

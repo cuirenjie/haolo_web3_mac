@@ -1,5 +1,5 @@
-// Isolated Electron: native clicks and real timers, then every drawing type at
-// the exact timeout boundary with a controllable clock. Uses synthetic candles.
+// Isolated Electron: native clicks and real idle periods, then every drawing
+// type across the former timeout boundary. Uses synthetic candles.
 const { app, BrowserWindow } = require('electron');
 const fs = require('node:fs'), path = require('node:path'), assert = require('node:assert/strict');
 const root = path.resolve(__dirname, '..');
@@ -38,9 +38,9 @@ let win;
   const original = await js('JSON.stringify(d.drawings)');
   await capture('visible-light');
   await pause(2100);
-  assert.equal(await hidden(), false, 'toolbar remains before timeout');
+  assert.equal(await hidden(), false, 'toolbar remains during idle');
   // The midpoint can contain the inline Add text action. Select the segment
-  // itself so the timer test does not accidentally open the text settings.
+  // itself so the idle test does not accidentally open the text settings.
   const line = await js(`(()=>{
     const e=d.content.querySelector('line.trading-drawing-hit-target');
     const point=new DOMPoint(Number(e.getAttribute('x1'))*.8+Number(e.getAttribute('x2'))*.2,
@@ -49,16 +49,17 @@ let win;
   })()`);
   pointer('mouseMove', line); await js('d.redraw()');
   await pause(1100);
-  assert.equal(await hidden(), true, 'hover and quote redraw do not extend the timer');
-  assert.equal(await js('JSON.stringify(d.drawings)'), original, 'auto hide preserves drawing geometry and style');
+  assert.equal(await hidden(), false, 'hover and quote redraw keep toolbar visible beyond three seconds');
+  assert.equal(await visibleHandles(), 2, 'idle endpoints remain visible');
+  assert.equal(await js('JSON.stringify(d.drawings)'), original, 'idle preserves drawing geometry and style');
   await js('d.redraw()'); await settle();
-  assert.equal(await hidden(), true, 'redraw cannot restore a dismissed toolbar');
-  await capture('hidden-light');
+  assert.equal(await hidden(), false, 'redraw keeps toolbar visible');
+  await capture('idle-visible-light');
   await click(line); assert.equal(await hidden(), false, 'click drawing restores toolbar');
   await pause(1800);
   await click(await center('[data-drawing-selection-action="toggle-color"]'));
   await pause(1500);
-  assert.equal(await hidden(), false, 'toolbar click cancels the timeout');
+  assert.equal(await hidden(), false, 'toolbar click keeps controls visible');
   assert.equal(await js('d.activeSelectionMenu'), 'color');
   await pause(1650);
   assert.equal(await hidden(), false, 'toolbar and color menu stay open after interaction');
@@ -66,7 +67,7 @@ let win;
   await click(await center('[data-color-swatch="#2962ff"]'));
   await click(await center('[data-drawing-selection-action="toggle-color"]'));
   await pause(3150);
-  assert.equal(await hidden(), false, 'choosing a color and closing its menu does not restore the timeout');
+  assert.equal(await hidden(), false, 'choosing a color and closing its menu keeps the toolbar visible');
   await js(`(()=>{const color=JSON.parse(${JSON.stringify(original)})[0].color;if(color===undefined)delete d.drawings[0].color;else d.drawings[0].color=color;d.redraw()})()`);
   await click(line);
   const blank = {x:Math.round(bounds.x+70),y:Math.round(bounds.y+320)};
@@ -74,7 +75,6 @@ let win;
   await click(blank);
   assert.equal(await hidden(), true, 'native click on chart background immediately hides toolbar');
   assert.equal(await visibleHandles(), 0, 'native background click also immediately hides endpoints');
-  assert.equal(await js('d.drawingHandlesHideTimer'), null, 'background click clears the endpoint timer');
   await js('d.redraw()'); await settle();
   assert.equal(await visibleHandles(), 0, 'redraw cannot restore endpoints after background click');
   assert.equal(await js('JSON.stringify(d.drawings)'), original, 'background click preserves drawing geometry and style');
@@ -98,7 +98,7 @@ let win;
   assert.equal(await hidden(), false, 'toolbar remains during a long drag');
   pointer('mouseUp',moved); await settle();
   await pause(3150);
-  assert.equal(await hidden(), true, 'toolbar drag release starts a fresh timer');
+  assert.equal(await hidden(), false, 'toolbar stays visible after drag release and idle');
   await click(line);
   const handle = await center('[data-drawing-handle-index="0"]');
   pointer('mouseMove',handle); pointer('mouseDown',handle);
@@ -106,7 +106,7 @@ let win;
   assert.equal(await hidden(), false, 'drawing drag keeps toolbar visible');
   pointer('mouseUp',handle); await settle();
   await pause(3150);
-  assert.equal(await hidden(), true, 'drawing drag release starts a fresh timer');
+  assert.equal(await hidden(), false, 'toolbar stays visible after drawing drag release and idle');
   // Exhaustive boundary and re-selection checks, including both toolbar modes.
   const catalogAudit = await js(`(async()=>{
     const {TRADING_DRAWING_TOOLS,tradingDrawingRequiredPointCount,tradingDrawingIsMultiPoint}=await import('/trading-expert-drawing.ts');
@@ -127,33 +127,36 @@ let win;
         check(!d.selectionToolbar.hidden,tool.id+': initial appearance');
         const original=JSON.stringify(drawing);
         advance(2999);d.redraw();check(!d.selectionToolbar.hidden,tool.id+': hidden early');
-        advance(1);check(d.selectionToolbar.hidden,tool.id+': not hidden at 3000ms');
-        d.redraw();check(d.selectionToolbar.hidden,tool.id+': redraw restored toolbar');
+        advance(1);check(!d.selectionToolbar.hidden,tool.id+': hidden at 3000ms');
+        advance(60000);d.redraw();check(!d.selectionToolbar.hidden,tool.id+': hidden after prolonged idle');
         check(JSON.stringify(drawing)===original,tool.id+': changed drawing');
         d.selectDrawing(drawing.id);advance(2000);d.selectDrawing(drawing.id);advance(1500);
-        check(!d.selectionToolbar.hidden,tool.id+': repeated selection must restart timer');
-        advance(1500);check(d.selectionToolbar.hidden,tool.id+': reselected timeout');
+        check(!d.selectionToolbar.hidden,tool.id+': repeated selection keeps toolbar visible');
+        advance(1500);check(!d.selectionToolbar.hidden,tool.id+': reselected toolbar must stay visible');
         drawing.locked=true;d.selectDrawing(drawing.id);advance(3000);
-        check(d.selectionToolbar.hidden,tool.id+': locked drawing timeout');
+        check(!d.selectionToolbar.hidden,tool.id+': locked drawing must stay visible');
         d.selectDrawing(drawing.id);
-        check([...d.content.querySelectorAll('.trading-drawing-handle')].some(e=>getComputedStyle(e).visibility==='visible'),tool.id+': missing endpoints before background click');
+        check([...d.content.querySelectorAll('.trading-drawing-handle')].every(e=>getComputedStyle(e).visibility==='visible'),tool.id+': hidden endpoints before background click');
         d.overlay.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,pointerId:42}));
         d.redraw();
         check(d.selectionToolbar.hidden,tool.id+': background click did not hide toolbar');
-        check([...d.content.querySelectorAll('.trading-drawing-handle')].every(e=>getComputedStyle(e).visibility!=='visible'&&getComputedStyle(e).pointerEvents==='none'),tool.id+': background click did not hide endpoints');
+        // Dedicated shape controls already remain available on background clicks.
+        const ordinaryHandles=d.content.querySelectorAll('.trading-drawing-handle:not([data-info-line-handle]):not([data-trend-angle-handle]):not([data-harmonic-handle]):not([data-elliott-handle]):not([data-cycle-handle]):not([data-position-handle]):not([data-range-handle]):not([data-volume-handle]):not([data-note-handle])');
+        check([...ordinaryHandles].every(e=>getComputedStyle(e).visibility!=='visible'&&getComputedStyle(e).pointerEvents==='none'),tool.id+': background click did not hide ordinary endpoints');
         checked.push({tool:tool.id,mode:d.selectionToolbar.dataset.mode});
       }
       d.drawings[0].tool='text';d.drawings[0].locked=false;d.selectDrawing(d.drawings[0].id);
-      d.selectionToolbar.querySelector('[data-drawing-selection-action="edit-text"]').click();
-      const input=d.textInputElement();input.focus();input.value='未确认草稿';input.setSelectionRange(2,2);
+      check(!d.selectionToolbar.querySelector('[data-drawing-selection-action="edit-text"]').checkVisibility(),'text toolbar has no pen button');
+      d.beginInlineTextEdit(d.drawings[0]);
+      const input=d.horizontalLineTextEdit.input;input.focus();input.value='未确认草稿';input.setSelectionRange(2,2);
       advance(5000);d.redraw();
       check(!d.selectionToolbar.hidden&&document.activeElement===input&&input.value==='未确认草稿'&&input.selectionStart===2,'text draft and focus are preserved');
-      d.selectionToolbar.querySelector('[data-drawing-selection-action="confirm-text"]').click();
+      input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
       check(d.drawings[0].text==='未确认草稿','confirm still saves text');
       advance(6000);d.redraw();check(!d.selectionToolbar.hidden,'text toolbar stays open after confirmation');
       for(const [tool,actions] of [
         ['trend-line',['reset','toggle-color','toggle-style','set-style','toggle-width','set-width','settings','toggle-lock']],
-        ['text',['reset-text','edit-text','close-text-input','clear-text','confirm-text','toggle-text-color','toggle-text-background','toggle-font-size','set-font-size','toggle-bold','toggle-lock']],
+        ['text',['reset-text','toggle-text-color','toggle-text-background','toggle-font-size','set-font-size','toggle-bold','toggle-lock']],
       ]) {
         for(const action of actions) {
           d.selectDrawing(null);
@@ -163,44 +166,43 @@ let win;
           mode.querySelector('[data-drawing-selection-action="'+action+'"]').click();
           if(action==='settings')d.horizontalLineSettings.close();
           advance(6000);d.redraw();
-          check(!d.selectionToolbar.hidden,action+': interaction must cancel auto hide');
-          check(d.selectionToolbarHideTimer===null,action+': timer must stay cancelled');
+          check(!d.selectionToolbar.hidden,action+': interaction keeps toolbar visible');
           d.selectDrawing(drawing.id);advance(6000);
-          check(!d.selectionToolbar.hidden,action+': selecting the active drawing must not restore the timer');
+          check(!d.selectionToolbar.hidden,action+': selecting the active drawing keeps toolbar visible');
           d.selectionToolbar.querySelector('[data-drawing-selection-action="hide-toolbar"]').click();
           check(d.selectionToolbar.hidden,action+': manual close still works');
           d.selectDrawing(drawing.id);advance(3000);
-          check(d.selectionToolbar.hidden,action+': reopening starts a fresh timeout');
+          check(!d.selectionToolbar.hidden,action+': reopened toolbar stays visible');
         }
       }
       d.selectDrawing(d.drawings[0].id);
       d.selectionToolbar.querySelector('[data-drawing-selection-mode="text"] [data-drawing-selection-action="toggle-visibility"]').click();
       check(d.drawingVisibility.isHidden(d.drawings[0]),'hide button still hides drawing');
-      advance(3000);check(d.selectionToolbar.hidden,'hide button does not cancel auto hide');
+      advance(3000);check(!d.selectionToolbar.hidden,'visibility control stays available while drawing is hidden');
       d.drawingVisibility.toggle(d.drawings[0]);d.selectDrawing(d.drawings[0].id);
       d.selectionToolbar.querySelector('[data-drawing-selection-mode="text"] [data-drawing-selection-action="reset-text"]').click();
       const second={...d.drawings[0],id:'another-drawing'};d.drawings.push(second);d.selectDrawing(second.id);
-      advance(3000);check(d.selectionToolbar.hidden,'interacting with one drawing does not pin another toolbar');
+      advance(3000);check(!d.selectionToolbar.hidden,'another drawing also keeps its toolbar visible');
       d.selectDrawing(second.id);
       d.selectionToolbar.querySelector('[data-drawing-selection-mode="text"] [data-drawing-selection-action="delete"]').click();
       check(!d.drawings.includes(second)&&d.selectionToolbar.hidden,'delete removes drawing and closes toolbar');
       d.selectDrawing(d.drawings[0].id);d.selectDrawing(null);
-      check(d.selectionToolbarHideTimer===null,'deselect clears timer');
+      check(d.selectionToolbar.hidden,'deselect closes toolbar');
       d.selectDrawing(d.drawings[0].id);d.setUserDrawingEnabled(false);
-      check(d.selectionToolbarHideTimer===null&&d.selectionToolbar.hidden,'disable clears timer');d.setUserDrawingEnabled(true);
+      check(d.selectionToolbar.hidden,'disable closes toolbar');d.setUserDrawingEnabled(true);
       d.selectDrawing(d.drawings[0].id);d.switchStorageSession('toolbar-qa-next');
-      check(d.selectionToolbarHideTimer===null&&d.selectionToolbar.hidden,'session switch clears timer');
+      check(d.selectionToolbar.hidden,'session switch closes toolbar');
     } finally {d.selectDrawing(null);window.setTimeout=nativeSetTimeout;window.clearTimeout=nativeClearTimeout;}
     return checked;
   })()`);
   assert.ok(catalogAudit.length >= 98);
   await js(`document.documentElement.dataset.theme='dark';workspace.applyChartTheme();d.drawings=[{id:'dark-line',tool:'horizontal-line',symbol:d.getSymbol(),interval:d.getInterval(),points:[{time:workspace.candles.at(-50).time,price:1320}]}];d.selectDrawing('dark-line')`);
   await settle(); await capture('visible-dark');
-  await pause(3150); assert.equal(await hidden(), true); await capture('hidden-dark');
+  await pause(3150); assert.equal(await hidden(), false); await capture('idle-visible-dark');
   await js(`d.selectDrawing('dark-line');d.destroy()`);
-  assert.equal(await js('d.selectionToolbarHideTimer'), null, 'destroy clears timer');
+  assert.equal(await js('d.destroyed'), true, 'controller destroys cleanly');
   assert.equal(await js('String(window.qaError || "")'), '');
-  fs.writeFileSync(path.join(output,'report.json'),JSON.stringify({result:'PASS',idleMs:3000,catalogAudit,checks:['real timer','new drawing','drawing click restart','toolbar actions cancel auto hide','hide and delete exceptions','reopen and selection reset','hover/redraw stability','native chart click hides toolbar and endpoints','empty overlay click hides toolbar and endpoints','background click with toolbar already hidden','toolbar and drawing drag','color menu','text editing','deselect/disable/session/destroy cleanup','light/dark']},null,2));
-  console.log('PASS: '+catalogAudit.length+' drawing tools, toolbar actions cancel auto hide, hide/delete exceptions, background dismissal, 3-second idle before interaction, drag, menus, text input, themes and cleanup');
+  fs.writeFileSync(path.join(output,'report.json'),JSON.stringify({result:'PASS',catalogAudit,checks:['idle keeps toolbar and handles visible','new drawing','reselection','toolbar actions','hide and delete','hover/redraw stability','native chart click hides toolbar and endpoints','empty overlay click hides toolbar and endpoints','background click with toolbar already hidden','toolbar and drawing drag','color menu','text editing without pen button','deselect/disable/session/destroy cleanup','light/dark']},null,2));
+  console.log('PASS: '+catalogAudit.length+' drawing tools, persistent toolbar and endpoints, background dismissal, drag, menus, text input without pen button, themes and cleanup');
   win.destroy();app.quit();
 })().catch(error=>{console.error(error);fs.writeFileSync(path.join(output,'failure.txt'),String(error.stack));win?.destroy();app.exit(1)});

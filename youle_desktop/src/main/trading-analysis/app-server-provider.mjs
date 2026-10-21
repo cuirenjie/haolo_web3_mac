@@ -31,10 +31,9 @@ export function createAppServerTradingAnalysisProvider(options = {}) {
     }),
     async analyze(request, { signal, reasoningEffort, recoveryModel, modelBudget = createTradingModelBudget() } = {}) {
       const startedAt = Date.now();
-      const recoverableReview = !String(request.task || "").endsWith("-request-routing")
-        && request.task !== "trading-turn-intent-routing"
-        && request.task !== "trading_alert_intent_compile"
-        && request.task !== "trading_preference_compile";
+      // Routing and intent compilation are isolated model calls too. Their
+      // validated tools/effects are still applied only by their caller.
+      const recoverableReview = true;
       const operation = async (selection) => {
         const remainingModelTime = recoverableReview ? modelBudget.begin(selection.modelId) : undefined;
         remainingModelTime?.();
@@ -79,7 +78,8 @@ export function createAppServerTradingAnalysisProvider(options = {}) {
       const selectedModel = canonicalDeepSeekModel(policy?.modelId || modelId);
       const selection = recoverableReview && (selectedModel === ANALYSIS_RECOVERY_MODEL || canonicalDeepSeekModel(recoveryModel) === ANALYSIS_RECOVERY_MODEL || policy?.fallback)
         ? { modelId: ANALYSIS_RECOVERY_MODEL, modelProvider: ANALYSIS_RECOVERY_PROVIDER, reasoningEffort: ANALYSIS_RECOVERY_EFFORT }
-        : { modelId: selectedModel, reasoningEffort: fixedReasoningEffort || reasoningEffort, ...(modelId === ANALYSIS_RECOVERY_MODEL && selectedModel === ANALYSIS_PRIMARY_MODEL ? { modelProvider: "haolo_ai" } : {}) };
+        : { modelId: selectedModel, reasoningEffort: fixedReasoningEffort || reasoningEffort,
+          ...(selectedModel === ANALYSIS_PRIMARY_MODEL ? { modelProvider: "deepseek" } : {}) };
       if (!recoverableReview) return operation(selection);
       return runWithAnalysisModelRecovery({
         operation, ...selection, signal,

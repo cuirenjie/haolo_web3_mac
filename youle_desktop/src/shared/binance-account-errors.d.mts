@@ -4,3 +4,7 @@ export function binanceCredentialErrorResult(error: unknown): {
   ok: false;
   error: { code: string; message: string; retryable: false };
 } | null;
+export function binanceAccountReadErrorResult(error: unknown): {
+  ok: false;
+  error: { code: string; message: string; retryable: boolean; status?: number; retryAfterMs?: number };
+};

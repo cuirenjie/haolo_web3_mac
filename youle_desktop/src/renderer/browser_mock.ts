@@ -664,7 +664,7 @@ export function ensureBrowserDesktopApi() {
     async getConsumptionCalendar(params: any) {
       const month = String(params?.month || new Date().toISOString().slice(0, 7));
       const days = Array.from({ length: 31 }, (_, index) => ({
-        date: `${month}-${String(index + 1).padStart(2, "0")}`,
+        date: `${month}-${String(index + 4).padStart(2, "0")}`,
         tokens: (index * 9_100_000) % 130_000_000,
         points: ((index * 91) % 1300) / 100,
         color_level: index % 6,
@@ -826,13 +826,13 @@ export function ensureBrowserDesktopApi() {
       return {
         object: "list",
         catalog_version: 1,
-        default_model: "grok-imagine-video-1.5",
+        default_model: "bytedance/seedance-2.0",
         models: [
           {
-            id: "grok-imagine-video-1.5",
-            display_name: "Grok Imagine Video 1.5",
-            input_mode: "text-or-image-to-video",
-            required_image_count: 0,
+            id: "bytedance/seedance-2.0",
+            display_name: "Seedance 2.0",
+            input_mode: "image-to-video",
+            required_image_count: 1,
             max_image_count: 1,
             required_video_count: 0,
             max_video_count: 0,
@@ -845,9 +845,9 @@ export function ensureBrowserDesktopApi() {
               { value: "2:3", label: "竖向 2:3", resolution: "720p" },
               { value: "3:2", label: "横向 3:2", resolution: "720p" },
             ],
-            durations: Array.from({ length: 15 }, (_, index) => ({
-              value: String(index + 1),
-              label: `${index + 1}秒`,
+            durations: Array.from({ length: 12 }, (_, index) => ({
+              value: String(index + 4),
+              label: `${index + 4}秒`,
             })),
             default_screen_size: "16:9",
             default_duration: "6",

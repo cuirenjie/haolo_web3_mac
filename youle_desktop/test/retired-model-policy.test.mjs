@@ -19,7 +19,7 @@ test("retired aliases migrate from saved settings but never pass a model request
     assert.equal(isRetiredExecutionModel(model), true);
     const original = { model, modelProvider: "haolo_ai", effort: "xhigh", reasoningEffortPolicy: "fixed" };
     const migrated = migrateRetiredModelSelection(original);
-    assert.equal(migrated.model, "gpt-5.6-sol");
+    assert.equal(migrated.model, "deepseek-flash");
     assert.equal(migrated.effort, undefined);
     assert.equal(original.model, model);
     for (const params of [{ model }, { collaborationMode: { settings: { model } } }, { config: { model } }]) {
@@ -30,17 +30,14 @@ test("retired aliases migrate from saved settings but never pass a model request
   assert.doesNotThrow(() => assertAllowedModelRequest({ model: "gpt-5.6-sol", input: [{ text: "Explain a historical gpt-5.5 failure" }] }));
 });
 
-test("an existing one-hour window migrates old fallback preferences to DeepSeek max and restores both Sol and its provider", () => {
-  const now = 1_800_000_000_000;
-  const state = { version: 1, activatedAt: now, fallbackUntil: now + ANALYSIS_RECOVERY_WINDOW_MS };
-  const active = withAnalysisModelRecoveryPolicy({ model: "gpt-5.5", modelProvider: "haolo_ai", effort: "xhigh" }, state, now);
-  assert.equal(active.model, "deepseek-flash");
-  assert.equal(active.modelProvider, "deepseek");
-  assert.equal(active.reasoningEffort, "max");
-  const expired = withAnalysisModelRecoveryPolicy(active, state, state.fallbackUntil);
-  assert.equal(expired.model, "gpt-5.6-sol");
-  assert.equal(expired.modelProvider, "haolo_ai");
-  assert.equal(expired.reasoningEffortPolicy, undefined);
+test("retired defaults use DeepSeek and old reverse-policy windows are ignored", () => {
+ const now = 1_800_000_000_000;
+ const state = { version: 1, activatedAt: now, fallbackUntil: now + ANALYSIS_RECOVERY_WINDOW_MS };
+ const active = withAnalysisModelRecoveryPolicy({ model: "gpt-5.5", modelProvider: "haolo_ai", effort: "xhigh" }, state, now);
+ assert.equal(active.model, "deepseek-flash");
+ assert.equal(active.modelProvider, "deepseek");
+ assert.equal(active.reasoningEffortPolicy, undefined);
+ assert.equal(withAnalysisModelRecoveryPolicy(active, state, state.fallbackUntil).model, "deepseek-flash");
 });
 
 test("static, runtime and business-pool model pickers exclude retired backend/cache entries", () => {
@@ -84,10 +81,10 @@ test("HTTP transport blocks retired requests before upstream fetch, including co
 
 test("built-in defaults and active recovery notices have no retired-model selection", () => {
   const defaults = fs.readFileSync(new URL("../resources/default-haolo-ai/config.toml", import.meta.url), "utf8");
-  assert.match(defaults, /^model = "gpt-5\.6-sol"$/m);
+  assert.match(defaults, /^model = "deepseek-flash"$/m);
   const renderer = fs.readFileSync(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
   assert.doesNotMatch(renderer, /GPT-5\.5|gpt-5\.5/);
-  assert.match(renderer, /GPT-6 Astra 最高推理模式/);
+  assert.match(renderer, /正在使用备用模型继续处理/);
   for (const script of ["smoke-haolo-network-routing.mjs", "smoke-thread-history-recovery.mjs"]) {
     assert.doesNotMatch(fs.readFileSync(new URL(`../scripts/${script}`, import.meta.url), "utf8"), /gpt-5\.5/);
   }

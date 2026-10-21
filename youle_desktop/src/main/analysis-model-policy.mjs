@@ -1,59 +1,46 @@
-// Pure policy shared with the renderer. Persistence and failure handling stay
-// in the host; merely reading the policy never renews its one-hour window.
+// Inference policy only; the product tariff remains independent.
 import { canonicalDeepSeekModel, migrateDeepSeekModelSelection } from "./deepseek-model-policy.mjs";
 import { DEFAULT_EXECUTION_MODEL, migrateRetiredModelSelection } from "./retired-model-policy.mjs";
 export const ANALYSIS_PRIMARY_MODEL = DEFAULT_EXECUTION_MODEL;
-// Use the authorized business-pool ID, before any upstream alias mapping.
-export const ANALYSIS_RECOVERY_MODEL = "deepseek-flash";
-export const ANALYSIS_RECOVERY_EFFORT = "max";
-export const ANALYSIS_RECOVERY_PROVIDER = "deepseek";
-export const ANALYSIS_RECOVERY_WINDOW_MS = 60 * 60 * 1000;
-const LEGACY_ANALYSIS_RECOVERY_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const ANALYSIS_RECOVERY_MODEL = "gpt-5.6-sol";
+export const ANALYSIS_RECOVERY_EFFORT = "high";
+export const ANALYSIS_RECOVERY_PROVIDER = "haolo_ai";
+export const ANALYSIS_RECOVERY_WINDOW_MS = 60_000;
 
 export function normalizeAnalysisModelRecoveryState(value) {
-  if (value?.version !== 1) return null;
+  // v1 meant GPT -> DeepSeek. Never reinterpret an old window in reverse.
+  if (value?.version !== 2) return null;
   const { activatedAt, fallbackUntil } = value;
   if (!Number.isSafeInteger(activatedAt) || activatedAt <= 0
     || !Number.isSafeInteger(fallbackUntil)
-    || (fallbackUntil !== activatedAt + ANALYSIS_RECOVERY_WINDOW_MS
-      && fallbackUntil !== activatedAt + LEGACY_ANALYSIS_RECOVERY_WINDOW_MS)) return null;
-  // Shorten legacy windows from their original activation, never from upgrade time.
-  return { version: 1, activatedAt, fallbackUntil: activatedAt + ANALYSIS_RECOVERY_WINDOW_MS };
+    || fallbackUntil !== activatedAt + ANALYSIS_RECOVERY_WINDOW_MS) return null;
+  return { version: 2, activatedAt, fallbackUntil };
 }
 
 export function analysisModelPolicySelection(state, modelId, now = Date.now()) {
   const model = String(migrateRetiredModelSelection({ model: canonicalDeepSeekModel(modelId) }).model || ANALYSIS_PRIMARY_MODEL).trim();
-  const managed = [ANALYSIS_PRIMARY_MODEL, ANALYSIS_RECOVERY_MODEL].includes(model.toLowerCase());
+  const managed = [ANALYSIS_PRIMARY_MODEL, ANALYSIS_RECOVERY_MODEL, "gpt-6-sol"].includes(model.toLowerCase());
   const valid = normalizeAnalysisModelRecoveryState(state);
   const fallback = Boolean(managed && valid && now < valid.fallbackUntil);
-  return {
-    modelId: fallback ? ANALYSIS_RECOVERY_MODEL : managed && valid ? ANALYSIS_PRIMARY_MODEL : model,
-    fallback,
-  };
+  return { modelId: managed ? fallback ? ANALYSIS_RECOVERY_MODEL : ANALYSIS_PRIMARY_MODEL : model, fallback };
 }
 
 export function withAnalysisModelRecoveryPolicy(params, state, now = Date.now()) {
   params = migrateDeepSeekModelSelection(migrateRetiredModelSelection(params));
-  // A user choosing a model in the composer is an explicit override of the
-  // temporary automatic-recovery window. Keep the marker on the params object
-  // so the renderer and host request boundary make the same decision.
-  if (params.explicitModelSelection === true) return params;
+  if (params.explicitModelSelection === true
+    || ["image-generation", "video-generation"].includes(params.conversationMode || params.conversation_mode)) return params;
   const selection = analysisModelPolicySelection(state, params.model, now);
-  if (selection.fallback) return {
-    ...params, model: selection.modelId, modelProvider: ANALYSIS_RECOVERY_PROVIDER,
-    reasoningEffort: ANALYSIS_RECOVERY_EFFORT, reasoningEffortPolicy: "fixed",
-    supportedReasoningEfforts: ["low", "high", "max"],
-  };
-  const staleRecoveryProvider = selection.modelId === ANALYSIS_PRIMARY_MODEL
-    && String(params.modelProvider || params.model_provider || "").trim().toLowerCase() === ANALYSIS_RECOVERY_PROVIDER;
-  if (normalizeAnalysisModelRecoveryState(state)
-    && (selection.modelId !== String(params.model || "") || staleRecoveryProvider)) {
-    // A previous fallback may have been remembered by the thread. Let the
-    // normal Sol reasoning policy choose the effort again after expiry.
-    const restored = { ...params, model: selection.modelId, modelProvider: "haolo_ai" };
-    delete restored.model_provider;
-    for (const key of ["reasoningEffort", "reasoning_effort", "effort", "reasoningEffortPolicy", "reasoning_effort_policy", "supportedReasoningEfforts", "supported_reasoning_efforts"]) delete restored[key];
-    return restored;
+  if (![ANALYSIS_PRIMARY_MODEL, ANALYSIS_RECOVERY_MODEL].includes(selection.modelId)) return params;
+  const next = { ...params, model: selection.modelId,
+    modelProvider: selection.fallback ? ANALYSIS_RECOVERY_PROVIDER : "deepseek" };
+  delete next.model_provider;
+  const oldProvider = params.modelProvider || params.model_provider;
+  if (selection.modelId !== params.model || (oldProvider && oldProvider !== next.modelProvider)) {
+    for (const key of ["reasoningEffort", "reasoning_effort", "effort", "reasoningEffortPolicy", "reasoning_effort_policy", "supportedReasoningEfforts", "supported_reasoning_efforts"]) delete next[key];
   }
-  return params;
+  if (selection.fallback) Object.assign(next, {
+    reasoningEffort: ANALYSIS_RECOVERY_EFFORT, reasoningEffortPolicy: "fixed",
+    supportedReasoningEfforts: ["low", "medium", "high"],
+  });
+  return next;
 }

@@ -31,7 +31,7 @@ test("legacy Video Expert IPC submits its original prompt directly to the video 
   const generate = sourceBlock(
     mainSource,
     "async function generateVideoFromFirstFrame",
-    "function isSafeMediaCreationGrokProviderFallback",
+    "function isGatewayBilledVideoGenerationModel",
   );
 
   assert.match(generate, /const prompt = firstString\(params\.prompt\)/);

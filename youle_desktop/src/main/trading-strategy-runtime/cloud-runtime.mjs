@@ -83,9 +83,14 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
     await journal.put(captured.ownerId, record.key, record);
     return response.state;
   }
-  async function poll(captured, record, {signal,onProgress,timeoutMs:pollTimeout=timeoutMs}={}) {
+  async function poll(captured, record, {signal,onProgress,timeoutMs:pollTimeout=timeoutMs,pureReferenceAnalysis=false}={}) {
     const started = Date.now();
     let lastProgress = '';
+    let useEvents = pureReferenceAnalysis && typeof api().waitForTradingCloudRunEvent === 'function';
+    let eventCursor = 0;
+    let eventWait = null;
+    const eventController = new AbortController();
+    const eventSignal = signal ? AbortSignal.any([signal,eventController.signal]) : eventController.signal;
     try {
       while (true) {
         signal?.throwIfAborted();
@@ -113,6 +118,39 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
           onProgress?.({stage:progress.stage,status:'running'});
         }
         if (Date.now()-started >= pollTimeout) throw fail('CLOUD_RUN_PENDING', {runId:record.runId,retryable:true});
+        if (useEvents) {
+          try {
+            await assertOwner(captured);
+            eventWait ||= api().waitForTradingCloudRunEvent(record.runId, {
+              signal:eventSignal, after:eventCursor, expectedAccountId:captured.accountId, expectedBaseUrl:captured.baseUrl,
+              timeoutMs:Math.min(15000, Math.max(1, pollTimeout - (Date.now()-started))),
+            }).then(event=>({event}),error=>({error}));
+            // Keep the existing polling cadence as a watchdog. A proxy that
+            // buffers SSE must never make result delivery slower than before.
+            const tickController = new AbortController();
+            const tickSignal = signal ? AbortSignal.any([signal,tickController.signal]) : tickController.signal;
+            let wake;
+            try {
+              wake = await Promise.race([eventWait,wait(pollMs,undefined,{signal:tickSignal}).then(()=>null)]);
+            } finally { tickController.abort(); }
+            if (!wake) continue;
+            eventWait = null;
+            if (wake.error) throw wake.error;
+            const event = wake.event;
+            await assertOwner(captured);
+            signal?.throwIfAborted();
+            eventCursor = event.cursor;
+            // Reconnect a healthy bounded stream from its cursor. EOF or a
+            // broken stream uses only the original polling path afterwards.
+            useEvents = event.expired === true;
+          } catch (error) {
+            signal?.throwIfAborted();
+            await assertOwner(captured);
+            if (error.code === 'TRADING_PREFERENCE_OWNER_CHANGED') throw error;
+            useEvents = false;
+          }
+          continue;
+        }
         await wait(pollMs,undefined,{signal});
       }
     } catch(error) {
@@ -122,7 +160,7 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
         throw fail('TRADING_ANALYSIS_CANCELLED');
       }
       throw error;
-    }
+    } finally { eventController.abort(); }
   }
   async function run(strategyId, params, options={}) {
     const captured = await owner();
@@ -186,9 +224,15 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
         // admissions keep their frozen body/key, and explicit time ranges remain exact.
         const minimumHistory = cloudStrategyMinimumHistory(strategyId,capabilities.strategies.find(s=>s.id===strategyId)?.history);
         const windowCount = requestedCount === null ? null : Math.max(requestedCount,minimumHistory);
-        const snapshot = await request(captured,'marketSnapshot',{market:target.marketKey,interval:target.interval,limit:600,...(visibleRange||{...(windowCount?{windowCount}:{}),...(lookbackMs?{lookbackMs}:{})})},{signal:options.signal});
+        const readSnapshot = () => request(captured,'marketSnapshot',{market:target.marketKey,interval:target.interval,limit:600,...(visibleRange||{...(windowCount?{windowCount}:{}),...(lookbackMs?{lookbackMs}:{})})},{signal:options.signal});
+        // Independent fresh reads can overlap after capability/history checks.
+        // No cached market result or account consent replaces either read.
+        const fast = params.pureReferenceAnalysis === true;
+        const [snapshot, parallelAccount] = fast
+          ? await Promise.all([readSnapshot(), connection?.(captured,target)])
+          : [await readSnapshot(), undefined];
         if (snapshot.marketKey !== target.marketKey || snapshot.interval !== target.interval || !snapshot.snapshotId) throw fail('CLOUD_MARKET_CONTEXT_INVALID');
-        const account = await connection?.(captured,target);
+        const account = fast ? parallelAccount : await connection?.(captured,target);
         await assertOwner(captured);
         const runId = randomUUID();
         record = {key,runId,inputHash:fingerprint(input),preferencesHash:input.preferencesHash,
@@ -211,7 +255,7 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
         record.state = admitted.state;
         await journal.put(captured.ownerId,key,record);
       }
-      return await poll(captured,record,options);
+      return await poll(captured,record,{...options,pureReferenceAnalysis:params.pureReferenceAnalysis === true});
     } catch(error) {
       if (options.signal?.aborted && record && !record.cancelRequested) {
         try { if (await cancelRecord(captured,record) === 'succeeded') throw fail('CLOUD_RUN_PENDING'); }

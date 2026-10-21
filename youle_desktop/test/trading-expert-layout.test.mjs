@@ -1357,11 +1357,12 @@ test("Trading Expert matches the reference crosshair, price, and hover-time pres
   assert.match(updateTimeLabel, /this\.crosshairTimeElement\.style\.left/);
   assert.doesNotMatch(updateTimeLabel, /hideCrosshairTimeLabel\(/);
   assert.match(updatePriceLabel, /this\.candleSeries\.coordinateToPrice\(y\)/);
-  assert.doesNotMatch(updatePriceLabel, /seriesData|hideCrosshairPriceLabel\(/);
+  assert.doesNotMatch(updatePriceLabel, /seriesData/);
+  assert.match(updatePriceLabel, /if \(!Number\.isFinite\(price\)\) \{ this\.hideCrosshairPriceLabel\(\); return; \}/);
   assert.match(viewportLeave, /this\.hideCrosshairTimeLabel\(\)/);
   assert.match(viewportLeave, /this\.hideCrosshairPriceLabel\(\)/);
-  assert.match(styles, /--trading-market-crosshair-label: #7d838c;/);
-  assert.match(styles, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*?--trading-market-crosshair-label: #626b77;/);
+  assert.match(styles, /--trading-market-crosshair-label: #131313;/);
+  assert.match(styles, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*?--trading-market-crosshair-label: #131313;/);
   assert.match(styles, /\.trading-market-crosshair-time\s*\{[^}]*bottom: 4px;[^}]*background: var\(--trading-market-crosshair-label\);[^}]*color: var\(--trading-market-crosshair-label-text\);[^}]*font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;[^}]*font-weight: 600;/s);
   assert.match(styles, /\.trading-market-focus-price\s*\{[^}]*font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;[^}]*font-feature-settings: "zero" 0;[^}]*font-variant-numeric: tabular-nums;/s);
   assert.match(styles, /\.trading-market-crosshair-time\[hidden\]\s*\{[^}]*display: none !important;/s);
@@ -1849,7 +1850,7 @@ test("Trading Expert favorites persist, lead the next open, and remain available
   assert.match(styles, /\.titlebar-market-favorites-host\s*\{[^}]*--trading-market-selected-background: #fff;/s);
   assert.match(styles, /\.titlebar-market-favorites-host\[hidden\]\s*\{\s*display: none;/s);
   assert.match(styles, /html\[data-theme="dark"\] \.titlebar-market-favorites-host\s*\{[^}]*--trading-market-positive: #52dc88;[^}]*--trading-market-negative: #ff718e;[^}]*--trading-market-selected-background: #1b1e23;/s);
-  assert.match(renderer, /const showTradingExpertFavoriteTickers =\s*state\.activeView === "chat"\s*&& !state\.chatPreview\s*&& !state\.tradingExpertChartCollapsed\s*&& isTradingExpertThreadId\(state\.currentThreadId\)/s);
+  assert.match(renderer, /const showTradingExpertFavoriteTickers =\s*state\.activeView === "chat"\s*&& !state\.chatPreview\s*&& !state\.tradingExpertChartCollapsed\s*&& isTradingExpertSurfaceThreadId\(state\.currentThreadId\)/s);
   assert.match(renderer, /data-titlebar-market-favorites-host\$\{showTradingExpertFavoriteTickers \? "" : " hidden"\}/);
   assert.match(styles, /\.trading-market-favorite-tickers\s*\{[^}]*flex: 1 1 auto;[^}]*gap: 4px;[^}]*overflow-x: hidden;[^}]*overflow-y: hidden;[^}]*overscroll-behavior-x: contain;[^}]*scrollbar-width: none;[^}]*touch-action: pan-x;/s);
   assert.match(styles, /\.trading-market-favorite-tickers\.sorting\s*\{[^}]*cursor: grabbing;[^}]*user-select: none;/s);
@@ -2041,7 +2042,7 @@ test("Trading Expert uses two-decimal ticks and high-precision highlighted price
   assert.match(syncCurrentPriceLine, /lineStyle: LineStyle\.Dashed/);
   assert.match(syncCurrentPriceLine, /axisLabelVisible: false/);
   assert.match(source, /const text = formatFocusedPrice\(candle\.close\);\s*if \(this\.currentPriceElement\.textContent !== text\) this\.currentPriceElement\.textContent = text/);
-  assert.match(source, /const text = formatFocusedPrice\(price\);\s*if \(this\.crosshairPriceElement\.textContent !== text\) this\.crosshairPriceElement\.textContent = text/);
+  assert.match(source, /this\.priceAlertControl\.update\(price, marketFocusedPriceFormatFor\(price\)\.precision\)/);
   assert.match(styles, /--trading-market-current-price: #269d4d;/);
   assert.match(styles, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*--trading-market-current-price: #45c979;/);
   assert.match(syncCurrentPriceLine, /axisLabelColor: lineColor/);
@@ -2271,7 +2272,8 @@ test("Trading Expert keeps the live chart workspace across renders and page navi
   );
 
   assert.match(preservationBlock, /host\.remove\(\)/);
-  assert.match(preservationBlock, /freshHost\.replaceWith\(preserved\.host\)/);
+  assert.match(preservationBlock, /moveTradingWorkspaceHost\(host, document\.body\)/);
+  assert.match(preservationBlock, /moveTradingWorkspaceHost\(preserved\.host, freshHost\.parentElement!, freshHost\)/);
   assert.match(source, /let parkedTradingExpertMarketWorkspace: PreservedTradingExpertMarketWorkspace \| null = null/);
   assert.match(
     preservationBlock,
@@ -2285,7 +2287,7 @@ test("Trading Expert keeps the live chart workspace across renders and page navi
   );
   assert.match(
     preservationBlock,
-    /freshHost\.replaceWith\(preserved\.host\);[\s\S]*?parkedTradingExpertMarketWorkspace = null;[\s\S]*?syncTradingExpertMarketWorkspace\(/,
+    /moveTradingWorkspaceHost\(preserved\.host,[\s\S]*?parkedTradingExpertMarketWorkspace = null;[\s\S]*?syncTradingExpertMarketWorkspace\(/,
     "returning to the task must reattach the same chart before workspace sync",
   );
   assert.match(

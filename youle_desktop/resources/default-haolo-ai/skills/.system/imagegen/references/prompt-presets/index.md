@@ -2,7 +2,7 @@
 
 This directory contains Youle-specific prompt presets for common Chinese image generation workflows.
 
-This index is the local data source for `scripts/resolve_prompt_preset.py`. For every image-generation request, run that resolver first; merge its selected preset text or retain its explicit `preset_id=none` check, then submit through the gated Director using canonical model `aihubcc/gpt-image-2`. Do not manually scan this index on the normal path. Preserve user-provided subject matter, exact visible text, product facts, dimensions, identity constraints, and avoid items.
+This index is the local data source for `scripts/resolve_prompt_preset.py`. For every image-generation request, run that resolver first; merge its selected preset text or retain its explicit `preset_id=none` check, then submit through the gated Director using canonical model `codex/gpt-image-2`. Do not manually scan this index on the normal path. Preserve user-provided subject matter, exact visible text, product facts, dimensions, identity constraints, and avoid items.
 
 ## Presets
 

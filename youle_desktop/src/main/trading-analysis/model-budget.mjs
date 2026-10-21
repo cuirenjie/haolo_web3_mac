@@ -1,7 +1,7 @@
 import { ANALYSIS_RECOVERY_MODEL } from "../analysis-model-policy.mjs";
 
-export const TRADING_PRIMARY_MODEL_BUDGET_MS = 120_000;
-export const TRADING_BACKUP_MODEL_BUDGET_MS = 45_000;
+export const TRADING_PRIMARY_MODEL_BUDGET_MS = 90_000;
+export const TRADING_BACKUP_MODEL_BUDGET_MS = 90_000;
 
 export function tradingModelBudgetError(modelId, exhausted = false) {
   const error = new Error("Trading analysis model time budget exhausted");

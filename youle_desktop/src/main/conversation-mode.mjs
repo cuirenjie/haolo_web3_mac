@@ -18,22 +18,7 @@ const REASONING_EFFORT_ORDER = Object.freeze([
 const REASONING_EFFORT_RANK = new Map(
   REASONING_EFFORT_ORDER.map((effort, index) => [effort, index]),
 );
-const CANONICAL_GPT_IMAGE_2_MODEL = "aihubcc/gpt-image-2";
-const GPT_IMAGE_2_MODEL_ALIASES = new Set([
-  CANONICAL_GPT_IMAGE_2_MODEL,
-  "gpt-image-2",
-  "buming/gpt-image-2",
-  "lingke/gpt-image-2",
-]);
-const CANONICAL_GPT_IMAGE_2_1K_MODEL = "gpt-image-2-1k";
-const GPT_IMAGE_2_1K_MODEL_ALIASES = new Set([
-  CANONICAL_GPT_IMAGE_2_1K_MODEL,
-  "image-2-1k",
-  "aihubcc/gpt-image-2-1k",
-  "gpt-image-2-1k-async",
-  "image-2-1k-async",
-  "aihubcc/gpt-image-2-1k-async",
-]);
+const OFFICIAL_IMAGE_MODEL = "codex/gpt-image-2";
 
 export function normalizeConversationMode(value) {
   const normalized = String(value || "")
@@ -101,22 +86,9 @@ export function buildConversationModeDeveloperInstructions(value, options = {}) 
     const imageGenerationModel = normalizeImageGenerationModel(
       options.imageGenerationModel || options.image_generation_model,
     );
-    const imageGenerationSize = normalizeImageGenerationSize(
-      options.imageGenerationSize || options.image_generation_size,
-    );
-    const imageGenerationSizeField = normalizeImageGenerationSizeField(
-      options.imageGenerationSizeField || options.image_generation_size_field,
-    );
     const imageGenerationModelInstruction =
-      imageGenerationModel === CANONICAL_GPT_IMAGE_2_MODEL
-        ? `- The user selected \`${CANONICAL_GPT_IMAGE_2_MODEL}\`. Try its synchronous Images API first with \`--model "${CANONICAL_GPT_IMAGE_2_MODEL}" --exact-model --provider-fallback-only\`. If and only if Director returns \`pending=false\`, \`state=failed\`, \`safe_to_resubmit=true\`, \`fallback_allowed=true\`, and \`fallback_model=${CANONICAL_GPT_IMAGE_2_1K_MODEL}\`, run a fresh preset check and retry once with \`--model "${CANONICAL_GPT_IMAGE_2_1K_MODEL}" --exact-model\` through the asynchronous task API. Preserve every reference and include \`--strict-edit\` again for edit requests. Do not switch to 2K, 3.5K, Buming \`image2\`, or any other model.`
-        : imageGenerationModel
-          ? `- The user selected \`${imageGenerationModel}\` from the relay's live image-model catalog. Pass this exact value to the image Director with \`--model "${imageGenerationModel}" --exact-model\`; do not silently replace it or switch to another model.`
-          : null;
-    const oneKReferenceEditInstruction =
-      imageGenerationModel === CANONICAL_GPT_IMAGE_2_1K_MODEL
-        ? "- The selected 1K model is asynchronous only. With one reference image and an edit request, include `--strict-edit`; Director must submit the 1K asynchronous reference-image task and poll until `status=completed`. Do not reject it locally or switch models. This route is reference-guided and may not preserve unchanged pixels exactly."
-        : null;
+      '- Use the official image Director with --model "' + (imageGenerationModel || OFFICIAL_IMAGE_MODEL) +
+      '" --exact-model. Never switch providers or models automatically.';
     return [
       serialExecutionInstructions,
       "<haolo_image_generation_mode>",
@@ -124,24 +96,14 @@ export function buildConversationModeDeveloperInstructions(value, options = {}) 
       "- Treat the user's request as an image generation or image editing task unless they explicitly ask to leave image generation mode.",
       "- Use the bundled Haolo image skill and return the generated bitmap result, not only a prompt or implementation instructions.",
       imageGenerationModelInstruction,
-      oneKReferenceEditInstruction,
-      imageGenerationSize && imageGenerationSizeField === "aspect_ratio"
-        ? `- The user selected the image aspect ratio \`${imageGenerationSize}\`. Pass it exactly to the image Director as \`--aspect-ratio "${imageGenerationSize}"\`. The \`auto\` value means adaptive composition and must remain \`auto\`.`
-        : imageGenerationSize && imageGenerationSizeField === "size"
-          ? `- The user selected the image size \`${imageGenerationSize}\`. Pass it exactly to the image Director as \`--size "${imageGenerationSize}"\`. The \`auto\` value means adaptive composition and must remain \`auto\`.`
-          : null,
+      '- Use --size "auto". Describe shape requests in the prompt and report actual output dimensions.',
       "- When reference images are attached, preserve their essential subject, composition, and edit constraints unless the user asks to change them.",
       "</haolo_image_generation_mode>",
     ].filter(Boolean).join("\n");
   }
   if (mode === VIDEO_GENERATION_CONVERSATION_MODE) {
     const selection = normalizeVideoGenerationOptions(options);
-    const exactModelFlags =
-      selection.model === "grok-imagine-video-1.5"
-        ? `--model "${selection.model}" --exact-model --provider-fallback-only`
-        : selection.model
-          ? `--model "${selection.model}" --exact-model`
-          : "";
+    const exactModelFlags = selection.model ? '--model "' + selection.model + '" --exact-model' : "";
     const lockedArguments = [
       exactModelFlags,
       selection.inputMode ? `--input-mode "${selection.inputMode}"` : "",
@@ -174,37 +136,17 @@ export function buildConversationModeDeveloperInstructions(value, options = {}) 
 }
 
 function normalizeImageGenerationModel(value) {
-  const model = String(value || "").trim();
-  if (!/^[a-z0-9][a-z0-9._:/-]{0,199}$/i.test(model)) return "";
-  return GPT_IMAGE_2_MODEL_ALIASES.has(model.toLowerCase())
-    ? CANONICAL_GPT_IMAGE_2_MODEL
-    : GPT_IMAGE_2_1K_MODEL_ALIASES.has(model.toLowerCase())
-      ? CANONICAL_GPT_IMAGE_2_1K_MODEL
-      : model;
+  return String(value || "").trim() === OFFICIAL_IMAGE_MODEL ? OFFICIAL_IMAGE_MODEL : "";
 }
 
-function normalizeImageGenerationSize(value) {
-  const size = String(value || "").trim().toLowerCase();
-  return /^(?:auto|\d{1,4}x\d{1,4}|\d{1,2}:\d{1,2})$/.test(size)
-    ? size
-    : "";
-}
 
-function normalizeImageGenerationSizeField(value) {
-  return value === "size" || value === "aspect_ratio" ? value : "";
-}
 
 export function normalizeVideoGenerationOptions(options = {}) {
   const rawModel = normalizeVideoGenerationToken(
     options.videoGenerationModel || options.video_generation_model,
     200,
   );
-  const model = [
-    "grok-imagine-video-1.5-preview",
-    "aihubcc/grok-imagine-video-1.5-preview",
-  ].includes(rawModel)
-    ? "grok-imagine-video-1.5"
-    : rawModel;
+  const model = rawModel;
   const rawDuration = normalizeVideoGenerationDuration(
     options.videoGenerationDuration || options.video_generation_duration,
   );
@@ -230,10 +172,7 @@ export function normalizeVideoGenerationOptions(options = {}) {
       options.videoGenerationAspectRatio || options.video_generation_aspect_ratio,
       64,
     ),
-    duration:
-      model === "grok-imagine-video-1.5" && Number(rawDuration) > 15
-        ? ""
-        : rawDuration,
+    duration: rawDuration,
     resolution: normalizeVideoGenerationToken(
       options.videoGenerationResolution || options.video_generation_resolution,
       64,

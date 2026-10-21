@@ -1,4 +1,6 @@
 import { translateAppText } from "./app-language.mjs";
+import { positionHistoryReturn } from "../shared/position-history-return.mjs";
+import { createAccountDetailState, type AccountDetailState } from "./binance-account-details.ts";
 
 export type BinanceAccountStatus = {
   bound: boolean;
@@ -118,6 +120,9 @@ export type BinanceAccountProfitCalendar = {
   source: string;
   warnings: string[];
   fetchedAt: string;
+  status?: "ready" | "partial" | "stale";
+  availableDates?: string[];
+  asOf?: number | null;
 };
 
 type BinanceAccountDialogState = {
@@ -144,10 +149,15 @@ export type BinanceAccountUiState = {
   error: string | null;
   status: BinanceAccountStatus | null;
   snapshot: BinanceAccountSnapshot | null;
+  details: { openOrders: AccountDetailState; positionHistory: AccountDetailState };
   profitCalendar: BinanceAccountProfitCalendar | null;
+  profitCalendarConnectionId: string | null;
   profitCalendarMonth: string;
   profitCalendarLoading: boolean;
   profitCalendarError: string | null;
+  profitCalendarLoadedAt: number;
+  profitCalendarRetryAfter: number;
+  profitCalendarFailures: number;
   autoRefreshAfter: number;
   balancesVisible: boolean;
   activeSection: BinanceAccountSection;
@@ -163,10 +173,15 @@ export function createBinanceAccountUiState(): BinanceAccountUiState {
     error: null,
     status: null,
     snapshot: null,
+    details: { openOrders: createAccountDetailState(), positionHistory: createAccountDetailState() },
     profitCalendar: null,
+    profitCalendarConnectionId: null,
     profitCalendarMonth: localMonthKey(new Date()),
     profitCalendarLoading: false,
     profitCalendarError: null,
+    profitCalendarLoadedAt: 0,
+    profitCalendarRetryAfter: 0,
+    profitCalendarFailures: 0,
     autoRefreshAfter: 0,
     balancesVisible: true,
     activeSection: "assets",
@@ -207,14 +222,14 @@ export function resetBinanceAccountDialog(
 
 export function renderBinanceAccountPage(state: BinanceAccountUiState) {
   const status = state.status;
-  const initialLoading = state.loading && !state.loaded;
+  const initialLoading = state.loading && !state.loaded && !status?.bound;
   return `
     <section class="binance-account-page" aria-label="Binance 账户" aria-busy="${initialLoading}">
       ${state.rebindRequired
         ? renderBinanceAccountLoadError(state.error || "API Key 无效，请重新绑定", true, state.dialog.open)
         : initialLoading
         ? renderBinanceAccountLoading()
-        : state.error && !state.loaded
+        : state.error && !state.loaded && !status?.bound
           ? renderBinanceAccountLoadError(state.error)
           : status?.bound
             ? status.remoteOnly && !status.serverCredentialsBound
@@ -418,8 +433,17 @@ function renderBinanceAccountLoadError(message: string, rebindRequired = false, 
 }
 
 function renderBoundBinanceAccount(state: BinanceAccountUiState) {
+  const sharedSection = state.status?.serverCredentialsBound && ["open-orders", "history"].includes(state.activeSection);
+  if (sharedSection || state.activeSection === "profit-calendar") {
+    const content = sharedSection ? renderSharedAccountDetails(state) : renderProfitCalendar(state, state.balancesVisible);
+    return `<div class="binance-account-bound-view">
+      ${renderBinanceAccountToolbar(state.activeSection, state.refreshing)}
+      <div class="binance-account-scroll ${state.activeSection}" tabindex="0">
+        <div class="binance-account-content ${state.activeSection}" role="region" aria-label="${sectionLabel(state.activeSection)}">${content}</div>
+      </div></div>`;
+  }
   const snapshot = state.snapshot;
-  if (!snapshot) return renderBinanceAccountLoading();
+  if (!snapshot) return `${renderBinanceAccountToolbar(state.activeSection, state.refreshing)}${state.error ? renderBinanceAccountLoadError(state.error) : renderBinanceAccountLoading()}`;
   const visible = state.balancesVisible;
   const positions = Array.isArray(snapshot.positions) ? snapshot.positions : [];
   const positionHistory = Array.isArray(snapshot.positionHistory) ? snapshot.positionHistory : [];
@@ -491,6 +515,32 @@ function renderBoundBinanceAccount(state: BinanceAccountUiState) {
   `;
 }
 
+function renderSharedAccountDetails(state: BinanceAccountUiState) {
+  const orders = state.activeSection === "open-orders";
+  const detail = state.details[orders ? "openOrders" : "positionHistory"];
+  const sameConnection = detail.connectionId === (state.status?.serverConnectionId || state.status?.connectionId);
+  const result = sameConnection ? detail.result : null;
+  const error = sameConnection ? detail.error : null;
+  const rows = result?.items || [];
+  const loading = detail.loading || (!result && !error);
+  const notices: string[] = [];
+  if (error) notices.push(error);
+  if (loading && !result) notices.push("正在加载账户明细…");
+  else if (result?.status === "partial") notices.push("部分历史仍在同步，以下为已确认的记录。");
+  else if (result?.status === "syncing" || result?.status === "unavailable") notices.push("账户明细尚未同步完成，请稍后重试。");
+  const emptyConfirmed = result?.status === "ready" && !error && !loading;
+  const content = rows.length ? orders
+    ? `<div class="binance-account-open-order-list">${(rows as BinanceAccountOpenOrder[]).map(row => renderOpenOrderCard(row, state.balancesVisible)).join("")}</div>`
+    : `<div class="binance-account-history-list">${(rows as BinanceAccountPositionHistory[]).map(row => renderPositionHistoryCard(row, state.balancesVisible, result?.asOf ? new Date(result.asOf).toISOString() : "")).join("")}</div>`
+    : emptyConfirmed ? `<div class="binance-account-empty-${orders ? "open-orders" : "history"}"><strong>${escapeHtml(orders ? "暂无当前委托" : "暂无仓位历史")}</strong></div>` : "";
+  return `<section class="${orders ? "binance-account-open-orders" : "binance-account-position-history"}" aria-busy="${loading}">
+    ${notices.map(text => `<p class="binance-account-data-status" role="${error ? "alert" : "status"}">${escapeHtml(text)}</p>`).join("")}
+    ${content}
+    ${!loading && (error || (result && result.status !== "ready")) ? `<button type="button" class="binance-account-quiet-button" data-binance-account-action="retry-details">${escapeHtml("重试")}</button>` : ""}
+    ${result?.nextCursor ? `<button type="button" class="binance-account-quiet-button" data-binance-account-action="more-details" ${loading ? "disabled" : ""}>${escapeHtml("加载更多")}</button>` : ""}
+  </section>`;
+}
+
 function renderProfitCalendar(state: BinanceAccountUiState, visible: boolean) {
   const month = validCalendarMonth(state.profitCalendarMonth)
     ? state.profitCalendarMonth
@@ -504,7 +554,7 @@ function renderProfitCalendar(state: BinanceAccountUiState, visible: boolean) {
   const pnlByDate = new Map(
     calendarDays.map((day) => [day.date, day.pnl] as const),
   );
-  const monthlyPnl = calendar
+  const monthlyPnl = calendar && calendar.status !== "partial"
     ? roundedCalendarPnl(calendarDays.reduce((total, day) => total + day.pnl, 0))
     : null;
   const monthlyTone = visible ? metricTone(monthlyPnl) : "neutral";
@@ -516,6 +566,7 @@ function renderProfitCalendar(state: BinanceAccountUiState, visible: boolean) {
   const dayCells = Array.from({ length: daysInMonth }, (_, index) => {
     const day = index + 1;
     const date = `${month}-${String(day).padStart(2, "0")}`;
+    const unknown = !calendar || (calendar.availableDates && !calendar.availableDates.includes(date));
     const hasTrading = pnlByDate.has(date);
     const pnl = hasTrading ? pnlByDate.get(date)! : null;
     const roundedPnl = pnl == null ? null : roundedCalendarPnl(pnl);
@@ -536,7 +587,7 @@ function renderProfitCalendar(state: BinanceAccountUiState, visible: boolean) {
     const accessibleValue = !visible
       ? "盈亏已隐藏"
       : roundedPnl == null
-        ? "无交易"
+        ? unknown ? "数据尚未同步" : "无交易"
         : roundedPnl === 0
           ? "盈亏 0.00"
           : `${roundedPnl > 0 ? "盈利" : "亏损"} ${formatNumber(Math.abs(roundedPnl), 2)}`;
@@ -574,6 +625,8 @@ function renderProfitCalendar(state: BinanceAccountUiState, visible: boolean) {
         <strong>${year}年 ${monthNumber}月</strong>
         <button type="button" data-binance-account-action="next-profit-month" aria-label="查看下个月" ${nextDisabled ? "disabled" : ""}>${renderChevronIcon("next")}</button>
       </div>
+      ${state.profitCalendarError && calendar ? `<p class="binance-account-data-status" role="alert">${escapeHtml(state.profitCalendarError)} <button type="button" class="binance-account-quiet-button" data-binance-account-action="retry-profit-calendar">${escapeHtml("重试")}</button></p>` : ""}
+      ${calendar?.status === "partial" ? `<p class="binance-account-data-status" role="status">${escapeHtml("部分日期尚未同步，未完整月份不计算总收益。")}</p>` : ""}
       <div class="binance-account-profit-weekdays" aria-hidden="true">${["一", "二", "三", "四", "五", "六", "日"].map((day) => `<span>${day}</span>`).join("")}</div>
       ${body}
     </section>
@@ -841,7 +894,8 @@ function openOrderDateTime(value: number) {
 function renderPositionHistoryCard(record: BinanceAccountPositionHistory, visible: boolean, fetchedAt: string) {
   const short = record.direction === "SHORT";
   const realizedTone = visible ? metricTone(record.realizedPnl) : "neutral";
-  const roiTone = visible ? metricTone(record.roi) : "neutral";
+  const roi = positionHistoryReturn(record);
+  const roiTone = visible ? metricTone(roi) : "neutral";
   const marginLabel = record.marginType === "cross" ? "全仓" : record.marginType === "isolated" ? "逐仓" : "";
   const leverageLabel = record.leverage == null ? "" : `${formatNumber(record.leverage, 0)}X`;
   const directionLabel = short ? "做空" : "做多";
@@ -867,8 +921,8 @@ function renderPositionHistoryCard(record: BinanceAccountPositionHistory, visibl
           ${record.unrealizedPnl == null ? "" : `<small>未实现盈亏 ${visible ? `${signedValue(record.unrealizedPnl, true, false)} USDT` : "••••"}</small>`}
         </div>
         <div class="binance-account-history-featured ${roiTone}">
-          <span>收益率</span>
-          <strong>${visible ? record.roi == null ? "—" : signedPercent(record.roi) : "••••"}</strong>
+          <span title="已实现盈亏 ÷ 开仓成交金额 × 100%">收益率</span>
+          <strong>${visible ? roi == null ? "—" : signedPercent(roi) : "••••"}</strong>
         </div>
         ${positionHistoryMetric(`已平仓量 (${record.baseAsset || "—"})`, record.closedAmount, visible, "amount")}
         ${positionHistoryMetric("开仓价格", record.entryPrice, visible, "price")}
@@ -951,7 +1005,7 @@ function formatMonthlyPnl(value: number) {
 
 function signedMetric(value: number | null, percent: number | null, visible: boolean) {
   if (!visible) return `<strong>••••</strong>`;
-  if (value == null) return `<strong class="muted">暂不可用</strong>`;
+  if (value == null) return `<strong class="muted">—</strong>`;
   const tone = metricTone(value);
   const percentage = percent == null ? "" : ` (${signedPercent(percent)})`;
   return `<strong class="${tone}">${signedPrefix(value)}${currencyValue(Math.abs(value), true)}${percentage}</strong>`;

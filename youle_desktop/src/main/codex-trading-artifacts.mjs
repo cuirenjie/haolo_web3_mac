@@ -10,6 +10,7 @@ export class CodexTradingArtifacts {
     this.now = now;
     this.memory = new Map();
     this.current = new Map();
+    this.presentationIndex = null;
   }
   key(owner, thread, ref) {
     if (!/^[a-f0-9-]{36}$/.test(ref)) throw new Error("Invalid analysis reference.");
@@ -36,6 +37,7 @@ export class CodexTradingArtifacts {
     }
     this.memory.delete(key);
     this.memory.set(key, copy);
+    this.presentationIndex = null;
     // Durable records remain on disk; keep large candle/patch payloads out of
     // an unbounded process cache during long-running desktop sessions.
     if (this.directory) while (this.memory.size > 64) this.memory.delete(this.memory.keys().next().value);
@@ -50,6 +52,41 @@ export class CodexTradingArtifacts {
     }
     if (!record || record.owner !== owner || record.thread !== thread || record.ref !== ref) throw new Error("Analysis reference is unavailable in this conversation.");
     return structuredClone(record);
+  }
+  async presentations(owner, thread) {
+    if (!owner || !thread) return [];
+    const dir = typeof this.directory === "function" ? this.directory() : this.directory;
+    if (!dir) return structuredClone([...this.memory.values()]
+      .filter(record => record.owner === owner && record.thread === thread)
+      .flatMap(presentedItems));
+    // Only cache the small delivered messages, never candles or analysis input.
+    // Atomic artifact renames change the directory timestamp, including writes
+    // by another process. A local save also invalidates immediately.
+    let stamp;
+    try { const stat = await fs.stat(dir); stamp = `${stat.mtimeMs}:${stat.ctimeMs}`; }
+    catch (error) { if (error?.code === "ENOENT") return []; throw error; }
+    if (!this.presentationIndex || this.presentationIndex.dir !== dir || this.presentationIndex.stamp !== stamp) {
+      this.presentationIndex = { dir, stamp, promise: this.readPresentationIndex(dir) };
+    }
+    const index = await this.presentationIndex.promise;
+    return structuredClone(index.get(JSON.stringify([owner, thread])) || []);
+  }
+  async readPresentationIndex(dir) {
+    const index = new Map();
+    for (const name of await fs.readdir(dir)) {
+      if (!/^[a-f0-9]{64}\.json$/.test(name)) continue;
+      let record;
+      try {
+        record = JSON.parse(await fs.readFile(path.join(dir, name), "utf8"));
+        if (typeof record.owner !== "string" || typeof record.thread !== "string"
+            || `${this.key(record.owner, record.thread, record.ref)}.json` !== name) continue;
+      } catch { continue; } // A corrupt/unrelated artifact must not hide other plans.
+      const items = presentedItems(record);
+      if (!items.length) continue;
+      const key = JSON.stringify([record.owner, record.thread]);
+      index.set(key, [...(index.get(key) || []), ...items]);
+    }
+    return index;
   }
   async currentDraft(owner, thread, kind, ref = undefined) {
     const key = createHeadKey(owner, thread, kind);
@@ -68,5 +105,12 @@ export class CodexTradingArtifacts {
     }
     return this.current.get(key) || null;
   }
+}
+function presentedItems(record) {
+  const items = record.effects?.present?.presentationItems;
+  if (!Array.isArray(items)) return [];
+  return items.filter(item => item?.type === "agentMessage" && typeof item.id === "string" && item.id
+    && typeof item.text === "string" && item.text.trim()
+    && ["execution-plan", "position-plan"].includes(item.__youleExecutionPlanPresentation));
 }
 const createHeadKey = (owner, thread, kind) => crypto.createHash("sha256").update(JSON.stringify([owner,thread,kind])).digest("hex");

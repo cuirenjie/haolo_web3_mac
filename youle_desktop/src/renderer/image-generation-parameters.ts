@@ -16,108 +16,21 @@ export type ImageGenerationParameterCapability = {
   maxReferenceLongEdge: number;
 };
 
-const BASE_SIZE_OPTIONS: readonly ImageGenerationSizeOption[] = [
-  {
-    value: "1024x1024",
-    label: "1:1",
-    compactLabel: "1:1",
-  },
-  {
-    value: "1536x1024",
-    label: "3:2",
-    compactLabel: "3:2",
-  },
-  {
-    value: "1024x1536",
-    label: "2:3",
-    compactLabel: "2:3",
-  },
-];
-
-function ratioOption(value: string, label: string): ImageGenerationSizeOption {
-  return {
-    value,
-    label: `${label} · ${value}`,
-    compactLabel: value,
-  };
-}
-
-const ASPECT_RATIO_OPTIONS: readonly ImageGenerationSizeOption[] = [
-  ratioOption("1:1", "方形"),
-  ratioOption("16:9", "横版"),
-  ratioOption("9:16", "竖版"),
-  ratioOption("4:3", "横版"),
-  ratioOption("3:4", "竖版"),
-  ratioOption("3:2", "横版"),
-  ratioOption("2:3", "竖版"),
-  ratioOption("5:4", "横版"),
-  ratioOption("4:5", "竖版"),
-];
-
-const BASE_CAPABILITY: ImageGenerationParameterCapability = {
+const OFFICIAL_CAPABILITY: ImageGenerationParameterCapability = {
   sizeField: "size",
-  sizeOptions: BASE_SIZE_OPTIONS,
-  defaultSize: "1024x1024",
+  sizeOptions: [{ value: "auto", label: "自动", compactLabel: "自动" }],
+  defaultSize: "auto",
   requiredReferenceImages: 0,
-  maxReferenceImages: 1,
-  maxReferenceBytesTotal: 0,
-  maxReferenceLongEdge: 2048,
-};
-
-const ONE_K_CAPABILITY: ImageGenerationParameterCapability = {
-  sizeField: "aspect_ratio",
-  sizeOptions: ASPECT_RATIO_OPTIONS,
-  defaultSize: "1:1",
-  requiredReferenceImages: 0,
-  maxReferenceImages: 6,
-  maxReferenceBytesTotal: 5 * 1024 * 1024,
-  maxReferenceLongEdge: 0,
-};
-
-const ASPECT_RATIO_CAPABILITY: ImageGenerationParameterCapability = {
-  sizeField: "aspect_ratio",
-  sizeOptions: ASPECT_RATIO_OPTIONS,
-  defaultSize: "1:1",
-  requiredReferenceImages: 0,
-  maxReferenceImages: 6,
-  maxReferenceBytesTotal: 5 * 1024 * 1024,
-  maxReferenceLongEdge: 0,
-};
-
-const FALLBACK_CAPABILITY: ImageGenerationParameterCapability = {
-  sizeField: "size",
-  sizeOptions: [BASE_SIZE_OPTIONS[0]],
-  defaultSize: "1024x1024",
-  requiredReferenceImages: 0,
-  maxReferenceImages: 0,
-  maxReferenceBytesTotal: 0,
+  maxReferenceImages: 4,
+  maxReferenceBytesTotal: 20 * 1024 * 1024,
   maxReferenceLongEdge: 0,
 };
 
 export function imageGenerationParameterCapability(
   modelId: unknown,
 ): ImageGenerationParameterCapability {
-  const model = imageGenerationModelKey(modelId);
-  if (model === "gpt-image-2" || model === "image-2") {
-    return BASE_CAPABILITY;
-  }
-  if (
-    model === "gpt-image-2-1k" ||
-    model === "image-2-1k" ||
-    model === "gpt-image-2-1k-async" ||
-    model === "image-2-1k-async"
-  ) {
-    return ONE_K_CAPABILITY;
-  }
-  if (
-    model === "gpt-image-2-2k" ||
-    model === "image-2-2k" ||
-    model === "gpt-image-2-3.5k" ||
-    model === "image-2-3.5k"
-  ) {
-    return ASPECT_RATIO_CAPABILITY;
-  }
-  return FALLBACK_CAPABILITY;
+  if (String(modelId ?? "").trim() === "codex/gpt-image-2") return OFFICIAL_CAPABILITY;
+  return { ...OFFICIAL_CAPABILITY, maxReferenceImages: 0 };
 }
 
 export function normalizeImageGenerationSize(value: unknown) {
@@ -190,14 +103,4 @@ function greatestCommonDivisor(leftValue: number, rightValue: number) {
     [left, right] = [right, left % right];
   }
   return left || 1;
-}
-
-function imageGenerationModelKey(modelId: unknown) {
-  return (
-    String(modelId ?? "")
-      .trim()
-      .toLowerCase()
-      .split("/")
-      .at(-1) || ""
-  );
 }

@@ -10,6 +10,24 @@ function client(fetch) {
   return api;
 }
 
+test('price alerts use owner-scoped cloud draft, confirmation and versioned lifecycle routes', async () => {
+  const requests=[];
+  const api=client(async (url,init)=>{requests.push({url:String(url),init});return new Response('{}',{headers:{'content-type':'application/json'}});});
+  api.profile={id:'user'};
+  const alertId='11111111-2222-4333-8444-555555555555';
+  const options={idempotencyKey:'stable-price-request',expectedAccountId:'user',expectedBaseUrl:'https://haolo.example'};
+  await api.tradingCloudRequest('priceAlerts',{},options);
+  await api.tradingCloudRequest('createPriceAlertDraft',{title:'BTC',rule:{}},options);
+  await api.tradingCloudRequest('confirmPriceAlert',{alertId,version:1,ruleHash:'a'.repeat(64)},options);
+  await api.tradingCloudRequest('priceAlertAction',{alertId,action:'pause',version:2},options);
+  assert.deepEqual(requests.map(r=>r.url.split('/api/mobile/v1')[1]),['/alerts','/alert-drafts',`/alert-drafts/${alertId}/confirm`,`/alerts/${alertId}/pause`]);
+  assert.deepEqual(JSON.parse(requests[3].init.body),{version:2});
+  assert.ok(requests.slice(1).every(r=>r.init.headers['Idempotency-Key']===options.idempotencyKey));
+  await assert.rejects(api.tradingCloudRequest('priceAlertAction',{alertId:'../../escape',action:'delete'},options));
+  await assert.rejects(api.tradingCloudRequest('priceAlertAction',{alertId,action:'send-email'},options));
+  assert.equal(requests.length,4);
+});
+
 test('cloud preferences bind account auth and preserve the same idempotency key on explicit retry', async () => {
   const requests = [];
   const api = client(async (url, init) => {

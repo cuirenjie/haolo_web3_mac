@@ -126,7 +126,7 @@ function normalizeModels(value: unknown): ImageGenerationCatalogModel[] {
     if (!item) continue;
     const id = safeText(item.id ?? item.model ?? item.slug ?? item.name, 200);
     const key = id.toLowerCase();
-    if (!id || seen.has(key)) continue;
+    if (id !== "codex/gpt-image-2" || seen.has(key)) continue;
     seen.add(key);
     models.push({
       id,

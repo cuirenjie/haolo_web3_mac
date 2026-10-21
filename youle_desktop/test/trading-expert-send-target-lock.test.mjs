@@ -14,14 +14,14 @@ function sourceBlock(source, startMarker, endMarker) {
   return source.slice(start, end);
 }
 
-test("Codex-first sends capture an immutable target before preparation and delegate only through the tool bridge", async () => {
+test("Codex-first sends capture an immutable target before preparation and preserve target capture for normal and pure-reference sends", async () => {
   const source = await mainSource;
   const send = sourceBlock(source, "async function sendCurrentMessage", "async function sendCurrentProviderMessage");
   const capture = send.indexOf("captureTradingExpertAnalysisTarget()");
   assert.ok(capture >= 0, "the send path must capture its chart target");
   assert.ok(capture < send.indexOf("await prepareContextBudgetForSend"));
   assert.match(send, /codexTradingTools\.capture\(state\.attachments, tradingAnalysisTargetAtSend\)/);
-  assert.doesNotMatch(send, /await (?:classifyTrading|runTradingStrategyChartRequest|runTradingGeneralChartRequest|handleTradingPreferenceOnboardingReply)/);
+  assert.doesNotMatch(send, /await (?:classifyTrading|runTradingGeneralChartRequest|handleTradingPreferenceOnboardingReply)/);
   assert.match(send, /businessContextId/);
   assert.match(send, /finally \{[\s\S]*?codexTradingTools\.release\(businessContextId\)/);
 });

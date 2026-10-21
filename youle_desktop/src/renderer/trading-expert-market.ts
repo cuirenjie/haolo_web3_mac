@@ -1,10 +1,14 @@
 import { requestIndexChart, INDEX_RESOLUTIONS, indexPeriodFor } from "./trading-index-chart.ts";
+import { deferInteractionRender } from "./interaction-render-guard.ts";
+import { openBoundAnalysisChart } from "./trading-analysis-chart-context.ts";
 import { indexName, indexCopy, indexValue, indexChange, type PublicMarketIndex } from "./trading-public-indices.ts";
 import { TradingIndexFavorites, tickerIdentity } from './trading-index-favorites.ts';
 import { colorPickerInput } from './color-picker.ts';
 import { IFIND_BUSINESS_ENABLED, tradingMarketAvailable, tradingMarketUnavailableMessage } from "../shared/trading-market-availability.mjs";
 import { binanceCandleBackfillLimit, binanceCandleHistoryComplete } from "../shared/binance-candle-request.mjs";
 import {chartTickLabel} from "./trading-chart-time.ts";
+import { TradingChartClock } from "./trading-chart-clock.ts";
+import { TradingPriceAlertControl } from './trading-price-alert.ts';
 import { fetchVolumeHistoryPages, type VolumeHistoryRequest, type VolumeHistoryResult } from './trading-volume-history.ts';
 import { accountSettingsSync, flattenSettings, applySettingValues, type SettingValues } from './account-settings-sync.ts';
 import { sharedDefaultIndicatorColor } from './shared-indicator-defaults.ts';
@@ -15,6 +19,7 @@ import {cloudAnalysisWindow} from './cloud-analysis-window.ts';
 import {captureCloudAnalysisPanes} from './cloud-analysis-panes.ts';
 import {cloudReportFromResponse, normalizeCloudReports, type CloudTradingReport} from '../main/cloud-plan-contract.mjs';
 import {cloudAnalysisDrawingPlan, cloudPlanDrawingPatch} from '../shared/execution-plan-drawings.mjs';
+import {isTerminalAnalysisError} from '../shared/business-tool-error.mjs';
 import {
   AreaSeries,
   BarSeries,
@@ -504,6 +509,11 @@ interface TradingChanAnalysisResponse {
   };
 }
 export interface TradingExecutionModelSelection {
+  /** Enabled only by the exact, standalone official mention entry point. */
+  pureReferenceAnalysis?: boolean;
+  /** Reveal the validated report concurrently with the original drawing playback. */
+  onReportReady?: (result: TradingGeneralConversationResult, isActive: () => boolean) => void | Promise<void>;
+  drawingTurnId?: string;
   sourceThreadId?: string;
   model?: string | null;
   modelId?: string | null;
@@ -4973,6 +4983,7 @@ class TradingExpertMarketWorkspace {
   private readonly crosshairFrame = new TradingChartFrameUpdate<any>((parameter) => this.paintCrosshair(parameter));
   private readonly crosshairTimeElement: HTMLTimeElement;
   private readonly crosshairPriceElement: HTMLElement;
+  private readonly priceAlertControl: TradingPriceAlertControl;
   private readonly currentPriceElement: HTMLElement;
   private readonly candleCountdownElement: HTMLTimeElement;
   private readonly picker: HTMLElement;
@@ -5016,6 +5027,7 @@ class TradingExpertMarketWorkspace {
   private chartSettingsBackdrop: HTMLElement;
   private chartSettingsAnchor: HTMLElement | null = null;
   private chart: ReturnType<typeof createChart> | null = null;
+  private chartClock: TradingChartClock | null = null;
   private candleSeries: any = null;
   private extremaOverlay: TradingChartExtremaOverlay | null = null;
   private alertSimulationHistorySeries: any = null;
@@ -5210,6 +5222,10 @@ class TradingExpertMarketWorkspace {
     this.ohlcValueElements = Array.from(this.ohlcElement.querySelectorAll<HTMLElement>("[data-market-ohlc-value]"));
     this.crosshairTimeElement = this.requireElement<HTMLTimeElement>("[data-market-crosshair-time]");
     this.crosshairPriceElement = this.requireElement("[data-market-crosshair-price]");
+    this.priceAlertControl = new TradingPriceAlertControl(this.crosshairPriceElement, () =>
+      this.loadedMarketId === this.selectedMarketId && this.loadedInterval === this.activeInterval && !this.selectedIndex
+        ? { marketId: this.selectedMarketId, interval: this.activeInterval, referencePrice: this.candles.at(-1)?.close || 0 }
+        : null);
     this.currentPriceElement = this.requireElement("[data-market-current-price]");
     this.candleCountdownElement = this.requireElement<HTMLTimeElement>("[data-market-candle-countdown]");
     this.picker = this.requireElement("[data-market-picker]");
@@ -6032,6 +6048,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private refreshChartSettingsDialog() {
+    if (deferInteractionRender(this.chartSettingsBackdrop, () => this.refreshChartSettingsDialog())) return;
     const wasOpen = !this.chartSettingsBackdrop.hidden;
     const template = document.createElement("template");
     template.innerHTML = renderTradingChartSettingsDialog(
@@ -6120,6 +6137,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private refreshSplitLayoutPicker() {
+    if (deferInteractionRender(this.layoutPicker, () => this.refreshSplitLayoutPicker())) return;
     const wasOpen = !this.layoutPicker.hidden;
     const anchor = this.layoutPickerAnchor;
     const template = document.createElement("template");
@@ -6484,6 +6502,7 @@ class TradingExpertMarketWorkspace {
     image.closest<HTMLElement>("[data-market-logo-shell]")?.classList.add("fallback");
   };
   private readonly handleViewportLeave = () => {
+    if (this.priceAlertControl.interacting) return;
     this.crosshairFrame.cancel();
     this.hideCrosshairTimeLabel();
     this.hideCrosshairPriceLabel();
@@ -7207,6 +7226,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private renderFavoriteTickerBar() {
+    if (deferInteractionRender(this.favoriteTickerBar, () => this.renderFavoriteTickerBar())) return;
     this.watchlistPanel.paintQuotes();
     this.favoriteTickerSortController.cancel();
     const markets = this.favoriteTickerMarkets();
@@ -7736,6 +7756,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private renderPeriodButtons() {
+    if (deferInteractionRender(this.periodTimes, () => this.renderPeriodButtons()) || deferInteractionRender(this.primaryPeriodMenu, () => this.renderPeriodButtons())) return;
     const buttons = renderTimeButtons(this.visiblePeriods(), this.activeInterval);
     this.periodTimes.innerHTML = buttons;
     this.primaryPeriodMenu.innerHTML = buttons;
@@ -7808,6 +7829,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private renderPeriodOverflow() {
+    if (deferInteractionRender(this.periodOverflowItems, () => this.renderPeriodOverflow())) return;
     this.periodOverflowItems.innerHTML = renderTimeButtons(this.overflowPeriods, this.activeInterval);
     this.syncIntervalAvailability();
   }
@@ -7830,6 +7852,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private renderPeriodEditor(resetStatus = true) {
+    if (deferInteractionRender(this.periodItems, () => this.renderPeriodEditor(resetStatus))) return;
     this.periodItems.innerHTML = this.draftPeriods.map((period) => {
       const resolution = tradingViewResolution(period);
       return `
@@ -8367,6 +8390,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private renderIndicatorEditor(resetStatus = true) {
+    if (deferInteractionRender(this.indicatorCatalog, () => this.renderIndicatorEditor(resetStatus)) || deferInteractionRender(this.indicatorDetail, () => this.renderIndicatorEditor(resetStatus))) return;
     this.clearIndicatorScrollerState(this.indicatorCatalog);
     this.clearIndicatorScrollerState(this.indicatorDetail);
     const renderSection = (scope: TradingIndicatorScope, title: string) => `
@@ -8706,6 +8730,9 @@ class TradingExpertMarketWorkspace {
       window.clearTimeout(this.marketListRenderTimer);
       this.marketListRenderTimer = null;
     }
+    // Invalidate old chunks before deferring so they cannot replace the
+    // pending refresh with results from an obsolete search.
+    if (deferInteractionRender(this.marketList, () => this.renderMarkets(options))) return;
     const preservedScrollTop = options.resetScroll
       ? 0
       : Math.max(this.marketList.scrollTop, this.marketListScrollTop);
@@ -8810,6 +8837,7 @@ class TradingExpertMarketWorkspace {
     this.marketList.innerHTML = '<p class="trading-market-list-empty">正在加载交易对目录…</p>';
     const appendChunk = (start: number) => {
       if (this.disposed || renderGeneration !== this.marketListRenderGeneration) return;
+      if (deferInteractionRender(this.marketList, () => appendChunk(start))) return;
       this.marketListRenderTimer = null;
       if (start === 0) this.marketList.replaceChildren();
       const chunk = document.createElement("template");
@@ -9234,8 +9262,9 @@ class TradingExpertMarketWorkspace {
     let cursor = 0;
     let completed = 0;
     let failed = failures.length;
+    let terminalFailure = false;
     const worker = async () => {
-      while (cursor < snapshots.length) {
+      while (!terminalFailure && cursor < snapshots.length) {
         const snapshot = snapshots[cursor];
         cursor += 1;
         if (!tradingAnalysisJobs.isActive(options.job.analysisId)) return;
@@ -9244,12 +9273,12 @@ class TradingExpertMarketWorkspace {
             throw new Error(`仅有 ${snapshot.candles.length} 根 K 线`);
           }
           const response = await options.analyze(snapshot);
-          if (!tradingAnalysisJobs.isActive(options.job.analysisId)) return;
+          if (terminalFailure || !tradingAnalysisJobs.isActive(options.job.analysisId)) return;
           if (
             !response?.ok
             || (!response.analysisPlan?.drawingPatch && !response.analysisPlan?.indicatorDrawingPatch)
           ) {
-            throw Object.assign(new Error(response?.error?.message || `${options.analysisLabel}没有返回绘图计划`), {code: response?.error?.code});
+            throw Object.assign(new Error(response?.error?.message || `${options.analysisLabel}没有返回绘图计划`), response?.error);
           }
           const analysisPlan = cloudAnalysisDrawingPlan(response);
           options.deferredDrawings?.push({ job: options.job, paneIndex: snapshot.paneIndex,
@@ -9286,7 +9315,11 @@ class TradingExpertMarketWorkspace {
           });
           completed += 1;
         } catch (error) {
-          if (!tradingAnalysisJobs.isActive(options.job.analysisId)) return;
+          if (terminalFailure || !tradingAnalysisJobs.isActive(options.job.analysisId)) return;
+          if (isTerminalAnalysisError(error)) {
+            terminalFailure = true;
+            throw error;
+          }
           failures.push({
             paneIndex: snapshot.paneIndex,
             heading: tradingAnalysisPaneHeading(snapshot.market, snapshot.interval),
@@ -10833,6 +10866,10 @@ class TradingExpertMarketWorkspace {
     return this.drawingStorageSessionId === storageSessionId;
   }
 
+  analysisWorkspaceOwner() {
+    return this.favoriteStorageAccountIdentity;
+  }
+
   drawingStorageSession() {
     return this.drawingStorageSessionId;
   }
@@ -10852,6 +10889,8 @@ class TradingExpertMarketWorkspace {
     patch: TradingAiDrawingPatch,
     paneIndex = 0,
     onPhase?: (phase: TradingAiPlaybackPhase) => void,
+    shouldContinue?: () => boolean,
+    speedMultiplier?: number,
   ) {
     if (this.disposed) return false;
     if (paneIndex > 0) {
@@ -10859,7 +10898,7 @@ class TradingExpertMarketWorkspace {
       const controller = pane?.getDrawingController();
       if (!pane || !controller) return false;
       if (pane.analysisContextMatches(patch.marketId, patch.interval)) {
-        await pane.playAiDrawingPatch(patch, { onPhase });
+        await pane.playAiDrawingPatch(patch, { onPhase, shouldContinue, speedMultiplier });
       } else {
         controller.storeAiDrawingPatch(patch);
       }
@@ -10869,6 +10908,8 @@ class TradingExpertMarketWorkspace {
     if (this.selectedMarketId === patch.marketId && this.activeInterval === patch.interval) {
       await this.drawingController.playAiDrawingPatch(patch, {
         onPhase,
+        shouldContinue,
+        speedMultiplier,
         beforePlayback: () => this.focusAnalysisDrawingPatch(patch),
       });
     } else {
@@ -10890,6 +10931,15 @@ class TradingExpertMarketWorkspace {
     return true;
   }
 
+  async showExecutionPlanDrawing(patch: TradingAiDrawingPatch, assertActive: () => void) {
+    assertActive();
+    if (this.disposed || !this.drawingController || this.selectedMarketId !== patch.marketId || this.activeInterval !== patch.interval) throw new Error('计划图表已切换');
+    await this.focusAnalysisDrawingPatch(patch);
+    assertActive();
+    if (this.disposed || this.selectedMarketId !== patch.marketId || this.activeInterval !== patch.interval) throw new Error('计划图表已切换');
+    this.drawingController.showExecutionPlanDrawing(patch);
+  }
+
   clearCurrentStrategyAnalysisDrawings(strategyId: string) {
     if (this.disposed || !this.drawingController) return false;
     return this.drawingController.clearAiAnalysisForCurrentContext(strategyId);
@@ -10900,6 +10950,8 @@ class TradingExpertMarketWorkspace {
     strategyId?: string,
   ): Promise<TradingGeneralConversationResult> {
     const analysisTheory = strategyId || "price-action";
+    const reportBeforeDrawings = request.pureReferenceAnalysis === true
+      && typeof request.onReportReady === "function" && !request.deferPresentation;
     const analysisName = String(request.strategyDisplayName || (strategyId ? "策略" : "价格结构")).trim();
     const directResponseRequested = request.drawingRequested === false
       || request.positionManagementRequested === true;
@@ -10981,6 +11033,7 @@ class TradingExpertMarketWorkspace {
     }
     request.onProgress?.('loading',cloudAnalysisText('submit',activeTradingAnalysisLanguage(),{market:marketLabel,interval:targetInterval}));
     const job = tradingAnalysisJobs.start({
+      drawingTurnId: request.drawingTurnId,
       analysisId: request.analysisId,
       theory: analysisTheory,
       storageSessionId: capturedTarget?.storageSessionId || this.drawingStorageSessionId,
@@ -10995,6 +11048,7 @@ class TradingExpertMarketWorkspace {
       failureStage = "analysis";
       const response = await api({
         analysisJobId: job.analysisId,
+        ...(request.pureReferenceAnalysis === true ? { pureReferenceAnalysis: true } : {}),
         sourceThreadId: request.sourceThreadId, storageSessionId: job.storageSessionId,
         ...(request.model ? { model: request.model } : {}),
         ...(request.modelId ? { modelId: request.modelId } : {}),
@@ -11026,11 +11080,11 @@ class TradingExpertMarketWorkspace {
       }
       const analysisPlan = cloudAnalysisDrawingPlan(response);
       const modelName = tradingAnalysisModelDisplayName(response.model, job.language);
-      const drawingArtifacts: TradingDeferredDrawing[] = request.deferPresentation ? [{
+      const drawingArtifacts: TradingDeferredDrawing[] = request.deferPresentation || reportBeforeDrawings ? [{
         job, paneIndex: 0, drawingPatch: analysisPlan.drawingPatch, indicatorDrawingPatch: analysisPlan.indicatorDrawingPatch,
       }] : [];
       let drawingDeferred = false;
-      if (request.drawingRequested !== false && !request.deferPresentation) {
+      if (request.drawingRequested !== false && !request.deferPresentation && !reportBeforeDrawings) {
         request.onProgress?.(
           "drawing",
           `${modelName} ${cloudAnalysisText('drawing',job.language)}`,
@@ -11069,12 +11123,13 @@ class TradingExpertMarketWorkspace {
         analysisLabel: `${analysisName}分析`,
         analysisProgressPhase: "analyzing",
         drawingProgressPhase: "drawing",
-        drawingsRequested: request.drawingRequested !== false && !request.deferPresentation,
-        deferredDrawings: request.deferPresentation ? drawingArtifacts : undefined,
+        drawingsRequested: request.drawingRequested !== false && !request.deferPresentation && !reportBeforeDrawings,
+        deferredDrawings: request.deferPresentation || reportBeforeDrawings ? drawingArtifacts : undefined,
         onProgress: request.onProgress,
         analyze: async (snapshot) => {
           return api({
             analysisJobId: `${job.analysisId}:pane:${snapshot.paneIndex}`,
+            ...(request.pureReferenceAnalysis === true ? { pureReferenceAnalysis: true } : {}),
             sourceThreadId: request.sourceThreadId, storageSessionId: job.storageSessionId,
             ...(request.model ? { model: request.model } : {}),
             ...(request.modelId ? { modelId: request.modelId } : {}),
@@ -11098,16 +11153,6 @@ class TradingExpertMarketWorkspace {
       if (!tradingAnalysisJobs.isActive(job.analysisId)) {
         throw new Error("盘面分析已由用户停止");
       }
-      if (request.drawingRequested !== false && !request.deferPresentation) rememberTradingAnalysisJobContext(job);
-      request.onProgress?.("complete", `${modelName} ${drawingDeferred
-        ? describeTradingAnalysisFailure(null, { stage: "drawing", language: job.language }).summary
-        : directResponseRequested
-        ? request.positionManagementRequested === true
-          ? cloudAnalysisText('position',job.language)
-          : cloudAnalysisText('direct',job.language)
-        : request.executionPlanRequested === false
-          ? cloudAnalysisText('complete',job.language)
-          : cloudAnalysisText('complete',job.language)}`);
       // Full evidence must reach the root even for direct/position questions.
       // narrative is a scan notification, not a substitute for the report.
       const responseReport = String(response.analysisPlan.report || response.analysisPlan.narrative || "盘面分析已完成");
@@ -11141,6 +11186,55 @@ class TradingExpertMarketWorkspace {
         modelName,
         drawingDeferred,
       };
+      if (reportBeforeDrawings) {
+        // Complete every requested pane before publishing the report. Keep this
+        // same cancellable job alive through the original animated playback.
+        const reportPresentation = request.onReportReady!(result, () => tradingAnalysisJobs.isActive(job.analysisId));
+        const presentationResults = await Promise.allSettled([Promise.resolve(reportPresentation), (async () => {
+          if (!tradingAnalysisJobs.isActive(job.analysisId)) throw new Error("盘面分析已由用户停止");
+          if (request.drawingRequested !== false) {
+            failureStage = "drawing";
+            request.onProgress?.("drawing", `${modelName} ${cloudAnalysisText('drawing',job.language)}`);
+            const onPhase = (phase: TradingAiPlaybackPhase) => {
+              if (tradingAnalysisJobs.isActive(job.analysisId)
+                && (phase === "moving" || phase === "drawing" || phase === "committing")) {
+                request.onProgress?.("drawing", cloudAnalysisText('drawingStep',job.language));
+              }
+            };
+            for (const artifact of drawingArtifacts.sort((a,b) => a.paneIndex - b.paneIndex)) {
+              const outcome = await settleTradingAnalysisDrawing({
+                isActive: () => tradingAnalysisJobs.isActive(job.analysisId),
+                onFailure: error => recordTradingRendererFailure(error, {analysisJobId:job.analysisId, strategyId, stage:"drawing"}),
+                commit: async () => {
+                  if (!tradingAnalysisJobs.isActive(job.analysisId)) throw new Error("盘面分析已由用户停止");
+                  if (artifact.drawingPatch) await commitTradingAnalysisDrawingPatch(job, artifact.drawingPatch, artifact.paneIndex, onPhase,
+                    () => tradingAnalysisJobs.isActive(job.analysisId), 1.3);
+                  else if (artifact.paneIndex === 0 && artifact.indicatorDrawingPatch) this.clearCurrentStrategyAnalysisDrawings(analysisTheory);
+                  if (artifact.indicatorDrawingPatch) await commitTradingIndicatorAnalysisDrawingPatch(job, artifact.indicatorDrawingPatch, artifact.paneIndex);
+                },
+              });
+              drawingDeferred ||= outcome.drawingDeferred;
+            }
+            if (drawingDeferred) {
+              result.drawingDeferred = true;
+              result.report += `\n\n${describeTradingAnalysisFailure(null, {stage:"drawing",language:job.language}).summary}`;
+            }
+          }
+        })()]);
+        for (const [index, outcome] of presentationResults.entries()) {
+          if (outcome.status === "rejected") {
+            failureStage = index === 0 ? "report" : "drawing";
+            throw outcome.reason;
+          }
+        }
+      }
+      if (!tradingAnalysisJobs.isActive(job.analysisId)) throw new Error("盘面分析已由用户停止");
+      if (request.drawingRequested !== false && !request.deferPresentation) rememberTradingAnalysisJobContext(job);
+      request.onProgress?.("complete", `${modelName} ${drawingDeferred
+        ? describeTradingAnalysisFailure(null, { stage: "drawing", language: job.language }).summary
+        : directResponseRequested
+          ? cloudAnalysisText(request.positionManagementRequested === true ? 'position' : 'direct',job.language)
+          : cloudAnalysisText('complete',job.language)}`);
       tradingAnalysisJobs.complete(job.analysisId);
       return result;
     } catch (error) {
@@ -12574,6 +12668,7 @@ class TradingExpertMarketWorkspace {
       },
       ...TRADING_CHART_NAVIGATION_OPTIONS,
     });
+    this.chartClock = new TradingChartClock(this.chartElement, this.chart);
     this.bandUpperSeries = this.chart.addSeries(AreaSeries, {
       topColor: theme.band,
       bottomColor: theme.band,
@@ -12889,6 +12984,7 @@ class TradingExpertMarketWorkspace {
 
   private paintCrosshair(parameter: any) {
     if (this.disposed) return;
+    if (this.priceAlertControl.interacting) return;
     if (!parameter?.point) {
       this.handleViewportLeave();
       return;
@@ -13330,6 +13426,7 @@ class TradingExpertMarketWorkspace {
         rightBarStaysOnScroll: this.chartSettings.scaleAnchor === "right",
       },
     });
+    this.chartClock?.update();
     // Chart-level scale options broadcast to every pane; price geometry must
     // only be applied to pane 0, preserving indicator ranges and padding.
     this.chart.priceScale("right", 0).applyOptions({
@@ -13650,9 +13747,8 @@ class TradingExpertMarketWorkspace {
     const price = Number.isFinite(y) && this.candleSeries
       ? Number(this.candleSeries.coordinateToPrice(y))
       : Number.NaN;
-    if (!Number.isFinite(price)) return;
-    const text = formatFocusedPrice(price);
-    if (this.crosshairPriceElement.textContent !== text) this.crosshairPriceElement.textContent = text;
+    if (!Number.isFinite(price)) { this.hideCrosshairPriceLabel(); return; }
+    this.priceAlertControl.update(price, marketFocusedPriceFormatFor(price).precision);
     this.positionFocusPriceLabel(this.crosshairPriceElement, y);
   }
 
@@ -13944,6 +14040,7 @@ class TradingExpertMarketWorkspace {
   }
 
   destroy() {
+    this.priceAlertControl.destroy();
     this.drawingVisibilitySettings.destroy();
     this.unregisterSettingsSync?.();
     this.favoritePriceFlash.clear();
@@ -14037,6 +14134,8 @@ class TradingExpertMarketWorkspace {
     document.removeEventListener("keydown", this.handleKeyDown);
     this.chartNavigation?.destroy();
     this.chartNavigation = null;
+    this.chartClock?.destroy();
+    this.chartClock = null;
     this.chart?.remove();
     this.chart = null;
   }
@@ -14093,12 +14192,15 @@ async function commitTradingAnalysisDrawingPatch(
   patch: TradingAiDrawingPatch,
   paneIndex = 0,
   onPhase?: (phase: TradingAiPlaybackPhase) => void,
+  shouldContinue?: () => boolean,
+  speedMultiplier?: number,
 ) {
   const currentJob = tradingAnalysisJobs.get(job.analysisId);
   if (!currentJob || currentJob.status !== "running") {
     throw new Error("交易分析已由用户停止");
   }
   patch = localizeTradingAiDrawingPatch(patch, currentJob.language);
+  patch = { ...patch, drawingTurnId: currentJob.drawingTurnId || currentJob.analysisId };
   if (
     paneIndex === 0
     && (patch.marketId !== currentJob.marketId || patch.interval !== currentJob.interval)
@@ -14109,7 +14211,7 @@ async function commitTradingAnalysisDrawingPatch(
     ? activeWorkspace
     : null;
   if (targetWorkspace && (paneIndex === 0 || targetWorkspace.analysisDrawingTargetMatches(patch, paneIndex))) {
-    const applied = await targetWorkspace.acceptAnalysisDrawingPatch(patch, paneIndex, onPhase);
+    const applied = await targetWorkspace.acceptAnalysisDrawingPatch(patch, paneIndex, onPhase, shouldContinue, speedMultiplier);
     if (applied !== true) {
       throw new Error(translateAppText("Drawing Patch 未能应用到目标会话", currentJob.language));
     }
@@ -14266,6 +14368,26 @@ export async function prepareTradingExpertAlertContext(marketId?: string | null,
   return activeWorkspace.prepareAlertContext(marketId, interval);
 }
 
+export async function showTradingExecutionPlanChart(report: CloudTradingReport | null, context: {marketId: string; interval: string}, threadId: string, valid: () => boolean) {
+  const workspace = activeWorkspace;
+  const assertActive = () => {
+    if (!valid() || !workspace || activeWorkspace !== workspace || !workspace.drawingStorageSessionMatches(threadId)) throw new Error('计划来源会话已切换');
+  };
+  assertActive();
+  await workspace!.prepareAlertContext(context.marketId, context.interval, {strictMarketId: true, assertActive});
+  assertActive();
+  if (report) {
+    const normalized = normalizeCloudReports([report])[0];
+    const patch = cloudPlanDrawingPatch(normalized) as TradingAiDrawingPatch | null;
+    if (patch) {
+      if (patch.marketId !== context.marketId || patch.interval !== context.interval) throw new Error('计划画线与原始市场不一致');
+      await workspace!.showExecutionPlanDrawing({...patch, drawingTurnId: `plan:${normalized.runId}`}, assertActive);
+      assertActive();
+    }
+    if (normalized.indicatorDrawingPatch) workspace!.acceptIndicatorAnalysisDrawingPatch(normalized.indicatorDrawingPatch as TradingIndicatorAiDrawingPatch, 0);
+  }
+}
+
 export async function tradingExpertAlertSimulationFrames(rule: any, target?: TradingAnalysisTaskTarget | null, bound = false) {
   const workspace = bound ? (target ? tradingAnalysisTargetWorkspaces.get(target.targetId) : null) : activeWorkspace;
   if (!workspace) throw new Error("交易专家行情工作区尚未就绪");
@@ -14323,24 +14445,12 @@ export async function openTradingExpertAnalysisChart(
   threadId: string,
   signal: AbortSignal,
 ) {
-  // Never fall back to the chart of a different conversation.
-  const workspace = target ? tradingAnalysisTargetWorkspaces.get(target.targetId) : activeWorkspace;
-  const assertActive = () => {
-    if (signal.aborted) throw new Error("Chart opening was cancelled.");
-    if (!workspace || workspace !== activeWorkspace || !workspace.drawingStorageSessionMatches(threadId)) {
-      throw new Error("Open the originating conversation before opening its analysis chart.");
-    }
-  };
-  assertActive();
-  await workspace!.prepareAlertContext(requested.marketId, requested.interval, { strictMarketId: true, assertActive });
-  assertActive();
-  const next = workspace!.captureAnalysisTaskTarget();
-  if (!next || next.marketId !== requested.marketId || next.symbol !== requested.symbol
-      || next.interval !== requested.interval || next.candles.length < 2) {
-    throw new Error("The requested chart candles are not ready. Retry chart opening before analysis.");
-  }
-  tradingAnalysisTargetWorkspaces.set(next.targetId, workspace!);
-  return next;
+  return openBoundAnalysisChart<TradingAnalysisTaskTarget, TradingExpertMarketWorkspace>({
+    target, requested, threadId, signal,
+    boundWorkspace: target ? tradingAnalysisTargetWorkspaces.get(target.targetId) : activeWorkspace,
+    getActiveWorkspace: () => activeWorkspace,
+    remember: (next, workspace) => tradingAnalysisTargetWorkspaces.set(next.targetId, workspace),
+  });
 }
 
 export function rebindTradingExpertAnalysisTargetStorageSession(
@@ -14485,6 +14595,7 @@ export async function runTradingExpertDetachedConversation(
   if (!api) throw new Error("Trading analysis service is unavailable.");
   const job = tradingAnalysisJobs.start({
     analysisId: request.analysisId, theory: strategyId || "price-action",
+    drawingTurnId: request.drawingTurnId,
     storageSessionId: request.sourceThreadId, marketId, symbol, interval,
     language: activeTradingAnalysisLanguage(),
   });

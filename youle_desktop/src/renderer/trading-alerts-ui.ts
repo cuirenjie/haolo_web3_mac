@@ -117,7 +117,10 @@ export function applyTradingAlertsSnapshot(state: TradingAlertsUiState, payload:
   }
   state.enabled = value?.enabled === true;
   state.engine = value?.engine && typeof value.engine === "object" ? value.engine : {};
-  state.alerts = Array.isArray(value?.alerts) ? value.alerts : [];
+  const incoming = Array.isArray(value?.alerts) ? value.alerts : [];
+  // Legacy engine notifications contain only local alerts. Preserve cloud
+  // cards until the next authoritative, account-scoped cloud snapshot.
+  state.alerts = value?.cloudLoaded ? incoming : [...state.alerts.filter(alert => alert.cloud), ...incoming.filter((alert: any) => !alert.cloud || !state.alerts.some(a => a.alertId === alert.alertId))];
   state.gaps = Array.isArray(value?.gaps) ? value.gaps : [];
   state.evidence = Array.isArray(value?.evidence) ? value.evidence : [];
   state.providers = Array.isArray(value?.providers) ? value.providers : [];
@@ -266,16 +269,22 @@ function renderAlertCard(state: TradingAlertsUiState, alert: any) {
   const busy = state.busyAlertId === alert.alertId;
   const drawingLocked = tradingAlertHasDrawingContext(alert);
   const planLinked = tradingAlertIsExecutionPlanLinked(alert);
-  const editLocked = drawingLocked || planLinked;
+  const editLocked = drawingLocked || planLinked || Boolean(alert.cloud);
   const clock = alert.rule?.evaluationPolicy?.clock === "bar_close" ? "收盘确认" : alert.rule?.evaluationPolicy?.clock === "mixed" ? "多个条件" : "盘中实时";
   const mode = alert.rule?.triggerPolicy?.mode === "repeat" ? "重复监控" : "一次性";
   const market = marketLabels(alert.rule)[0] || "未指定市场";
   const title = formatTradingAlertDisplayText(alert.rule?.title || "交易预警");
-  const summary = formatTradingAlertCardSummary(alert.rule?.normalizedSummary || "等待规则摘要", market);
+  const language = typeof document !== 'undefined' ? document.documentElement.lang : 'zh-CN';
+  const localeIndex = language.startsWith('en') ? 1 : /TW|Hant/i.test(language) ? 2 : 0;
+  const level = Number(alert.cloud?.threshold).toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:12});
+  const comparator = ({gte:'≥',lte:'≤',gt:'>',lt:'<',cross_over:'>',cross_under:'<'} as Record<string,string>)[alert.cloud?.operator];
+  const summary = alert.cloud && comparator ? [`价格 ${comparator} ${level} 时发送一次邮件通知`,`Email once when price ${comparator} ${level}`,`價格 ${comparator} ${level} 時傳送一次郵件通知`][localeIndex]
+    : formatTradingAlertCardSummary(alert.rule?.normalizedSummary || "等待规则摘要", market);
   const details = planLinked
     ? renderExecutionPlanAlertConditions(alert)
     : `<p title="${esc(summary)}">${esc(summary)}</p>`;
-  const metadata = planLinked ? `${market} · ${clock} · 随计划自动管理` : `${market} · ${clock} · ${mode}`;
+  const cloudLabel = ['云端监控','Cloud monitoring','雲端監控'][localeIndex];
+  const metadata = planLinked ? `${market} · ${clock} · 随计划自动管理` : `${market} · ${clock} · ${mode}${alert.cloud ? ` · ${cloudLabel}` : ''}`;
   return `
     <article class="trading-alert-card ${esc(status.tone)}${planLinked ? " execution-plan-linked" : ""}" data-trading-alert-card="${esc(alert.alertId)}">
       <div class="trading-alert-card-copy">

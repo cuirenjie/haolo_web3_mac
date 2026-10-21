@@ -16,7 +16,7 @@ export function businessPresentationResult(item) {
       !/haolo_(trading|analysis|chart_draw|plan_present|alerts|simulation|personal_strategy|plans)$/.test(String(item.tool || ""))) return null;
   const content = item.contentItems || item.content_items || item.result?.content || [];
   for (const entry of content) {
-    if (!["inputText", "text"].includes(entry.type) || typeof entry.text !== "string") continue;
+    if (!["inputText", "input_text", "outputText", "output_text", "text"].includes(entry.type) || typeof entry.text !== "string") continue;
     try {
       const value = JSON.parse(entry.text);
       if (!Array.isArray(value?.presentationItems)) continue;

@@ -4,7 +4,8 @@ import { performance } from "node:perf_hooks";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { WebSocketServer } from "ws";
-import { normalizeModelRequestBody } from "./model-request-policy.mjs";
+import { normalizeModelRequestBody, modelFromRequestBody } from "./model-request-policy.mjs";
+import { createModelProgressWatchdog } from "./model-progress-watchdog.mjs";
 import {
   MODEL_REQUEST_COMPRESSION_MIN_BYTES,
   prepareCompressedModelRequest,
@@ -46,6 +47,8 @@ export class ModelRequestRelay extends EventEmitter {
     this.upstreamCompressionSupported = true;
     this.WebSocketImpl = options.WebSocketImpl || null;
     this.resolveHistoryModel = options.resolveHistoryModel;
+    this.deepSeekBilling = options.deepSeekBilling;
+    this.progressTimeouts = options.progressTimeouts;
     this.webSockets = new Set();
     this.webSocketServer = null;
     this.server = null;
@@ -119,6 +122,11 @@ export class ModelRequestRelay extends EventEmitter {
   }
 
   handleWebSocket(request, socket, head) {
+    // This provider uses the HTTP billing contract and its progress watchdog.
+    if (this.deepSeekBilling !== undefined) {
+      socket.end("HTTP/1.1 426 Upgrade Required\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+      return;
+    }
     const target = this.targetUrl(request.url);
     if (!target || request.method !== "GET") {
       socket.end("HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
@@ -199,6 +207,7 @@ export class ModelRequestRelay extends EventEmitter {
     let responseStarted = false;
     let upstreamStatus = 0;
     let compression = null;
+    let watchdog;
     const abortUpstream = () => controller.abort();
     request.once("aborted", abortUpstream);
     response.once("close", () => {
@@ -206,15 +215,25 @@ export class ModelRequestRelay extends EventEmitter {
     });
 
     try {
-      const target = this.targetUrl(request.url);
+      let target = this.targetUrl(request.url);
       if (!target) {
         writeJsonError(response, 404, "MODEL_RELAY_ROUTE_NOT_FOUND", "Unknown model relay route.");
         return;
       }
       const body = normalizeModelRequestBody(await readRequestBody(request, this.maxRequestBytes), request.headers["content-encoding"], this.maxRequestBytes, this.resolveHistoryModel);
+      const deepSeek = modelFromRequestBody(body, request.headers["content-encoding"]) === "deepseek-flash";
+      const requestHeaders = { ...request.headers };
+      if (deepSeek && this.deepSeekBilling !== undefined) {
+        if (!this.deepSeekBilling?.keyId) throw Object.assign(new Error("Model billing profile unavailable"), { code: "MODEL_BILLING_UNAVAILABLE" });
+        if (!/\/responses(?=\?|$)/.test(target)) throw Object.assign(new Error("Model billing route unavailable"), { code: "MODEL_BILLING_UNSUPPORTED" });
+        target = target.replace(/\/responses(?=\?|$)/, "/mobile-analysis/responses");
+        requestHeaders["x-haolo-billing-key-id"] = String(this.deepSeekBilling.keyId);
+        requestHeaders["x-haolo-billing-model"] = "gpt-5.6-sol";
+      }
+      if (deepSeek) watchdog = createModelProgressWatchdog(controller, this.progressTimeouts);
       const originalInit = {
         method: request.method,
-        headers: request.headers,
+        headers: requestHeaders,
         body: requestHasBody(request.method) ? body : undefined,
       };
       const prepared = await prepareCompressedModelRequest(target, originalInit, {
@@ -252,6 +271,11 @@ export class ModelRequestRelay extends EventEmitter {
         });
       }
       upstreamStatus = upstreamResponse.status;
+      if (deepSeek && this.deepSeekBilling !== undefined && upstreamResponse.ok
+        && upstreamResponse.headers.get("x-haolo-recovery-billing") !== "gpt-v1") {
+        await discardFetchResponse(upstreamResponse);
+        throw Object.assign(new Error("Model billing contract unavailable"), { code: "MODEL_BILLING_UNSUPPORTED" });
+      }
       copyResponseHeaders(upstreamResponse.headers, response);
       response.writeHead(upstreamResponse.status);
       responseStarted = true;
@@ -259,9 +283,12 @@ export class ModelRequestRelay extends EventEmitter {
         response.end();
         return;
       }
-      await pipeline(Readable.fromWeb(upstreamResponse.body), response);
+      if (watchdog) await pipeline(Readable.fromWeb(upstreamResponse.body), watchdog.stream, response, { signal: controller.signal });
+      else await pipeline(Readable.fromWeb(upstreamResponse.body), response);
     } catch (error) {
-      if (!responseStarted && !response.headersSent && !controller.signal.aborted) {
+      const timeout = controller.signal.reason?.code?.startsWith("MODEL_");
+      if (timeout) error = controller.signal.reason;
+      if (!responseStarted && !response.headersSent && (!controller.signal.aborted || timeout)) {
         const status = error?.code === "MODEL_RETIRED" ? 400 : error?.code === "MODEL_RELAY_BODY_TOO_LARGE" ? 413 : 502;
         writeJsonError(
           response,
@@ -280,6 +307,7 @@ export class ModelRequestRelay extends EventEmitter {
         aborted: controller.signal.aborted,
       });
     } finally {
+      watchdog?.dispose();
       request.off("aborted", abortUpstream);
       this.activeRequests.delete(controller);
       this.emit("request-metrics", {

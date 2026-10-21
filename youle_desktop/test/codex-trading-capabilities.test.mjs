@@ -10,10 +10,11 @@ import { explicitNoDrawingRequested } from "../src/main/trading-analysis/user-co
 
 function harness(artifacts) {
   let owner = "account-a";
+  let accountReads = 0;
   const calls = [], client = {}, sender = { id: 7, isDestroyed: () => false };
   const result = { result: { report: "verified", analysisJobId: "run-1", marketId: "BINANCE:FUTURES:BTCUSDT",
     drawingArtifacts: [{ drawingPatch: { price: 123 } }] }, presentationItems: [] };
-  const broker = new CodexBusinessTools({ artifacts, owner: () => owner, accountRead: async () => ({ available: false }),
+  const broker = new CodexBusinessTools({ artifacts, owner: () => owner, accountRead: async () => { accountReads++; return { available: false }; },
     dispatch: (sender, payload) => { calls.push(payload); if (!payload.release && !payload.cancel) {
       queueMicrotask(() => broker.resolve(sender, { requestId: payload.requestId, result: payload.arguments.action === "analyze_only" ? result
         : { result: { analysisJobId: "run-1" }, presentationItems: [{ id: "card", type: "agentMessage", text: "verified" }] } }));
@@ -21,15 +22,17 @@ function harness(artifacts) {
   let context;
   const bind = (thread = "root", visible = "visible") => context = broker.bind(thread, {client, sender, visibleThreadId: visible, contextId: "captured", userText: "analyze BTC"});
   bind();
-  return { calls, broker, result, bind, owner: value => { owner = value; },
+  return { calls, broker, result, bind, get accountReads() { return accountReads; }, owner: value => { owner = value; },
     call: (tool, args = {}) => broker.invokeBound({ tool, arguments: { ...args, context_id: context.token } }) };
 }
 
 test("separate account -> analysis -> drawings -> plan uses one verified result and deduplicates effects", async () => {
   const h = harness();
-  await assert.rejects(h.call("haolo_analysis", {strategyId:"price-action"}), /Read.*account/);
+  const automatic = await h.call("haolo_analysis", {strategyId:"price-action"});
+  assert.equal(h.accountReads, 1, "missing account context is refreshed before analysis");
   assert.equal((await h.call("haolo_account_read")).available, false);
   const {analysisRef} = await h.call("haolo_analysis", {strategyId:"price-action"});
+  assert.equal(analysisRef, automatic.analysisRef);
   assert.equal(h.calls.length, 1);
   assert.equal(h.calls[0].arguments.deferPresentation, undefined);
   await h.call("haolo_chart_draw", {analysisRef});
@@ -67,13 +70,18 @@ test("models cannot supply replacement artifacts, account IDs, arbitrary operati
   assert.equal(h.calls.length,0);
 });
 
-test("account switch while account read is pending cannot authorize a subsequent analysis", async () => {
+test("account switch rejects the old read and a new context requires its own account refresh", async () => {
   const h=harness();let resolve;
   h.broker.accountRead=()=>new Promise(r=>{resolve=r;});
   const reading=h.call("haolo_account_read");h.owner("account-b");resolve({});
   await assert.rejects(reading,/expired/);
+  assert.equal(h.calls.length, 0, "the old account must not dispatch analysis");
   h.bind();
-  await assert.rejects(h.call("haolo_analysis"),/Read.*account/);
+  let refreshed = false;
+  h.broker.accountRead = async () => { refreshed = true; return {available:false}; };
+  await h.call("haolo_analysis");
+  assert.equal(refreshed, true);
+  assert.equal(h.calls.filter(c => c.arguments?.action === "analyze_only").length, 1);
 });
 
 test("explicit strategy and no-drawing choices cannot be replaced by model arguments; positions default to price action",async()=>{

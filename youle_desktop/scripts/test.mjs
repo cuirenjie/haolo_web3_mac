@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 // Explicit arguments still support focused runs: npm test -- test/example.test.mjs.
 const args = process.argv.slice(2);
 const result = spawnSync(process.execPath, [
+  "--experimental-transform-types",
   "--test",
   ...(args.length ? args : ["test/**/*.test.mjs", "test/**/*.test.cjs"]),
 ], {

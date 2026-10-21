@@ -6,11 +6,11 @@ import { isRecoverableAnalysisModelFailure } from "../src/main/analysis-model-re
 import { describeTradingAnalysisFailure } from "../src/main/trading-analysis/failure.mjs";
 
 const activatedAt = 1_800_000_000_000;
-const state = { version: 1, activatedAt, fallbackUntil: activatedAt + ANALYSIS_RECOVERY_WINDOW_MS };
+const state = { version: 2, activatedAt, fallbackUntil: activatedAt + ANALYSIS_RECOVERY_WINDOW_MS };
 
 for (const [label, initial, model, target, now] of [
-  ["expired fallback", "deepseek", "deepseek-flash", "haolo_ai", state.fallbackUntil],
-  ["active fallback", "haolo_ai", "gpt-5.6-sol", "deepseek", activatedAt],
+  ["expired fallback", "haolo_ai", "gpt-5.6-sol", "deepseek", state.fallbackUntil],
+  ["active fallback", "deepseek", "deepseek-flash", "haolo_ai", activatedAt],
 ]) test(`real send handler verifies ${label} before starting the turn and preserves host configuration`, async () => {
   const calls = [];
   let provider = initial, restarts = 0;
@@ -24,8 +24,8 @@ for (const [label, initial, model, target, now] of [
     }
     if (method === "turn/start") {
       assert.equal(provider, target);
-      assert.equal(params.model, target === "deepseek" ? "deepseek-flash" : "gpt-5.6-sol");
-      if (target === "deepseek") assert.equal(params.effort, "max");
+      assert.equal(params.model, target === "haolo_ai" ? "gpt-5.6-sol" : "deepseek-flash");
+      if (target === "haolo_ai") assert.equal(params.effort, "high");
       return { turn: { id: "turn" } };
     }
   } });
@@ -48,12 +48,12 @@ for (const scenario of ["unknown provider", "still mismatched", "busy runtime", 
     const host = createProviderSendHost({ stop: () => { stops++; }, request: async (method) => {
       if (method === "turn/start") { turns++; return {}; }
       if (scenario === "unmaterialized mismatch" && method === "thread/resume") throw new Error("no rollout found for thread id same-task");
-      return scenario === "unknown provider" ? { model: "gpt-5.6-sol" } : { modelProvider: "deepseek" };
+      return scenario === "unknown provider" ? { model: "deepseek-flash" } : { modelProvider: "haolo_ai" };
     } });
     if (scenario === "busy runtime") {
       host.client.activeRuntimeTurns = new Map([["hidden-analysis", "turn"]]);
     }
-    await assert.rejects(host.send({ threadId: "same-task", model: "gpt-5.6-sol", text: "hello" }), (error) => {
+    await assert.rejects(host.send({ threadId: "same-task", model: "deepseek-flash", text: "hello" }), (error) => {
       assert.ok(["THREAD_PROVIDER_MISMATCH", "PROVIDER_SWITCH_RUNTIME_BUSY"].includes(error.code));
       assert.equal(isRecoverableAnalysisModelFailure(error), false);
       return true;
@@ -69,17 +69,17 @@ test("fresh in-memory task verifies provider through metadata before its first t
   const host = createProviderSendHost({ request: async (method) => {
     calls.push(method);
     if (method === "thread/resume") throw new Error("no rollout found for thread id fresh");
-    if (method === "thread/read") return { thread: { modelProvider: "haolo_ai" } };
+    if (method === "thread/read") return { thread: { modelProvider: "deepseek" } };
     return { turn: { id: "first" } };
   } });
   await host.send({ threadId: "fresh", text: "hello" });
-  assert.deepEqual(calls, ["thread/resume", "thread/read", "turn/start"]);
+  assert.deepEqual(calls, ["thread/read", "thread/resume", "thread/read", "turn/start"]);
 });
 
 test("expired policy clears stale provider and DeepSeek reasoning even when the picker already displays Sol", () => {
   for (const providerKey of ["modelProvider", "model_provider"]) {
-    const restored = withAnalysisModelRecoveryPolicy({ model: "gpt-5.6-sol", [providerKey]: "deepseek", reasoningEffort: "max", reasoningEffortPolicy: "fixed" }, state, state.fallbackUntil);
-    assert.equal(restored.modelProvider, "haolo_ai");
+    const restored = withAnalysisModelRecoveryPolicy({ model: "deepseek-flash", [providerKey]: "haolo_ai", reasoningEffort: "max", reasoningEffortPolicy: "fixed" }, state, state.fallbackUntil);
+    assert.equal(restored.modelProvider, "deepseek");
     assert.equal(restored.model_provider, undefined);
     assert.equal(restored.reasoningEffort, undefined);
   }
@@ -111,7 +111,7 @@ test("native wrapped 403 and route denials cannot become a successful local anal
     // Electron/WS wrappers may preserve only the error text.
     new Error("Thread provider switch was not applied (expected haolo_ai, received deepseek)."),
     new Error("Provider recovery is waiting for other active runtime operations to finish."),
-    new Error('model "gpt-5.6-sol" is enabled for execution, but the API key is not bound to its route group'),
+    new Error('model "deepseek-flash" is enabled for execution, but the API key is not bound to its route group'),
   ]) {
     const failure = describeTradingAnalysisFailure(error);
     assert.equal(failure.allowLocalRecovery, false);

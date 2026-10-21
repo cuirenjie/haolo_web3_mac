@@ -2,6 +2,14 @@ import zlib from "node:zlib";
 import { assertAllowedModelRequest, isRetiredExecutionModel } from "./retired-model-policy.mjs";
 import { migrateDeepSeekModelSelection } from "./deepseek-model-policy.mjs";
 
+export function modelFromRequestBody(body, encoding = "") {
+  try {
+    const decode = { gzip: zlib.gunzipSync, deflate: zlib.inflateSync, br: zlib.brotliDecompressSync, zstd: zlib.zstdDecompressSync }[String(encoding).trim().toLowerCase()];
+    const payload = JSON.parse((decode ? decode(body, { maxOutputLength: 128 * 1024 * 1024 }) : body).toString("utf8"));
+    return payload?.response?.model || payload?.model || "";
+  } catch { return ""; }
+}
+
 // Inspect the actual wire envelope, including already-compressed requests.
 // Transcript text mentioning a retired model is deliberately left untouched.
 export function assertAllowedModelBody(body, encoding = "", maxBytes = 128 * 1024 * 1024) {

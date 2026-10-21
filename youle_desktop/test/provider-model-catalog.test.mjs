@@ -61,7 +61,7 @@ test("relay image catalog keeps available generation models and rejects video/ch
   const models = normalizeRelayImageModels({
     data: [
       {
-        id: "aihubcc/gpt-image-2",
+        id: "codex/gpt-image-2",
         unit_points: 1,
         billing_unit: "request",
       },
@@ -69,19 +69,19 @@ test("relay image catalog keeps available generation models and rejects video/ch
       { id: "gemini-3.1-flash-image" },
       { id: "seedream-4.5" },
       { id: "grok-imagine" },
-      { id: "grok-imagine-video-1.5" },
+      { id: "omni_flash-10s" },
       { id: "gpt-5.6-terra" },
       { id: "future-canvas", capabilities: ["image_generation"] },
       { id: "multimodal-chat", capabilities: ["chat", "image"] },
       { id: "hidden-image", hidden: true },
-      { id: "AIHUBCC/GPT-IMAGE-2" },
+      { id: "CODEX/GPT-IMAGE-2" },
     ],
   });
 
   assert.deepEqual(
     models.map((model) => model.id),
     [
-      "aihubcc/gpt-image-2",
+      "codex/gpt-image-2",
       "gpt-image-1.5",
       "gemini-3.1-flash-image",
       "seedream-4.5",
@@ -108,30 +108,10 @@ test("relay image catalog keeps available generation models and rejects video/ch
   };
   assert.deepEqual(
     imageGenerationModelOptions(catalog).map((model) => model.value),
-    models.map((model) => model.id),
+    ["codex/gpt-image-2"],
   );
   assert.equal(imageGenerationModelOptions(catalog)[0].priceLabel, "1/次");
-  assert.deepEqual(
-    imageGenerationModelGroups(catalog).map((group) => ({
-      label: group.label,
-      models: group.options.map((model) => model.value),
-    })),
-    [
-      {
-        label: "GPT",
-        models: ["aihubcc/gpt-image-2", "gpt-image-1.5"],
-      },
-      {
-        label: "Grok",
-        models: [
-          "gemini-3.1-flash-image",
-          "seedream-4.5",
-          "grok-imagine",
-          "future-canvas",
-        ],
-      },
-    ],
-  );
+  assert.deepEqual(imageGenerationModelGroups(catalog).map(group => group.options.map(model => model.value)), [["codex/gpt-image-2"]]);
   assert.deepEqual(imageGenerationModelOptions(createImageGenerationModelCatalogState()), []);
 });
 
@@ -607,9 +587,9 @@ test("desktop queries image models with the same primary relay key used by the i
         object: "list",
         data: [
           { id: "gpt-5.6-terra" },
-          { id: "aihubcc/gpt-image-2" },
+          { id: "codex/gpt-image-2" },
           { id: "gpt-image-2-1k-async" },
-          { id: "grok-imagine-video-1.5" },
+          { id: "omni_flash-10s" },
         ],
       }),
       {
@@ -634,15 +614,11 @@ test("desktop queries image models with the same primary relay key used by the i
     assert.equal(requests[0].modelPool, "media_creation");
     assert.equal(requests[0].modelCapability, "image_generation");
     assert.deepEqual(first.models.map((model) => model.id), [
-      "aihubcc/gpt-image-2",
-      "gpt-image-2-1k-async",
+      "codex/gpt-image-2",
     ]);
     assert.equal(first.models[0].required_image_count, 0);
-    assert.equal(first.models[0].max_image_count, 1);
-    assert.equal(first.models[0].max_image_long_edge, 2048);
-    assert.equal(first.models[1].required_image_count, 0);
-    assert.equal(first.models[1].max_image_count, 6);
-    assert.equal(first.models[1].max_image_total_bytes, 5 * 1024 * 1024);
+    assert.equal(first.models[0].max_image_count, 4);
+    assert.equal(first.models[0].max_image_long_edge, 0);
     assert.equal(first.status, "online");
     assert.doesNotMatch(JSON.stringify(first), /sk-primary-image-user/);
 
@@ -656,8 +632,7 @@ test("desktop queries image models with the same primary relay key used by the i
     assert.equal(refreshed.status, "error");
     assert.equal(refreshed.stale, true);
     assert.deepEqual(refreshed.models.map((model) => model.id), [
-      "aihubcc/gpt-image-2",
-      "gpt-image-2-1k-async",
+      "codex/gpt-image-2",
     ]);
   } finally {
     globalThis.fetch = originalFetch;
@@ -681,14 +656,14 @@ test("media creation preload shares one pool request and caches both catalogs", 
               capabilities: ["image_generation", "video_generation"],
               models: [
                 {
-                  id: "aihubcc/gpt-image-2",
+                  id: "codex/gpt-image-2",
                   provider: "codex",
                   enabled: true,
                   is_default: true,
                   capabilities: ["image_generation"],
                 },
                 {
-                  id: "grok-imagine-video-1.5-preview",
+                  id: "omni_flash-10s",
                   provider: "grok",
                   enabled: true,
                   is_default: true,
@@ -708,8 +683,8 @@ test("media creation preload shares one pool request and caches both catalogs", 
       videoCatalogRequests += 1;
       return new Response(
         JSON.stringify({
-          default_model: "aihubcc/grok-video-3.5",
-          models: [{ id: "aihubcc/grok-video-3.5" }],
+          default_model: "omni_flash-10s",
+          models: [{ id: "omni_flash-10s" }],
         }),
         {
           status: 200,
@@ -731,11 +706,11 @@ test("media creation preload shares one pool request and caches both catalogs", 
       client.listVideoExpertModels(),
     ]);
     assert.deepEqual(images.models.map((model) => model.id), [
-      "aihubcc/gpt-image-2",
+      "codex/gpt-image-2",
     ]);
-    assert.equal(images.models[0].max_image_count, 1);
+    assert.equal(images.models[0].max_image_count, 4);
     assert.deepEqual(videos.models.map((model) => model.id), [
-      "grok-imagine-video-1.5",
+      "omni_flash-10s",
     ]);
     assert.equal(poolRequests, 1);
     assert.equal(videoCatalogRequests, 1);
@@ -753,7 +728,7 @@ test("media creation preload shares one pool request and caches both catalogs", 
   }
 });
 
-test("desktop preserves media-pool aliases while using route-specific video capabilities", async () => {
+test("desktop keeps live video capabilities for the selected configured route", async () => {
   const originalFetch = globalThis.fetch;
   const requests = [];
   globalThis.fetch = async (url) => {
@@ -761,11 +736,11 @@ test("desktop preserves media-pool aliases while using route-specific video capa
     if (String(url) === "https://haolo.example/api/video-expert/models") {
       return new Response(
         JSON.stringify({
-          default_model: "aihubcc/grok-video-3.5",
+          default_model: "omni_flash-10s",
           models: [
             {
-              id: "aihubcc/grok-video-3.5",
-              display_name: "Grok Video 3.5",
+              id: "omni_flash-10s",
+              display_name: "Omni Flash",
               input_mode: "image-to-video",
               screen_sizes: [
                 {
@@ -774,7 +749,7 @@ test("desktop preserves media-pool aliases while using route-specific video capa
                   resolution: "720p",
                 },
               ],
-              durations: ["10", "15"],
+              durations: [{value:"10",label:"10秒"}],
               default_duration: "10",
             },
           ],
@@ -796,8 +771,8 @@ test("desktop preserves media-pool aliases while using route-specific video capa
               capabilities: ["image_generation", "video_generation"],
               models: [
                 {
-                  id: "grok-imagine-video-1.5-preview",
-                  display_name: "Grok Imagine Video 1.5",
+                  id: "omni_flash-10s",
+                  display_name: "Omni Flash",
                   provider: "grok",
                   route_group_id: 10,
                   capabilities: ["video_generation"],
@@ -825,16 +800,16 @@ test("desktop preserves media-pool aliases while using route-specific video capa
 
     const catalog = await client.listVideoExpertModels();
     assert.equal(catalog.models.length, 1);
-    assert.equal(catalog.default_model, "grok-imagine-video-1.5");
-    assert.equal(catalog.models[0].id, "grok-imagine-video-1.5");
-    assert.equal(catalog.models[0].display_name, "Grok Imagine Video 1.5");
+    assert.equal(catalog.default_model, "omni_flash-10s");
+    assert.equal(catalog.models[0].id, "omni_flash-10s");
+    assert.equal(catalog.models[0].display_name, "Omni Flash");
     assert.equal(catalog.models[0].provider, "grok");
     assert.equal(catalog.models[0].route_group_id, 10);
     assert.deepEqual(
       catalog.models[0].durations.map((item) => item.value),
-      Array.from({ length: 15 }, (_, index) => String(index + 1)),
+      ["10"],
     );
-    assert.equal(catalog.models[0].default_duration, "6");
+    assert.equal(catalog.models[0].default_duration, "10");
     const cached = await client.listVideoExpertModels();
     assert.equal(cached.source, "cache");
     assert.equal(requests.length, 2);
@@ -843,133 +818,22 @@ test("desktop preserves media-pool aliases while using route-specific video capa
   }
 });
 
-test("desktop fills the documented capabilities for every configured video model", async () => {
-  const originalFetch = globalThis.fetch;
-  const configuredModels = [
-    ["Seedance-2.0-720p", "Seedance"],
-    ["Seedance-2.0-480p", "Seedance"],
-    ["Seedance-2.0-1080p", "Seedance"],
-    ["Seedance-2.0-mini-480p", "Seedance"],
-    ["Seedance-2.0-mini-720p", "Seedance"],
-    ["grok-imagine-video-1.5", "grok"],
-    ["omni-fast-no-water", "gemini"],
-    ["omni-fast-v2v-no-water", "gemini"],
-  ];
-  globalThis.fetch = async (url) => {
-    if (String(url) === "https://haolo.example/api/video-expert/models") {
-      return new Response(
-        JSON.stringify({
-          error: "legacy video capability catalog is unavailable",
-        }),
-        {
-          status: 503,
-          headers: { "content-type": "application/json" },
-        },
-      );
-    }
-    if (String(url) === "https://haolo.example/api/sub2api/model-pools") {
-      return new Response(
-        JSON.stringify({
-          configured: true,
-          pools: [
-            {
-              id: "media_creation",
-              enabled: true,
-              capabilities: ["image_generation", "video_generation"],
-              models: configuredModels.map(([id, provider], index) => ({
-                id,
-                provider,
-                unit_points:
-                  id === "Seedance-2.0-mini-480p"
-                    ? 2
-                    : id === "Seedance-2.0-mini-720p"
-                      ? 3
-                      : id === "grok-imagine-video-1.5"
-                        ? 8
-                        : undefined,
-                billing_unit: id.startsWith("Seedance-2.0-mini-")
-                  ? "second"
-                  : id === "grok-imagine-video-1.5"
-                    ? "request"
-                    : undefined,
-                enabled: true,
-                is_default: index === 0,
-                capabilities: ["video_generation"],
-              })),
-            },
-          ],
-        }),
-        {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        },
-      );
-    }
-    throw new Error(`unexpected request: ${url}`);
-  };
-
-  try {
-    const client = new YouleApiClient();
-    client.loaded = true;
-    client.baseUrl = "https://haolo.example";
-    client.token = "haolo-session-token";
-
-    const catalog = await client.listVideoExpertModels();
-    assert.equal(catalog.default_model, "Seedance-2.0-720p");
-    const modelsById = new Map(catalog.models.map((model) => [model.id, model]));
-    assert.deepEqual(
-      [...modelsById.keys()].sort(),
-      configuredModels.map(([id]) => id).sort(),
-    );
-    const seedance = modelsById.get("Seedance-2.0-720p");
-    assert.equal(seedance.input_mode, "multimodal-to-video");
-    assert.equal(seedance.max_image_count, 4);
-    assert.equal(seedance.max_video_count, 3);
-    assert.equal(seedance.max_audio_count, 1);
-    assert.equal(seedance.max_prompt_chars, 5000);
-    assert.equal(seedance.screen_sizes.length, 6);
-    assert.equal(seedance.durations.length, 12);
-    const mini480 = modelsById.get("Seedance-2.0-mini-480p");
-    assert.equal(mini480.input_mode, "multimodal-to-video");
-    assert.equal(mini480.default_resolution, "480p");
-    assert.equal(mini480.screen_sizes.length, 6);
-    assert.equal(mini480.durations.length, 12);
-    assert.equal(mini480.unit_points, 2);
-    assert.equal(mini480.billing_unit, "second");
-    const mini720 = modelsById.get("Seedance-2.0-mini-720p");
-    assert.equal(mini720.default_resolution, "720p");
-    assert.equal(mini720.unit_points, 3);
-    assert.equal(mini720.billing_unit, "second");
-    const grok = modelsById.get("grok-imagine-video-1.5");
-    assert.equal(grok.input_mode, "text-or-image-to-video");
-    assert.equal(grok.required_image_count, 0);
-    assert.equal(grok.screen_sizes.length, 7);
-    assert.equal(grok.durations.length, 15);
-    assert.equal(grok.default_duration, "6");
-    assert.equal(grok.unit_points, 8);
-    assert.equal(grok.billing_unit, "request");
-    assert.equal(mediaModelPriceLabel(grok.unit_points, grok.billing_unit), "8/次");
-    assert.equal(modelsById.get("omni-fast-no-water").max_image_count, 5);
-    assert.equal(modelsById.get("omni-fast-no-water").default_resolution, "720p");
-    assert.deepEqual(modelsById.get("omni-fast-no-water").durations, [
-      { value: "10", label: "10秒" },
-    ]);
-    assert.equal(
-      modelsById.get("omni-fast-v2v-no-water").input_mode,
-      "video-to-video",
-    );
-    assert.equal(modelsById.get("omni-fast-v2v-no-water").max_video_count, 2);
-    assert.equal(
-      modelsById.get("omni-fast-v2v-no-water").default_resolution,
-      "720p",
-    );
-    assert.deepEqual(modelsById.get("omni-fast-v2v-no-water").durations, [
-      { value: "10", label: "10秒" },
-    ]);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+test("desktop does not invent video capabilities when the live catalog is unavailable", async () => {
+  const client = new YouleApiClient({
+    fetch: async () => new Response(JSON.stringify({models:[]}), {status:200,headers:{"content-type":"application/json"}}),
+  });
+  client.loaded = true;
+  client.token = "session-test";
+  client.requestJson = async () => ({models:[],default_model:""});
+  client.listBusinessModelPools = async () => normalizeBusinessModelPools({
+    configured:true,pools:[{id:"media_creation",enabled:true,capabilities:["video_generation"],
+      models:[{id:"omni_flash-10s",enabled:true,route_group_id:13,capabilities:["video_generation"]}]}],
+  });
+  const result = await client.listVideoExpertModels();
+  assert.deepEqual(result.models, []);
+  assert.equal(result.default_model, "");
 });
+
 
 test("desktop persists media model credentials by technical route group without exposing them in the catalog", async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "haolo-business-model-auth-"));
@@ -1005,7 +869,7 @@ test("desktop persists media model credentials by technical route group without 
             capabilities: ["image_generation", "video_generation"],
             models: [
               {
-                id: "catalog/image-model",
+                id: "codex/gpt-image-2",
                 provider: "grok",
                 route_group_id: 33,
                 enabled: true,
@@ -1022,7 +886,7 @@ test("desktop persists media model credentials by technical route group without 
     const credential = client.businessModelCredential(
       "media_creation",
       "image_generation",
-      "catalog/image-model",
+      "codex/gpt-image-2",
     );
     assert.equal(credential.apiKey, "sk-image-route");
     assert.equal(credential.groupId, 33);
@@ -1030,7 +894,7 @@ test("desktop persists media model credentials by technical route group without 
     const auth = JSON.parse(fs.readFileSync(authPath, "utf8"));
     assert.equal(auth.OPENAI_API_KEY, "sk-primary");
     assert.deepEqual(
-      auth.HAOLO_MEDIA_MODEL_CREDENTIALS.image_generation["catalog/image-model"],
+      auth.HAOLO_MEDIA_MODEL_CREDENTIALS.image_generation["codex/gpt-image-2"],
       {
         provider: "grok",
         route_group_id: 33,
@@ -1047,7 +911,7 @@ test("desktop persists media model credentials by technical route group without 
   }
 });
 
-test("media creation uses the media relay when a model is misassigned to a chat platform route", async () => {
+test("media creation honors the explicit route group instead of silently substituting the shared media key", async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "haolo-media-route-repair-"));
   try {
     const authPath = path.join(tempRoot, "auth.json");
@@ -1080,7 +944,7 @@ test("media creation uses the media relay when a model is misassigned to a chat 
             capabilities: ["video_generation"],
             models: [
               {
-                id: "omni-fast-v2v-no-water",
+                id: "omni_flash-10s",
                 provider: "gemini",
                 route_group_id: 6,
                 enabled: true,
@@ -1095,22 +959,22 @@ test("media creation uses the media relay when a model is misassigned to a chat 
     const credential = client.businessModelCredential(
       "media_creation",
       "video_generation",
-      "omni-fast-v2v-no-water",
+      "omni_flash-10s",
     );
-    assert.equal(credential.apiKey, "sk-media-platform");
-    assert.equal(credential.groupId, 13);
+    assert.equal(credential.apiKey, "sk-chat-platform");
+    assert.equal(credential.groupId, 6);
 
     await client.saveModelAuth();
     const auth = JSON.parse(fs.readFileSync(authPath, "utf8"));
     assert.deepEqual(
       auth.HAOLO_MEDIA_MODEL_CREDENTIALS.video_generation[
-        "omni-fast-v2v-no-water"
+        "omni_flash-10s"
       ],
       {
         provider: "gemini",
-        route_group_id: 13,
-        api_key: "sk-media-platform",
-        base_url: "https://media.example/v1",
+        route_group_id: 6,
+        api_key: "sk-chat-platform",
+        base_url: "https://chat.example/v1",
       },
     );
   } finally {

@@ -12,6 +12,7 @@ test("trading analysis jobs retain their submitted market context across view ch
   const jobs = new TradingAnalysisJobController();
   const original = jobs.start({
     analysisId: "analysis-a",
+    drawingTurnId: "user-message-a",
     theory: "order-flow",
     storageSessionId: "temporary-thread",
     marketId: "BINANCE:FUTURES:BTCUSDT",
@@ -27,6 +28,7 @@ test("trading analysis jobs retain their submitted market context across view ch
   assert.equal(original.marketId, "BINANCE:FUTURES:BTCUSDT");
   assert.equal(original.interval, "240");
   assert.equal(original.language, "zh-CN");
+  assert.equal(original.drawingTurnId, "user-message-a");
   jobs.complete(original.analysisId);
   assert.equal(original.status, "completed");
 });

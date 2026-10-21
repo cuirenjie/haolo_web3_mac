@@ -1,4 +1,4 @@
-export type AnalysisModelRecoveryState = { version: 1; activatedAt: number; fallbackUntil: number };
+export type AnalysisModelRecoveryState = { version: 2; activatedAt: number; fallbackUntil: number };
 export const ANALYSIS_PRIMARY_MODEL: string;
 export const ANALYSIS_RECOVERY_MODEL: string;
 export const ANALYSIS_RECOVERY_EFFORT: string;

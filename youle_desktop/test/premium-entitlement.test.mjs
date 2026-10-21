@@ -144,5 +144,5 @@ test("Host enforces fresh premium access when root Codex invokes analysis", asyn
   assert.match(mainProcess, /async function requireFreshTradingPremiumAccess\(\)[\s\S]*?refreshSub2ApiAccount\(\)[\s\S]*?premiumAccessState\(profile\)/);
   assert.match(mainProcess, /async function runTradingStrategyRequest[\s\S]*?await requireFreshTradingPremiumAccess\(\)/);
   assert.match(mainProcess, /tradingAnalysis:runGeneral[\s\S]*?await requireFreshTradingPremiumAccess\(\)/);
-  assert.match(mainProcess, /async function tradingAlertIpcCall[\s\S]*?\["compile", "resumeDraft", "simulate", "confirm", "revise"\][\s\S]*?await requireFreshTradingPremiumAccess\(\)/);
+  assert.match(mainProcess, /async function tradingAlertIpcCall[\s\S]*?\["compile", "resumeDraft", "simulate", "confirm", "revise", "createPriceAlert"\][\s\S]*?await requireFreshTradingPremiumAccess\(\)/);
 });

@@ -2,6 +2,9 @@ import { OFFICIAL_TRADING_CATALOG } from '../../shared/official-trading-catalog.
 import type { TradingQuestionKind } from "../../main/trading-analysis/request-routing-policy.mjs";
 
 export interface TradingStrategyRequest {
+  /** Frozen only by the pure desktop composer shortcut; ordinary tools use the existing selection. */
+  executionModel?: { model: string; explicitModelSelection: boolean };
+  drawingTurnId?: string;
   marketId?: string;
   mode: "conversation" | "chart-analysis";
   instruction: string;
