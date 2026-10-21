@@ -62,7 +62,7 @@
 
 ## 正式发布结果
 
-- 已发布 Windows x64 Web3 渠道 **0.1.178**，非强制更新。发布记录 ID：`41f6fdd1-d07d-4add-8591-7378c88f6b4a`。
+- 已发布 Windows x64 Web3 渠道 **0.1.178**，现已按用户追加要求启用强制更新。发布记录 ID：`41f6fdd1-d07d-4add-8591-7378c88f6b4a`。
 - 使用用户审核的原始签名包；没有重新构建、签名、升版或更改包内代码。公开说明只删除四处与模型相关的表述，其余十二条保持原文。
 - [下载本次安装包](https://assets.haolo.com/app-updates/windows/0.1.178/haolo_windows_web3/haolo_desktop-0.1.178-Setup.exe)；[官网最新版本入口](https://haolo.com/api/app-updates/windows/latest/download?arch=x64&client_variant=haolo_windows_web3)。
 - OSS 对象：`app-updates/windows/0.1.178/haolo_windows_web3/haolo_desktop-0.1.178-Setup.exe`。大小 **247847968 字节**，SHA-256 `a714ccf3f7371216d2bf2e0ad895f3025228ede709bc676ce17c03e549c862e7`。
@@ -71,3 +71,10 @@
 - 配套 API 与独立 Worker 实际版本均为 `f27b1d3638f1c9f9a8385340373591ddd6d0c484`，各 1,033 个运行文件哈希、健康、协议和三语公网能力核验通过；本会话未部署或重启后端。
 - 上传网关返回 504 后未重传；只读检查确认同一事务完成、唯一记录提交及版本锁释放，公开大小和 SHA 一致后恢复发布回执。原始失败响应和完成证据分别保留。
 - [最终机器回执](verification/windows-release-0.1.178-20261021.json)。
+
+## 强制更新调整
+
+- 2026-10-21 21:26（北京时间），根据用户追加要求，将既有发布记录的 `force_update` 从 `false` 改为 `true`，同时更新记录时间。首次发布时为非强制更新，修改前快照与修改后回执已留存。
+- 仅调整 Windows x64 Web3 的 0.1.178 发布策略；安装包、签名、版本、下载地址、文件大小、SHA-256、公开更新说明及最低支持版本均未改变。没有重新上传或打包。
+- 公网实测 0.0.0、0.1.170、0.1.176、0.1.177 均返回 `update_available=true`、`force_update=true`；0.1.178 和 0.1.179 均不提示更新。旧客户端下次成功检查更新时收到强制升级要求，未执行用户设备上的实际安装。
+- 标准 Windows 渠道响应及 Web3 发布历史逐项保持一致。修改前备份：`/opt/haolo-backend/desktop-release-archives/0.1.178-before-force-update-20261021T132600044133Z.json`；完整检查结果已写入最终机器回执的 `forceUpdateChange`。

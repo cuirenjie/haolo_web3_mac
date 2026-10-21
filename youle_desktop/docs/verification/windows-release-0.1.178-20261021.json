@@ -9,7 +9,7 @@
   "rebuilt": false,
   "releaseId": "41f6fdd1-d07d-4add-8591-7378c88f6b4a",
   "clientVariant": "haolo_windows_web3",
-  "forceUpdate": false,
+  "forceUpdate": true,
   "bytes": 247847968,
   "sha256": "a714ccf3f7371216d2bf2e0ad895f3025228ede709bc676ce17c03e549c862e7",
   "ossObjectKey": "app-updates/windows/0.1.178/haolo_windows_web3/haolo_desktop-0.1.178-Setup.exe",
@@ -77,5 +77,53 @@
     "recoveredAfterGatewayTimeout": true
   },
   "localEvidence": "release/build-0.1.178-review-20261021/",
-  "excludedUntracked": "youle_desktop/output/"
+  "excludedUntracked": "youle_desktop/output/",
+  "forceUpdateChange": {
+    "passed": true,
+    "version": "0.1.178",
+    "releaseId": "41f6fdd1-d07d-4add-8591-7378c88f6b4a",
+    "clientVariant": "haolo_windows_web3",
+    "forceUpdate": true,
+    "changedAt": "2026-10-21T13:26:00.501882+00:00",
+    "verifiedAt": "2026-10-21T13:26:26.884257+00:00",
+    "changedFields": [
+      "force_update",
+      "updated_at"
+    ],
+    "backupPath": "/opt/haolo-backend/desktop-release-archives/0.1.178-before-force-update-20261021T132600044133Z.json",
+    "remoteReceiptPath": "/opt/haolo-backend/desktop-release-archives/0.1.178-force-update-receipt-20261021T132600044133Z.json",
+    "sha256": "a714ccf3f7371216d2bf2e0ad895f3025228ede709bc676ce17c03e549c862e7",
+    "bytes": 247847968,
+    "releaseNotesSha256": "873a91d674dcbaba9ef5df53418fed0a5ec43e0fac6dec196e5dbc647d5f8cce",
+    "installerUnchanged": true,
+    "releaseNotesUnchanged": true,
+    "minSupportedVersionUnchanged": true,
+    "standardChannelUnchanged": true,
+    "clientChecks": {
+      "0.0.0": {
+        "updateAvailable": true,
+        "forceUpdate": true
+      },
+      "0.1.170": {
+        "updateAvailable": true,
+        "forceUpdate": true
+      },
+      "0.1.176": {
+        "updateAvailable": true,
+        "forceUpdate": true
+      },
+      "0.1.177": {
+        "updateAvailable": true,
+        "forceUpdate": true
+      },
+      "0.1.178": {
+        "updateAvailable": false,
+        "forceUpdate": false
+      },
+      "0.1.179": {
+        "updateAvailable": false,
+        "forceUpdate": false
+      }
+    }
+  }
 }
