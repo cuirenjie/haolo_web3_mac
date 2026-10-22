@@ -519,6 +519,15 @@ export class YouleApiClient {
 
     const authRevision = this.authRevision;
     const token = this.token;
+    const assertCurrentAccount = () => {
+      // A normal access-token renewal preserves authRevision. Login/logout
+      // changes it; no late response or cache fallback may cross that boundary.
+      if (authRevision !== this.authRevision) {
+        throw Object.assign(new Error("账号已切换，请重新查询会员权益。"), {
+          code: "ACCOUNT_CHANGED", retryable: false,
+        });
+      }
+    };
     const refreshPromise = (async () => {
       let response;
       try {
@@ -527,12 +536,14 @@ export class YouleApiClient {
           headers: this.clientHeaders({ auth: true }),
         });
       } catch (error) {
+        assertCurrentAccount();
         const cachedEntitlement = this.validPremiumEntitlementCache();
         if (isPremiumEntitlementRetryableError(error) && cachedEntitlement) {
           return this.cachedSub2ApiAccountResult(cachedEntitlement);
         }
         throw error;
       }
+      assertCurrentAccount();
       const balance = extractSub2ApiBalance(response);
       if (!balance) {
         const cachedEntitlement = this.validPremiumEntitlementCache();
@@ -543,21 +554,19 @@ export class YouleApiClient {
         error.retryable = true;
         throw error;
       }
-      const sessionIsCurrent = authRevision === this.authRevision && token === this.token;
-      if (sessionIsCurrent) {
-        this.profile = mergeProfileBalance(this.profile, balance);
-        const accessState = this.updatePremiumEntitlementCacheFromFreshProfile(this.profile);
-        try {
-          await this.save();
-        } catch (error) {
-          // A successful server entitlement response should still unblock the
-          // current analysis when local persistence is temporarily unavailable.
-          safeConsoleLog("[youle-api] entitlement snapshot persistence deferred", error?.message || String(error));
-        }
-        if (accessState === "unknown") {
-          const cachedEntitlement = this.validPremiumEntitlementCache();
-          if (cachedEntitlement) return this.cachedSub2ApiAccountResult(cachedEntitlement);
-        }
+      this.profile = mergeProfileBalance(this.profile, balance);
+      const accessState = this.updatePremiumEntitlementCacheFromFreshProfile(this.profile);
+      try {
+        await this.save();
+      } catch (error) {
+        // A successful server entitlement response should still unblock the
+        // current analysis when local persistence is temporarily unavailable.
+        safeConsoleLog("[youle-api] entitlement snapshot persistence deferred", error?.message || String(error));
+      }
+      assertCurrentAccount();
+      if (accessState === "unknown") {
+        const cachedEntitlement = this.validPremiumEntitlementCache();
+        if (cachedEntitlement) return this.cachedSub2ApiAccountResult(cachedEntitlement);
       }
       const balanceLabel = formatYuanBalance(resolveYuanBalance(balance));
       const result = {
@@ -567,14 +576,12 @@ export class YouleApiClient {
         threshold: LOW_BALANCE_THRESHOLD_YUAN,
         session: this.sessionSummary(),
       };
-      if (sessionIsCurrent) {
-        this.sub2ApiAccountRefreshCache = {
-          authRevision,
-          token,
-          refreshedAt: Date.now(),
-          result,
-        };
-      }
+      this.sub2ApiAccountRefreshCache = {
+        authRevision,
+        token: this.token,
+        refreshedAt: Date.now(),
+        result,
+      };
       return result;
     })().finally(() => {
       if (this.sub2ApiAccountRefreshPromise === refreshPromise) {

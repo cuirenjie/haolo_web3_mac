@@ -6,6 +6,7 @@ import test from "node:test";
 import { tradingAnalysisTurnPolicy } from "../src/main/trading-analysis-turn-policy.mjs";
 import { isRetryableModelTransportError } from "../src/main/model-transport-recovery.mjs";
 import { createAppServerTradingAnalysisProvider } from "../src/main/trading-analysis/app-server-provider.mjs";
+import { createTradingModelBudget } from "../src/main/trading-analysis/model-budget.mjs";
 
 const main = readFileSync(new URL("../src/main/main.mjs", import.meta.url), "utf8");
 const recoverySource = main.slice(main.indexOf("async function runWorkflowCodexNodeTurnWithRecovery("), main.indexOf("function scheduleWorkflowInternalCodexCleanup("));
@@ -69,7 +70,11 @@ for (const [name, failure, options] of [
   ["wall-clock timeout", null, { timeout: true }],
 ]) test(`Mac bounded review hands ${name} to the recovery provider after cleanup`, async () => {
   const h = harness(failure, options);
-  const result = await h.provider.analyze(request, { reasoningEffort: "medium" });
+  const result = await h.provider.analyze(request, {
+    reasoningEffort: "medium",
+    // This checks the configured cap and handoff, not elapsed CPU scheduling.
+    modelBudget: createTradingModelBudget({ now: () => 0 }),
+  });
   assert.equal(result.modelId, "gpt-5.6-sol");
   assert.deepEqual(h.starts.map((entry) => entry.model), ["deepseek-flash", "gpt-5.6-sol"]);
   assert.equal(h.starts[1].modelProvider, "haolo_ai");

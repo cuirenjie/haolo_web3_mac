@@ -149,6 +149,7 @@ export function verifyPackagedMacApp(appPath, options = {}) {
     ]),
     [runtimePath, "Haolo AI runtime"],
     [ripgrepPath, "ripgrep runtime"],
+    [path.join(resourcesPath, "bin", "codex-code-mode-host"), "Codex code-mode host"],
   ];
 
   assertUsableFile(path.join(contentsPath, "Info.plist"), "app Info.plist");

@@ -158,6 +158,7 @@ export async function resignAdHocPackagedApp(appPath, options = {}) {
   const binaries = [
     path.join(normalizedAppPath, "Contents", "Resources", "bin", "haolo_ai"),
     path.join(normalizedAppPath, "Contents", "Resources", "bin", "rg"),
+    path.join(normalizedAppPath, "Contents", "Resources", "bin", "codex-code-mode-host"),
   ];
   for (const binaryPath of binaries) {
     if (!fs.existsSync(binaryPath)) {
@@ -268,6 +269,7 @@ export async function listPackagedCodeObjects(appPath, options = {}) {
     ),
     path.join(normalizedAppPath, "Contents", "Resources", "bin", "haolo_ai"),
     path.join(normalizedAppPath, "Contents", "Resources", "bin", "rg"),
+    path.join(normalizedAppPath, "Contents", "Resources", "bin", "codex-code-mode-host"),
   ];
   return [...new Set([...discovered, ...requiredCodeObjects].map((entry) => path.resolve(entry)))];
 }

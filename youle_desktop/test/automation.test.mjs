@@ -734,7 +734,7 @@ test("worker creates due runs, applies concurrency skip, and records CLI failure
     workspacePath: dir,
     prompt: "Every run, run the failing task and return NO_FINDINGS only if nothing failed.",
     schedule: { type: "interval", expr: "PT5M", timezone: "UTC", misfirePolicy: "run_once" },
-    execution: { workspaceMode: "local", sandboxMode: "read-only", approvalPolicy: "never", maxDurationSeconds: 5 },
+    execution: { workspaceMode: "local", sandboxMode: "read-only", approvalPolicy: "never", maxDurationSeconds: 30 },
     nextRunAtUtc: "2026-05-29T00:00:00.000Z",
   });
 

@@ -975,8 +975,8 @@ export function buildManagedLongContextModelCatalog(value, { platform = process.
     model.effective_context_window_percent = MANAGED_MODEL_EFFECTIVE_CONTEXT_WINDOW_PERCENT;
   }
 
-  // The retained macOS 0.144.1 runtime predates the native Astra entry. Do not
-  // discard its entire catalog (including DeepSeek's max/tool metadata) or
+  // Older macOS runtime catalogs predate the native Astra entry. Do not
+  // discard a cached catalog (including DeepSeek's max/tool metadata) or
   // fabricate native Astra capabilities from another model's metadata.
   const missingSlugs = [...MANAGED_LONG_CONTEXT_MODEL_SLUGS].filter((slug) => !updatedSlugs.has(slug));
   if (missingSlugs.includes("gpt-6-sol")) {
