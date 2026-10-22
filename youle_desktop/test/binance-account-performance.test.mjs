@@ -6,7 +6,7 @@ import { accountProfitTimeline, loadAccountPerformance, renderAccountPerformance
 import { createBinanceAccountUiState } from "../src/renderer/binance-account-ui.ts";
 import { YouleApiClient } from "../src/main/youle-api-client.mjs";
 import { binanceAccountReadErrorResult } from "../src/shared/binance-account-errors.mjs";
-import { translateAppText } from "../src/renderer/app-language.mjs";
+import { appLanguageLocale, applyAppLanguage, translateAppText } from "../src/renderer/app-language.mjs";
 
 const DAY = 86400000;
 const now = Date.UTC(2026, 9, 22, 12);
@@ -20,6 +20,18 @@ function state() {
   return value;
 }
 const options = (extra = {}) => ({ isCurrent: () => true, changed() {}, credentialError: () => false, ...extra });
+
+test("the Today range label renders correctly in all three languages", () => {
+  const previous = appLanguageLocale();
+  const value = state();
+  value.performance.days = 1;
+  try {
+    for (const [language, label] of [["zh-CN", "今日"], ["en", "Today"], ["zh-TW", "今日"]]) {
+      applyAppLanguage(language);
+      assert.ok(renderAccountPerformance(value).includes(`<option value="1" selected>${label}</option>`));
+    }
+  } finally { applyAppLanguage(previous === "en-US" ? "en" : previous); }
+});
 
 test("uses the same cropped window and observed values as mobile; rate fallback uses opening equity", () => {
   const amount = accountProfitTimeline(response(), 7, "amount", 68.55, now);

@@ -686,6 +686,7 @@ const ENGLISH_UI_PHRASES = Object.freeze({
   "交易条件": "Trading condition",
   "触发时间": "Triggered at",
   "今天": "Today",
+  "今日": "Today",
   "昨天": "Yesterday",
   "刚刚": "Just now",
   "分钟前": "minutes ago",

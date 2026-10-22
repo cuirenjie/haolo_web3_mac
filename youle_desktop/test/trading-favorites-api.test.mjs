@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { runInNewContext } from "node:vm";
 import test from "node:test";
+import ts from "typescript";
 
 const files = {
   client: new URL("../src/main/youle-api-client.mjs", import.meta.url),
@@ -36,10 +38,33 @@ test("trading favorites use the shared authenticated server collection", async (
   assert.match(sources.market, /mergeSharedSnapshot\(remoteRecords\)/);
   assert.match(sources.renderer, /reorderTradingFavorites\?\(params/);
 
-  const readSharedBlock = sources.main.slice(
-    sources.main.indexOf("async function readSharedBinanceAccountConnections"),
-    sources.main.indexOf("async function syncSharedBinanceAccountConnection"),
-  );
-  assert.doesNotMatch(readSharedBlock, /registerMobileDevice/);
   assert.match(sources.main, /if \(!local\.bound\) throw error/);
+});
+
+test("reading shared account connections never registers or mutates a binding", async () => {
+  const source = await readFile(files.main, "utf8");
+  const parsed = ts.createSourceFile("main.mjs", source, ts.ScriptTarget.Latest, true);
+  const runtime = ["activeSharedBinanceConnection", "readSharedBinanceAccountConnections"].map((name) => {
+    const declaration = parsed.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === name);
+    assert.ok(declaration, `missing function: ${name}`);
+    return declaration.getText(parsed);
+  }).join("\n");
+  const calls = [];
+  const active = { id: "active", venue: "binance", marketType: "usdm" };
+  const perpetual = { id: "perpetual", venue: "binance", marketType: "perpetual" };
+  const api = {
+    load: async () => { calls.push("load"); },
+    listAccountConnections: async () => {
+      calls.push("list");
+      return { items: [active, perpetual, { ...active, revoked: true }, { ...active, venue: "other" }, { ...active, marketType: "spot" }] };
+    },
+    registerMobileDevice: () => assert.fail("a read must not register a device"),
+  };
+  const context = { getYouleApiClient: () => api };
+  runInNewContext(runtime, context);
+  assert.deepEqual(await context.readSharedBinanceAccountConnections(), [active, perpetual]);
+  assert.deepEqual(calls, ["load", "list"]);
+  const unavailable = new Error("connection list unavailable");
+  api.listAccountConnections = async () => { throw unavailable; };
+  await assert.rejects(context.readSharedBinanceAccountConnections(), (error) => error === unavailable);
 });
