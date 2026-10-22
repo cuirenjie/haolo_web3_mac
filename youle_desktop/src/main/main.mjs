@@ -4903,23 +4903,6 @@ async function readSharedBinanceAccountConnections() {
   return (Array.isArray(result?.items) ? result.items : []).filter(activeSharedBinanceConnection);
 }
 
-async function syncSharedBinanceAccountConnection() {
-  const api = getYouleApiClient();
-  const deviceId = sharedBinanceConnectionDeviceId();
-  await api.registerMobileDevice({
-    deviceId,
-    platform: "windows",
-  });
-  const connections = await readSharedBinanceAccountConnections();
-  const own = connections.find((item) => String(item.deviceId || "") === deviceId);
-  if (own || connections.length > 0) return own || connections[0];
-  return api.createAccountConnection({
-    deviceId,
-    label: "Windows",
-    analysisConsent: false,
-  });
-}
-
 async function syncSharedBinanceAccountCredentials(credentials) {
   const api = getYouleApiClient();
   const deviceId = sharedBinanceConnectionDeviceId();
@@ -13402,7 +13385,6 @@ ipcMain.handle("binanceAccount:bind", async (event, params = {}) => {
       await restartClientAfterAuthChange();
       // Validate and replace the shared credentials before committing the
       // local copy. A failed rebind must preserve the previous binding.
-      await syncSharedBinanceAccountConnection();
       await syncSharedBinanceAccountCredentials({
         apiKey: params?.apiKey,
         apiSecret: params?.apiSecret,

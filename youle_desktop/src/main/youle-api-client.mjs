@@ -1,6 +1,6 @@
 import { HAOLO_GATEWAY_BASE_URL, migrateHaoloGatewayAuth, normalizeHaoloGatewayBaseUrl } from "./haolo-gateway.mjs";
 import crypto from "node:crypto";
-import { BINANCE_REBIND_MESSAGE } from "../shared/binance-account-errors.mjs";
+import { BINANCE_REBIND_MESSAGE, binanceBindingErrorMessage } from "../shared/binance-account-errors.mjs";
 import { verifyPlanInvitation } from './execution-plan-share.mjs';
 import { createAccountReadCoordinator } from "./binance-account/read-coordinator.mjs";
 import { waitForRunEvent } from "./trading-strategy-runtime/run-event-stream.mjs";
@@ -1589,7 +1589,7 @@ export class YouleApiClient {
     ).trim();
     if (!MOBILE_DEVICE_UUID_PATTERN.test(deviceId)) throw new Error("deviceId must be a UUID");
     const idempotencyKey = String(
-      params.idempotencyKey || params.idempotency_key || `windows-account-connection:${deviceId}`,
+      params.idempotencyKey || params.idempotency_key || `windows-account-connection:${deviceId}:${crypto.randomUUID()}`,
     ).trim();
     return this.requestJson(joinUrl(this.baseUrl, this.accountConnectionsPath), {
       method: "POST",
@@ -5299,7 +5299,7 @@ function httpErrorFromResponse(status, payload, headers = null) {
   );
   const code = extractErrorCode(payload) || headerText(headers, "x-haolo-error-code");
   const membershipAccessError = code === "MEMBERSHIP_EXPIRED" || code === "TRIAL_REQUIRED";
-  const message = code === "BINANCE_CREDENTIALS_INVALID" ? BINANCE_REBIND_MESSAGE : membershipAccessError
+  const message = binanceBindingErrorMessage(code) || (code === "BINANCE_CREDENTIALS_INVALID" ? BINANCE_REBIND_MESSAGE : membershipAccessError
     ? firstProfileString(
         payload?.message,
         payload?.error?.message,
@@ -5307,7 +5307,7 @@ function httpErrorFromResponse(status, payload, headers = null) {
         payload?.data?.message,
         payload?.data?.error?.message,
       ) || (code === "TRIAL_REQUIRED" ? "请先开通体验版或其他套餐" : "会员到期")
-    : errorMessageFromPayload(payload);
+    : errorMessageFromPayload(payload));
   return new YouleHttpError(message || `HTTP ${status}`, {
     status,
     payload,

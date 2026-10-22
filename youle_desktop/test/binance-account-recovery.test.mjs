@@ -79,7 +79,6 @@ test("main rebind verifies OTP and shared credentials before the local save, pre
       getBinanceAccountService: () => accountService,
       getYouleApiClient: () => ({ verifyOtp: async () => { events.push("otp"); return { authenticated: true }; } }),
       sameBinanceBindingOwner: () => true, clearVoiceCredentialCache() {}, restartClientAfterAuthChange: async () => {},
-      syncSharedBinanceAccountConnection: async () => {},
       syncSharedBinanceAccountCredentials: async () => { events.push("shared-save"); if (failShared) throw invalidKey(); },
     });
     const result = handler({}, { challengeId: "challenge", code: "123456", apiKey: "offline-api-key", apiSecret: "offline-secret" });

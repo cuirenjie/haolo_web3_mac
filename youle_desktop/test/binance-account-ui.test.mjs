@@ -525,7 +525,7 @@ test("renderer bridge reuses Haolo OTP and exposes no order or credential-read I
   assert.match(binanceHandlers, /getYouleApiClient\(\)\.sendOtp/);
   assert.match(binanceHandlers, /getYouleApiClient\(\)\.verifyOtp/);
   assert.match(desktopMain, /registerMobileDevice\([\s\S]*platform: "windows"/);
-  assert.match(desktopMain, /syncSharedBinanceAccountConnection\(\)/);
+  assert.match(desktopMain, /syncSharedBinanceAccountCredentials\(/);
   assert.match(desktopMain, /removeSharedBinanceAccountConnection\(\)/);
   assert.match(desktopMain, /remoteOnly: !localBound && remoteBound/);
   assert.match(renderer, /sendBinanceAccountOtp\(\)/);

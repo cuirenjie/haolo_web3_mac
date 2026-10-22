@@ -1,5 +1,17 @@
 export const BINANCE_REBIND_MESSAGE = "API Key 无效，请重新绑定";
 
+const BINDING_ERROR_MESSAGES = Object.freeze({
+  CONNECTION_REVOKED: "此 Binance 连接已解绑，请关闭窗口后重新绑定。",
+  ACCOUNT_CREDENTIALS_NOT_BOUND: "尚未完成 Binance API 绑定，请重新绑定。",
+  CONNECTION_LIMIT: "已达到账户连接数量上限，请解除不用的连接后重试。",
+  DEVICE_LIMIT: "已达到设备数量上限，请移除不用的设备后重试。",
+  IDEMPOTENCY_CONFLICT: "本次请求与之前的操作冲突，请关闭窗口后重试。",
+});
+
+export function binanceBindingErrorMessage(code) {
+  return Object.hasOwn(BINDING_ERROR_MESSAGES, code) ? BINDING_ERROR_MESSAGES[code] : null;
+}
+
 export function isBinanceCredentialError(error) {
   return ["BINANCE_CREDENTIALS_INVALID", "BINANCE_AUTH_FAILED", "BINANCE_SIGNATURE_INVALID"]
     .includes(error?.code);

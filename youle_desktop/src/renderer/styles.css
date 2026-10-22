@@ -41599,7 +41599,7 @@ html[data-theme] .desktop-body:has(> :is(
 .binance-account-otp-copy { border-radius: 9px; background: var(--binance-surface-hover); padding: 11px 13px; color: var(--binance-text-secondary); font-size: calc(12px + var(--app-font-size-offset)); line-height: 1.55; }
 .binance-account-otp-copy strong { color: var(--binance-text); }
 .binance-account-security-note { margin: -2px 0 0; color: var(--binance-text-muted); font-size: calc(11px + var(--app-font-size-offset)); line-height: 1.6; }
-.binance-account-dialog-error { margin: -4px 0 0; border-radius: 8px; background: var(--binance-danger-bg); padding: 9px 11px; color: var(--binance-negative); font-size: calc(12px + var(--app-font-size-offset)); line-height: 1.5; }
+.binance-account-dialog-error { margin: -4px 0 0; border-radius: 8px; background: var(--binance-danger-bg); padding: 9px 11px; color: var(--binance-danger-action); font-size: calc(12px + var(--app-font-size-offset)); line-height: 1.5; }
 .binance-account-dialog footer { padding-top: 2px; }
 .binance-account-submit { width: 100%; min-height: 46px; border-color: var(--binance-action); background: var(--binance-action); color: var(--binance-action-text); font-size: calc(14px + var(--app-font-size-offset)); }
 .binance-account-submit.danger { border-color: var(--binance-danger-action); background: var(--binance-danger-action); color: var(--binance-danger-action-text); }
