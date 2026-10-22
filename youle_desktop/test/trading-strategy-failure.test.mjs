@@ -91,6 +91,20 @@ test("explicit strategy errors never silently change engines or create executabl
   }
 });
 
+test("unconfirmed results are persisted as pending, not a failed analysis or a new plan", async () => {
+  for (const language of ["zh-CN", "en", "zh-Hant"]) {
+    const { state, run } = harness(Object.assign(new Error("query still rate limited"), { code: "CLOUD_RUN_PENDING" }), undefined, language);
+    await run("chan", "Chan");
+    assert.equal(state.progress.at(-1).phase, "pending");
+    assert.equal(state.reports.length, 1);
+    assert.equal(state.reports[0].presentation, "plain");
+    assert.doesNotMatch(state.reports[0].report, /未完成|未生成|未產生|did not complete|no new execution plan/);
+    assert.equal(state.persisted.at(-1).at(-1), state.reports[0]);
+    assert.equal(state.generalCalls, 0);
+    assert.equal(state.finished, 1);
+  }
+});
+
 test("cancellation and insufficient credit keep their existing UI and never generate plans", async () => {
   for (const code of ["TRADING_ANALYSIS_CANCELLED", "INSUFFICIENT_BALANCE"]) {
     const { state, run } = harness(Object.assign(new Error("fixture"), { code }));

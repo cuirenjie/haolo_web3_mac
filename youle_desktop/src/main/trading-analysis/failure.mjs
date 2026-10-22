@@ -88,11 +88,24 @@ export function describeTradingAnalysisFailure(error, { stage = "analysis", lang
 }
 
 export function tradingAnalysisStoppedMessage(error, {language = 'zh-CN', strategyName = '', completedStrategyNames = []} = {}) {
-  const reason = describeTradingAnalysisFailure(error, {language}).summary;
+  const failure = describeTradingAnalysisFailure(error, {language});
+  const reason = failure.summary;
   const completed = completedStrategyNames.filter(Boolean).join('、');
+  if (failure.category === 'pending') {
+    const retained = !completed ? '' : language === 'en' || language === 'en-US'
+      ? ` Completed results (${completed}) are retained.`
+      : ['zh-Hant', 'zh-TW'].includes(language) ? `已完成的${completed}結果仍保留。` : `已完成的${completed}结果仍保留。`;
+    return pendingResultMessage(reason, strategyName, language) + retained;
+  }
   if (language === 'en' || language === 'en-US') return `${strategyName ? `${strategyName} analysis did not complete; no conclusion was generated. ` : ''}${reason}. This analysis has stopped and will not retry automatically.${completed ? ` Completed results (${completed}) are retained.` : ''}`;
   if (['zh-Hant', 'zh-TW'].includes(language)) return `${strategyName ? `${strategyName}分析未完成，未產生該策略的結論。` : ''}${reason}。本輪分析已停止，不會自動重試。${completed ? `已完成的${completed}結果仍保留。` : ''}`;
   return `${strategyName ? `${strategyName}分析未完成，未生成该策略的结论。` : ''}${reason}。本轮分析已停止，不会自动重试。${completed ? `已完成的${completed}结果仍保留。` : ''}`;
+}
+
+function pendingResultMessage(reason, name, language) {
+  if (language === 'en' || language === 'en-US') return `${name ? `${name}: ` : ''}${reason}. The query wait has ended. Avoid submitting another analysis until the original result is confirmed.`;
+  if (['zh-Hant', 'zh-TW'].includes(language)) return `${name ? `${name}：` : ''}${reason}。本次查詢等待已結束，確認結果前請勿重複發起分析。`;
+  return `${name ? `${name}：` : ''}${reason}。本次查询等待已结束，确认结果前请勿重复发起分析。`;
 }
 
 // An explicitly selected strategy owns the report, drawings and execution
@@ -103,6 +116,7 @@ export function buildTradingStrategyFailureReport(strategy, error, { language = 
   const name = String(strategy?.display?.name || strategy?.id || (english ? "Selected strategy" : "所选策略"))
     .replace(/[\r\n]/g, " ").slice(0, 120);
   const failure = describeTradingAnalysisFailure(error, { language });
+  if (failure.category === 'pending') return pendingResultMessage(failure.summary, name, language);
   if (failure.category.startsWith("preferences_")) {
     return language === "en"
       ? `${name}: ${failure.summary}. Analysis has not started. Your original local settings are retained; no new execution plan was generated.`

@@ -59,7 +59,7 @@ export function validateCloudResult(run, record) {
   return {...result,cloud:{...result.cloud,...(record.origin ? {origin:record.origin} : {})}};
 }
 
-export function createCloudStrategyRuntime({owner, api, journal, connection, wait=delay, pollMs=1000, timeoutMs=600000}) {
+export function createCloudStrategyRuntime({owner, api, journal, connection, wait=delay, pollMs=1000, timeoutMs=600000, now=Date.now, random=Math.random}) {
   const active = new Set();
   const assertOwner = async captured => {
     const current = await owner();
@@ -83,8 +83,32 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
     await journal.put(captured.ownerId, record.key, record);
     return response.state;
   }
-  async function poll(captured, record, {signal,onProgress,timeoutMs:pollTimeout=timeoutMs,pureReferenceAnalysis=false}={}) {
-    const started = Date.now();
+  async function readRun(captured, record, {signal,deadline}) {
+    let retries = 0;
+    while (true) {
+      signal?.throwIfAborted();
+      await assertOwner(captured);
+      if (now() >= deadline) throw fail('CLOUD_RUN_PENDING', {runId:record.runId,retryable:true});
+      try {
+        return await request(captured,'run',{runId:record.runId},{signal});
+      } catch (error) {
+        signal?.throwIfAborted();
+        await assertOwner(captured);
+        // Only retry the read of an already journaled run. A busy status
+        // endpoint says nothing about the Worker outcome and must never replay
+        // admission, cancel the run, or overwrite its durable state as failed.
+        if (Number(error?.status) !== 429 || error?.retryable === false) throw error;
+        const remaining = deadline - now();
+        if (remaining <= 0) throw fail('CLOUD_RUN_PENDING', {runId:record.runId,retryable:true});
+        const backoff = Math.min(15000, Math.max(1000,pollMs) * 2 ** Math.min(retries++,4));
+        const jittered = Math.ceil(backoff * (1 + random() * 0.25));
+        const retryAfter = Number(error.retryAfterMs);
+        const retryMs = Math.max(jittered, Number.isFinite(retryAfter) && retryAfter >= 0 ? retryAfter : 0);
+        await wait(Math.min(retryMs,remaining),undefined,{signal});
+      }
+    }
+  }
+  async function poll(captured, record, {signal,onProgress,timeoutMs:pollTimeout=timeoutMs,pureReferenceAnalysis=false,deadline=now()+pollTimeout}={}) {
     let lastProgress = '';
     let useEvents = pureReferenceAnalysis && typeof api().waitForTradingCloudRunEvent === 'function';
     let eventCursor = 0;
@@ -94,7 +118,7 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
     try {
       while (true) {
         signal?.throwIfAborted();
-        const run = await request(captured,'run',{runId:record.runId},{signal});
+        const run = await readRun(captured,record,{signal,deadline});
         if (run.id !== record.runId) throw fail('CLOUD_RESULT_CONTEXT_INVALID');
         if (run.state === 'succeeded') {
           const result = validateCloudResult(run,record);
@@ -117,13 +141,13 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
           lastProgress = fingerprint(progress);
           onProgress?.({stage:progress.stage,status:'running'});
         }
-        if (Date.now()-started >= pollTimeout) throw fail('CLOUD_RUN_PENDING', {runId:record.runId,retryable:true});
+        if (now() >= deadline) throw fail('CLOUD_RUN_PENDING', {runId:record.runId,retryable:true});
         if (useEvents) {
           try {
             await assertOwner(captured);
             eventWait ||= api().waitForTradingCloudRunEvent(record.runId, {
               signal:eventSignal, after:eventCursor, expectedAccountId:captured.accountId, expectedBaseUrl:captured.baseUrl,
-              timeoutMs:Math.min(15000, Math.max(1, pollTimeout - (Date.now()-started))),
+              timeoutMs:Math.min(15000, Math.max(1, deadline - now())),
             }).then(event=>({event}),error=>({error}));
             // Keep the existing polling cadence as a watchdog. A proxy that
             // buffers SSE must never make result delivery slower than before.
@@ -267,6 +291,7 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
       if(active.has(lock))throw fail('CLOUD_RUN_ALREADY_PENDING');
       active.add(lock);
       let record;
+      const deadline=now()+(options.timeoutMs??timeoutMs);
       try {
         record=await journal.get(captured.ownerId,key);
         if(!record)throw fail('CLOUD_RUN_NOT_FOUND');
@@ -276,7 +301,7 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
         }
         if(record.state==='prepared') {
           // Inspect before an explicit same-key retry, including after app restart.
-          try { await request(captured,'run',{runId:record.runId},{signal:options.signal}); }
+          try { await readRun(captured,record,{signal:options.signal,deadline}); }
           catch(error) {
             if(error.status!==404)throw error;
             options.signal?.throwIfAborted();
@@ -286,7 +311,7 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
             await journal.put(captured.ownerId,key,record);
           }
         }
-        return await poll(captured,record,options);
+        return await poll(captured,record,{...options,deadline});
       } catch(error) {
         if(options.signal?.aborted && record && !record.cancelRequested){
           try {if(await cancelRecord(captured,record)==='succeeded')throw fail('CLOUD_RUN_PENDING');}
