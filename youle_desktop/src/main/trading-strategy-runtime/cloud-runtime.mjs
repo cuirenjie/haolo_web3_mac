@@ -246,7 +246,7 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
         // Wyckoff needs formation context before the current breakout. This is
         // an advisory horizon: the server can use shorter available history,
         // and an explicit time/visible window remains authoritative.
-        const preferredWindowCount = strategyId === 'wyckoff' && !lookbackMs && !visibleRange ? 240 : null;
+        const preferredWindowCount = !lookbackMs && !visibleRange ? strategyId === 'chart-patterns' ? 600 : strategyId === 'wyckoff' ? 240 : null : null;
         const readSnapshot = () => request(captured,'marketSnapshot',{market:target.marketKey,interval:target.interval,limit:600,...(visibleRange||{...(windowCount?{windowCount}:{}),...(lookbackMs?{lookbackMs}:{}),...(preferredWindowCount?{preferredWindowCount}:{})})},{signal:options.signal});
         // Independent fresh reads can overlap after capability/history checks.
         // No cached market result or account consent replaces either read.

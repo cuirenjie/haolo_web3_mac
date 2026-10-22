@@ -10,10 +10,13 @@ import {
   projectedActionLevels,
   rankAndDeduplicateCandidates,
   resolvePatternLifecycle,
+  patternBreakoutWindow,
+  patternFormationAtr,
+  boundaryContainment,
 } from "./chart-pattern-common.mjs";
 
 export const CHART_PATTERN_BILATERAL_SUBENGINE_ID = "chart-pattern-bilateral";
-export const CHART_PATTERN_BILATERAL_SUBENGINE_VERSION = "1.1.0";
+export const CHART_PATTERN_BILATERAL_SUBENGINE_VERSION = "2.0.0";
 export const CHART_PATTERN_BILATERAL_IDS = Object.freeze([
   "symmetrical-triangle",
   "ascending-triangle",
@@ -58,7 +61,7 @@ function triangleApexIndex(upper, lower) {
 }
 
 export function evaluateBilateralPattern(snapshot, inputPoints, { atr, profileId = "direct" } = {}) {
-  if (!Array.isArray(inputPoints) || inputPoints.length < 4 || inputPoints.length > 8) return null;
+  if (!Array.isArray(inputPoints) || inputPoints.length < 4 || inputPoints.length > 10) return null;
   if (inputPoints.some((point, index) => index && point.type === inputPoints[index - 1].type)) return null;
   const highs = inputPoints.filter((point) => point.type === "high");
   const lows = inputPoints.filter((point) => point.type === "low");
@@ -128,6 +131,7 @@ export function evaluateBilateralPattern(snapshot, inputPoints, { atr, profileId
     patternId = "descending-triangle";
   }
   if (!patternId) return null;
+  if (boundaryContainment(snapshot, startIndex, endIndex, upper, lower, atr) < 0.85) return null;
   const triangle = patternId !== "rectangle";
   const apexIndex = triangle ? triangleApexIndex(upper, lower) : null;
   if (triangle && (
@@ -137,9 +141,9 @@ export function evaluateBilateralPattern(snapshot, inputPoints, { atr, profileId
   )) return null;
   const upperAt = (index) => linePrice(upper, index);
   const lowerAt = (index) => linePrice(lower, index);
-  const ageLimitBars = Math.max(4, Math.min(12, Math.round(duration * 0.35)));
+  const ageLimitBars = patternBreakoutWindow(duration);
   const breakoutSearchBars = triangle
-    ? Math.max(1, Math.min(ageLimitBars, Math.floor(apexIndex - endIndex + 1)))
+    ? Math.max(0, Math.min(ageLimitBars, Math.floor(apexIndex - endIndex)))
     : ageLimitBars;
   const breakout = findClosedBreakout(snapshot, endIndex, upperAt, lowerAt, atr, {
     allowedDirection: "both",
@@ -170,12 +174,12 @@ export function evaluateBilateralPattern(snapshot, inputPoints, { atr, profileId
     direction,
     lastStructureIndex: endIndex,
     structureDuration: duration,
-    maxDevelopingAgeBars: ageLimitBars,
-    maxConfirmedAgeBars: ageLimitBars,
+    maxDevelopingAgeBars: breakoutSearchBars,
+    maxConfirmedAgeBars: Math.max(4, Math.min(12, Math.round(duration * 0.35))),
   });
   const { lifecycle, tradeState } = lifecycleState;
   const records = pointRecords(inputPoints, inputPoints.map((point, index) => `${point.type === "high" ? "R" : "S"}${Math.floor(index / 2) + 1}`));
-  const id = chartPatternId("chart-pattern", snapshot.snapshotId, patternId, records.map((point) => point.index).join("-"));
+  const id = chartPatternId("chart-pattern", snapshot.marketId, snapshot.interval, patternId, records.map(point => `${point.time}:${point.price}`).join("-"));
   const convergence = clamp(1 - endGap / startGap, 0, 1);
   const flatness = clamp(1 - Math.min(Math.abs(upperSlope), Math.abs(lowerSlope)) / flat, 0, 1);
   return Object.freeze({
@@ -232,10 +236,10 @@ export function evaluateBilateralPattern(snapshot, inputPoints, { atr, profileId
 export function runBilateralPatternSubengine(snapshot, scanContext) {
   const candidates = [];
   for (const profile of scanContext.profiles) {
-    for (let length = 4; length <= 8; length += 1) {
+    for (let length = 4; length <= 10; length += 1) {
       for (let index = 0; index <= profile.swings.length - length; index += 1) {
         const candidate = evaluateBilateralPattern(snapshot, profile.swings.slice(index, index + length), {
-          atr: scanContext.atr,
+          atr: patternFormationAtr(snapshot, profile.swings.slice(index, index + length)),
           profileId: profile.id,
         });
         if (candidate) candidates.push(candidate);

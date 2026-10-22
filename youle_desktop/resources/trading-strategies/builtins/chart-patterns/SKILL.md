@@ -16,8 +16,9 @@ Run deterministic traditional chart-pattern analysis on the current closed-candl
 3. Require the applicable prior trend, geometric touches, minimum depth, and duration before naming a pattern.
 4. Keep a qualified structure `developing` until a closed candle breaks the deterministic boundary.
 5. Mark a breakout `failed` when price closes back through the broken boundary within the defined confirmation window.
-6. Draw confirmed historical pivots with solid lines, analytical boundaries with dashed lines, point labels with text, and only conditional forward levels.
+6. Draw current validated structure with solid lines and boundaries with dashed lines. Keep recent completed/failed/expired structures as dotted historical references without execution levels; show at most three distinct structures and reserve detailed labels for the primary one.
 7. Build `ExecutionPlanV1` from engine-owned triggers, stops, height/flagpole targets, validity, and cancellation rules.
+8. Respect parent-framework room restrictions per direction in reports, conditional plans and native drawings. A blocked candidate remains visible for observation; never reconstruct its suppressed entry from geometric levels. Retest contraction and climactic-volume retests are context only.
 
 ## Safety Boundaries
 
@@ -38,4 +39,7 @@ Return the strategy envelope through the host coordinator. The report must state
 - long/short trigger conditions as applicable;
 - stop/invalidation, two projected targets, risk/reward, observation conditions, expiry, and cancellation rules;
 - data limitations and false-breakout risk.
+- retest, volume availability, same-timeframe nesting and opposing active scenarios when present; never equate swing scales with independently fetched timeframes.
+
+Version 2.1 covers 28 definitions including channels, broadening structures, rounding tops/bottoms, inverse cup and handle, diamonds and the MA5/10/60 old-duck-head convention. See the rulebook for supported versus research-only families. Human interpretation and unreviewed video material are not deterministic signals.
 

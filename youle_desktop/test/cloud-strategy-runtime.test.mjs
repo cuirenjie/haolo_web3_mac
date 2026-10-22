@@ -253,6 +253,25 @@ test('Wyckoff requests formation history as a preference, preserving explicit lo
   }
 });
 
+test('Chart patterns requests formation history as a preference, preserving explicit lookbacks and frozen retries',async()=>{
+  for(const lookbackMs of [undefined,86400000]) {
+    let first=true;
+    const {runtime,calls}=setup(({operation,run})=>{
+      if(operation==='capabilities')return {windowsWorkerReady:true,entryV2WorkerReady:true,windowsContract:'windows-v1',strategies:[{id:'chart-patterns',legacyWindows:true,entryModes:['right']}]};
+      if(operation==='createRun'&&first){first=false;throw Object.assign(Error('unknown admission'),{status:503});}
+      if(operation==='run')return {...run,state:'cancelled'};
+    });
+    const input={...params,analysisWindowCount:100,...(lookbackMs?{lookbackMs}:{})};
+    await assert.rejects(runtime.run('chart-patterns',input),/unknown admission/);
+    await assert.rejects(runtime.run('chart-patterns',input),e=>e.code==='TRADING_ANALYSIS_CANCELLED');
+    const requests=calls.filter(c=>c.operation==='marketSnapshot');
+    assert.equal(requests.length,1);
+    assert.equal(requests[0].payload.windowCount,100);
+    assert.equal(requests[0].payload.preferredWindowCount,lookbackMs?undefined:600);
+    if(lookbackMs)assert.equal(requests[0].payload.lookbackMs,lookbackMs);
+  }
+});
+
 test('host repairs undersized viewport hints before admission without changing frozen retries',async()=>{
   for(const strategyId of ['order-flow','dow-theory']) {
     let first=true;

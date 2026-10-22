@@ -293,15 +293,17 @@ test("a confirmed historical triangle is removed after price closes back through
       primaryActiveCandidate: null,
       primaryCandidate: candidate,
       historicalCandidates: [candidate],
+      displayCandidates: [candidate],
     },
     pivots: { swings: candidate.points },
     engine: { subengines: [] },
   };
   const report = buildChartPatternNoCandidateReport(snapshot, theory);
   const patch = buildChartPatternDrawingPatch(snapshot, theory);
-  assert.match(report, /历史排除/);
-  assert.ok(!patch.operations.some((operation) => operation.drawing.tool === "path"));
-  assert.match(patch.operations.at(-1).drawing.text, /当前无有效形态/);
+  assert.match(report, /历史结构/);
+  assert.ok(patch.operations.some((operation) => operation.drawing.tool === "path"));
+  assert.ok(!patch.operations.some((operation) => /-level-/.test(operation.drawing.id)));
+  assert.match(patch.operations.at(-1).drawing.text, /历史参考/);
 });
 
 test("continuation subengine requires a strong flagpole and caps consolidation retracement", () => {
@@ -369,7 +371,7 @@ test("full pipeline completes no-candidate analysis instead of surfacing an anal
   ));
 });
 
-test("engine and pipeline do not promote or draw an expired historical pattern as the current plan", async () => {
+test("engine retains historical geometry without promoting an expired pattern into a plan", async () => {
   const closes = interpolateControls([
     [0, 80], [30, 104], [40, 96], [50, 112], [60, 97], [70, 104.5], [80, 93], [110, 90],
   ], 111);
@@ -388,9 +390,10 @@ test("engine and pipeline do not promote or draw an expired historical pattern a
   assert.equal(result.analysisPlan.actionPlan.primaryBias, "neutral");
   assert.equal(result.analysisPlan.actionPlan.longTrigger, undefined);
   assert.equal(result.analysisPlan.actionPlan.shortTrigger, undefined);
-  assert.ok(!result.analysisPlan.drawingPatch.operations.some((operation) => operation.drawing.tool === "path"));
-  assert.match(result.analysisPlan.report, /历史排除/);
-  assert.match(result.analysisPlan.narrative, /未绘制旧形态/);
+  assert.ok(result.analysisPlan.drawingPatch.operations.some((operation) => operation.drawing.tool === "path"));
+  assert.ok(!result.analysisPlan.drawingPatch.operations.some((operation) => /-level-/.test(operation.drawing.id)));
+  assert.match(result.analysisPlan.report, /历史结构/);
+  assert.match(result.analysisPlan.narrative, /历史结构按状态保留/);
 
   const coordinator = new TradingStrategyCoordinator({
     registry: createTradingStrategyRegistry({ adapters: BUILTIN_TRADING_STRATEGY_ADAPTERS }),
@@ -408,7 +411,7 @@ test("engine and pipeline do not promote or draw an expired historical pattern a
 });
 
 test("professional drawing uses solid structure, dashed boundaries/levels, point labels, and a controlled strategy layer", () => {
-  const closes = interpolateControls([[0, 80], [30, 110], [40, 95], [50, 109.5], [58, 92], [75, 90]], 76);
+  const closes = interpolateControls([[0, 80], [30, 110], [40, 95], [50, 109.5], [58, 92], [62, 91]], 63);
   const snapshot = makeSnapshot(closes);
   const candidate = evaluateDoubleReversal(snapshot, [
     pivot(snapshot, 30, "high", 110),
@@ -488,7 +491,7 @@ test("600-candle deterministic scan remains bounded", () => {
   const result = runChartPatternEngine(snapshot);
   const elapsed = performance.now() - started;
   assert.ok(result.engine.subengines.every((subengine) => subengine.supportedPatternIds.length > 0));
-  assert.equal(CHART_PATTERN_SUPPORTED_IDS.length, 17);
-  assert.equal(new Set(result.engine.subengines.flatMap((subengine) => subengine.supportedPatternIds)).size, 17);
+  assert.equal(CHART_PATTERN_SUPPORTED_IDS.length, 28);
+  assert.equal(new Set(result.engine.subengines.flatMap((subengine) => subengine.supportedPatternIds)).size, 28);
   assert.ok(elapsed < 500, `scan took ${elapsed.toFixed(1)}ms`);
 });

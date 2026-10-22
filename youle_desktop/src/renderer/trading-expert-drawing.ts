@@ -49,6 +49,7 @@ import { tradingInfoLineRows, renderTradingInfoLineCard } from './trading-info-l
 import { renderTradingTrendAngleAnnotation } from './trading-trend-angle.ts';
 import { isTradingPitchfork, renderTradingPitchfork } from './trading-pitchfork.ts';
 import { isReferencePatternDrawing, renderReferencePattern, harmonicFillColor, HARMONIC_BLUE } from './trading-patterns.ts';
+import { chartPatternNativeDrawingModel } from './chart-pattern-native-tools.ts';
 import { isElliottWave, renderElliottWave, ELLIOTT_FONT_SIZE, ELLIOTT_HANDLE_COLOR } from './trading-elliott-wave.ts';
 import { captureTradingChartToDesktop } from './trading-chart-screenshot.ts';
 import { calculateRegressionTrend, normalizeRegressionTrendOptions, regressionBarIndex, renderRegressionTrend, type RegressionTrendOptions } from './trading-regression-trend.ts';
@@ -6774,7 +6775,7 @@ export class TradingDrawingController {
       return { id: drawing.id, render };
     }));
     const aiDrawings = aiSourceDrawings.filter(drawing => !this.drawingVisibility.aiHidden && !planPriceLines.drawingIds.has(drawing.id))
-      .map((drawing) => tradingAiDrawingDisplayModel(drawing));
+      .map((drawing) => chartPatternNativeDrawingModel(tradingAiDrawingDisplayModel(drawing)));
     const aiCandlestickLabelRequests = aiDrawings.flatMap((drawing): TradingAiNoteLayoutRequest[] => {
       if (!tradingDrawingIsPriceActionCandlestickPatternLabel(drawing) || !drawing.points[0]) return [];
       const anchor = this.pointToScreen(drawing.points[0]);

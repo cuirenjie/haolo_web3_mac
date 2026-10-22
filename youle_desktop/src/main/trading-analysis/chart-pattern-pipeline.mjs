@@ -65,7 +65,7 @@ function snapshotSummary(snapshot) {
   };
 }
 
-function candidateActionPlan(snapshot, candidate) {
+export function buildChartPatternActionPlan(snapshot, candidate) {
   if (!candidate || !isCurrentCandidate(candidate)) {
     return Object.freeze({
       primaryBias: "neutral",
@@ -76,19 +76,29 @@ function candidateActionPlan(snapshot, candidate) {
     });
   }
   const currentPrice = snapshot.candles.at(-1).close;
+  if (candidate.context?.entryBlockedReason) {
+    return Object.freeze({ primaryBias: "neutral", disposition: "wait", currentPrice,
+      confirmation: "父结构边界距离不足一份结构风险，保留形态观察，等待边界突破或新结构后重算" });
+  }
   if (candidate.category === "bilateral" && candidate.direction === "neutral") {
+    const blocked = candidate.context?.blockedDirections || [];
     return Object.freeze({
       primaryBias: "neutral",
       currentPrice,
-      longTrigger: candidate.longLevels.trigger,
-      longInvalidation: candidate.longLevels.stop,
-      longTarget: candidate.longLevels.targets[0],
-      longTargets: candidate.longLevels.targets,
-      shortTrigger: candidate.shortLevels.trigger,
-      shortInvalidation: candidate.shortLevels.stop,
-      shortTarget: candidate.shortLevels.targets[0],
-      shortTargets: candidate.shortLevels.targets,
-      confirmation: "保持双向中性；只接受已收盘 K 线有效突破对应边界，区间内不执行",
+      ...(!blocked.includes("bullish") ? {
+        longTrigger: candidate.longLevels.trigger,
+        longInvalidation: candidate.longLevels.stop,
+        longTarget: candidate.longLevels.targets[0],
+        longTargets: candidate.longLevels.targets,
+      } : {}),
+      ...(!blocked.includes("bearish") ? {
+        shortTrigger: candidate.shortLevels.trigger,
+        shortInvalidation: candidate.shortLevels.stop,
+        shortTarget: candidate.shortLevels.targets[0],
+        shortTargets: candidate.shortLevels.targets,
+      } : {}),
+      confirmation: blocked.length ? "保持中性；仅保留父结构空间足够的方向，等待对应边界收盘突破后重算"
+        : "保持双向中性；只接受已收盘 K 线有效突破对应边界，区间内不执行",
       disposition: "wait",
     });
   }
@@ -121,6 +131,24 @@ function pointSummary(candidate) {
     .join("，");
 }
 
+function contextReport(candidate) {
+  const context = candidate.context;
+  if (!context) return [];
+  const retest = { "not-broken": "等待突破", "not-seen": "尚未出现回踩", held: "回踩边界守住", failed: "回踩收回结构内部" };
+  return [
+    tradingReportText("- 回踩状态：{0}。", tradingReportText(retest[context.retest.state])),
+    tradingReportText("- 量能证据：整理后半段/前半段 {0}；突破量/此前均量 {1}。量能仅作辅助，不把缺失量当成缩量。",
+      context.volume.formationRatio?.toFixed(2) ?? tradingReportText("不可用"), context.volume.breakoutRatio?.toFixed(2) ?? tradingReportText("不可用")),
+    ...(context.parentPatternName ? [tradingReportText("- 嵌套结构：本周期内的小结构位于 {0} 框架中；这不是额外周期的数据确认。", context.parentPatternName)] : []),
+    ...(context.parentRoom ? [tradingReportText("- 父结构空间：对侧边界 {0}，距触发位约 {1}R（R 为触发至止损距离）；不足 1R 时仅观察，不生成入场条件。",
+      formatPrice(context.parentRoom.boundary), context.parentRoom.rewardRisk.toFixed(2))] : []),
+    ...(context.retestCompression?.state === "contracted" ? [tradingReportText("- 回踩后收缩：最近三根真实波幅约为形成期 ATR 的 {0} 倍；仍需边界守住，不能单独触发。", context.retestCompression.rangeAtrRatio.toFixed(2))] : []),
+    ...(context.climaxRetest?.state === "observed" ? [tradingReportText("- 极值量价：首次极值量为此前均量 {0} 倍，再测同侧极值量为首次的 {1}；价格推进有限，仅作疲弱证据，不证明反转。",
+      context.climaxRetest.firstVolumeRatio.toFixed(2), context.climaxRetest.retestVolumeRatio.toFixed(2))] : []),
+    ...(context.conflictingCandidateIds.length ? [tradingReportText("- 相反场景：同窗口还有 {0} 个方向冲突的有效结构，应等待各自边界确认。", context.conflictingCandidateIds.length)] : []),
+  ];
+}
+
 export function buildChartPatternReport(snapshot, theoryResult) {
   const candidate = theoryResult.structures.primaryActiveCandidate;
   if (!candidate) return buildChartPatternNoCandidateReport(snapshot, theoryResult);
@@ -142,6 +170,7 @@ export function buildChartPatternReport(snapshot, theoryResult) {
   }
   const bilateralDeveloping = candidate.category === "bilateral" && candidate.direction === "neutral";
   const levels = candidate.actionLevels;
+  const blocked = candidate.context?.blockedDirections || [];
   return [
     tradingReportText("## 图表形态结论"),
     "",
@@ -151,12 +180,18 @@ export function buildChartPatternReport(snapshot, theoryResult) {
     tradingReportText("- 结构点：{0}。", pointSummary(candidate)),
     tradingReportText("- 几何状态：{0} 个已确认触点，形态高度 {1}，规则得分 {2}%。", candidate.points.length, formatPrice(candidate.height), (candidate.score * 100).toFixed(1)),
     tradingReportText("- 突破状态：{0}。", candidate.lifecycle === "confirmed" ? tradingReportText("{0} 的已收盘 K 线向{1}突破 {2}", formatTime(candidate.breakout.time), candidate.breakout.direction === "up" ? tradingReportText("上") : tradingReportText("下"), formatPrice(candidate.breakout.boundary)) : tradingReportText("尚未出现越过波动缓冲的有效收盘突破，盘中影线不计确认")),
+    ...contextReport(candidate),
     "",
     tradingReportText("### 条件式执行"),
-    ...(bilateralDeveloping ? [
-      tradingReportText("- 当前方向：中性；向上收盘突破 {0} 才启用多头场景，向下收盘突破 {1} 才启用空头场景。", formatPrice(candidate.longLevels.trigger), formatPrice(candidate.shortLevels.trigger)),
-      tradingReportText("- 多头失效/目标：止损参考 {0}；T1 {1}；T2 {2}。", formatPrice(candidate.longLevels.stop), formatPrice(candidate.longLevels.targets[0]), formatPrice(candidate.longLevels.targets[1])),
-      tradingReportText("- 空头失效/目标：止损参考 {0}；T1 {1}；T2 {2}。", formatPrice(candidate.shortLevels.stop), formatPrice(candidate.shortLevels.targets[0]), formatPrice(candidate.shortLevels.targets[1])),
+    ...(candidate.context?.entryBlockedReason ? [
+      tradingReportText("- 当前动作：父结构空间不足，保留几何观察，等待重新分析。"),
+    ] : bilateralDeveloping ? [
+      ...(blocked.length ? [tradingReportText("保持中性；仅保留父结构空间足够的方向，等待对应边界收盘突破后重算")]
+        : [tradingReportText("- 当前方向：中性；向上收盘突破 {0} 才启用多头场景，向下收盘突破 {1} 才启用空头场景。", formatPrice(candidate.longLevels.trigger), formatPrice(candidate.shortLevels.trigger))]),
+      blocked.includes("bullish") ? tradingReportText("- 多头：父结构空间不足，仅观察。")
+        : tradingReportText("- 多头触发 {0}；止损 {1}；T1 {2}；T2 {3}。", formatPrice(candidate.longLevels.trigger), formatPrice(candidate.longLevels.stop), formatPrice(candidate.longLevels.targets[0]), formatPrice(candidate.longLevels.targets[1])),
+      blocked.includes("bearish") ? tradingReportText("- 空头：父结构空间不足，仅观察。")
+        : tradingReportText("- 空头触发 {0}；止损 {1}；T1 {2}；T2 {3}。", formatPrice(candidate.shortLevels.trigger), formatPrice(candidate.shortLevels.stop), formatPrice(candidate.shortLevels.targets[0]), formatPrice(candidate.shortLevels.targets[1])),
     ] : [
       tradingReportText("- 方向与触发：{0}；{1} {2}。", directionLabel(candidate.direction), candidate.lifecycle === "confirmed" ? tradingReportText(candidate.direction === "bullish" ? "突破已出现，回踩后价格须继续高于" : "突破已出现，反抽后价格须继续低于") : tradingReportText("等待收盘确认"), formatPrice(levels.trigger)),
       tradingReportText("- 止损/失效：{0}；收盘重新进入形态或触及结构失效位即取消。", formatPrice(levels.stop)),
@@ -180,14 +215,15 @@ export function buildChartPatternNoCandidateReport(snapshot, theoryResult) {
   return [
     tradingReportText("## 图表形态扫描结论"),
     "",
-    tradingReportText("扫描已经正常完成；当前没有同时通过先前趋势、几何触点、ATR 深度和边界规则的合格形态。这不是分析失败。"),
+    tradingReportText(latestHistorical ? "扫描已经正常完成；已识别的结构均已完成、失效或过期，当前没有新的形态入场信号。"
+      : "扫描已经正常完成；当前没有同时通过先前趋势、几何触点、ATR 深度和边界规则的合格形态。这不是分析失败。"),
     "",
     tradingReportText("### 扫描范围"),
     tradingReportText("- 数据：{0} 根 {1} 已收盘 K 线。", snapshot.candles.length, snapshot.interval),
     tradingReportText("- 子引擎：反转、延续、双向三类，共核验 {0} 个核心形态定义。", theoryResult.engine.subengines.reduce((sum, item) => sum + item.supportedPatternIds.length, 0)),
     tradingReportText("- 最近观察摆动：{0}。", swingText),
     ...(latestHistorical ? [
-      tradingReportText("- 历史排除：发现 {0} 个曾成立的历史结构；最近的 {1} 已{2}，不会绘制为当前形态，也不会生成入场价。", historicalCandidates.length, latestHistorical.patternName, lifecycleLabel(latestHistorical.lifecycle)),
+      tradingReportText("- 历史结构：发现 {0} 个历史候选；最近的 {1}：{2}。保留近期结构供复盘，不生成新的入场价。", historicalCandidates.length, latestHistorical.patternName, lifecycleLabel(latestHistorical.lifecycle)),
     ] : []),
     "",
     tradingReportText("### 当前执行方案"),
@@ -224,16 +260,26 @@ function priceSpan(candidate) {
 }
 
 function labelAnchor(candidate, point) {
-  const offset = Math.max(priceSpan(candidate) * 0.025, point.price * 0.0004);
-  return { time: point.time, price: Math.max(Number.EPSILON, point.price + (point.type === "high" ? offset : -offset)) };
+  const span = priceSpan(candidate);
+  const offset = Math.min(span * 0.15, Math.max(span * 0.025, point.price * 0.0004));
+  const minimum = Math.min(...candidate.points.map(p => p.price)) + offset;
+  const maximum = Math.max(...candidate.points.map(p => p.price)) - offset;
+  // Keep extremum labels inside the structure's price band so the native
+  // candle autoscale does not clip labels above its highest wick.
+  return { time: point.time, price: Math.max(minimum, Math.min(maximum,
+    point.price + (point.type === "high" ? offset : -offset))) };
 }
 
-function appendBoundary(operations, analysis, candidate, name, boundary, role, snapshot) {
+function appendBoundary(operations, analysis, candidate, name, boundary, role, snapshot, endAt = null) {
   if (!boundary || !Number.isFinite(boundary.slope) || !Number.isFinite(boundary.intercept)) return;
   const first = snapshot.candles[boundary.startIndex];
-  const latestIndex = snapshot.candles.length - 1;
+  let latestIndex = isCurrentCandidate(candidate) ? snapshot.candles.length - 1
+    : Math.min(snapshot.candles.length - 1, candidate.lifecycleState?.terminalIndex ?? candidate.points.at(-1).index);
+  if (Number.isFinite(candidate.metrics?.apexIndex)) latestIndex = Math.min(latestIndex, Math.floor(candidate.metrics.apexIndex));
+  if (Number.isInteger(endAt)) latestIndex = Math.min(latestIndex, endAt);
   const latest = snapshot.candles[latestIndex];
-  if (!first || !latest) return;
+  if (!first || !latest || latestIndex <= boundary.startIndex
+    || boundary.intercept + boundary.slope * latestIndex <= 0) return;
   operations.push(operation(
     analysis,
     `boundary-${name}`,
@@ -243,7 +289,7 @@ function appendBoundary(operations, analysis, candidate, name, boundary, role, s
       { time: first.time, price: boundary.intercept + boundary.slope * boundary.startIndex },
       { time: latest.time, price: boundary.intercept + boundary.slope * latestIndex },
     ],
-    name === "upper" ? "阻力边界" : name === "lower" ? "支撑边界" : "颈线",
+    /upper/i.test(name) ? "阻力边界" : /lower/i.test(name) ? "支撑边界" : "颈线",
     { lineStyle: "dashed", lineWidth: 1.5, status: "confirmed" },
     candidate.evidenceIds,
   ));
@@ -271,22 +317,29 @@ function appendLevels(operations, analysis, candidate, levels, prefix, snapshot)
   )));
 }
 
-export function buildChartPatternDrawingPatch(snapshot, theoryResult) {
-  const candidate = theoryResult.structures.primaryActiveCandidate;
-  if (!candidate) return buildChartPatternNoCandidateDrawingPatch(snapshot, theoryResult);
+function buildCandidateDrawingPatch(snapshot, candidate, showLevels = true, showDetails = true) {
   const analysis = analysisId(snapshot, candidate.id, candidate.lifecycle);
-  const primaryRole = candidate.direction === "bearish" ? "resistance" : candidate.direction === "bullish" ? "support" : "primary";
+  const current = isCurrentCandidate(candidate);
+  const primaryRole = !current ? "note" : candidate.direction === "bearish" ? "resistance" : candidate.direction === "bullish" ? "support" : "primary";
+  let structurePoints = candidate.points;
+  if (/cup|rounding/.test(candidate.patternId)) {
+    const start = candidate.points[0].index, end = candidate.points.at(-1).index;
+    const indices = new Set(candidate.points.map(p => p.index));
+    for (let i = start; i <= end; i += Math.max(1, Math.ceil((end - start) / 20))) indices.add(i);
+    structurePoints = [...indices].sort((a, b) => a - b).map(i => candidate.points.find(p => p.index === i)
+      || { time: snapshot.candles[i].time, price: snapshot.candles[i].close });
+  }
   const operations = [operation(
     analysis,
     "structure",
     primaryRole,
     "path",
-    candidate.points,
+    structurePoints,
     undefined,
-    { lineStyle: "solid", lineWidth: 3, status: "confirmed" },
+    { lineStyle: current ? "solid" : "dotted", lineWidth: current ? 3 : 1.5, status: current ? "confirmed" : "tentative" },
     candidate.evidenceIds,
   )];
-  candidate.points.forEach((point, index) => operations.push(operation(
+  if (showDetails) candidate.points.forEach((point, index) => operations.push(operation(
     analysis,
     `label-${index}`,
     primaryRole,
@@ -296,9 +349,12 @@ export function buildChartPatternDrawingPatch(snapshot, theoryResult) {
     { fontSize: 12, bold: true, status: "confirmed" },
     [point.id],
   )));
-  appendBoundary(operations, analysis, candidate, "upper", candidate.boundaries?.upper, "resistance", snapshot);
-  appendBoundary(operations, analysis, candidate, "lower", candidate.boundaries?.lower, "support", snapshot);
-  appendBoundary(operations, analysis, candidate, "neckline", candidate.boundaries?.neckline, "entry", snapshot);
+  if (showDetails) {
+  appendBoundary(operations, analysis, candidate, "upper", candidate.boundaries?.upper, current ? "resistance" : "note", snapshot);
+  appendBoundary(operations, analysis, candidate, "lower", candidate.boundaries?.lower, current ? "support" : "note", snapshot);
+  appendBoundary(operations, analysis, candidate, "neckline", candidate.boundaries?.neckline, current ? "entry" : "note", snapshot);
+  appendBoundary(operations, analysis, candidate, "expandUpper", candidate.boundaries?.expandUpper, current ? "resistance" : "note", snapshot, candidate.points[4]?.index);
+  appendBoundary(operations, analysis, candidate, "expandLower", candidate.boundaries?.expandLower, current ? "support" : "note", snapshot, candidate.points[4]?.index);
   if (candidate.boundaries?.breakout?.price) {
     const breakout = candidate.boundaries.breakout;
     operations.push(operation(
@@ -310,20 +366,21 @@ export function buildChartPatternDrawingPatch(snapshot, theoryResult) {
         { time: snapshot.candles[breakout.startIndex].time, price: breakout.price },
         { time: snapshot.candles[Math.min(snapshot.candles.length - 1, breakout.endIndex)].time, price: breakout.price },
       ],
-      tradingReportText("杯口 {0}", formatPrice(breakout.price)),
+      tradingReportText("结构边界 {0}", formatPrice(breakout.price)),
       { lineStyle: "dashed", lineWidth: 1.5, status: "confirmed" },
       candidate.evidenceIds,
     ));
   }
-  if (candidate.lifecycle !== "failed") {
+  }
+  if (current && showLevels && !candidate.context?.entryBlockedReason) {
     if (candidate.category === "bilateral" && candidate.direction === "neutral") {
-      appendLevels(operations, analysis, candidate, candidate.longLevels, tradingReportText("多"), snapshot);
-      appendLevels(operations, analysis, candidate, candidate.shortLevels, tradingReportText("空"), snapshot);
+      if (!candidate.context?.blockedDirections?.includes("bullish")) appendLevels(operations, analysis, candidate, candidate.longLevels, tradingReportText("多"), snapshot);
+      if (!candidate.context?.blockedDirections?.includes("bearish")) appendLevels(operations, analysis, candidate, candidate.shortLevels, tradingReportText("空"), snapshot);
     } else {
       appendLevels(operations, analysis, candidate, candidate.actionLevels, "", snapshot);
     }
   }
-  if (candidate.breakout?.state === "confirmed") {
+  if (current && candidate.breakout?.state === "confirmed") {
     const candle = snapshot.candles[candidate.breakout.index];
     operations.push(operation(
       analysis,
@@ -336,13 +393,15 @@ export function buildChartPatternDrawingPatch(snapshot, theoryResult) {
       candidate.evidenceIds,
     ));
   }
+  const compactState = { confirmed: "已确认", developing: "形成中", failed: "已失效", invalidated: "已失效",
+    completed: "已完成", "partial-target-reached": "已到第一目标", expired: "已过期" };
   operations.push(operation(
     analysis,
     "summary",
     "note",
     "note",
     [candidate.points[0]],
-    `${candidate.patternName} · ${categoryLabel(candidate.category)} · ${lifecycleLabel(candidate.lifecycle)}`,
+    `${candidate.patternName} · ${current ? `${directionLabel(candidate.direction)} · ` : ""}${tradingReportText(compactState[candidate.lifecycle] || "形成中")}${candidate.context?.entryBlockedReason ? ` · ${tradingReportText("父结构空间不足，仅观察")}` : ""}${current ? "" : ` · ${tradingReportText("历史参考，不是新入场信号")}`}`,
     { status: candidate.lifecycle === "confirmed" ? "confirmed" : "tentative" },
     candidate.evidenceIds,
   ));
@@ -354,6 +413,16 @@ export function buildChartPatternDrawingPatch(snapshot, theoryResult) {
     interval: snapshot.interval,
     operations,
   }, snapshot, STRATEGY_ID);
+}
+
+export function buildChartPatternDrawingPatch(snapshot, theoryResult) {
+  const candidates = theoryResult.structures.displayCandidates
+    || [theoryResult.structures.primaryActiveCandidate].filter(Boolean);
+  if (!candidates.length) return buildChartPatternNoCandidateDrawingPatch(snapshot, theoryResult);
+  const patches = candidates.slice(0, 3).map((candidate, index) => buildCandidateDrawingPatch(snapshot, candidate,
+    candidate.id === theoryResult.structures.primaryActiveCandidate?.id, index === 0));
+  return validateStrategyDrawingPatch({ ...patches[0], analysisId: analysisId(snapshot, "structures-v2"),
+    operations: patches.flatMap(patch => patch.operations) }, snapshot, STRATEGY_ID);
 }
 
 export function buildChartPatternNoCandidateDrawingPatch(snapshot, theoryResult) {
@@ -401,15 +470,24 @@ export function buildChartPatternNoCandidateDrawingPatch(snapshot, theoryResult)
 }
 
 async function runTradingChartPatternAnalysisPipelineInternal(params) {
-  const snapshot = normalizeTradingMarketSnapshot(params);
+  // Filter before normalization, which intentionally removes transport-only closed flags.
+  const match = /^(\d+)([mhdwHDW]?)$/.exec(String(params.interval));
+  const seconds = match ? Number(match[1]) * ({ m: 60, h: 3600, H: 3600, d: 86400, D: 86400, w: 604800, W: 604800, "": 60 }[match[2]]) : null;
+  const cutoff = Number(params.snapshotTime ?? Date.now()) / 1000;
+  const closedIndexes = params.candles.flatMap((c, i) => c.closed !== false && (params.sessionCloseTimes?.[i] !== undefined
+    ? params.sessionCloseTimes[i] <= cutoff : !seconds || Number(c.time) + seconds <= cutoff) ? [i] : []);
+  const snapshot = normalizeTradingMarketSnapshot({ ...params, candles: closedIndexes.map(i => params.candles[i]),
+    ...(params.sessionCloseTimes ? { sessionCloseTimes: closedIndexes.map(i => params.sessionCloseTimes[i]) } : {}) });
   const theoryResult = runChartPatternEngine(snapshot);
   const drawingPatch = buildChartPatternDrawingPatch(snapshot, theoryResult);
   const report = buildChartPatternReport(snapshot, theoryResult);
   const candidate = theoryResult.structures.primaryActiveCandidate;
   const narrative = candidate
-    ? `${candidate.patternName}扫描完成：${lifecycleLabel(candidate.lifecycle)}；已绘制结构、边界和条件价位。`
+    ? candidate.context?.entryBlockedReason
+      ? tradingReportText("{0}扫描完成：父结构空间不足，仅保留结构与边界观察。", candidate.patternName)
+      : `${candidate.patternName}扫描完成：${lifecycleLabel(candidate.lifecycle)}；已绘制结构、边界和条件价位。`
     : theoryResult.structures.historicalCandidates.length
-      ? "图表形态扫描已完成：只发现已失效、完成或过期的历史结构，未绘制旧形态并保持不交易。"
+      ? "图表形态扫描已完成：近期历史结构按状态保留，当前没有新的形态入场信号。"
       : "图表形态扫描已完成：当前没有通过硬规则的候选，已标记观察摆动并保持不交易。";
   return {
     ok: true,
@@ -425,7 +503,7 @@ async function runTradingChartPatternAnalysisPipelineInternal(params) {
       interval: snapshot.interval,
       narrative,
       report,
-      actionPlan: candidateActionPlan(snapshot, candidate),
+      actionPlan: buildChartPatternActionPlan(snapshot, candidate),
       drawingPatch,
     },
     model: {
