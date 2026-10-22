@@ -1,6 +1,6 @@
 # Binance 解绑后重新绑定的 409 修复
 
-2026-10-22。状态：源码修复与本地验收完成，未部署后端、未发布 Windows 安装包。
+2026-10-22。初次源码修复与本地验收记录。后续已分别推送两仓源码并部署后端；Windows 安装包未发布，交付详情见文末。
 
 ## 根因与处理
 
@@ -39,6 +39,18 @@
 
 可重复执行 `scripts/check-binance-domestic-network.mjs`，参数为 `--physical-ip`、`--edge-ip`、`--spot-ip`，均需核对当次实际地址。可选 `--session-file` 仅在内存使用当前 Haolo access token 申请时间接口许可，`--output` 保存脱敏结果。脚本不读取币安凭据、不提交账户绑定、不保存或刷新登录会话。调用从 Windows 仓库根目录执行。
 
-本机可达性与合成凭据生命周期验证不能替代另一台故障电脑的真实重绑验收。需要后续部署／客户端发布才能向该电脑交付相应修复；本轮没有生产变更。API 修复不涉及 Worker 协议、任务执行或数据库迁移。
+本机可达性与合成凭据生命周期验证不能替代另一台故障电脑的真实重绑验收。初次源码验收没有生产变更，后续交付见下文。API 修复不涉及 Worker 协议、任务执行或数据库迁移。
 
 脱敏回执：`docs/verification/binance-rebind-20261022.json`。本地完整测试日志、六张截图与隔离数据库位于 `C:/Users/joiec/.codex/tmp/haolo-binance-rebind-20261022/`；验收后数据库停止，资料保留。
+
+## 后续提交与后端上线
+
+用户随后明确要求分别提交到远端并部署本次后端改动。Windows 源码 `fbf6361a4fbcb7d7ad8ec87f1fc60e69730b4e8f`、后端源码 `22a60f8b52832d03ecf1963676bd9d7bc2ac9dfa` 已分别推送各自 `origin/dev`。仅提交本任务文件和共享文件中的对应差异块，其他会话工作保持。
+
+2026-10-22 15:20:54（北京时间，生产服务器时钟）API／Ideas blue 已验收 `complete`，旧实例正常退役；两个 Worker 保留并验证兼容。规定窗口 30762 请求、独立完整发布区间 72955 请求均零 5xx／流式错误，API 与策略 Worker 各 1042 文件校验通过，17 策略就绪。
+
+保持 VPN 再次从物理 WLAN 测试，Haolo 公开响应头为上述完整后端 SHA；私有通道现货／合约均为 200，裸直连币安仍被重置。诊断使用核验 IP，不代表默认 DNS 或其他运营商路径已测试。本地探针时钟存在偏差，发布顺序以服务器回执时间为准。
+
+旧版客户端重新执行绑定即可使用服务端的撤销连接兼容修复；新的错误映射和请求键仍需后续客户端安装包。未发布 Windows 安装包，未使用真实币安凭据提交生产绑定，另一台电脑的实际重绑验收保留。
+
+完整发布说明：`D:/haolo_front_web3/docs/backend-binance-rebind-release-20261022.md`；机器回执：`D:/haolo_front_web3/youle_mas-dev/backend/docs/verification/binance-rebind-release-20261022.json`。初次源码验收 JSON 保留原始状态，不将历史记录改写成生产验收。
