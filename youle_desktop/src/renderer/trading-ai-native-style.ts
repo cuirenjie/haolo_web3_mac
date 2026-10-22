@@ -1,6 +1,7 @@
 import type { ScreenPoint, TradingDrawingModel, TradingDrawingToolId } from './trading-expert-drawing.ts';
 import { manualDrawingDefaults } from './trading-drawing-defaults.ts';
 import { harmonicFillColor, harmonicPatternPolygons, renderPatternLegs } from './trading-patterns.ts';
+import { nativeAiFibonacciModel } from './trading-ai-fibonacci.ts';
 
 type AiStyleIdentity = { source?: string; strategyId?: string; colorToken?: string };
 
@@ -21,6 +22,7 @@ export function nativeAiDrawingDefaults(drawing: AiStyleIdentity & { tool: Tradi
 // dashed/dotted status except for chart-pattern boundaries. Never persist this
 // over the accepted DrawingPatch.
 export function nativeAiDrawingDisplayModel(drawing: TradingDrawingModel): TradingDrawingModel {
+  if (drawing.source === 'ai' && drawing.tool === 'fib-retracement') return nativeAiFibonacciModel(drawing);
   // Text annotations keep their original semantic colors and leader appearance.
   if (!usesNativeAiDrawingStyle(drawing) || drawing.tool === 'text' || drawing.tool === 'note') return drawing;
   // Only the main outline boundaries get a bold blue solid stroke. Interior
