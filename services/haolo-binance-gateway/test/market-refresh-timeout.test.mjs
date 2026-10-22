@@ -35,10 +35,13 @@ test("a hung leader and all local followers time out; late completion cannot rem
 test("a fetch that ignores abort times out, releases the key, and discards its late response", async () => {
   const cache = new GatewayCache(), blocked = deferred();
   let calls = 0, cancelled = false;
-  const gateway = new BinanceRestGateway({ cache, config: baseConfig({ requestTimeoutMs: 35 }), fetchImpl: () => {
+  const config = baseConfig({ requestTimeoutMs: 100 });
+  const gateway = new BinanceRestGateway({ cache, config, fetchImpl: () => {
     calls++; return calls === 1 ? blocked.promise : new Response('["fresh"]');
   } });
-  await Promise.all([assert.rejects(gateway.get(url), timeoutAt("upstream_headers")), delay(60)]);
+  await Promise.all([assert.rejects(gateway.get(url), timeoutAt("upstream_headers")), delay(125)]);
+  // The fault gets a short deadline; the healthy retry must not depend on CPU scheduling.
+  config.requestTimeoutMs = 1000;
   assert.deepEqual((await gateway.get(url)).value, ["fresh"]);
   blocked.resolve(new Response(new ReadableStream({ cancel() { cancelled = true; } })));
   await waitFor(() => cancelled);
@@ -49,12 +52,14 @@ test("a fetch that ignores abort times out, releases the key, and discards its l
 test("a hung response body cannot publish stale data after a successful retry", async () => {
   const cache = new GatewayCache(), blocked = deferred();
   let calls = 0, cancelled = false;
-  const gateway = new BinanceRestGateway({ cache, config: baseConfig({ requestTimeoutMs: 35 }), fetchImpl: async () => {
+  const config = baseConfig({ requestTimeoutMs: 100 });
+  const gateway = new BinanceRestGateway({ cache, config, fetchImpl: async () => {
     calls++;
     return calls === 1 ? { ok: true, status: 200, headers: new Headers(), text: () => blocked.promise,
       body: { cancel: async () => { cancelled = true; } } } : new Response('["fresh"]');
   } });
-  await Promise.all([assert.rejects(gateway.get(url), timeoutAt("upstream_body")), delay(60)]);
+  await Promise.all([assert.rejects(gateway.get(url), timeoutAt("upstream_body")), delay(125)]);
+  config.requestTimeoutMs = 1000;
   assert.equal(cancelled, true);
   assert.deepEqual((await gateway.get(url)).value, ["fresh"]);
   blocked.resolve('["obsolete"]'); await delay(10);
