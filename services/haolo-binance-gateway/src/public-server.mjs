@@ -295,7 +295,8 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       }
       const result = await restGateway.get(request.url, {
         freshness: request.headers["x-haolo-market-freshness"] === "live" ? "live" : "default",
-        async beforeUpstream(route) {
+        async beforeUpstream(route, { signal } = {}) {
+          signal?.throwIfAborted();
           const now = Date.now();
           const totalLimit = route.marketType === "futures"
             ? config.publicFuturesUpstreamWeightPerMinute || 1_440
@@ -312,6 +313,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
             userLimit: config.publicUserWeightPerMinute || config.downstreamRequestsPerMinute,
             ttlMs: 60_000 - (now % 60_000) + 5_000,
           });
+          signal?.throwIfAborted();
           upstreamBudget = Object.freeze({
             marketType: route.marketType,
             remaining: Math.max(0, (config.publicUserWeightPerMinute || config.downstreamRequestsPerMinute) - budget.usedByUser),
@@ -388,7 +390,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
         metrics.authenticationUnavailable += 1;
         if (error.failureKind === "timeout") metrics.authenticationTimeouts += 1;
       }
-      if (["MARKET_COORDINATION_UNAVAILABLE", "MARKET_REFRESH_PENDING"].includes(errorCode)) metrics.marketCoordinationUnavailable += 1;
+      if (["MARKET_COORDINATION_UNAVAILABLE", "MARKET_REFRESH_PENDING", "MARKET_REFRESH_TIMEOUT"].includes(errorCode)) metrics.marketCoordinationUnavailable += 1;
       if (requestId) {
         // Only known route names and fixed error categories are recorded. Never
         // log queries, bearer tokens, tickets, user IDs, or dependency bodies.
@@ -398,11 +400,12 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
           if (PUBLIC_FUTURES_PATHS.has(candidate) || PUBLIC_SPOT_PATHS.has(candidate)
             || ["/api/private/v1/permits", "/api/private/v1/usage", "/api/market/v1/tickets"].includes(candidate)) route = candidate;
         } catch {}
-        const knownCodes = ["AUTHENTICATION_UNAVAILABLE", "MARKET_COORDINATION_UNAVAILABLE", "MARKET_REFRESH_PENDING",
+        const knownCodes = ["AUTHENTICATION_UNAVAILABLE", "MARKET_COORDINATION_UNAVAILABLE", "MARKET_REFRESH_PENDING", "MARKET_REFRESH_TIMEOUT",
           "UPSTREAM_UNAVAILABLE", "UPSTREAM_INVALID_RESPONSE", "UPSTREAM_REJECTED", "UPSTREAM_RATE_LIMITED", "UPSTREAM_COOLDOWN", "PRIVATE_EGRESS_DISABLED"];
         const failureKind = ["timeout", "network", "upstream-status", "invalid-response", "invalid-profile"].includes(error.failureKind) ? error.failureKind : "unknown";
         try { onDiagnostic({ event: "market_gateway_error", requestId, route, status: statusCode,
           code: knownCodes.includes(errorCode) ? errorCode : "INTERNAL_ERROR", elapsedMs: Date.now() - requestStartedAt,
+          ...(errorCode === "MARKET_REFRESH_TIMEOUT" ? { stage: ["refresh", "cache_read", "cooldown_read", "lease_acquire", "lease_wait", "admission", "upstream_headers", "upstream_body", "weight_observation", "cooldown_write", "cache_write"].includes(error.stage) ? error.stage : "unknown" } : {}),
           ...(authUnavailable ? { dependency: "haolo-auth", failureKind, dependencyStatus: Number(error.dependencyStatus) || 0,
             dependencyElapsedMs: Number(error.dependencyElapsedMs) || 0 } : {}),
         }); } catch {}
