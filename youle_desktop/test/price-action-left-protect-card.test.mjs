@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {cloudReportFromResponse,cloudPlanCard,normalizeCloudReports} from '../src/main/cloud-plan-contract.mjs';
-import {leftRouteView,leftWatchView,validLeftObservation} from '../src/main/price-action-left-card.mjs';
+import {leftRouteView,validLeftObservation} from '../src/main/price-action-left-card.mjs';
 import {renderCurrentReports,renderCurrentSavedPlan} from './support/right-renderer-parity.mjs';
 import {mergeCloudExecutionPlans} from '../src/renderer/cloud-plan-sync.ts';
 import {executionPlanStickyHtml} from '../src/main/execution-plan-sticky-view.mjs';
@@ -31,8 +31,8 @@ for(const locale of ['zh-CN','en','zh-Hant'])for(const side of ['','-short'])tes
 test('unconfirmed 4h watch is distinct, nonexecutable and fails closed for malformed profiles',()=>{
  const report=cloudReportFromResponse(fixtures.watch)[0],watch=report.executionPlan.leftObservation;
  assert.ok(watch.plans.every(p=>p.routeId==='protect'));
- assert.match(leftWatchView(report,'en',watch.asOf).content,/4h left-side watch plan/);
- assert.equal(cloudPlanCard(report).readOnly,true);assert.equal(renderCurrentReports([report]).actions,'');
+ assert.ok(validLeftObservation(watch));
+ assert.equal(cloudPlanCard(report),null);assert.equal(renderCurrentReports([report]).actions,'');
  for(const change of [v=>v.routeProfile='unknown',v=>v.plans={},v=>v.plans=[null],v=>v.plans[0].routeId='touch',v=>v.canCreateAlert=true]){
   const tampered=structuredClone(watch);change(tampered);assert.equal(validLeftObservation(tampered),false);
  }

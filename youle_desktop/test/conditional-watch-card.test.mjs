@@ -21,29 +21,27 @@ function reportFor(mode,locale,strategyId='price-action') {
 }
 
 for(const mode of ['left','right']) for(const locale of ['zh-CN','en','zh-Hant']) {
-  test(`${mode}/${locale}: waiting reports render a concrete conditional card without execution controls`,()=>{
+  test(`${mode}/${locale}: historical waiting reports remain readable without an observation card`,()=>{
     const report=reportFor(mode,locale),before=structuredClone(report);
     const normalized=normalizeCloudReports([report])[0],card=cloudPlanCard(normalized);
     const {rendered,actions,bindings}=renderCurrentReports([normalized],{allowPlanAction:true});
-    assert.equal(card.readOnly,true);
-    assert.match(rendered.cards,new RegExp(`data-conditional-watch="${mode}"`));
-    assert.match(card.content,/99/);
+    assert.equal(card,null);
+    assert.equal(rendered.cards,'');
     assert.equal(actions,'');assert.deepEqual(bindings,[]);
     assert.doesNotMatch(rendered.cards,/data-message-action="add-to-plan"|data-message-execution-plan-action="sticky"/);
-    if(locale==='en')assert.doesNotMatch(card.content,/[\u4e00-\u9fff]/);
     assert.deepEqual(report,before);
   });
 }
 
-test('all official entries can display conditions and failed evaluations display prerequisites',()=>{
+test('all official entries suppress text-only cards, including failed evaluation history',()=>{
   for(const strategy of OFFICIAL_TRADING_CATALOG) for(const mode of ['left','right']) {
     const report=reportFor(mode,'en',strategy.id);
-    assert.ok(cloudPlanCard(normalizeCloudReports([report])[0]));
+    assert.equal(cloudPlanCard(normalizeCloudReports([report])[0]),null);
     report.executionPlan.conditionalWatch.conditions=[];
     report.executionPlan.conditionalWatch.evaluationStatus='data_unavailable';
     report.executionPlan.outcome.evaluationStatus='data_unavailable';
     report.executionPlan.outcome.action='unavailable';
-    assert.match(cloudPlanCard(normalizeCloudReports([report])[0]).content,/Restore sufficient/);
+    assert.equal(cloudPlanCard(normalizeCloudReports([report])[0]),null);
   }
 });
 
@@ -55,6 +53,5 @@ test('malformed, mismatched, executable and HTML-bearing watch data are fenced',
     assert.throws(()=>normalizeCloudReports([report]),/CLOUD_REPORT_INVALID/);
   }
   const report=reportFor('left','en');report.executionPlan.conditionalWatch.reasonText[1]='<img src=x onerror=alert(1)>';
-  const html=cloudPlanCard(normalizeCloudReports([report])[0]).html;
-  assert.doesNotMatch(html,/<img/);assert.match(html,/&lt;img/);
+  assert.equal(cloudPlanCard(normalizeCloudReports([report])[0]),null);
 });
