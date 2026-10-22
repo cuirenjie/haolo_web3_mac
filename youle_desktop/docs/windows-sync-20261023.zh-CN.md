@@ -9,10 +9,10 @@
 | S1 | 账户网络准入/签名/响应体恢复；盈亏事件、有效期与账号/绑定隔离 | 完成 |
 | S2 | SMT 配对诊断与云结果兼容；指标 primitive、时间轴、主/分屏生命周期 | 完成 |
 | S3 | 累计差异审查、全量测试、Mac/UI 回归、来源覆盖与原工作区保留核对 | 完成 |
+| S4 | Universal 本地测试包、签名/资源校验、双架构启动与交付 | 完成 |
 
 每阶段完成定向行为测试、类型检查、构建及深度复查，修复并复验后才进入下一阶段。最终记录实际通过结果及验证边界。仅本地客户端融合，不部署 API、独立策略 Worker、行情网关或上传更新系统。新 SMT 云端选对与专用盈亏端点的生产启用由后端发布决定；客户端必须保留旧协议兼容。
 
-| S4 | Universal 本地测试包、签名/资源校验、双架构启动与交付 | 进行中 |
 
 ## 验收记录
 
@@ -41,3 +41,22 @@
 - 最终 `pnpm test --test-concurrency=4`：**5352 通过、0 失败、12 Windows 条件跳过**。类型/构建沿用 S2 无后续产品变更的通过结果；Mac 原生 2 个模拟恢复、6 个视图保持、4 个 Option 快捷键场景通过。两架构 CLI/code-mode-host 官方签名与全部六个工具哈希通过。
 - 最终 fetch 确认 windows/dev 仍为 d6ff244。12 个原工作区文件哈希完全一致，暂存区清空；网关本轮无来源改动，不重复发布或混入后端操作。
 - 证据 `.git/integration-20261023/s3-*`、`coverage.json`。源码与隔离替身/公开历史夹具通过，不代表实际账号绑定或生产 API/Worker 的新能力已上线。
+
+
+### S4 Universal 测试包交付
+
+- 使用 `HAOLO_ALLOW_UNTRUSTED_MAC_DMG=1 pnpm dist:mac:universal` 完成构建；原同版本 DMG、SHA 和构建回执归档到 `release/archive/0.1.182-before-windows-sync-20261023/`。17 个历史 DMG 哈希全部保留。
+- 1299 个构建输入与 12 个原工作区文件未变；最终 299 个源码/构建文件、213 个附加资源逐字节相符，实际包 G3 审计 1406 文件通过。新网络适配器和公开 SMT 诊断包含，私有 SMT 引擎不进入公开包。
+- Universal App 与 DMG 的原生架构、签名、安全资源及只读挂载内容校验通过；arm64 与 x86_64 CLI 均为 0.163.0。Apple Silicon 与 Intel（Rosetta）分别使用隔离资料目录实际启动，preload/平台、未登录会话和 QR 依赖通过，rendererFailures 为空。
+- DMG `hdiutil verify` 为 VALID，桌面副本 SHA 相同。版本沿用当前 0.1.182，桌面使用日期区分，不覆盖上轮桌面同版本包。未安装/替换用户当前应用，未推送、上传或部署。
+
+| 制品 | 值 |
+|---|---|
+| 文件 | `好咯-0.1.182-universal.dmg` |
+| 桌面副本 | `/Users/binanfei/Desktop/好咯-0.1.182-universal-20261023.dmg` |
+| 字节数 | 543965721 |
+| SHA-256 | `327455d60ba98056c841aae5859c35bd7d32ab941f3724ad8f306d35aabdebac` |
+| 源码检查点 | `88066ff67a5a5137f390fb7dabc842ef61a52ea1` 加原工作区版本/偏好改动，精确摘要见 build-info.json |
+| 签名 | 本地 ad-hoc，未经 Apple 公证 |
+
+证据 `.git/integration-20261023/s4-*`、两架构启动回执与 `delivery.json`；仓库/桌面制品各附 SHA 与 build-info.json。全部本地门禁通过，不等同于真实账号/付费分析或生产 API、独立 Worker 的验收；后端新能力是否已上线须在其发布流程中单独确认。M6-MAC-20261023 完成。
