@@ -2,11 +2,9 @@ import {
   harmonicCandidateScore,
   harmonicConfirmation,
   harmonicDevelopingScore,
-  harmonicExactScore,
   harmonicId,
-  harmonicNearest,
+  harmonicLegsIntact,
   harmonicPointRecords,
-  harmonicPrz,
   harmonicProjectedProgress,
   harmonicRangeMatches,
   harmonicRangeScore,
@@ -16,11 +14,27 @@ import {
 } from "./harmonic-subengine-common.mjs";
 
 export const HARMONIC_SHARK_SUBENGINE_ID = "harmonic-shark-0xabc";
-export const HARMONIC_SHARK_SUBENGINE_VERSION = "1.1.0";
+export const HARMONIC_SHARK_SUBENGINE_VERSION = "2.0.0";
 
 const LABELS = Object.freeze(["0", "X", "A", "B", "C"]);
-const COMPLETION_LEVELS = Object.freeze([0.886, 1.13]);
-const BC_LEVELS = Object.freeze([1.618, 2, 2.24]);
+// Carney's 0-X-A-B-C convention measures the completion from B toward 0.
+// Intersect the two hard completion bands; no tolerance or ATR may exceed them.
+export function sharkCompletionZone(points) {
+  const [origin, , a, b] = points;
+  const ob = Math.abs(b.price-origin.price), ab = Math.abs(b.price-a.price);
+  if (!(ob > 0 && ab > 0)) return null;
+  const sign = Math.sign(origin.price-b.price);
+  const minimum = Math.max(.886*ob, 1.618*ab);
+  const maximum = Math.min(1.13*ob, 2.24*ab);
+  if (minimum > maximum) return null;
+  const near = b.price+sign*minimum, far = b.price+sign*maximum;
+  return Object.freeze({low:harmonicRound(Math.min(near,far)),high:harmonicRound(Math.max(near,far)),
+    convergenceWidthXa:harmonicRound((maximum-minimum)/ob),
+    levels:Object.freeze({obMinimum:harmonicRound(b.price+sign*.886*ob),
+      obLimit:harmonicRound(b.price+sign*1.13*ob),
+      bcMinimum:harmonicRound(b.price+sign*1.618*ab),bcLimit:harmonicRound(b.price+sign*2.24*ab)}),
+    components:Object.freeze(["BC/0B 0.886–1.13", "BC/AB 1.618–2.24"])});
+}
 
 function geometryMatches(points, direction) {
   if (!Array.isArray(points) || points.length !== 5) return false;
@@ -38,15 +52,15 @@ function geometryMatches(points, direction) {
 
 function ratiosFor(points) {
   const [origin, x, a, b, c] = points;
-  const ox = Math.abs(x.price - origin.price);
+  const ob = Math.abs(b.price - origin.price);
   const xa = Math.abs(a.price - x.price);
   const ab = Math.abs(b.price - a.price);
   const bc = Math.abs(c.price - b.price);
-  if ([ox, xa, ab, bc].some((value) => value <= Number.EPSILON)) return null;
+  if ([ob, xa, ab, bc].some((value) => value <= Number.EPSILON)) return null;
   return Object.freeze({
     abXa: harmonicRound(ab / xa),
     bcAb: harmonicRound(bc / ab),
-    cOx: harmonicRound(Math.abs(c.price - x.price) / ox),
+    cOb: harmonicRound(bc / ob),
   });
 }
 
@@ -57,40 +71,26 @@ export function evaluateSharkCandidate(snapshot, inputPoints, {
 } = {}) {
   const points = inputPoints.map((point) => ({ ...point }));
   const direction = points[0]?.type === "low" ? "bullish" : "bearish";
-  if (!geometryMatches(points, direction)) return null;
+  if (!geometryMatches(points, direction) || !harmonicLegsIntact(snapshot, points)) return null;
   const ratios = ratiosFor(points);
   if (!ratios
     || !harmonicRangeMatches(ratios.abXa, 1.13, 1.618)
     || !harmonicRangeMatches(ratios.bcAb, 1.618, 2.24)) return null;
-  const completionTarget = harmonicNearest(COMPLETION_LEVELS, ratios.cOx);
-  if (!harmonicExactScore(ratios.cOx, completionTarget)) return null;
-  const [origin, x, , b, c] = points;
-  const ox = Math.abs(x.price - origin.price);
-  const completionDirection = Math.sign(origin.price - x.price);
-  const completionLevel = x.price + completionDirection * ox * completionTarget;
-  const bcTarget = harmonicNearest(BC_LEVELS, ratios.bcAb);
-  const bcLevel = b.price + Math.sign(c.price - b.price) * Math.abs(b.price - points[2].price) * bcTarget;
-  const basePrz = harmonicPrz([completionLevel, bcLevel], { atr, scale: ox, maxWidthScale: 0.1 });
-  if (!basePrz || c.price < basePrz.low - ox * 0.04 || c.price > basePrz.high + ox * 0.04) return null;
-  const prz = Object.freeze({
-    ...basePrz,
-    levels: Object.freeze({
-      ox: harmonicRound(completionLevel),
-      bc: harmonicRound(bcLevel),
-      oxRatio: completionTarget,
-      bcRatio: bcTarget,
-    }),
-    components: Object.freeze(["OX 0.886/1.13", "BC 1.618–2.24"]),
-  });
+  if (!harmonicRangeMatches(ratios.cOb, .886, 1.13)) return null;
+  const [origin, , , b, c] = points;
+  const ob = Math.abs(b.price-origin.price);
+  const prz = sharkCompletionZone(points);
+  if (!prz || c.price < prz.low || c.price > prz.high) return null;
   const targets = [
     c.price + (b.price - c.price) * 0.5,
     c.price + (b.price - c.price) * 0.618,
   ];
   const confirmation = harmonicConfirmation(snapshot, c, prz, {
     atr,
-    scale: ox,
+    scale: ob,
     direction,
     stopBoundary: c.price,
+    stopLimit: direction === "bullish" ? prz.low : prz.high,
     targets,
   });
   if (confirmation.invalidated) return null;
@@ -100,7 +100,7 @@ export function evaluateSharkCandidate(snapshot, inputPoints, {
   const score = harmonicCandidateScore([
     harmonicRangeScore(ratios.abXa, 1.13, 1.618, 1.27),
     harmonicRangeScore(ratios.bcAb, 1.618, 2.24, 2),
-    harmonicExactScore(ratios.cOx, completionTarget),
+    harmonicRangeScore(ratios.cOb, .886, 1.13, .886),
   ], prz.convergenceWidthXa, 0.1, harmonicRecency(snapshot, c.index));
   return Object.freeze({
     id: harmonicId("harmonic", snapshot.snapshotId, "shark", direction, ...points.map((point) => point.index)),
@@ -119,7 +119,7 @@ export function evaluateSharkCandidate(snapshot, inputPoints, {
     measurements: Object.freeze([
       Object.freeze({ label: "AB/XA", value: ratios.abXa }),
       Object.freeze({ label: "BC/AB", value: ratios.bcAb }),
-      Object.freeze({ label: "C/OX", value: ratios.cOx }),
+      Object.freeze({ label: "BC/0B", value: ratios.cOb }),
     ]),
     prz,
     terminalBar: confirmation.terminalBar,
@@ -142,7 +142,7 @@ export function evaluateSharkDevelopingCandidate(snapshot, inputPoints, {
   scanProfileId = "direct",
   selectionMode = "direct",
 } = {}) {
-  if (!Array.isArray(inputPoints) || inputPoints.length !== 4) return null;
+  if (!Array.isArray(inputPoints) || inputPoints.length !== 4 || !harmonicLegsIntact(snapshot, inputPoints)) return null;
   const points = inputPoints.map((point) => ({ ...point }));
   const direction = points[0]?.type === "low" ? "bullish" : "bearish";
   const expected = direction === "bullish"
@@ -154,27 +154,16 @@ export function evaluateSharkDevelopingCandidate(snapshot, inputPoints, {
   const between = (value, first, second) => value > Math.min(first, second) && value < Math.max(first, second);
   if (!between(a.price, origin.price, x.price)) return null;
   if (direction === "bullish" ? b.price <= x.price : b.price >= x.price) return null;
-  const ox = Math.abs(x.price - origin.price);
+  const ob = Math.abs(b.price - origin.price);
   const xa = Math.abs(a.price - x.price);
   const ab = Math.abs(b.price - a.price);
-  if ([ox, xa, ab].some((value) => value <= Number.EPSILON)) return null;
+  if ([ob, xa, ab].some((value) => value <= Number.EPSILON)) return null;
   const abXa = harmonicRound(ab / xa);
   if (!harmonicRangeMatches(abXa, 1.13, 1.618)) return null;
-  let projection = null;
-  for (const completionTarget of COMPLETION_LEVELS) {
-    const completionLevel = x.price + Math.sign(origin.price - x.price) * ox * completionTarget;
-    for (const bcTarget of BC_LEVELS) {
-      const bcLevel = b.price + Math.sign(a.price - b.price) * ab * bcTarget;
-      const prz = harmonicPrz([completionLevel, bcLevel], { atr, scale: ox, maxWidthScale: 0.1 });
-      if (!prz) continue;
-      if (!projection || prz.convergenceWidthXa < projection.prz.convergenceWidthXa) {
-        projection = { completionTarget, completionLevel, bcTarget, bcLevel, prz };
-      }
-    }
-  }
-  if (!projection) return null;
-  const projectedPrice = (projection.prz.low + projection.prz.high) / 2;
-  const progress = harmonicProjectedProgress(snapshot, b, projectedPrice);
+  const prz = sharkCompletionZone(points);
+  if (!prz) return null;
+  const projectedPrice = (prz.low+prz.high)/2;
+  const progress = harmonicProjectedProgress(snapshot, b, projectedPrice, prz);
   if (!progress) return null;
   const labelledPoints = harmonicPointRecords(points, ["0", "X", "A", "B"]);
   const ruleIds = Object.freeze([
@@ -195,21 +184,12 @@ export function evaluateSharkDevelopingCandidate(snapshot, inputPoints, {
     direction,
     score: harmonicDevelopingScore([
       harmonicRangeScore(abXa, 1.13, 1.618, 1.27),
-    ], projection.prz.convergenceWidthXa, 0.1, progress.ratio),
+    ], prz.convergenceWidthXa, 0.1, progress.ratio),
     scan: Object.freeze({ profileId: scanProfileId, selectionMode }),
     points: labelledPoints,
     ratios: Object.freeze({ abXa }),
     measurements: Object.freeze([Object.freeze({ label: "AB/XA", value: abXa })]),
-    prz: Object.freeze({
-      ...projection.prz,
-      levels: Object.freeze({
-        ox: harmonicRound(projection.completionLevel),
-        bc: harmonicRound(projection.bcLevel),
-        oxRatio: projection.completionTarget,
-        bcRatio: projection.bcTarget,
-      }),
-      components: Object.freeze(["OX 0.886/1.13", "BC 1.618–2.24"]),
-    }),
+    prz,
     projectedTerminal: Object.freeze({ label: "C", price: harmonicRound(projectedPrice) }),
     progress,
     ruleIds,

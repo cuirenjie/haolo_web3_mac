@@ -566,7 +566,7 @@ test("account styles cover light and dark surfaces plus every interactive state"
   assert.match(accountStyles, /\.binance-account-bound-view \{[^}]*padding: 30px 0 0;/s);
   assert.match(accountStyles, /\.binance-account-content \{[^}]*padding: 4px clamp\(20px, 3vw, 42px\) 40px;/s);
   assert.match(accountStyles, /\.binance-account-content\.profit-calendar \{ width: min\(80%, 896px\); \}/);
-  assert.doesNotMatch(accountStyles, /\.binance-account-content\.assets\s*\{/);
+  assert.doesNotMatch(accountStyles, /\.binance-account-content\.assets\s*\{[^}]*width:/s);
   assert.match(accountStyles, /\.binance-account-toolbar \{[^}]*width: min\(1180px, calc\(100% - 68px\)\);[^}]*align-items: center;[^}]*padding: 0 0 8px;/s);
   assert.match(accountStyles, /\.binance-account-toolbar > \.binance-account-tabs \{[^}]*flex: 1 1 auto;[^}]*margin: 0;[^}]*padding: 0;[^}]*color: var\(--binance-text\);/s);
   assert.match(accountStyles, /\.binance-account-toolbar-actions \{[^}]*flex: 0 0 auto;[^}]*align-items: center;[^}]*gap: 8px;[^}]*margin-right: 8px;/s);

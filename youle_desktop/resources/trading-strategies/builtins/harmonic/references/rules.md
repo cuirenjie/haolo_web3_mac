@@ -1,4 +1,4 @@
-# Harmonic v3 frozen rules
+# Harmonic v4 frozen rules
 
 This file freezes Haolo's supported topology, ratio, confirmation, and execution-policy boundaries. It summarizes implementation rules and sources; it does not reproduce source illustrations or long passages.
 
@@ -29,9 +29,9 @@ Shark is not classic XABCD. Its labels and terminal semantics stay `0-X-A-B-C`.
 | A geometry | A lies between 0 and X |
 | AB/XA | 1.13–1.618; B extends beyond X |
 | BC/AB | 1.618–2.24 |
-| C/OX | 0.886 or 1.13, ±3% implementation tolerance |
+| BC/0B | 0.886–1.13, measured from B toward 0; hard bounds without extra tolerance |
 
-The PRZ requires convergence of the selected OX completion and the nearest permitted BC projection. C is the Terminal Bar. Because Shark is an impulse structure requiring active management, Haolo's execution policy uses the 50% and 61.8% retracements from C toward B as conditional T1/T2. This target policy is a product risk rule, not a claim that every source defines identical exits.
+The PRZ is the nonempty intersection of B ± [0.886, 1.13] × |B−0| and B ± [1.618, 2.24] × |B−A|, toward 0. The endpoint C must be inside both bands. The 1.13 0B limit cannot be widened by tolerance or ATR; the stop is capped at the nearer hard completion boundary. This corrects v3's 0X basis. C is the Terminal Bar. Haolo uses the 50% and 61.8% retracements from C toward B as conditional T1/T2; this explicit target policy is not a claim that every source defines identical exits. Source: Scott Carney's original Shark presentation, pages 4 and 15, https://www.sr-analyst.com/Shark.pdf.
 
 ### Cypher XABCD subengine
 
@@ -51,7 +51,7 @@ Cypher is attributed to Darren Oglesbee rather than Scott Carney. No author-cont
 
 - Reaching the terminal point or entering the PRZ is not an entry signal.
 - Confirmation requires a later closed candle to reverse through the Terminal Bar high for bullish candidates or low for bearish candidates.
-- A close through the deterministic structural stop invalidates the candidate.
+- A wick touching or crossing the deterministic structural stop invalidates the candidate, even if that candle closes back inside.
 - Targets are conditional objectives, not guaranteed outcomes. Once targets are reached, the historical terminal point must not be chased.
 - Exact-ratio tolerance is an implementation allowance, not a claim that every source assigns the same tolerance.
 
@@ -66,9 +66,9 @@ The v3 scanner improves discovery without modifying any completed-pattern ratio 
 When no completed candidate exists, the engine may return an explicitly separate `developing` result:
 
 - Classic patterns require valid X-A-B-C topology plus frozen B/XA and C/AB ranges. D is projected only from the pattern's permitted XA completion, BC projection, and AB=CD components.
-- Shark requires valid 0-X-A-B topology and AB/XA; C is projected from permitted OX and BC components.
+- Shark requires valid 0-X-A-B topology and AB/XA; C is projected from the intersecting 0B and AB completion bands.
 - Cypher requires valid X-A-B-C topology, B/XA, and C/XA; D is projected only at the permitted XC completion.
-- The permitted projection components must already converge inside the same PRZ-width gate used by the corresponding completed pattern. Price must have progressed at least 8% of the completion leg and must not have overshot the projected midpoint by more than 20%.
+- The permitted projection components must satisfy their subengine's convergence rules. Price must have progressed at least 8% of the completion leg; a later opposite extreme beyond its starting pivot, or a price beyond the far PRZ boundary, rejects the old projection. Intermediate candles cannot contain an extreme outside either endpoint of a selected leg. Rescan new pivots instead of retaining obsolete anchors.
 - A developing result contains only confirmed pivots, projected PRZ, progress, and branch ambiguity. It has no Terminal Bar, confirmation, entry, stop, target, position size, risk/reward, or probability.
 - The terminal name remains conditional until an actual endpoint pivot forms and the full completed-pattern ratios are recalculated. Shared XABC geometry can legitimately branch into multiple pattern families.
 
@@ -80,6 +80,13 @@ When no completed candidate exists, the engine may return an explicitly separate
 - The report must state that all seven supported patterns were checked and that the current action is no trade. Entry, stop, targets, position size, and risk/reward stay unavailable.
 - The chart may show the latest deterministic swings as a purple observation path labelled `未通过七形态全部硬规则`. This path is not a harmonic candidate, PRZ, or trading signal and must remain on the controlled `strategy-note` layer.
 - Re-run after a new closed candle or a materially changed swing structure. Do not imply that repeated scans increase validity.
+
+## Strict plan binding (2026-10-22)
+
+- New harmonic plans must reference the same candidate and snapshot as the drawn pattern. A second selector cannot switch to another undrawn candidate.
+- Developing, invalidated, completed-target and no-candidate results produce no entry plan; no generic range fallback is allowed in either entry mode, including after a model wait.
+- A completed valid candidate may support a future left revisit of its PRZ or its native right close-confirmation/retest. Both retain the candidate's structural stop and exactly its native T1/T2; no forced third exit, 1% stop widening, quote relocation, generic risk bands or take-profit cap may change prices.
+- Costs, account and personal risk constraints are still evaluated. Reject infeasible geometry rather than changing the levels to pass risk checks. Preserve the harmonic explanation in the final report and public projection.
 
 ## Professional drawing grammar
 

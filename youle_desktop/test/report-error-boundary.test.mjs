@@ -94,7 +94,7 @@ test("failure descriptions distinguish HTTP status from price fragments for all 
     assert.notEqual(c.formatTurnFailureMessage(`HTTP ${code}: rejected`), "本轮执行失败，请重试。");
   }
   assert.equal(c.cleanIpcError("HTTP 429.12 is a quoted price"), "HTTP 429.12 is a quoted price");
-  assert.equal(c.cleanIpcError("HTTP 429: rejected"), "模型上游当前限流，请稍后重试");
+  assert.equal(c.cleanIpcError("HTTP 429: rejected"), "请求繁忙，请稍后重试。");
   assert.equal(c.loginOtpErrorMessage("HTTP 401.12"), "HTTP 401.12");
   assert.equal(c.loginOtpErrorMessage({ status: 401 }), "验证码不正确");
 });

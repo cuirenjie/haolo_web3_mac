@@ -564,7 +564,7 @@ test("ExecutionPlanV1 keeps a reached short action visible when a risk gate bloc
   assert.doesNotMatch(markdown, /当前动作：不交易/);
 });
 
-test("every execution-plan strategy reports a reached short condition as short", () => {
+test("generic plans report a reached short, while harmonic requires its own bound pattern", () => {
   const registry = createTradingStrategyRegistry({ adapters: BUILTIN_TRADING_STRATEGY_ADAPTERS });
   const executionStrategies = registry.list().filter((strategy) => strategy.capabilities.includes("execution-plan"));
   assert.equal(executionStrategies.length, 17);
@@ -581,6 +581,11 @@ test("every execution-plan strategy reports a reached short condition as short",
       currentPrice: 95,
       userRiskProfile: { minimumRiskRewardRatio: 2 },
     });
+    if (strategy.id === "harmonic") {
+      assert.equal(plan.action, "wait");
+      assert.deepEqual(plan.scenarios, []);
+      continue;
+    }
     assert.equal(plan.action, "short", strategy.id);
     assert.equal(plan.executionBlocked, true, strategy.id);
     assert.match(formatExecutionPlanMarkdown(plan), /^当前动作：现价做空/m, strategy.id);

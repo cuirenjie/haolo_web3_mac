@@ -486,3 +486,138 @@ test('resume fences uncertain admission on abort and rejects a simultaneous dupl
   await assert.rejects(pending,e=>e.code==='TRADING_ANALYSIS_CANCELLED');
   assert.equal(calls.filter(c=>c.operation==='cancelRun').length,1);
 });
+
+// M1-139 / M1-445: the Worker owns durable market retries; the client only
+// observes the original run and pauses its execution clock while queued.
+test('durable market waiting survives three hours and resumes the original run without admission replay',async()=>{
+  let clock=100000,reads=0;const progress=[],pauses=[];
+  const s=setup(({operation,run})=>{
+    if(operation!=='run')return;
+    reads++;
+    if(reads<=2160)return {...run,state:'queued',marketRecovery:{state:'waiting',retryAt:clock+300000,attempt:reads},progress:[{stage:'market_waiting'}]};
+    if(reads===2161)return {...run,state:'running',marketRecovery:{state:'resuming'},progress:[{stage:'market_waiting'}]};
+  },{now:()=>clock,timeoutMs:1000,pollMs:50,wait:async ms=>{pauses.push(ms);clock+=ms;}});
+  const result=await s.runtime.run('moving-average-analysis',params,{onProgress:p=>progress.push(p.stage)});
+  assert.equal(result.ok,true);assert.equal(clock,10900050);
+  assert.ok(pauses.every(ms=>ms<=5000));
+  assert.deepEqual(progress,['market_ready','market_waiting','market_resuming']);
+  assert.equal(s.calls.filter(c=>c.operation==='createRun').length,1);
+  assert.equal(s.calls.filter(c=>c.operation==='marketSnapshot').length,1);
+  assert.ok(s.calls.filter(c=>c.operation==='run').every(c=>c.payload.runId===result.cloud.runId));
+});
+
+test('market retryAt clock skew and past timestamps do not bypass bounded status checks',async()=>{
+  for(const skew of [-3600000,3600000]) {
+    let clock=7200000,reads=0;const waits=[];
+    const s=setup(({operation,run})=>operation==='run'&&++reads<=4
+      ? {...run,state:'queued',marketRecovery:{state:'waiting',retryAt:clock+skew,attempt:1}}:undefined,
+      {now:()=>clock,timeoutMs:100,wait:async ms=>{waits.push(ms);clock+=ms;}});
+    assert.equal((await s.runtime.run('moving-average-analysis',params)).ok,true);
+    assert.ok(waits.every(ms=>ms>=1000&&ms<=5000));
+  }
+});
+
+test('waiting progress text and malformed recovery never disable the execution timeout',async()=>{
+  for(const recovery of [undefined,{state:'waiting',retryAt:'999999',attempt:1},{state:'waiting',retryAt:999999,attempt:0}]) {
+    let clock=0;
+    const s=setup(({operation,run})=>operation==='run'?{...run,state:'queued',marketRecovery:recovery,progress:[{stage:'market_waiting'}]}:undefined,
+      {now:()=>clock,timeoutMs:100,pollMs:100,wait:async ms=>clock+=ms});
+    await assert.rejects(s.runtime.run('moving-average-analysis',params),e=>e.code==='CLOUD_RUN_PENDING');
+    assert.equal(s.calls.filter(c=>c.operation==='createRun').length,1);
+  }
+});
+
+test('the execution timeout resumes after a durable wait instead of remaining infinite',async()=>{
+  let clock=0,reads=0;
+  const s=setup(({operation,run})=>{
+    if(operation!=='run')return;
+    if(++reads<=3)return {...run,state:'queued',marketRecovery:{state:'waiting',retryAt:100000,attempt:1}};
+    return {...run,state:'running',marketRecovery:{state:'resuming'}};
+  },{now:()=>clock,timeoutMs:1000,pollMs:500,wait:async ms=>clock+=ms});
+  await assert.rejects(s.runtime.run('moving-average-analysis',params),e=>e.code==='CLOUD_RUN_PENDING');
+  assert.equal(clock,16000);assert.equal(reads,5);
+});
+
+test('cancellation, account changes and terminal outcomes remain authoritative during durable market waiting',async()=>{
+  for(const action of ['cancel','owner','failed']) {
+    let clock=0,reads=0;const controller=new AbortController();let s;
+    s=setup(({operation,run})=>{
+      if(operation!=='run')return;
+      if(++reads>1&&action==='failed')return {...run,state:'failed',error:'CONSENT_REVOKED',marketRecovery:{state:'waiting',retryAt:999999,attempt:1}};
+      return {...run,state:'queued',marketRecovery:{state:'waiting',retryAt:999999,attempt:1}};
+    },{now:()=>clock,timeoutMs:100,wait:async(ms)=>{
+      clock+=ms;if(action==='cancel')controller.abort();if(action==='owner')s.setOwner({...account,ownerId:'other'});
+    }});
+    await assert.rejects(s.runtime.run('moving-average-analysis',params,{signal:controller.signal}),
+      e=>e.code===({cancel:'TRADING_ANALYSIS_CANCELLED',owner:'TRADING_PREFERENCE_OWNER_CHANGED',failed:'CONSENT_REVOKED'}[action]));
+    assert.equal(s.calls.filter(c=>c.operation==='createRun').length,1);
+    assert.equal(s.calls.filter(c=>c.operation==='cancelRun').length,action==='cancel'?1:0);
+  }
+});
+
+test('a restarted client observes the same durable waiting run and cannot create another analysis',async()=>{
+  let waiting=false,reads=0,clock=1000;
+  const s=setup(({operation,run})=>{
+    if(operation!=='run')return;
+    if(!waiting)throw Object.assign(Error('restart'),{code:'FIXTURE_RESTART'});
+    if(++reads<=3)return {...run,state:'queued',marketRecovery:{state:'waiting',retryAt:999999,attempt:1}};
+  });
+  await assert.rejects(s.runtime.run('moving-average-analysis',params),/restart/);
+  waiting=true;
+  const resumed=createCloudStrategyRuntime({owner:async()=>account,api:()=>s.api,journal:s.journal,
+    now:()=>clock,timeoutMs:100,wait:async ms=>clock+=ms});
+  assert.equal((await resumed.resume(params.analysisJobId)).ok,true);
+  assert.equal(s.calls.filter(c=>c.operation==='createRun').length,1);
+  assert.equal(s.calls.filter(c=>c.operation==='marketSnapshot').length,1);
+});
+
+test('429 while observing durable waiting uses interruptible server cooldown without consuming execution budget',async()=>{
+  let clock=1000,reads=0;const waits=[];
+  const s=setup(({operation,run})=>{
+    if(operation!=='run')return;
+    if(++reads===1)return {...run,state:'queued',marketRecovery:{state:'waiting',retryAt:999999,attempt:1}};
+    if(reads===2)throw Object.assign(Error('status busy'),{status:429,retryAfterMs:900000});
+  },{random:()=>0,now:()=>clock,timeoutMs:100,wait:async ms=>{waits.push(ms);clock+=ms;}});
+  assert.equal((await s.runtime.run('moving-average-analysis',params)).ok,true);
+  assert.equal(waits.reduce((a,b)=>a+b,0),905000);assert.ok(waits.every(ms=>ms<=5000));
+  assert.equal(s.calls.filter(c=>c.operation==='createRun').length,1);
+});
+test('temporary status transport failures cannot end a known durable market wait',async()=>{
+  let clock=1000,reads=0;const waits=[];
+  const s=setup(({operation,run})=>{
+    if(operation!=='run')return;
+    if(++reads===1)return {...run,state:'queued',marketRecovery:{state:'waiting',retryAt:999999,attempt:1}};
+    if(reads===2)throw Object.assign(Error('temporary API outage'),{status:503});
+    if(reads===3)throw Object.assign(Error('connection reset'),{code:'ECONNRESET'});
+  },{random:()=>0,now:()=>clock,timeoutMs:100,wait:async ms=>{waits.push(ms);clock+=ms;}});
+  assert.equal((await s.runtime.run('moving-average-analysis',params)).ok,true);
+  assert.deepEqual(waits,[5000,1000,2000]);
+  assert.equal(s.calls.filter(c=>c.operation==='createRun').length,1);
+});
+
+test('temporary status outages during market recovery transitions retry the same run within the execution deadline',async()=>{
+  let clock=1000,reads=0;const waits=[];
+  const s=setup(({operation,run})=>{
+    if(operation!=='run')return;
+    reads++;
+    if(reads===1||reads===5)return {...run,state:'queued',marketRecovery:{state:'waiting',retryAt:999999,attempt:reads===1?1:2}};
+    if(reads===2)return {...run,state:'running',marketRecovery:{state:'resuming'}};
+    if(reads===3)throw Object.assign(Error('status unavailable before next wait is visible'),{status:503});
+    if(reads===4)throw Object.assign(Error('status transport reset'),{code:'ECONNRESET'});
+  },{random:()=>0,now:()=>clock,timeoutMs:4000,wait:async ms=>{waits.push(ms);clock+=ms;}});
+  assert.equal((await s.runtime.run('moving-average-analysis',params)).ok,true);
+  assert.deepEqual(waits,[5000,0,1000,2000,5000]);
+  assert.equal(s.calls.filter(c=>c.operation==='createRun').length,1);
+  assert.equal(s.calls.filter(c=>c.operation==='marketSnapshot').length,1);
+});
+
+test('an unknown market wait cannot make a status outage disable the execution deadline',async()=>{
+  let clock=0;
+  const s=setup(({operation})=>{if(operation==='run')throw Object.assign(Error('status down'),{status:503});},
+    {random:()=>0,now:()=>clock,timeoutMs:2500,wait:async ms=>clock+=ms});
+  await assert.rejects(s.runtime.run('moving-average-analysis',params),e=>e.code==='CLOUD_RUN_PENDING');
+  assert.equal(clock,2500);
+  assert.equal(s.calls.filter(c=>c.operation==='createRun').length,1);
+  const record=await s.journal.get(account.ownerId,params.analysisJobId);
+  assert.equal(record.state,'running');assert.equal(record.cancelRequested,undefined);
+});

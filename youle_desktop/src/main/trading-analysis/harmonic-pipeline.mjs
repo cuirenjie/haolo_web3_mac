@@ -102,6 +102,9 @@ export function buildHarmonicActionPlan(snapshot, candidate) {
   const bullish = candidate.direction === "bullish";
   const [target1, target2] = candidate.actionLevels.targets;
   return Object.freeze({
+    harmonicBinding: Object.freeze({version: "strict-harmonic-v1", candidateId: candidate.id,
+      snapshotId: snapshot.snapshotId, patternId: candidate.patternId, direction: candidate.direction,
+      prz: candidate.prz, terminal: candidate.points.at(-1), actionLevels: candidate.actionLevels}),
     primaryBias: bullish ? "bullish" : "bearish",
     currentPrice: snapshot.candles.at(-1).close,
     waitZone: Object.freeze({ lower: candidate.prz.low, upper: candidate.prz.high }),
@@ -364,7 +367,7 @@ function harmonicMeasurementGuideSpecs(candidate) {
     return [
       { id: "ab-xa", from: "X", to: "B", labels: ["AB/XA"] },
       { id: "bc-ab", from: "A", to: "C", labels: ["BC/AB"] },
-      { id: "c-ox", from: "0", to: "C", labels: ["C/OX"] },
+      { id: "bc-ob", from: "0", to: "C", labels: ["BC/0B"] },
     ];
   }
   if (candidate.topologyId === "cypher-xabcd") {
@@ -686,7 +689,7 @@ async function runTradingHarmonicAnalysisPipelineInternal(params, options = {}) 
       },
       model: {
         providerId: "deterministic",
-        modelId: "harmonic-rule-engine-v3",
+        modelId: "harmonic-rule-engine-v4",
         requestId: null,
         latencyMs: 0,
         usage: null,
@@ -717,7 +720,7 @@ async function runTradingHarmonicAnalysisPipelineInternal(params, options = {}) 
       },
       model: {
         providerId: "deterministic",
-        modelId: "harmonic-rule-engine-v3",
+        modelId: "harmonic-rule-engine-v4",
         requestId: null,
         latencyMs: 0,
         usage: null,

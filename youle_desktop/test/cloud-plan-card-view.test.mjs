@@ -65,10 +65,10 @@ test('all predicates, sides and modes preserve exact conditional prices and boun
     const card=cloudPlanCard(normalizeCloudReports([report])[0]);
     assert.ok(card.content.includes('0.04565741'));
     assert.ok(card.content.includes('0.04152439'));
-    const leftZone=mode==='left'&&operator==='in_zone';
-    assert.ok(card.html.includes(`execution-plan-price ${direction==='long'?'bullish':'bearish'}">${leftZone&&direction==='short'?'0.047509':'0.045657'}`));
+    const zone=operator==='in_zone';
+    assert.ok(card.html.includes(`execution-plan-price ${direction==='long'?'bullish':'bearish'}">${zone&&direction==='short'?'0.047509':'0.045657'}`));
     if(operator==='in_zone'){
-      assert.equal(card.html.includes('0.045657 – 0.047509'),!leftZone);
+      assert.equal(card.html.includes('0.045657 – 0.047509'),false);
       assert.ok(card.content.includes('[0.04565741, 0.04750929]'));
     }
     assert.doesNotMatch(card.html,/建议开仓|预计盈利/);

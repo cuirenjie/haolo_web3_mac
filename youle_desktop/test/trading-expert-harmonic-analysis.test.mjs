@@ -126,6 +126,19 @@ function snapshot(patternId, options = {}) {
   });
 }
 
+// Boundary pivots must agree with their candle path, not only edited labels.
+function pathSnapshot(source, points) {
+  const copy = structuredClone(source);
+  for (let leg = 1; leg < points.length; leg += 1) {
+    const a = points[leg-1], b = points[leg];
+    for (let i = a.index; i <= b.index; i += 1) {
+      const price = a.price+(b.price-a.price)*(i-a.index)/(b.index-a.index);
+      copy.candles[i] = {...copy.candles[i],open:price,high:price,low:price,close:price};
+    }
+  }
+  return copy;
+}
+
 function noPatternSnapshot(count = 140) {
   return normalizeTradingMarketSnapshot({
     marketId: "BINANCE:FUTURES:NOPATTERNUSDT",
@@ -342,14 +355,14 @@ test("Shark and Cypher remain isolated from classic and from each other at topol
 
   const cypherBoundary = cypherPoints.map((point) => ({ ...point }));
   cypherBoundary[2].price = 161.8;
-  assert.ok(evaluateCypherCandidate(cypherSnapshot, cypherBoundary, { atr: cypherResult.pivots.atr }));
+  assert.ok(evaluateCypherCandidate(pathSnapshot(cypherSnapshot,cypherBoundary), cypherBoundary, { atr: cypherResult.pivots.atr }));
   cypherBoundary[2].price = 161.9;
   assert.equal(evaluateCypherCandidate(cypherSnapshot, cypherBoundary, { atr: cypherResult.pivots.atr }), null);
 
   const sharkBoundary = sharkPoints.map((point) => ({ ...point }));
   const sharkXa = Math.abs(sharkBoundary[2].price - sharkBoundary[1].price);
   sharkBoundary[3].price = sharkBoundary[2].price + sharkXa * 1.13;
-  assert.ok(evaluateSharkCandidate(sharkSnapshot, sharkBoundary, { atr: sharkResult.pivots.atr }));
+  assert.ok(evaluateSharkCandidate(pathSnapshot(sharkSnapshot,sharkBoundary), sharkBoundary, { atr: sharkResult.pivots.atr }));
   sharkBoundary[3].price -= sharkXa * 0.001;
   assert.equal(evaluateSharkCandidate(sharkSnapshot, sharkBoundary, { atr: sharkResult.pivots.atr }), null);
 });
@@ -463,7 +476,7 @@ test("Shark and Cypher drawing patches preserve topology-specific labels, termin
       drawings.filter((drawing) => drawing.tool === "text" && expectedLabels.includes(drawing.text)).map((drawing) => drawing.text),
       expectedLabels,
     );
-    const expectedRatios = patternId === "shark" ? ["AB/XA", "BC/AB", "C/OX"] : ["B/XA", "C/XA", "D/XC"];
+    const expectedRatios = patternId === "shark" ? ["AB/XA", "BC/AB", "BC/0B"] : ["B/XA", "C/XA", "D/XC"];
     const ratioLabels = drawings.filter((drawing) => drawing.id.includes("-ratio-label-")).map((drawing) => drawing.text);
     assert.equal(ratioLabels.length, 3);
     expectedRatios.forEach((label) => assert.ok(ratioLabels.some((text) => text.startsWith(`${label} `)), `${patternId}:${label}`));
@@ -495,7 +508,7 @@ test("Shark and Cypher drawing patches preserve topology-specific labels, termin
   }
 });
 
-test("pipeline preserves deterministic harmonic targets while ExecutionPlanV1 expands the final target into three exits", async () => {
+test("pipeline and ExecutionPlanV1 preserve the same native harmonic targets", async () => {
   const marketSnapshot = snapshot("gartley");
   const deterministic = runHarmonicPatternEngine(marketSnapshot).structures.primaryCandidate;
   const modelRegistry = {
@@ -532,15 +545,14 @@ test("pipeline preserves deterministic harmonic targets while ExecutionPlanV1 ex
   ));
   assert.equal(manifest.dataRequirements.candles.preferredCount, 600);
   const executionPlan = buildExecutionPlanV1(manifest, result, params);
-  assert.equal(executionPlan.action, "long");
+  assert.equal(executionPlan.action, "wait");
   assert.equal(executionPlan.preferredSide, "long");
-  assert.equal(executionPlan.takeProfits.length, 3);
+  assert.equal(executionPlan.takeProfits.length, 2);
   assert.equal(
-    executionPlan.takeProfits[2].price.price,
+    executionPlan.takeProfits[1].price.price,
     result.analysisPlan.actionPlan.longTargets.at(-1),
   );
-  assert.equal(executionPlan.riskReward[0].ratio <= 0.5, true);
-  assert.equal(executionPlan.riskReward[1].ratio <= 0.8, true);
+  assert.deepEqual(executionPlan.takeProfits.map(t=>t.price.price),result.analysisPlan.actionPlan.longTargets);
   assert.equal(executionPlan.takeProfits.reduce((sum, target) => sum + target.allocationPercent, 0), 100);
   assert.equal(executionPlan.positionSizing.suggestedQuantity, null);
   assert.match(executionPlan.warnings.join(" "), /不是自动订单/);
@@ -567,7 +579,7 @@ test("no qualified pattern completes as a deterministic no-trade analysis instea
   const result = await runTradingHarmonicAnalysisPipeline(params, { modelRegistry, providerId: "stub" });
   assert.equal(result.ok, true);
   assert.equal(result.theoryResult.status, "insufficient_data");
-  assert.equal(result.model.modelId, "harmonic-rule-engine-v3");
+  assert.equal(result.model.modelId, "harmonic-rule-engine-v4");
   assert.equal(modelCalls, 0);
   assert.match(result.analysisPlan.report, /扫描已经正常完成/);
   assert.match(result.analysisPlan.report, /当前动作：不交易/);
@@ -583,10 +595,10 @@ test("no qualified pattern completes as a deterministic no-trade analysis instea
   const coordinated = await coordinator.run("harmonic", params);
   assert.equal(coordinated.ok, true);
   assert.equal(coordinated.strategyResult.status, "completed");
-  assert.equal(coordinated.executionPlan.action, "insufficient_data");
+  assert.equal(coordinated.executionPlan.action, "wait");
   assert.equal(coordinated.executionPlan.scenarios.length, 0);
   assert.match(coordinated.analysisPlan.report, /^## NOPATTERN\/USDT 币安永续 4H/m);
-  assert.match(coordinated.analysisPlan.report, /数据\/价位不足，不交易/);
+  assert.match(coordinated.analysisPlan.report, /等待|观察/);
   assert.equal(modelCalls, 0);
 });
 
@@ -672,7 +684,7 @@ test("registry and coordinator complete the harmonic mention-to-drawing-to-execu
   assert.equal(result.strategy.id, "harmonic");
   assert.equal(result.theoryResult.structures.primaryCandidate.patternId, "butterfly");
   assert.equal(result.analysisPlan.drawingPatch.operations.length, 21);
-  assert.equal(result.executionPlan.takeProfits.length, 3);
+  assert.equal(result.executionPlan.takeProfits.length, 2);
   assert.match(result.analysisPlan.report, /^## TEST\/USDT 币安永续 1H/m);
   assert.match(result.analysisPlan.report, /谐波形态结论/);
 });

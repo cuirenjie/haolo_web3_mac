@@ -6,6 +6,7 @@ import { businessPresentationItems, businessPresentationResult } from "../shared
 import { completedTradingAnalysisReport, isCompletedTradingAnalysisReport, tradingAnalysisDeliveryItems } from "./trading-analysis-completion";
 import { turnResultFoldTargets } from "./turn-result-fold";
 import { tradingAnalysisCompletionText } from "./cloud-analysis-text";
+import { marketRecoveryProgressMessage } from "../shared/market-recovery-progress.mjs";
 import { resolvePureTradingAnalysis, pureTradingAnalysisRequest } from "./pure-trading-analysis";
 import { pureAnalysisPresentationGroups, revealPureAnalysisReport, type PureAnalysisPresentationGroup } from "./pure-analysis-presentation";
 import {createCloudPlanRefresher,cloudPlanSyncMessage} from './cloud-plan-sync';
@@ -112,6 +113,7 @@ import {
 } from "./binance-account-ui";
 import { BINANCE_REBIND_MESSAGE, isBinanceCredentialError } from "../shared/binance-account-errors.mjs";
 import { loadSharedAccountDetails, type AccountDetailResult, type AccountDetailSection } from "./binance-account-details";
+import { createAccountPerformanceState, loadAccountPerformance, PERFORMANCE_RANGES, type AccountPerformance } from "./binance-account-performance";
 import { ensureBrowserDesktopApi } from "./browser_mock";
 import {
   applyTradingExpertCustomIndicatorMentions,
@@ -1679,6 +1681,7 @@ type DesktopApi = {
     summary?: boolean;
   }): Promise<BinanceAccountSnapshot>;
   getBinanceAccountProfitCalendar?(params: { month: string; force?: boolean }): Promise<BinanceAccountProfitCalendar>;
+  getBinanceAccountPerformance?(params: { days: number }): Promise<AccountPerformance>;
   getBinanceAccountDetails?(params: { section: AccountDetailSection; cursor?: string }): Promise<AccountDetailResult>;
   removeBinanceAccount?(params: {
     challengeId: string;
@@ -4385,6 +4388,7 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden) cancelVoiceInput();
 });
 window.addEventListener("beforeunload", () => {
+  refreshCloudExecutionPlans.reset();
   stopAppUpdateChecks();
   cancelVoiceInput();
   persistSubagentActivityStore();
@@ -6412,6 +6416,7 @@ function applyAuthSession(session: any, fallbackBaseUrl = "") {
   );
   activateAccountSettingsSync();
   if (!state.auth.authenticated || accountIdentity !== previousAccountIdentity || state.auth.baseUrl !== previousBaseUrl) {
+    refreshCloudExecutionPlans.reset();
     resetConsumptionData();
     resetTradingPreferenceProfileState();
     authenticatedModelCatalogPreloadPromise = null;
@@ -7168,7 +7173,7 @@ function wireDesktopEvents() {
     // Terminal stage timing is followed by the runner's final report.
     if (payload?.status === "completed" && (stage === "model" || stage === "analysis_pipeline")) return;
     const language = state.settings.language;
-    const message = stage === "deterministic_theory"
+    const message = marketRecoveryProgressMessage(stage,language) || (stage === "deterministic_theory"
       ? `${translateAppText("确定性结构已完成", language)} (${Number(payload?.candleCount) || 0} ${translateAppText("根 K 线", language)}).`
       : stage === "account_snapshot"
         ? payload?.status === "completed"
@@ -7176,8 +7181,10 @@ function wireDesktopEvents() {
           : `${translateAppText("账户只读快照暂不可用", language)}; ${translateAppText("继续使用无账户上下文分析", language)}.`
         : stage === "model" || stage === "analysis_pipeline"
           ? `${translateAppText("正在整理结果", language)}.`
-          : `${translateAppText("分析阶段已完成", language)}; ${translateAppText("正在整理结果", language)}.`;
-    updateTradingExpertThinkingState(threadId, "analyzing", message);
+          : `${translateAppText("分析阶段已完成", language)}; ${translateAppText("正在整理结果", language)}.`);
+    const phase = ["market_waiting", "market_quota_wait", "market_connection_wait"].includes(stage || "")
+      ? "market-waiting" : stage === "market_resuming" || stage === "market_ready" ? "preparing" : "analyzing";
+    updateTradingExpertThinkingState(threadId, phase, message);
     // Timing notifications are transient. Only the runner owns transcript
     // progress; otherwise unmatched local stages move behind restored results.
     refreshTradingExpertConversationSurface(threadId);
@@ -30125,6 +30132,11 @@ function clearTradingExpertComposerAfterSend(threadId: string) {
 
 function tradingExpertThinkingStage(phase: string, reasoningSummary = "", message = ""): ThinkingStagePresentation {
   const detail = message || "";
+  if (phase === "market-waiting") {
+    const language = state.settings.language;
+    return { key: "preparing", label: language === "en" ? "Waiting for market data"
+      : language === "zh-TW" ? "正在等待行情恢復" : "正在等待行情恢复", detail };
+  }
   const streamedDetail = phase === "alert-analyzing" ? reasoningSummary.trim() : detail;
   if (phase === "classifying") {
     return { key: "reasoning", label: "正在理解请求", detail };
@@ -61748,6 +61760,21 @@ function bindTradingAlertEditorSelects() {
 }
 
 function bindBinanceAccountEvents(scope: ParentNode) {
+  scope.querySelector<HTMLSelectElement>("[data-binance-performance-range]")?.addEventListener("change", event => {
+    const days = Number((event.currentTarget as HTMLSelectElement).value);
+    if (!(PERFORMANCE_RANGES as readonly number[]).includes(days)) return;
+    state.binanceAccount.performance.days = days;
+    renderBinanceAccountLiveUpdate();
+    void loadBinanceAccountPerformance();
+    root.querySelector<HTMLElement>("[data-binance-performance-range]")?.focus({ preventScroll: true });
+  });
+  scope.querySelectorAll<HTMLElement>("[data-binance-performance-mode]").forEach(button => button.addEventListener("click", () => {
+    const mode = button.dataset.binancePerformanceMode;
+    if (mode !== "rate" && mode !== "amount") return;
+    state.binanceAccount.performance.mode = mode;
+    renderBinanceAccountLiveUpdate();
+    root.querySelector<HTMLElement>(`[data-binance-performance-mode="${mode}"]`)?.focus({ preventScroll: true });
+  }));
   scope.querySelectorAll<HTMLElement>("[data-binance-account-action]").forEach((element) => {
     element.addEventListener("click", (event) => {
       event.preventDefault();
@@ -61758,6 +61785,7 @@ function bindBinanceAccountEvents(scope: ParentNode) {
       else if (action === "send-otp") void sendBinanceAccountOtp();
       else if (action === "refresh" || action === "retry-load") void (action === "refresh" ? refreshBinanceAccountSnapshot() : loadBinanceAccountPage({ force: true }));
       else if (action === "retry-profit-calendar") void loadBinanceAccountProfitCalendar({ force: true });
+      else if (action === "retry-performance") void loadBinanceAccountPerformance({ force: true });
       else if (action === "retry-details") void loadBinanceAccountDetails({ force: true });
       else if (action === "more-details") void loadBinanceAccountDetails({ more: true });
       else if (action === "previous-profit-month") navigateBinanceAccountProfitCalendar(-1);
@@ -61769,6 +61797,7 @@ function bindBinanceAccountEvents(scope: ParentNode) {
           state.binanceAccount.activeSection = section;
           render();
           void loadBinanceAccountDetails();
+          if (section === "assets") void loadBinanceAccountPerformance();
           if (section === "profit-calendar" && !state.binanceAccount.profitCalendar && !state.binanceAccount.profitCalendarLoading) {
             void loadBinanceAccountProfitCalendar();
           }
@@ -69563,6 +69592,7 @@ function handleAuthExpired(session: any = {}) {
 }
 
 function resetAuthenticatedWorkspace() {
+  refreshCloudExecutionPlans.reset();
   workspaceStartupError = null;
   workspaceStartupSlow = false;
   resetConsumptionData();
@@ -72433,6 +72463,7 @@ const refreshCloudExecutionPlans=createCloudPlanRefresher({
   changed:()=>{if(state.activeView==='plans')render();void reconcileMissingExecutionPlanAlerts(state.executionPlansScope||'');},
   cacheFailure:()=>showToast(cloudPlanSyncMessage('cache',state.settings.language),5000),
   failure:error=>showToast(cloudPlanSyncMessage('failed',state.settings.language,errorMessage(error)),5000),
+  diagnostic:payload=>{void api.debugLog?.({event:'cloud-plan-sync.client-failed',payload}).catch(()=>{});},
 });
 
 function openTradingAlertsPage() {
@@ -72477,6 +72508,7 @@ function openBinanceAccountPage() {
   state.chatPreview = null;
   state.closingPreviewSource = null;
   render();
+  void loadBinanceAccountPerformance();
   void loadBinanceAccountPage().finally(() => scheduleBinanceAccountLiveRefresh());
 }
 
@@ -72507,6 +72539,17 @@ async function loadBinanceAccountDetails(options: { force?: boolean; more?: bool
     isCurrent: () => state.binanceAccount === accountState && !accountState.rebindRequired,
     changed: renderBinanceAccountLiveUpdate,
     credentialError: (error) => handleBinanceCredentialFailure(error, accountState),
+  });
+}
+
+async function loadBinanceAccountPerformance(options: { force?: boolean } = {}) {
+  const accountState = state.binanceAccount;
+  if (accountState.activeSection !== "assets") return;
+  return loadAccountPerformance(accountState, api.getBinanceAccountPerformance, {
+    ...options,
+    isCurrent: () => state.binanceAccount === accountState && !accountState.rebindRequired,
+    changed: renderBinanceAccountLiveUpdate,
+    credentialError: error => handleBinanceCredentialFailure(error, accountState),
   });
 }
 
@@ -72609,6 +72652,7 @@ async function loadBinanceAccountPage({ force = false } = {}) {
       if (status.bound) {
         renderBinanceAccountLiveUpdate();
         void loadBinanceAccountDetails();
+        void loadBinanceAccountPerformance();
         if (accountState.activeSection === "profit-calendar") void loadBinanceAccountProfitCalendar();
       }
       let snapshot: BinanceAccountSnapshot | null = null;
@@ -72669,6 +72713,7 @@ async function loadBinanceAccountPage({ force = false } = {}) {
 
 async function refreshBinanceAccountSnapshot() {
   if (state.binanceAccount.rebindRequired) return;
+  void loadBinanceAccountPerformance({ force: true });
   // Refresh the selected dataset even when another summary request is pending.
   if (state.binanceAccount.status?.serverCredentialsBound) {
     if (state.binanceAccount.activeSection === "profit-calendar") {
@@ -72856,6 +72901,7 @@ function handleBinanceCredentialFailure(error: unknown, accountState: BinanceAcc
   accountState.refreshing = false;
   accountState.snapshot = null;
   accountState.details = createBinanceAccountUiState().details;
+  accountState.performance = createAccountPerformanceState();
   accountState.profitCalendar = null;
   accountState.profitCalendarLoadedAt = 0;
   accountState.profitCalendarRetryAfter = 0;
@@ -72965,6 +73011,7 @@ async function silentlyRefreshBinanceAccountSnapshot() {
   if (state.binanceAccount.rebindRequired) return;
   if (state.activeView === "account" && !document.hidden && !state.binanceAccount.dialog.open) {
     void loadBinanceAccountDetails();
+    void loadBinanceAccountPerformance();
     if (state.binanceAccount.activeSection === "profit-calendar") void loadBinanceAccountProfitCalendar();
   }
   if (!state.binanceAccount.snapshot && state.binanceAccount.status?.serverCredentialsBound
@@ -73077,6 +73124,8 @@ function renderBinanceAccountLiveUpdate() {
     : null;
   const focusedAction = focusedElement?.dataset.binanceAccountAction || null;
   const focusedSection = focusedElement?.dataset.binanceAccountSection || null;
+  const focusedPerformanceMode = focusedElement?.dataset.binancePerformanceMode;
+  const focusedPerformanceRange = focusedElement?.hasAttribute("data-binance-performance-range");
   const scrollWasFocused = focusedElement === currentScroll;
   const template = document.createElement("template");
   template.innerHTML = renderBinanceAccountPage(state.binanceAccount).trim();
@@ -73095,7 +73144,9 @@ function renderBinanceAccountLiveUpdate() {
     nextScroll.focus({ preventScroll: true });
     return;
   }
-  const focusSelector = focusedSection
+  const focusSelector = focusedPerformanceRange ? "[data-binance-performance-range]"
+    : focusedPerformanceMode ? `[data-binance-performance-mode="${focusedPerformanceMode}"]`
+    : focusedSection
     ? `[data-binance-account-section="${focusedSection}"]`
     : focusedAction
       ? `[data-binance-account-action="${focusedAction}"]`
@@ -73205,6 +73256,7 @@ async function submitBinanceAccountBinding() {
     binanceAccountProfitCalendarLoadSequence += 1;
     state.binanceAccount.rebindRequired = false;
     state.binanceAccount.details = createBinanceAccountUiState().details;
+    state.binanceAccount.performance = createAccountPerformanceState();
     state.binanceAccount.profitCalendar = null;
     state.binanceAccount.profitCalendarLoadedAt = 0;
     state.binanceAccount.profitCalendarRetryAfter = 0;
@@ -73229,6 +73281,7 @@ async function submitBinanceAccountBinding() {
     resetBinanceAccountDialog(state.binanceAccount);
     render();
     void loadBinanceAccountDetails({ force: true });
+    void loadBinanceAccountPerformance({ force: true });
     if (state.binanceAccount.activeSection === "profit-calendar") {
       void loadBinanceAccountProfitCalendar({ force: true });
     }
@@ -73285,6 +73338,7 @@ async function removeBinanceAccountBinding() {
     state.binanceAccount.rebindRequired = false;
     state.binanceAccount.snapshot = null;
     state.binanceAccount.details = createBinanceAccountUiState().details;
+    state.binanceAccount.performance = createAccountPerformanceState();
     binanceAccountProfitCalendarLoadSequence += 1;
     state.binanceAccount.profitCalendar = null;
     state.binanceAccount.profitCalendarLoadedAt = 0;
@@ -80110,8 +80164,9 @@ function cleanIpcError(message: string) {
     .replace(/^Error:\s*/i, "")
     .replace(/^BinanceAccountError:\s*/i, "")
     .replace(/^YouleHttpError:\s*/i, "");
-  if (/^Upstream rate limit exceeded/i.test(cleaned) || errorSignals(cleaned).statuses.includes(429)) {
+  if (/^Upstream rate limit exceeded/i.test(cleaned)) {
     return "模型上游当前限流，请稍后重试";
   }
+  if (errorSignals(cleaned).statuses.includes(429)) return "请求繁忙，请稍后重试。";
   return cleaned;
 }

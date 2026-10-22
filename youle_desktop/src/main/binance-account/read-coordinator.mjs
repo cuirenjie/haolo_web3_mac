@@ -13,7 +13,8 @@ export function createAccountReadCoordinator({ now = Date.now, sleep = ms => new
     const cached = state.cache.get(key);
     if (cached?.until > now()) return structuredClone(cached.value);
     state.cache.delete(key);
-    const cooldown = state.cooldowns.get(group);
+    const cooldown = state.cooldowns.get("exchange")?.until > now()
+      ? state.cooldowns.get("exchange") : state.cooldowns.get(group);
     if (cooldown?.until > now()) {
       throw Object.assign(new Error(cooldown.error.message), {
         code: cooldown.error.code, status: cooldown.error.status, retryable: true,
@@ -28,7 +29,7 @@ export function createAccountReadCoordinator({ now = Date.now, sleep = ms => new
         try {
           const value = await read();
           // A binding mutation invalidates all pending responses, too.
-          if (current !== state) assertCurrent();
+          assertCurrent();
           if (ttlMs > 0) state.cache.set(key, { value, until: now() + ttlMs });
           return value;
         } catch (error) {
@@ -40,11 +41,13 @@ export function createAccountReadCoordinator({ now = Date.now, sleep = ms => new
           if (!transient && !rateLimited) throw error;
           if (rateLimited || retryAfterMs > 0 || attempt >= 1) {
             state.cooldowns.set(group, { error, until: now() + Math.max(retryAfterMs, rateLimited ? 15_000 : 1_500) });
+            if(error?.code === "BINANCE_RATE_LIMITED" || status === 418)state.cooldowns.set("exchange",state.cooldowns.get(group));
             throw error;
           }
           await sleep(350 + Math.floor(random() * 300));
           // Another dataset may have received a shared exchange cooldown.
-          const deferred = state.cooldowns.get(group);
+          const deferred = state.cooldowns.get("exchange")?.until > now()
+            ? state.cooldowns.get("exchange") : state.cooldowns.get(group);
           if (deferred?.until > now()) throw Object.assign(new Error(deferred.error.message), {
             code: deferred.error.code, status: deferred.error.status, retryable: true, retryAfterMs: deferred.until - now(),
           });

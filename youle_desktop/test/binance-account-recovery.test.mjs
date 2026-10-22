@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
+import { createAccountPerformanceState } from "../src/renderer/binance-account-performance.ts";
 import { YouleApiClient } from "../src/main/youle-api-client.mjs";
 import { BinanceAccountService } from "../src/main/binance-account/service.mjs";
 import { BINANCE_REBIND_MESSAGE, binanceCredentialErrorResult, binanceAccountReadErrorResult, isBinanceCredentialError } from "../src/shared/binance-account-errors.mjs";
@@ -99,6 +100,7 @@ function harness() {
       bindBinanceAccount: async params => { stats.binds.push(params); return { status: { bound: true }, snapshot: snapshot() }; },
     },
     render: () => { stats.renders++; }, renderBinanceAccountLiveUpdate: () => { stats.renders++; },
+    loadBinanceAccountPerformance: async () => {}, createAccountPerformanceState,
     syncTradingExpertOrderLineSnapshot() {}, reconcileExecutionPlansWithBinanceSnapshot: async () => {},
     stopBinanceAccountLiveRefresh() {}, stopBinanceAccountOtpCountdown() {}, startBinanceAccountOtpCountdown() {},
     sendBinanceAccountOtp: async () => {}, showToast() {}, errorMessage: e => e.message,

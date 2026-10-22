@@ -226,6 +226,7 @@ import {
 } from "./windows-utf8-guardrails.mjs";
 import { YouleApiClient, isYouleAuthExpiredError } from "./youle-api-client.mjs";
 import { createHaoloServiceFetch, fetchServiceJson } from "./haolo-service-fetch.mjs";
+import { cloudPlanListResponse, cloudPlanSyncDiagnostic } from "./cloud-plan-sync-response.mjs";
 import { premiumAccessState } from "./premium-entitlement.mjs";
 import {
   modelMembershipAccess,
@@ -13165,6 +13166,11 @@ ipcMain.handle("youle:sendActivityHeartbeat", async (_event, params = {}) => {
 ipcMain.handle("youle:debugLog", async (_event, params = {}) => {
   const eventType = String(params.event || params.eventType || "renderer.debug").trim() || "renderer.debug";
   const payload = params.payload && typeof params.payload === "object" ? params.payload : {};
+  if(eventType==='cloud-plan-sync.client-failed') {
+    assertExternalModelsIpcSender(_event);
+    appendAppServerLogLine('cloud-plan-sync',JSON.stringify(cloudPlanSyncDiagnostic(payload,{stage:'renderer'})));
+    return {ok:true};
+  }
   appendExternalChannelDebugLog(eventType, {
     source: "renderer",
     payload,
@@ -13408,7 +13414,7 @@ ipcMain.handle("binanceAccount:getSnapshot", async (event, params = {}) => {
     const status = await readBinanceAccountStatusWithSharedBinding(owner);
     const snapshot = status.serverCredentialsBound && status.serverConnectionId
       ? normalizeSharedBinanceSnapshot(
-          await getYouleApiClient().getAccountConnectionSnapshot(status.serverConnectionId, { includeTodayPnl: true }),
+          await getYouleApiClient().getAccountConnectionSnapshot(status.serverConnectionId, { includeTodayPnl: true, nonBlockingPnl: true }),
         )
       : await getBinanceAccountService().snapshot(owner.ownerId, requestOptions);
     if (!sameBinanceBindingOwner(owner, await requireBinanceAccountOwner())) throw new Error("Haolo 账号已切换，请重新读取账户数据。");
@@ -13440,6 +13446,21 @@ ipcMain.handle("binanceAccount:getDetails", async (event, params = {}) => {
     );
     if (!sameBinanceBindingOwner(owner, await requireBinanceAccountOwner())) throw new Error("Haolo 账号已切换，请重新读取账户数据。");
     return { ok: true, details };
+  } catch (error) {
+    return binanceAccountReadErrorResult(error);
+  }
+});
+
+ipcMain.handle("binanceAccount:getPerformance", async (event, params = {}) => {
+  assertExternalModelsIpcSender(event);
+  const owner = await requireBinanceAccountOwner();
+  try {
+    const status = await readBinanceAccountStatusWithSharedBinding(owner);
+    if (!status.serverCredentialsBound || !status.serverConnectionId) throw new Error("账户绑定已变化，请刷新账户页面。");
+    // Resolve the binding in the trusted main process, never from renderer input.
+    const performance = await getYouleApiClient().getAccountConnectionPerformance(status.serverConnectionId, { days: params.days });
+    if (!sameBinanceBindingOwner(owner, await requireBinanceAccountOwner())) throw new Error("Haolo 账号已切换，请重新读取账户数据。");
+    return { ok: true, performance };
   } catch (error) {
     return binanceAccountReadErrorResult(error);
   }
@@ -15779,6 +15800,10 @@ ipcMain.handle('tradingCloud:alertFeed',async event=>{
 });
 ipcMain.handle('tradingCloud:plans', async (event, params={})=>{
   assertExternalModelsIpcSender(event);
+  if(params.action==='list')return cloudPlanListResponse(cloudPlans,{
+    language:appLanguage(),accountId:getYouleApiClient().profile?.id,
+    recordFailure:entry=>appendAppServerLogLine('cloud-plan-sync',JSON.stringify(entry)),
+  });
   try {return {ok:true,...await cloudPlans.perform(params.action,params.input)};}
   catch(error) {return {ok:false,error:cloudStrategyFailure(error,{language:appLanguage()})};}
 });

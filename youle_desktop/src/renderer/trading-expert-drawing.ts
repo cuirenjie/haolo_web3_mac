@@ -49,6 +49,7 @@ import { tradingInfoLineRows, renderTradingInfoLineCard } from './trading-info-l
 import { renderTradingTrendAngleAnnotation } from './trading-trend-angle.ts';
 import { isTradingPitchfork, renderTradingPitchfork } from './trading-pitchfork.ts';
 import { isReferencePatternDrawing, renderReferencePattern, harmonicFillColor, HARMONIC_BLUE } from './trading-patterns.ts';
+import { usesNativeAiDrawingStyle, nativeAiDrawingDefaults, nativeAiDrawingDisplayModel, isHiddenOrderFlowAnnotation, renderNativeAiHarmonicPath } from './trading-ai-native-style.ts';
 import { chartPatternNativeDrawingModel } from './chart-pattern-native-tools.ts';
 import { isElliottWave, renderElliottWave, ELLIOTT_FONT_SIZE, ELLIOTT_HANDLE_COLOR } from './trading-elliott-wave.ts';
 import { captureTradingChartToDesktop } from './trading-chart-screenshot.ts';
@@ -991,7 +992,7 @@ export function renderTradingDrawingToolbar() {
         ${toolbarAction("toggle-lock", "锁定全部绘图", "unlock", 'aria-pressed="false"')}
         ${toolbarAction("screenshot", "截图并保存到桌面", "camera")}
         <div class="trading-drawing-group trading-drawing-visibility-group" data-drawing-group="visibility">
-          ${toolbarAction("toggle-visibility", "隐藏全部绘图", "drawings-visible", 'aria-pressed="false"')}
+          ${toolbarAction("toggle-visibility", "隐藏AI绘图和计划线", "drawings-visible", 'aria-pressed="false"')}
           <button type="button" class="trading-drawing-disclosure" data-drawing-action="toggle-tool-menu" data-drawing-group-id="visibility" aria-label="展开隐藏绘图选项" aria-haspopup="menu" aria-expanded="false"><svg viewBox="0 0 8 8" aria-hidden="true"><path d="m3 2 2 2-2 2"/></svg></button>
         </div>
         <div class="trading-drawing-divider" aria-hidden="true"></div>
@@ -3263,6 +3264,7 @@ export class TradingDrawingController {
     return this.aiDrawings.filter((drawing) => (
       tradingAiDrawingMatchesContext(drawing, symbol, interval)
       && tradingDrawingToolDefinition(drawing.tool)?.kind === "text"
+      && !isHiddenOrderFlowAnnotation(drawing)
     ));
   }
 
@@ -3651,9 +3653,9 @@ export class TradingDrawingController {
       this.persistDrawings();
       this.setStatus(this.drawingsLocked ? "全部绘图已锁定" : "全部绘图已解锁");
     } else if (action === "toggle-visibility") {
-      const hidden = !this.drawingVisibility.allHidden;
-      this.drawingVisibility.setAll(hidden);
-      this.setStatus(hidden ? "绘图已隐藏" : "绘图已显示");
+      const hidden = !(this.drawingVisibility.aiHidden && this.drawingVisibility.plansHidden);
+      this.drawingVisibility.setLayers({ aiHidden: hidden, plansHidden: hidden });
+      this.setStatus(hidden ? "AI 绘图和计划线已隐藏" : "AI 绘图和计划线已显示");
       this.redraw();
     } else if (action === "undo") {
       this.undo();
@@ -6000,8 +6002,8 @@ export class TradingDrawingController {
     this.toolbar.querySelector('[data-drawing-action="toggle-magnet-indicators"]')?.setAttribute('aria-checked', String(this.snapToIndicators));
     setPressed("toggle-stay", this.stayInDrawingMode, this.stayInDrawingMode ? "pin-locked" : "pin");
     setPressed("toggle-lock", this.drawingsLocked, this.drawingsLocked ? "lock" : "unlock", this.drawingsLocked ? "解锁全部绘图" : "锁定全部绘图");
-    const allHidden = this.drawingVisibility.allHidden;
-    setPressed("toggle-visibility", allHidden, allHidden ? "drawings-hidden" : "drawings-visible", allHidden ? "显示全部绘图" : "隐藏全部绘图");
+    const aiAndPlansHidden = this.drawingVisibility.aiHidden && this.drawingVisibility.plansHidden;
+    setPressed("toggle-visibility", aiAndPlansHidden, aiAndPlansHidden ? "drawings-hidden" : "drawings-visible", aiAndPlansHidden ? "显示AI绘图和计划线" : "隐藏AI绘图和计划线");
     const visibility = this.drawingVisibility.layers();
     this.toolbar.querySelectorAll<HTMLElement>('[data-drawing-visibility-layer]').forEach(button => {
       const layer = TRADING_VISIBILITY_LAYERS.find(({ key }) => key === button.dataset.drawingVisibilityLayer);
@@ -6774,8 +6776,8 @@ export class TradingDrawingController {
       }
       return { id: drawing.id, render };
     }));
-    const aiDrawings = aiSourceDrawings.filter(drawing => !this.drawingVisibility.aiHidden && !planPriceLines.drawingIds.has(drawing.id))
-      .map((drawing) => chartPatternNativeDrawingModel(tradingAiDrawingDisplayModel(drawing)));
+    const aiDrawings = aiSourceDrawings.filter(drawing => !this.drawingVisibility.aiHidden && !planPriceLines.drawingIds.has(drawing.id) && !isHiddenOrderFlowAnnotation(drawing))
+      .map((drawing) => nativeAiDrawingDisplayModel(chartPatternNativeDrawingModel(tradingAiDrawingDisplayModel(drawing))));
     const aiCandlestickLabelRequests = aiDrawings.flatMap((drawing): TradingAiNoteLayoutRequest[] => {
       if (!tradingDrawingIsPriceActionCandlestickPatternLabel(drawing) || !drawing.points[0]) return [];
       const anchor = this.pointToScreen(drawing.points[0]);
@@ -6923,7 +6925,8 @@ export class TradingDrawingController {
     if (!points.length) return "";
     const first = points[0];
     const second = (drawing.tool === 'parallel-channel' || drawing.tool === 'rotated-rectangle' || tradingDrawingIsShapedChannel(drawing.tool) ? points[1] : points[points.length - 1]) ?? first;
-    const defaults = drawing.source === 'ai' ? undefined : manualDrawingDefaults(drawing.tool);
+    const defaults = usesNativeAiDrawingStyle(drawing) ? nativeAiDrawingDefaults(drawing)
+      : drawing.source === 'ai' ? undefined : manualDrawingDefaults(drawing.tool);
     const color = drawing.color ?? tradingAiDrawingColor(drawing.colorToken) ?? defaults?.color ?? (definition.kind === "text"
       ? isDarkTheme() ? DEFAULT_TEXT_COLOR_DARK : DEFAULT_TEXT_COLOR_LIGHT
       : isDarkTheme() ? DEFAULT_DRAWING_COLOR_DARK : DEFAULT_DRAWING_COLOR_LIGHT);
@@ -7028,6 +7031,7 @@ export class TradingDrawingController {
       ? renderTradingPitchfork(drawing.tool, points, bounds, drawing, clipTradingDrawingLine) : null;
     const harmonic = isReferencePatternDrawing(drawing.tool)
       ? renderReferencePattern(drawing, points, draft ? this.draftConfirmedPointCount : drawing.points.length, bounds, translateDrawingText) : null;
+    const aiHarmonicPath = renderNativeAiHarmonicPath(drawing, points);
     const elliott = isElliottWave(drawing.tool) && drawing.source !== 'ai'
       ? renderElliottWave(drawing, points, { draft, selected, confirmedPointCount: draft ? this.draftConfirmedPointCount : drawing.points.length }) : null;
     if (regressionGeometry && interactive && selected && regressionFit?.options.showUpper) {
@@ -7041,6 +7045,7 @@ export class TradingDrawingController {
     else if (projection) body = projection.body;
     else if (fork) body = fork.body;
     else if (harmonic) body = harmonic.body;
+    else if (aiHarmonicPath !== null) body = `<g opacity="${opacity}">${aiHarmonicPath}</g>`;
     else if (elliott) body = elliott.body;
     else if (extra) body = `<g opacity="${opacity}">${extra.body}</g>`;
     else if (extraAnnotation !== null) body = extraAnnotation;
@@ -7082,7 +7087,7 @@ export class TradingDrawingController {
     } else if (definition.kind === "rectangle") {
       body = `<rect x="${Math.min(first.x, second.x)}" y="${Math.min(first.y, second.y)}" width="${Math.abs(dx)}" height="${Math.abs(dy)}" fill="${color}" fill-opacity="${defaults?.fillOpacity ?? 0.08}" stroke="${color}" ${svgStrokeAttributes(lineAppearance, 1.6)} opacity="${opacity}" />`
         + (drawing.text && drawing.source === 'ai'
-          ? renderTradingDrawingRegionLabel(first, second, drawing.text, color, bounds, drawing.fontSize ?? AI_NOTE_FONT_SIZE)
+          ? renderTradingDrawingRegionLabel(first, second, drawing.text, tradingAiDrawingColor(drawing.colorToken) ?? color, bounds, drawing.fontSize ?? AI_NOTE_FONT_SIZE)
           : "");
     } else if (definition.kind === "rotated-rectangle") body = draft && this.draftConfirmedPointCount < 2
       ? svgLine(first, second, color, { ...lineAppearance, width: 1 })
@@ -7123,7 +7128,7 @@ export class TradingDrawingController {
     else if (drawing.tool === "arrow-marker") {
       body = `<polygon class="trading-drawing-arrow-marker" points="${pointsAttribute(tradingDrawingArrowMarkerPoints(first, second))}" fill="${color}" stroke="${color}" ${svgStrokeAttributes(lineAppearance)} stroke-linejoin="round" opacity="${opacity}" />`;
     }
-    else if ((drawing.tool === 'arrow-up' || drawing.tool === 'arrow-down') && drawing.source !== 'ai') {
+    else if ((drawing.tool === 'arrow-up' || drawing.tool === 'arrow-down') && (drawing.source !== 'ai' || usesNativeAiDrawingStyle(drawing))) {
       body = `<polygon class="trading-drawing-directional-arrow" points="${pointsAttribute(tradingDrawingDirectionalArrowPoints(first, drawing.tool))}" fill="${color}" stroke="none" />`;
     }
     else if (definition.kind === "marker") body = this.renderMarker(first, definition, color);

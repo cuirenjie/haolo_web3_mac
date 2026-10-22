@@ -1,4 +1,4 @@
-export const TASKBAR_QUOTE_WIDTH = 176;
+export const TASKBAR_QUOTE_WIDTH = 161;
 export const TASKBAR_QUOTE_MIN_WIDTH = 132;
 export const TASKBAR_QUOTE_HEIGHT = 40;
 

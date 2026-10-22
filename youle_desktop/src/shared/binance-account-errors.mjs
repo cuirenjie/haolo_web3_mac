@@ -29,11 +29,16 @@ export function binanceCredentialErrorResult(error) {
 
 // Electron otherwise strips status/retry-after from thrown IPC exceptions.
 export function binanceAccountReadErrorResult(error) {
+  const rateLimited = [429, 418].includes(Number(error?.status))
+    || ["BINANCE_BUDGET_DEFERRED", "BINANCE_RATE_LIMITED"].includes(error?.code);
   return binanceCredentialErrorResult(error) || {
     ok: false,
     error: {
       code: String(error?.code || "BINANCE_REQUEST_FAILED"),
-      message: String(error?.message || "账户数据读取失败，请重试。"),
+      message: rateLimited ? (error?.code === "BINANCE_RATE_LIMITED"
+        ? "币安暂时限制请求，稍后自动重试。" : "账户数据请求繁忙，稍后自动重试。")
+        : String(error?.message || "账户数据读取失败，请重试。"),
+      scope: "binance_account",
       status: Number(error?.status) || 0,
       retryable: error?.retryable !== false,
       ...(Number(error?.retryAfterMs) > 0 ? { retryAfterMs: Number(error.retryAfterMs) } : {}),

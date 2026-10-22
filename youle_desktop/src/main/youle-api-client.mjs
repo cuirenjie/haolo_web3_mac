@@ -145,6 +145,8 @@ export class YouleAuthContractError extends Error {
   }
 }
 
+import { createSnapshotComponents } from "./binance-account/snapshot-components.mjs";
+
 export class YouleApiClient {
   constructor(options = {}) {
     this.storagePath = options.storagePath;
@@ -1634,16 +1636,26 @@ export class YouleApiClient {
     });
   }
 
-  async getAccountConnectionSnapshot(connectionId, { includeTodayPnl = false } = {}) {
+  async getAccountConnectionSnapshot(connectionId, { includeTodayPnl = false, nonBlockingPnl = false } = {}) {
     await this.load();
     this.requireAuth();
     const id = String(connectionId || "").trim();
     if (!id) throw new Error("connectionId is required");
+    if (includeTodayPnl && nonBlockingPnl) {
+      this.accountSnapshotComponents ||= createSnapshotComponents();
+      const token = this.token, baseUrl = this.baseUrl;
+      const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      return this.accountSnapshotComponents.read({scope:`${baseUrl}\n${token}\n${id}\n${zone}`,zone,
+        isCurrent:()=>this.token===token&&this.baseUrl===baseUrl,
+        core:()=>this.getAccountConnectionSnapshot(id),
+        pnl:()=>this.getAccountConnectionSnapshot(id,{includeTodayPnl:true}),
+      });
+    }
     const path = `${this.accountConnectionsPath}/${encodeURIComponent(id)}/snapshot`;
     const query = includeTodayPnl ? { pnlTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone } : {};
     return this.requestAccountJson(appendQuery(path, query), {
       timeoutMessage: "账户摘要读取超时，请稍后重试。",
-    }, { group: `${id}:snapshot` });
+    }, { group: `${id}:${includeTodayPnl ? "pnl" : "snapshot"}` });
   }
 
   async getAccountConnectionDetails(connectionId, { section, cursor } = {}) {
@@ -1654,6 +1666,16 @@ export class YouleApiClient {
     return this.requestAccountJson(appendQuery(`${this.accountConnectionsPath}/${encodeURIComponent(id)}/details`, {
       section, limit: 50, ...(cursor ? { cursor } : {}),
     }), { timeoutMessage: "账户明细读取超时，请稍后重试。" }, { group: `${id}:${section}` });
+  }
+
+  async getAccountConnectionPerformance(connectionId, { days = 7 } = {}) {
+    await this.load();
+    this.requireAuth();
+    const id = String(connectionId || "").trim();
+    if (!id || ![1, 7, 30, 90, 180, 365].includes(days)) throw new Error("Invalid account performance request");
+    return this.requestAccountJson(appendQuery(`${this.accountConnectionsPath}/${encodeURIComponent(id)}/performance`, {
+      days,
+    }), { timeoutMessage: "收益曲线读取超时，请稍后重试。" }, { group: `${id}:performance` });
   }
 
   async getAccountConnectionProfitCalendar(connectionId, { month } = {}) {
@@ -3369,7 +3391,8 @@ export class YouleApiClient {
       payload = {};
     }
     if (operation === "marketSnapshot") {
-      const allowed = new Set(["market", "interval", "limit", "visibleFrom", "visibleTo", "windowCount", "preferredWindowCount", "lookbackMs"]);
+      const allowed = new Set(["market", "interval", "limit", "visibleFrom", "visibleTo", "windowCount", "preferredWindowCount", "lookbackMs", "purpose"]);
+      if(payload.purpose != null && payload.purpose !== "analysis") throw new TypeError("Invalid snapshot purpose");
       if (Object.keys(payload).some(key => !allowed.has(key))) throw new TypeError("Invalid snapshot query");
       const query = new URLSearchParams(Object.entries(payload).map(([key, value]) => [key, String(value)]));
       routes.marketSnapshot = ["GET", `/market-snapshots?${query}`];
@@ -4319,11 +4342,11 @@ export class YouleApiClient {
   async requestJson(url, init = {}) {
     const accountMutation = !["GET", "HEAD"].includes(String(init.method || "GET").toUpperCase())
       && new URL(url).pathname.startsWith(`${this.accountConnectionsPath}`);
-    if (accountMutation) this.accountReadCoordinator?.invalidate();
+    if (accountMutation) { this.accountReadCoordinator?.invalidate(); this.accountSnapshotComponents?.invalidate(); }
     try {
       return await requestJson(url, { ...init, logPath: this.logPath, fetchImpl: this.serviceFetch });
     } finally {
-      if (accountMutation) this.accountReadCoordinator?.invalidate();
+      if (accountMutation) { this.accountReadCoordinator?.invalidate(); this.accountSnapshotComponents?.invalidate(); }
     }
   }
 
@@ -5293,6 +5316,7 @@ function withAuthorizationHeader(headers, token) {
 
 function httpErrorFromResponse(status, payload, headers = null) {
   const retryable = firstBoolean(
+    payload?.detail?.retryable,
     payload?.error?.retryable,
     payload?.retryable,
     headerBoolean(headers, "x-haolo-retryable"),
@@ -5312,6 +5336,7 @@ function httpErrorFromResponse(status, payload, headers = null) {
     status,
     payload,
     code,
+    scope: firstProfileString(payload?.detail?.scope, payload?.error?.scope),
     category: firstProfileString(
       payload?.error?.category,
       payload?.category,
@@ -5319,6 +5344,7 @@ function httpErrorFromResponse(status, payload, headers = null) {
     ),
     retryable: retryable ?? (status === 408 || status === 425 || status === 429 || status >= 500),
     retryAfterMs: firstFiniteNonNegative(
+      payload?.detail?.retryAfterMs,
       payload?.error?.retry_after_ms,
       payload?.retry_after_ms,
       headerText(headers, "x-haolo-retry-after-ms"),
@@ -6650,6 +6676,7 @@ class YouleHttpError extends Error {
     this.status = options.status ?? null;
     this.payload = options.payload ?? null;
     this.code = options.code || null;
+    this.scope = options.scope || null;
     this.category = options.category || null;
     this.retryable = options.retryable === true;
     this.retryAfterMs = Number.isFinite(Number(options.retryAfterMs)) ? Math.max(0, Number(options.retryAfterMs)) : null;

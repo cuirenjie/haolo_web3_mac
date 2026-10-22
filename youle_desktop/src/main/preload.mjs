@@ -39,6 +39,7 @@ async function invokeBinanceAccountSnapshot(params) {
     const error = new Error(String(result.error.message || "Binance 账户数据读取失败。"));
     error.name = "BinanceAccountError";
     error.code = String(result.error.code || "BINANCE_REQUEST_FAILED");
+    error.scope = String(result.error.scope || "binance_account");
     error.retryable = result.error.retryable === true;
     error.status = Number(result.error.status) || 0;
     const retryAfterMs = Number(result.error.retryAfterMs);
@@ -148,6 +149,20 @@ contextBridge.exposeInMainWorld("codexDesktop", {
     throw Object.assign(new Error(result?.error?.message || "账户明细读取失败，请重试。"), result?.error);
   },
   getBinanceAccountProfitCalendar: (params) => invokeBinanceAccountProfitCalendar(params),
+  getBinanceAccountPerformance: async (params) => {
+    const result = await ipcRenderer.invoke("binanceAccount:getPerformance", params);
+    if (result?.ok === false && result.error) {
+      const error = new Error(String(result.error.message || "收益曲线读取失败。"));
+      error.name = "BinanceAccountError";
+      error.code = String(result.error.code || "BINANCE_REQUEST_FAILED");
+      error.retryable = result.error.retryable === true;
+      error.status = Number(result.error.status) || 0;
+      const retryAfterMs = Number(result.error.retryAfterMs);
+      if (Number.isFinite(retryAfterMs) && retryAfterMs > 0) error.retryAfterMs = retryAfterMs;
+      throw error;
+    }
+    return result?.performance;
+  },
   removeBinanceAccount: (params) => ipcRenderer.invoke("binanceAccount:remove", params),
   completeRegistration: (params) => ipcRenderer.invoke("youle:completeRegistration", params),
   getWechatAuthConfig: (params) => ipcRenderer.invoke("youle:getWechatAuthConfig", params),

@@ -33,6 +33,7 @@ const LABELS = {
   data: ["当前行情数据不足或未通过校验", "Market data is insufficient or failed validation"],
   history: ["云端可用 K 线不足以完成此策略分析，请扩大分析时段或稍后重试", "There are not enough cloud candles for this strategy. Expand the analysis range or try again later", "雲端可用 K 線不足以完成此策略分析，請擴大分析時段或稍後重試"],
   order_flow_data: ["订单流成交或盘口数据暂不可用，请稍后重试", "Order flow trades or depth data are unavailable. Please try again later", "訂單流成交或訂單簿資料暫不可用，請稍後重試"],
+  order_flow_rate_limit: ["订单流行情请求仍受限，本次分析已停止，请稍后重试", "Order flow market requests are still rate limited. Analysis stopped; please try again later", "訂單流行情請求仍受限，本次分析已停止，請稍後重試"],
   order_flow_market: ["订单流分析仅支持币安永续市场，请切换市场后重试", "Order flow analysis requires a Binance perpetual market. Switch markets and try again", "訂單流分析僅支援幣安永續市場，請切換市場後重試"],
   analysis_window: ["请求的分析时段超出云端可用行情，请缩短时段或调整周期", "The requested range exceeds available cloud history. Shorten the range or change the timeframe", "請求的分析時段超出雲端可用行情，請縮短時段或調整週期"],
   drawing: ["分析已完成，图表绘制未完成", "Analysis completed, but chart drawing did not complete"],
@@ -58,6 +59,7 @@ export function describeTradingAnalysisFailure(error, { stage = "analysis", lang
   else if (code === "MODEL_OUTCOME_UNKNOWN") category = "model_unknown";
   else if (code === "MARKET_HISTORY_INSUFFICIENT") category = "history";
   else if (code === "ORDER_FLOW_DATA_UNAVAILABLE") category = "order_flow_data";
+  else if (code === "ORDER_FLOW_DATA_RATE_LIMITED") category = "order_flow_rate_limit";
   else if (code === "ORDER_FLOW_MARKET_UNSUPPORTED") category = "order_flow_market";
   else if (code === "CLOUD_HISTORY_REQUIREMENTS_INVALID") category = "cloud_history_contract";
   else if (code === "ANALYSIS_WINDOW_INSUFFICIENT") category = "analysis_window";
