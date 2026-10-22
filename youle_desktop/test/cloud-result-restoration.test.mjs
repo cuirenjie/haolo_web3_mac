@@ -65,13 +65,14 @@ test('indicator cache separates thread, pane and market and safely migrates only
   assert.equal(loadCloudIndicatorPatch('corrupt','BTC','60','rsi').analysisId,'first');
 });
 
-test('shared indicator renderer clears previous context and preserves strictly increasing timestamp paths',()=>{
+test('shared indicator renderer restores original path geometry without adding time-series data',()=>{
   storage();globalThis.getComputedStyle=()=>({getPropertyValue:()=>''});globalThis.document={documentElement:{}};
   const added=[],removed=[];
-  const runtime={pane:{addSeries:()=>{const series={setData:points=>{series.points=points;}};added.push(series);return series;}},series:[{api:{priceScale:()=>({setAutoScale:()=>{}})}}],analysisSeries:[],analysisMarkers:null,analysisSignature:''};
-  const options={chart:{removeSeries:s=>removed.push(s)},runtime,host:{},dark:true,timeOffsetSeconds:28800};
+  const api={attachPrimitive:p=>{added.push(p);p.attached({chart:{},series:api});},detachPrimitive:p=>removed.push(p),priceScale:()=>({setAutoScale(){}})};
+  const runtime={pane:{addSeries:()=>assert.fail('annotation must not add a data series')},series:[{api}],analysisSeries:[],analysisMarkers:null,analysisSignature:''};
+  const options={chart:{removeSeries:()=>assert.fail('no new series to remove')},runtime,host:{},dark:true,timeOffsetSeconds:28800,getCandles:()=>[]};
   renderIndicatorAnalysisPatch({...options,patch:storeCloudIndicatorPatch('x',patch())});
-  assert.deepEqual(added[0].points.map(p=>p.time),[28899,28900,28901]);
+  assert.deepEqual(added[0].paths[0].points,patch().operations[0].drawing.points);
   renderIndicatorAnalysisPatch({...options,patch:loadCloudIndicatorPatch('x','BTC','60','rsi')});assert.equal(added.length,1);
   renderIndicatorAnalysisPatch({...options,patch:null});assert.deepEqual(removed,added);assert.equal(runtime.analysisSignature,'');
 });

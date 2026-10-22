@@ -13,6 +13,8 @@ export const APP_LANGUAGE_STORAGE_KEY = "haolo.appearance.language";
 export const APP_LANGUAGES = Object.freeze(["en", "zh-CN", "zh-TW"]);
 
 const ENGLISH_UI_PHRASES = Object.freeze({
+  "更新中": "Updating",
+  "等待更新": "Waiting for update",
   "桌面快捷方式": "Desktop shortcut",
   "创建桌面快捷方式": "Create desktop shortcut",
   "桌面快捷方式已就绪": "Desktop shortcut is ready",
@@ -949,6 +951,8 @@ const ENGLISH_UI_PHRASES = Object.freeze({
 });
 
 const TRADITIONAL_UI_PHRASES = Object.freeze({
+  "更新中": "更新中",
+  "等待更新": "等待更新",
   "删除 AI 标注": "刪除 AI 標註",
   "AI 标注已删除": "AI 標註已刪除",
   "桌面快捷方式": "桌面捷徑",

@@ -1,5 +1,7 @@
 import crypto from "node:crypto";
 import { BinanceCredentialError } from "./credential-store.mjs";
+import { ACCOUNT_FETCH_MANAGES_DEADLINE } from "./network-fetch.mjs";
+import { bufferBinanceResponse, fetchBinanceResponse } from "../binance-response-body.mjs";
 import { BINANCE_REBIND_MESSAGE } from "../../shared/binance-account-errors.mjs";
 
 const DEFAULT_SPOT_BASE_URL = "https://api.binance.com";
@@ -709,16 +711,18 @@ export class BinanceAccountService {
     timeoutMs = REQUEST_TIMEOUT_MS,
   }) {
     const requestAt = (timestamp) => {
-      const url = buildSignedBinanceUrl({
+      const preparedAt = Date.now();
+      const prepareUrl = () => buildSignedBinanceUrl({
         baseUrl,
         pathname,
-        params: { ...params, recvWindow: this.recvWindow, timestamp: Math.trunc(timestamp) },
+        params: { ...params, recvWindow: this.recvWindow,
+          timestamp: Math.trunc(timestamp + Math.max(0, Date.now() - preparedAt)) },
         apiSecret: credentials.apiSecret,
       });
-      return requestJson(networkFetch, url, {
+      return requestJson(networkFetch, prepareUrl(), {
         headers: { "X-MBX-APIKEY": credentials.apiKey },
         signal,
-      }, timeoutMs);
+      }, timeoutMs, { prepareUrl });
     };
     try {
       return await requestAt(serverTime);
@@ -1437,8 +1441,9 @@ function marginRatioPercentage(maintenanceMargin, marginBalance) {
   return normalNumber((maintenance / balance) * 100);
 }
 
-async function requestJson(networkFetch, url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
-  const timeoutSignal = typeof AbortSignal?.timeout === "function"
+async function requestJson(networkFetch, url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS, options = {}) {
+  const managed = networkFetch[ACCOUNT_FETCH_MANAGES_DEADLINE] === true;
+  const timeoutSignal = !managed && typeof AbortSignal?.timeout === "function"
     ? AbortSignal.timeout(Math.max(1_000, Number(timeoutMs) || REQUEST_TIMEOUT_MS))
     : undefined;
   const signals = [init?.signal, timeoutSignal].filter(Boolean);
@@ -1446,8 +1451,12 @@ async function requestJson(networkFetch, url, init = {}, timeoutMs = REQUEST_TIM
     ? AbortSignal.any(signals)
     : signals[0];
   let response;
+  let text;
   try {
-    response = await networkFetch(url, { method: "GET", ...init, signal });
+    const fetch = (input, requestInit) => networkFetch(input, requestInit, { ...options, timeoutMs });
+    response = await fetchBinanceResponse(fetch, url, { method: "GET", ...init, signal });
+    if (!managed) response = await bufferBinanceResponse(response, { signal });
+    text = await response.text();
   } catch (error) {
     if (
       error instanceof BinanceAccountError
@@ -1461,7 +1470,6 @@ async function requestJson(networkFetch, url, init = {}, timeoutMs = REQUEST_TIM
       { retryable: true },
     );
   }
-  const text = await response.text().catch(() => "");
   let payload = null;
   if (text) {
     try {

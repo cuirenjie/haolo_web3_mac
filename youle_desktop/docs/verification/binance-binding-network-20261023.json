@@ -1,0 +1,169 @@
+{
+  "checkedAt": "2026-10-22T17:35:19.623Z",
+  "physicalIp": "192.168.0.108",
+  "realBinanceCredentials": false,
+  "productionBindingWritten": false,
+  "probes": [
+    {
+      "name": "haolo",
+      "status": 200,
+      "elapsedMs": 138
+    },
+    {
+      "name": "private-ready",
+      "status": 200,
+      "elapsedMs": 44
+    },
+    {
+      "name": "auto-domestic",
+      "code": "BINANCE_AUTH_FAILED",
+      "directCalls": 1,
+      "privateCalls": 2,
+      "reads": [
+        {
+          "route": "direct",
+          "path": "/fapi/v1/time",
+          "code": "ECONNRESET"
+        },
+        {
+          "route": "private",
+          "path": "/fapi/v1/time",
+          "status": 200
+        },
+        {
+          "route": "private",
+          "path": "/fapi/v3/account",
+          "status": 401
+        }
+      ],
+      "expectedAccountRejection": true,
+      "elapsedMs": 813
+    },
+    {
+      "name": "market-busy-domestic",
+      "code": "BINANCE_AUTH_FAILED",
+      "directCalls": 1,
+      "privateCalls": 2,
+      "reads": [
+        {
+          "route": "direct",
+          "path": "/fapi/v1/time",
+          "code": "ECONNRESET"
+        },
+        {
+          "route": "private",
+          "path": "/fapi/v1/time",
+          "status": 200
+        },
+        {
+          "route": "private",
+          "path": "/fapi/v3/account",
+          "status": 401
+        }
+      ],
+      "expectedAccountRejection": true,
+      "elapsedMs": 1588
+    },
+    {
+      "name": "direct-body-stall-domestic",
+      "code": "BINANCE_AUTH_FAILED",
+      "directCalls": 1,
+      "privateCalls": 2,
+      "reads": [
+        {
+          "route": "private",
+          "path": "/fapi/v1/time",
+          "status": 200
+        },
+        {
+          "route": "private",
+          "path": "/fapi/v3/account",
+          "status": 401
+        }
+      ],
+      "expectedAccountRejection": true,
+      "elapsedMs": 3469
+    }
+  ],
+  "connections": [
+    {
+      "host": "haolo.com",
+      "localIp": "192.168.0.108",
+      "remoteIp": "8.217.125.71"
+    },
+    {
+      "host": "sg-a.binance-egress.waduo.com",
+      "localIp": "192.168.0.108",
+      "remoteIp": "8.217.125.71"
+    },
+    {
+      "host": "market.youle.pro",
+      "localIp": "192.168.0.108",
+      "remoteIp": "8.217.125.71"
+    },
+    {
+      "host": "sg-a.binance-egress.waduo.com",
+      "localIp": "192.168.0.108",
+      "remoteIp": "8.217.125.71"
+    },
+    {
+      "host": "market.youle.pro",
+      "localIp": "192.168.0.108",
+      "remoteIp": "8.217.125.71"
+    },
+    {
+      "host": "sg-a.binance-egress.waduo.com",
+      "localIp": "192.168.0.108",
+      "remoteIp": "8.217.125.71"
+    },
+    {
+      "host": "sg-a.binance-egress.waduo.com",
+      "localIp": "192.168.0.108",
+      "remoteIp": "8.217.125.71"
+    },
+    {
+      "host": "sg-a.binance-egress.waduo.com",
+      "localIp": "192.168.0.108",
+      "remoteIp": "8.217.125.71"
+    },
+    {
+      "host": "market.youle.pro",
+      "localIp": "192.168.0.108",
+      "remoteIp": "8.217.125.71"
+    },
+    {
+      "host": "sg-a.binance-egress.waduo.com",
+      "localIp": "192.168.0.108",
+      "remoteIp": "8.217.125.71"
+    },
+    {
+      "host": "market.youle.pro",
+      "localIp": "192.168.0.108",
+      "remoteIp": "8.217.125.71"
+    },
+    {
+      "host": "sg-a.binance-egress.waduo.com",
+      "localIp": "192.168.0.108",
+      "remoteIp": "8.217.125.71"
+    }
+  ],
+  "passed": true,
+  "validation": {
+    "regressionTests": 418,
+    "passed": 418,
+    "failed": 0,
+    "skipped": 0,
+    "typecheck": "passed",
+    "physicalRoute": {
+      "interface": "WLAN",
+      "interfaceIndex": 9,
+      "nextHop": "192.168.1.1",
+      "destination": "8.217.125.71"
+    },
+    "wholeMachineVpnDisabled": false,
+    "failingComputerTested": false,
+    "realCredentialBindingVerified": false,
+    "packagePublished": false,
+    "servicesDeployed": false
+  }
+}

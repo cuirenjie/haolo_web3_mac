@@ -4,6 +4,7 @@ import { BinanceRequestGovernor } from "../src/main/binance-request-governor.mjs
 import { BinanceNetworkRouter } from "../src/main/binance-network-router.mjs";
 import { resolveBinanceGatewayConfig } from "../src/main/binance-gateway-config.mjs";
 import { BinanceAccountService } from "../src/main/binance-account/service.mjs";
+import { createBinanceAccountFetch } from "../src/main/binance-account/network-fetch.mjs";
 
 const config = resolveBinanceGatewayConfig({
   HAOLO_BINANCE_ROUTING_MODE: "auto",
@@ -51,9 +52,7 @@ for (const condition of ["cooldown", "budget", "direct-429", "direct-418", "dire
     });
     const service = new BinanceAccountService({
       credentialStore: { upsert: async () => { saved++; return { bound: true }; } },
-      fetch: (url, init) => governor.fetch(router.privateFetch.bind(router), url, init, {
-        source: "account", privateFallbackFetch: router.privateFallbackFetch.bind(router),
-      }),
+      fetch: createBinanceAccountFetch({ governor, router }),
     });
     const result = await service.bind("synthetic-owner", credentials, { beforeSave: async () => { beforeSave++; } });
     assert.equal(result.status.bound, true);

@@ -111,6 +111,7 @@ import {
   type BinanceAccountStatus,
   type BinanceAccountUiState,
 } from "./binance-account-ui";
+import { createAccountPnlUpdates, type AccountPnlUpdate } from "./binance-account-pnl";
 import { BINANCE_REBIND_MESSAGE, isBinanceCredentialError } from "../shared/binance-account-errors.mjs";
 import { loadSharedAccountDetails, type AccountDetailResult, type AccountDetailSection } from "./binance-account-details";
 import { createAccountPerformanceState, loadAccountPerformance, PERFORMANCE_RANGES, type AccountPerformance } from "./binance-account-performance";
@@ -1680,6 +1681,7 @@ type DesktopApi = {
     live?: boolean;
     summary?: boolean;
   }): Promise<BinanceAccountSnapshot>;
+  onBinanceAccountPnl?(callback: (payload: AccountPnlUpdate) => void): () => void;
   getBinanceAccountProfitCalendar?(params: { month: string; force?: boolean }): Promise<BinanceAccountProfitCalendar>;
   getBinanceAccountPerformance?(params: { days: number }): Promise<AccountPerformance>;
   getBinanceAccountDetails?(params: { section: AccountDetailSection; cursor?: string }): Promise<AccountDetailResult>;
@@ -5690,6 +5692,7 @@ let binanceAccountLoadSequence = 0;
 let binanceAccountSnapshotApplySequence = 0;
 let binanceAccountProfitCalendarLoadSequence = 0;
 let binanceAccountLiveRefreshTimer: number | null = null;
+const binanceAccountPnlUpdates = createAccountPnlUpdates();
 let binanceAccountLiveRefreshPromise: Promise<void> | null = null;
 let binanceAccountProgressiveRefreshPromise: Promise<void> | null = null;
 let binanceAccountLiveRefreshFailures = 0;
@@ -7156,6 +7159,18 @@ function wireDesktopEvents() {
   api.onTradingAlertsChanged?.((payload) => {
     applyTradingAlertsSnapshot(state.tradingAlerts, payload);
     if (state.activeView === "alerts") scheduleRender({ protectComposer: true });
+  });
+  api.onBinanceAccountPnl?.((payload) => {
+    binanceAccountPnlUpdates.remember(payload);
+    const account = state.binanceAccount;
+    if (!account.status?.bound || account.status.serverConnectionId !== payload.connectionId
+      || account.snapshot?.pnlScopeId !== payload.pnlScopeId) return;
+    try {
+      account.snapshot = binanceAccountPnlUpdates.apply(account.snapshot);
+    } catch (error) {
+      if (!handleBinanceCredentialFailure(error, account)) throw error;
+    }
+    renderBinanceAccountLiveUpdate();
   });
   window.setInterval(() => {
     if (state.activeView === 'alerts' && !document.hidden && !state.tradingAlerts.loading && !state.tradingAlerts.busyAlertId && !state.tradingAlerts.editorAlertId) void refreshTradingAlerts();
@@ -38949,7 +38964,7 @@ async function reconcileExecutionPlansWithBinanceSnapshot(
   try {
     const fullSnapshot = await api.getBinanceAccountSnapshot({ force: true, live: false });
     if (!freshBinanceSnapshotForExecutionPlans(fullSnapshot)) return;
-    state.binanceAccount.snapshot = fullSnapshot;
+    state.binanceAccount.snapshot = binanceAccountPnlUpdates.apply(fullSnapshot);
     syncTradingExpertOrderLineSnapshot(fullSnapshot);
     binanceAccountFullRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS;
     await reconcileExecutionPlansWithBinanceSnapshot(fullSnapshot, { allowFullRefresh: false });
@@ -72686,7 +72701,7 @@ async function loadBinanceAccountPage({ force = false } = {}) {
         snapshot = await getAccountSnapshot();
       }
       if (loadSequence !== binanceAccountLoadSequence) return;
-      accountState.snapshot = snapshot;
+      accountState.snapshot = binanceAccountPnlUpdates.apply(snapshot);
       syncTradingExpertOrderLineSnapshot(snapshot);
       await reconcileExecutionPlansWithBinanceSnapshot(snapshot);
       accountState.loaded = true;
@@ -72793,7 +72808,7 @@ async function refreshBinanceAccountSnapshot() {
       || state.binanceAccount !== accountState
       || !accountState.status?.bound
     ) return;
-    accountState.snapshot = snapshot;
+    accountState.snapshot = binanceAccountPnlUpdates.apply(snapshot);
     syncTradingExpertOrderLineSnapshot(snapshot);
     accountState.loaded = true;
     accountState.autoRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS;
@@ -72848,7 +72863,7 @@ async function progressivelyRefreshBinanceAccountSnapshot(
     try {
       const liveSnapshot = await api.getBinanceAccountSnapshot!({ force: true, live: true });
       if (!isCurrentAccount()) return;
-      accountState.snapshot = liveSnapshot;
+      accountState.snapshot = binanceAccountPnlUpdates.apply(liveSnapshot);
       syncTradingExpertOrderLineSnapshot(liveSnapshot);
       accountState.loaded = true;
       accountState.error = null;
@@ -72866,7 +72881,7 @@ async function progressivelyRefreshBinanceAccountSnapshot(
 
       const fullSnapshot = await api.getBinanceAccountSnapshot!({ force: true, live: false });
       if (!isCurrentAccount()) return;
-      accountState.snapshot = fullSnapshot;
+      accountState.snapshot = binanceAccountPnlUpdates.apply(fullSnapshot);
       syncTradingExpertOrderLineSnapshot(fullSnapshot);
       accountState.loaded = true;
       accountState.error = null;
@@ -73076,7 +73091,7 @@ async function silentlyRefreshBinanceAccountSnapshot() {
       ) return;
       const reusedStaleSnapshot = snapshot.fetchedAt === previousFetchedAt
         && snapshot.warnings?.some((warning) => warning.includes("上次成功读取的数据"));
-      accountState.snapshot = snapshot;
+      accountState.snapshot = binanceAccountPnlUpdates.apply(snapshot);
       syncTradingExpertOrderLineSnapshot(snapshot);
       await reconcileExecutionPlansWithBinanceSnapshot(snapshot);
       accountState.loaded = true;
@@ -73283,7 +73298,7 @@ async function submitBinanceAccountBinding() {
       ...result.status,
       emailMasked: state.binanceAccount.status?.emailMasked || dialog.emailMasked,
     };
-    state.binanceAccount.snapshot = result.snapshot;
+    state.binanceAccount.snapshot = binanceAccountPnlUpdates.apply(result.snapshot);
     syncTradingExpertOrderLineSnapshot(result.snapshot);
     await reconcileExecutionPlansWithBinanceSnapshot(result.snapshot);
     state.binanceAccount.loaded = true;

@@ -1,5 +1,5 @@
 import { DEFAULT_DIRECT_ENDPOINTS } from "./binance-gateway-config.mjs";
-import { discardBinanceResponse, fetchBinanceResponse } from "./binance-response-body.mjs";
+import { bufferBinanceResponse, discardBinanceResponse, fetchBinanceResponse } from "./binance-response-body.mjs";
 import { withAbort } from "./system-proxy-fetch.mjs";
 import {
   BINANCE_REQUEST_GOVERNOR_MANAGED,
@@ -502,13 +502,25 @@ export class BinanceNetworkRouter {
       });
     }
     const mode = this.config.routingMode || this.config.mode || "direct";
-    const response = mode !== "auto" || !this.fallbackAvailable(kind)
-      ? await fetchBinanceResponse(this.directFetch, input, init)
-      : await fetchWithDeadline(this.directFetch, input, init, this.config.directAttemptTimeoutMs || 3_000);
-    this.observeDirectRateLimit(marketType, response, {
-      managed: init?.[BINANCE_REQUEST_GOVERNOR_MANAGED] === true,
-    });
-    return response;
+    const autoFallback = mode === "auto" && this.fallbackAvailable(kind);
+    const readDirect = async (target, options) => {
+      const response = await fetchBinanceResponse(this.directFetch, target, options);
+      // Record a ban as soon as headers arrive, even if its body never ends.
+      this.observeDirectRateLimit(marketType, response, {
+        managed: init?.[BINANCE_REQUEST_GOVERNOR_MANAGED] === true,
+      });
+      if (kind === "private" && autoFallback
+        && !isRouteBlockingResponse(response) && ![418, 429].includes(Number(response.status))) {
+        // A private direct route is successful only after its finite JSON body
+        // arrives. Keep the direct deadline active so body stalls/resets take
+        // the same re-time/re-sign fallback path as connection failures.
+        return bufferBinanceResponse(response, { signal: options.signal });
+      }
+      return response;
+    };
+    return autoFallback
+      ? fetchWithDeadline(readDirect, input, init, this.config.directAttemptTimeoutMs || 3_000)
+      : readDirect(input, init);
   }
 
   async publicFetch(input, init = {}) {

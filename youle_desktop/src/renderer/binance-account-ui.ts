@@ -96,6 +96,16 @@ export type BinanceAccountSnapshot = {
   walletBalance: number;
   unrealizedPnl: number;
   realizedPnlToday: number | null;
+  pnlScopeId?: string | null;
+  pnlSequence?: number;
+  bindingVersion?: number | null;
+  pnlStatus?: string;
+  pnlAsOf?: number | null;
+  pnlDayStart?: number | null;
+  pnlTimeZone?: string | null;
+  pnlReason?: string | null;
+  pnlRetryAfterMs?: number | null;
+  pnlExpiresAfterMs?: number | null;
   initialMargin: number;
   availableBalance: number;
   positions: BinanceAccountPosition[];
@@ -479,7 +489,7 @@ function renderBoundBinanceAccount(state: BinanceAccountUiState) {
               <strong>${assetValue(snapshot.estimatedTotalAssets, visible, 8)}</strong>
               <span>${escapeHtml(snapshot.currency || "USDT")}</span>
             </div>
-            <p class="binance-account-pnl-row">今日盈亏 ${signedMetric(snapshot.todayPnl, snapshot.todayPnlPercent, visible)}</p>
+            <p class="binance-account-pnl-row">今日盈亏 ${signedMetric(snapshot.todayPnl, snapshot.todayPnlPercent, visible)}${renderPnlProgress(snapshot, visible)}</p>
             </div>
             ${renderAccountPerformance(state)}
           </article>
@@ -494,7 +504,7 @@ function renderBoundBinanceAccount(state: BinanceAccountUiState) {
               <strong>${assetValue(snapshot.marginBalance, visible, 4)}</strong>
               <span>${escapeHtml(snapshot.currency || "USDT")}</span>
             </div>
-            <p class="binance-account-realized-row">今日已实现盈亏 <strong class="binance-account-realized-value ${visible ? metricTone(snapshot.realizedPnlToday) : "neutral"}">${signedValue(snapshot.realizedPnlToday, visible)}</strong></p>
+            <p class="binance-account-realized-row">今日已实现盈亏 <strong class="binance-account-realized-value ${visible ? metricTone(snapshot.realizedPnlToday) : "neutral"}">${signedValue(snapshot.realizedPnlToday, visible)}</strong>${renderPnlProgress(snapshot, visible)}</p>
             <div class="binance-account-metric-grid">
               ${renderAccountMetric("钱包余额 (USD)", snapshot.walletBalance, visible)}
               ${renderAccountMetric("未实现盈亏 (USD)", snapshot.unrealizedPnl, visible, true)}
@@ -1024,6 +1034,11 @@ function signedMetric(value: number | null, percent: number | null, visible: boo
   const tone = metricTone(value);
   const percentage = percent == null ? "" : ` (${signedPercent(percent)})`;
   return `<strong class="${tone}">${signedPrefix(value)}${currencyValue(Math.abs(value), true)}${percentage}</strong>`;
+}
+
+function renderPnlProgress(snapshot: BinanceAccountSnapshot, visible: boolean) {
+  if (!visible || snapshot.realizedPnlToday != null || !snapshot.pnlScopeId) return "";
+  return `<span class="binance-account-pnl-progress" role="status">${snapshot.pnlStatus === "loading" ? "更新中" : "等待更新"}</span>`;
 }
 
 function signedValue(value: number | null, visible: boolean, withCurrency = true) {

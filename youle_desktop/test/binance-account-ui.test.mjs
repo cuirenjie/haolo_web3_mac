@@ -536,7 +536,7 @@ test("renderer bridge reuses Haolo OTP and exposes no order or credential-read I
   assert.match(renderer, /nextMonth > currentBinanceAccountProfitCalendarMonth\(\)/);
   assert.match(preload, /getBinanceAccountProfitCalendar: \(params\) => invokeBinanceAccountProfitCalendar\(params\)/);
   assert.match(binanceHandlers, /const force = params\?\.force === true[\s\S]*profitCalendar\(owner\.ownerId, \{[\s\S]*month: params\?\.month,[\s\S]*force,/);
-  assert.match(desktopMain, /profitCalendarFetch:[\s\S]*BINANCE_REQUEST_PRIORITIES\.accountInteractive/);
+  assert.match(desktopMain, /profitCalendarFetch: createBinanceAccountFetch\(\{ governor: getBinanceRequestGovernor\(\), router, calendar: true \}\)/);
   assert.match(renderer, /confirmBinanceAccountRemoval[\s\S]*confirmInApp[\s\S]*resetBinanceAccountDialog\(state\.binanceAccount, "remove"\)[\s\S]*sendBinanceAccountOtp\(\)/);
   assert.match(renderer, /removeBinanceAccount\(\{[\s\S]*challengeId: dialog\.challengeId,[\s\S]*code: dialog\.code\.trim\(\)/);
   const removalHandler = binanceHandlers.slice(binanceHandlers.indexOf('ipcMain.handle("binanceAccount:remove"'));

@@ -14,7 +14,7 @@ import { accountSettingsSync, flattenSettings, applySettingValues, type SettingV
 import { sharedDefaultIndicatorColor } from './shared-indicator-defaults.ts';
 import {cloudAnalysisText} from './cloud-analysis-text.ts';
 import {normalizeTradingIndicatorAiDrawingPatch,storeCloudIndicatorPatch,loadCloudIndicatorPatch,migrateCloudIndicatorPatches,clearIndicatorAnalysisRuntime,renderIndicatorAnalysisPatch} from './cloud-indicator-drawings.ts';
-export {normalizeTradingIndicatorAiDrawingPatch,strictlyAscendingTradingIndicatorPathPoints} from './cloud-indicator-drawings.ts';
+export {normalizeTradingIndicatorAiDrawingPatch} from './cloud-indicator-drawings.ts';
 import {cloudAnalysisWindow} from './cloud-analysis-window.ts';
 import {captureCloudAnalysisPanes} from './cloud-analysis-panes.ts';
 import {cloudReportFromResponse, normalizeCloudReports, type CloudTradingReport} from '../main/cloud-plan-contract.mjs';
@@ -13104,10 +13104,7 @@ class TradingExpertMarketWorkspace {
       // series must be removed first or their old timestamps remain in the
       // shared time scale and corrupt the next interval's candle spacing.
       this.indicatorPanes.forEach((runtime) => {
-        runtime.analysisMarkers?.setMarkers([]);
-        runtime.analysisSeries.forEach((series) => {
-          this.chart?.removeSeries(series);
-        });
+        this.clearIndicatorAnalysisRuntime(runtime);
         runtime.series.forEach((seriesRuntime) => {
           this.chart?.removeSeries(seriesRuntime.api);
         });
@@ -13283,7 +13280,7 @@ class TradingExpertMarketWorkspace {
     const runtime=this.indicatorPanes.get(id);if(!runtime)return;
     renderIndicatorAnalysisPatch({chart:this.chart,runtime,
       patch:loadCloudIndicatorPatch(this.drawingStorageSessionId,this.selectedMarketId,this.activeInterval,id),
-      host:this.host,dark:isDarkTheme(),force,timeOffsetSeconds:CHINA_TIME_OFFSET_SECONDS});
+      host:this.host,dark:isDarkTheme(),force,timeOffsetSeconds:CHINA_TIME_OFFSET_SECONDS,getCandles:()=>this.chartCandles});
   }
 
   private renderIndicatorAnalysisPatches(force = false) {
@@ -14142,6 +14139,8 @@ class TradingExpertMarketWorkspace {
     this.chartNavigation = null;
     this.chartClock?.destroy();
     this.chartClock = null;
+    this.indicatorPanes.forEach(runtime => this.clearIndicatorAnalysisRuntime(runtime));
+    this.indicatorPanes.clear();
     this.chart?.remove();
     this.chart = null;
   }

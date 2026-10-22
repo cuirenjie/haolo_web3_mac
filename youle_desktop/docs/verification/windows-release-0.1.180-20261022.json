@@ -1,0 +1,139 @@
+{
+  "version": "0.1.180",
+  "task": "M1-455",
+  "builtAt": "2026-10-22T15:38:37.800Z",
+  "sourceBaseline": "749f8a9737ccaaab8b915cf6cde0bf44787941f0",
+  "sourceBaselinePushed": true,
+  "releaseChangesCommitted": false,
+  "sourceChanges": [
+    "package and lock version 0.1.180",
+    "NSIS installer languages en_US/zh_CN/zh_TW",
+    "recompiled Chrome native host",
+    "release documentation"
+  ],
+  "clientVariant": "haolo_windows_web3",
+  "arch": "x64",
+  "businessBaseUrl": "https://haolo.com",
+  "uploaded": false,
+  "published": false,
+  "productionChanged": false,
+  "filename": "haolo_desktop-0.1.180-Setup.exe",
+  "bytes": 247798400,
+  "sha256": "4b9bf325ab02d246429f24f485c7301a9e81b9a6791e28bc54629d310dd5c608",
+  "installer": "D:\\haolo_windows_web3\\youle_desktop\\release\\build-0.1.180-local-20261022\\haolo_desktop-0.1.180-Setup.exe",
+  "desktop": "C:\\Users\\joiec\\Desktop\\好咯最新安装包\\haolo_windows_web3\\haolo_desktop-0.1.180-Setup.exe",
+  "blockmap": {
+    "bytes": 251487,
+    "sha256": "ca98c6c881f2dfca394d6a577e397c325cc58fcdd4194549c570948fcc306176"
+  },
+  "tests": {
+    "passed": 5125,
+    "total": 5125,
+    "skipped": 0,
+    "installerRegressionPassed": 24,
+    "installerRegressionTotal": 24,
+    "typecheck": true,
+    "productionBuild": true
+  },
+  "signatures": [
+    {
+      "file": "D:\\haolo_windows_web3\\youle_desktop\\release\\build-0.1.180-local-20261022\\win-unpacked\\haolo_desktop.exe",
+      "bytes": 210986952,
+      "sha256": "cbc3bb05ef0e3acc50f98fe757f331cdd1834ff268e145cbb9cbeb0949721db9",
+      "status": "Valid",
+      "subject": "E=contact@keroro.cc, CN=Keroro Software Ltd, O=Keroro Software Ltd, L=Shenzhen, S=Guangdong, C=CN, OID.1.3.6.1.4.1.311.60.2.1.1=Shenzhen, OID.1.3.6.1.4.1.311.60.2.1.2=Guangdong, OID.1.3.6.1.4.1.311.60.2.1.3=CN, SERIALNUMBER=91440300MA5FAR1W6E, OID.2.5.4.15=Private Organization",
+      "thumbprint": "EC6346287B2F343CB7BFA4CF4CAB7DB02379A0AD",
+      "issuer": "CN=GlobalSign GCC R45 EV CodeSigning CA 2020, O=GlobalSign nv-sa, C=BE",
+      "notAfter": "2027-08-27T03:38:41.0000000Z",
+      "timestampSubject": "CN=DigiCert SHA256 RSA4096 Timestamp Responder 2026 1, O=\"DigiCert, Inc.\", C=US",
+      "evCodeSigning": true,
+      "digest": "sha256",
+      "filename": "haolo_desktop.exe"
+    },
+    {
+      "file": "D:\\haolo_windows_web3\\youle_desktop\\release\\build-0.1.180-local-20261022\\win-unpacked\\resources\\bin\\haolo-chrome-native-host.exe",
+      "bytes": 30664,
+      "sha256": "3f0118f368e374a3c1684c6c492f0f523d4af3f0a46ea3a9afe202e387c56a6b",
+      "status": "Valid",
+      "subject": "E=contact@keroro.cc, CN=Keroro Software Ltd, O=Keroro Software Ltd, L=Shenzhen, S=Guangdong, C=CN, OID.1.3.6.1.4.1.311.60.2.1.1=Shenzhen, OID.1.3.6.1.4.1.311.60.2.1.2=Guangdong, OID.1.3.6.1.4.1.311.60.2.1.3=CN, SERIALNUMBER=91440300MA5FAR1W6E, OID.2.5.4.15=Private Organization",
+      "thumbprint": "EC6346287B2F343CB7BFA4CF4CAB7DB02379A0AD",
+      "issuer": "CN=GlobalSign GCC R45 EV CodeSigning CA 2020, O=GlobalSign nv-sa, C=BE",
+      "notAfter": "2027-08-27T03:38:41.0000000Z",
+      "timestampSubject": "CN=DigiCert SHA256 RSA4096 Timestamp Responder 2026 1, O=\"DigiCert, Inc.\", C=US",
+      "evCodeSigning": true,
+      "digest": "sha256",
+      "filename": "haolo-chrome-native-host.exe"
+    },
+    {
+      "file": "D:\\haolo_windows_web3\\youle_desktop\\release\\build-0.1.180-local-20261022\\haolo_desktop-0.1.180-Setup.exe",
+      "bytes": 247798400,
+      "sha256": "4b9bf325ab02d246429f24f485c7301a9e81b9a6791e28bc54629d310dd5c608",
+      "status": "Valid",
+      "subject": "E=contact@keroro.cc, CN=Keroro Software Ltd, O=Keroro Software Ltd, L=Shenzhen, S=Guangdong, C=CN, OID.1.3.6.1.4.1.311.60.2.1.1=Shenzhen, OID.1.3.6.1.4.1.311.60.2.1.2=Guangdong, OID.1.3.6.1.4.1.311.60.2.1.3=CN, SERIALNUMBER=91440300MA5FAR1W6E, OID.2.5.4.15=Private Organization",
+      "thumbprint": "EC6346287B2F343CB7BFA4CF4CAB7DB02379A0AD",
+      "issuer": "CN=GlobalSign GCC R45 EV CodeSigning CA 2020, O=GlobalSign nv-sa, C=BE",
+      "notAfter": "2027-08-27T03:38:41.0000000Z",
+      "timestampSubject": "CN=DigiCert SHA256 RSA4096 Timestamp Responder 2026 1, O=\"DigiCert, Inc.\", C=US",
+      "evCodeSigning": true,
+      "digest": "sha256",
+      "filename": "haolo_desktop-0.1.180-Setup.exe"
+    },
+    {
+      "file": "D:\\haolo_windows_web3\\youle_desktop\\release\\build-0.1.180-local-20261022\\ev-signing\\haolo_desktop-0.1.180-Setup.__uninstaller.exe",
+      "bytes": 250576,
+      "sha256": "4d759b1e5e7b85210efdebde0b13476e35a327782422d400dcef3ab49f0bced2",
+      "status": "Valid",
+      "subject": "E=contact@keroro.cc, CN=Keroro Software Ltd, O=Keroro Software Ltd, L=Shenzhen, S=Guangdong, C=CN, OID.1.3.6.1.4.1.311.60.2.1.1=Shenzhen, OID.1.3.6.1.4.1.311.60.2.1.2=Guangdong, OID.1.3.6.1.4.1.311.60.2.1.3=CN, SERIALNUMBER=91440300MA5FAR1W6E, OID.2.5.4.15=Private Organization",
+      "thumbprint": "EC6346287B2F343CB7BFA4CF4CAB7DB02379A0AD",
+      "issuer": "CN=GlobalSign GCC R45 EV CodeSigning CA 2020, O=GlobalSign nv-sa, C=BE",
+      "notAfter": "2027-08-27T03:38:41.0000000Z",
+      "timestampSubject": "CN=DigiCert SHA256 RSA4096 Timestamp Responder 2026 1, O=\"DigiCert, Inc.\", C=US",
+      "evCodeSigning": true,
+      "digest": "sha256",
+      "filename": "haolo_desktop-0.1.180-Setup.__uninstaller.exe"
+    }
+  ],
+  "package": {
+    "sourceFiles": 295,
+    "extraResources": 324,
+    "asarSha256": "349744d98359437c467409ac478021485aa45f468f8b0ec5f1c2de3e2af65cca",
+    "runtimeVersion": "0.163.0",
+    "runtimeFiles": 47,
+    "buildInputs": 1359,
+    "buildInputsSha256": "a8c4b5a8f002f9086e239f6f59a94e4829713b7a467fe175de32b58e49de3da1"
+  },
+  "startup": {
+    "passed": true,
+    "actualPackagedAsar": true,
+    "isolated": true,
+    "errors": [],
+    "visualChecked": true
+  },
+  "updater": {
+    "passed": true,
+    "resumedFrom": 1048576,
+    "identicalFiles": 399,
+    "auditFiles": 1498,
+    "differential": {
+      "oldFile": "C:\\Users\\joiec\\Desktop\\好咯最新安装包\\haolo_windows_web3\\haolo_desktop-0.1.179-Setup.exe",
+      "newFile": "D:\\haolo_windows_web3\\youle_desktop\\release\\build-0.1.180-local-20261022\\haolo_desktop-0.1.180-Setup.exe",
+      "fullBytes": 247798400,
+      "networkBytes": 20150383,
+      "rangeRequests": 11,
+      "savedPercent": 91.8682352267004,
+      "sha256": "4b9bf325ab02d246429f24f485c7301a9e81b9a6791e28bc54629d310dd5c608",
+      "reconstructed": true
+    }
+  },
+  "failuresResolved": [
+    "Packaging hooks were resolved relative to workspace root; the local build configuration now uses absolute paths to the existing hooks.",
+    "NSIS stopped on a missing Vietnamese shortcut translation; installer languages now explicitly match supported English, Simplified Chinese and Traditional Chinese. Warning-as-error and EV verification remain enabled.",
+    "Local QA helpers were corrected for Git NUL-separated Unicode filenames and Windows ASAR path separators before final verification."
+  ],
+  "limitations": [
+    "No system installation or real account login was performed; startup uses the actual sealed ASAR with isolated paths and blocked external network.",
+    "No update-channel upload or API/Worker/gateway deployment was performed. Server-controlled analysis windows require separate backend compatibility verification before future publication."
+  ],
+  "evidence": "D:\\haolo_windows_web3\\youle_desktop\\release\\build-0.1.180-local-20261022",
+  "logs": "D:\\haolo_windows_web3\\.cache\\release-0.1.180-20261022"
+}

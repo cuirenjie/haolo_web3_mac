@@ -1,6 +1,7 @@
 import {createHash} from 'node:crypto';
 import {isDeepStrictEqual as equal} from 'node:util';
 import {validConditionalWatch} from '../conditional-watch-card.mjs';
+import {validSmtDiagnostics} from '../../shared/smt-diagnostics.mjs';
 
 const hash = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
@@ -29,6 +30,13 @@ export function validateCloudEntryResult(result, record) {
     return;
   }
   const outcome=plan.outcome;
+  if(plan.smtDiagnostics!==undefined) {
+    require(result.strategy?.id==='smt-divergence'&&validSmtDiagnostics(plan.smtDiagnostics)
+      &&equal(plan.smtDiagnostics,result.analysisPlan?.smtDiagnostics)
+      &&plan.smtDiagnostics.primaryMarketId===result.snapshot?.marketId
+      &&plan.smtDiagnostics.interval===result.snapshot?.interval
+      &&plan.smtDiagnostics.snapshotTime===result.snapshot?.snapshotTime);
+  }
   require(outcome && ['supported','unsupported'].includes(outcome.capability) && ['qualified','none','not_evaluated'].includes(outcome.candidateStatus)
     && ['completed','data_unavailable','model_failed','not_evaluated'].includes(outcome.evaluationStatus) && ['plan','wait','unavailable'].includes(outcome.action)
     && /^[A-Z0-9_]{1,120}$/.test(outcome.reason));

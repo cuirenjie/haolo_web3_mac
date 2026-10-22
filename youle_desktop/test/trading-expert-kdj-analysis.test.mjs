@@ -165,7 +165,8 @@ test("KDJ card, Chinese metadata, pane, reference lines and both icon themes are
   assert.match(renderer, /ensureTradingExpertChartIndicatorVisible\(strategy\.chartIndicator\)/);
   assert.match(indicators, /if \(id === "kdj"\)[\s\S]*value: 80[\s\S]*value: 50[\s\S]*value: 20/);
   assert.match(indicatorRenderer, /id === "rsi" \|\| id === "kdj" \? -16 : -8/);
-  assert.match(indicatorRenderer, /strictlyAscendingTradingIndicatorPathPoints\(drawing\.points\)/);
+  assert.match(indicatorRenderer, /new TradingIndicatorDrawingPrimitive/);
+  assert.doesNotMatch(indicatorRenderer, /\.addSeries\(|\.setData\(/);
   assert.match(css, /\.trading-indicator-icon-kdj/);
   assert.match(css, /html\[data-theme="dark"\] \.trading-indicator-icon-kdj/);
   assert.match(metadata, /display_name: "KDJ"/);

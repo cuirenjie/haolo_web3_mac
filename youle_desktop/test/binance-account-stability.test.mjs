@@ -9,6 +9,7 @@ import { YouleApiClient } from "../src/main/youle-api-client.mjs";
 import { createBinanceAccountUiState, renderBinanceAccountPage } from "../src/renderer/binance-account-ui.ts";
 import { loadSharedAccountDetails } from "../src/renderer/binance-account-details.ts";
 import { translateAppText } from "../src/renderer/app-language.mjs";
+import { createAccountPnlUpdates } from "../src/renderer/binance-account-pnl.ts";
 
 const unavailable = () => Object.assign(new Error("connection reset"), { code: "ECONNRESET", retryable: true });
 const request = { scope: "owner-a", key: "snapshot", group: "connection-a" };
@@ -147,6 +148,7 @@ test("one shared manual refresh makes one snapshot request instead of the local 
   let snapshots = 0, reconciled = 0;
   const deps = {
     state: { activeView: "account", binanceAccount: account },
+    binanceAccountPnlUpdates: createAccountPnlUpdates(),
     api: { getBinanceAccountStatus: async () => account.status, getBinanceAccountSnapshot: async () => { snapshots++; return { fetchedAt: "now" }; } },
     render() {}, renderBinanceAccountLiveUpdate() {}, syncTradingExpertOrderLineSnapshot() {},
     loadBinanceAccountPerformance: async () => {},
