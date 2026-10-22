@@ -136,8 +136,8 @@ function normalizeTradingTranscriptItem(value) {
   };
 }
 
-export function normalizeTradingTranscriptItems(value) {
-  if (!Array.isArray(value) || !value.length || value.length > MAX_TRANSCRIPT_ITEMS_PER_WRITE) {
+function normalizeTradingTranscriptHistoryItems(value) {
+  if (!Array.isArray(value) || !value.length) {
     throw new Error("trading transcript items are required");
   }
   const byId = new Map();
@@ -149,7 +149,14 @@ export function normalizeTradingTranscriptItems(value) {
     }
     byId.set(item.id, item);
   }
-  const items = [...byId.values()];
+  return [...byId.values()];
+}
+
+export function normalizeTradingTranscriptItems(value) {
+  if (!Array.isArray(value) || !value.length || value.length > MAX_TRANSCRIPT_ITEMS_PER_WRITE) {
+    throw new Error("trading transcript items are required");
+  }
+  const items = normalizeTradingTranscriptHistoryItems(value);
   if (Buffer.byteLength(JSON.stringify(items), "utf8") > MAX_TRANSCRIPT_BATCH_BYTES) {
     throw new Error("trading transcript batch is too large");
   }
@@ -405,7 +412,9 @@ function turnTimestamp(turn) {
 
 export function withTradingTranscriptItems(result, transcriptItems) {
   if (!result?.thread) return result;
-  const items = normalizeTradingTranscriptItems(transcriptItems);
+  // This is the entire durable history, not one IPC write. Keep per-item and
+  // duplicate-ID validation without applying the write count/byte limits.
+  const items = normalizeTradingTranscriptHistoryItems(transcriptItems);
   // Injected transcript markers can surface as one app-server turn per item.
   // Strip those transport turns and rebuild the original user/assistant turn
   // so the renderer inherits one real start/completion window after restart.

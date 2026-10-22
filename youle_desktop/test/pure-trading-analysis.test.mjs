@@ -10,6 +10,7 @@ import { normalizeCloudReports } from '../src/main/cloud-plan-contract.mjs';
 import { cloudPlanCardFixture, legacyCloudPlanCardFixture } from './support/cloud-plan-card-fixture.mjs';
 import { renderCurrentReports } from './support/right-renderer-parity.mjs';
 import { revealPureAnalysisReport } from '../src/renderer/pure-analysis-presentation.ts';
+import { createTradingTranscriptHost, longTradingTranscript } from './helpers/trading-transcript-host.mjs';
 
 const catalog = [...tradingStrategyCatalog(), ...tradingIndicatorCatalog()];
 const target = {schemaVersion:1,targetId:'captured',storageSessionId:'origin',marketId:'BINANCE:FUTURES:BTCUSDT',
@@ -150,6 +151,50 @@ function attachRealRunner(h,{report=cloudPlanCardFixture(),error=null,gate=null,
     'isComposerThreadBusy','isConversationSupplementWindowOpen','composerSubmitActionForThread','canInterruptThread','interruptCurrentTurn']),c);
   return {jobs,thinking};
 }
+
+test('old chat with more than 64 persisted records can send a strategy and durably save its new analysis',async t=>{
+  const history=longTradingTranscript(65);
+  const host=createTradingTranscriptHost(t,history);
+  const harmonic=catalog.find(strategy=>strategy.mentionTokens.includes('@策略:谐波形态'));
+  assert.ok(harmonic);
+  const h=composerHarness({text:harmonic.mentionTokens[0]});
+  const report=cloudPlanCardFixture();
+  report.strategyId=harmonic.id;
+  const runner=attachRealRunner(h,{report});
+  Object.assign(h.c,{
+    api:{...h.c.api,persistTradingTranscript:params=>host.persist(params)},
+    isUserSideThreadItem:item=>item.type==='userMessage',userMessageDisplayText:item=>item.text,
+    assistantVisibleText:text=>text,itemText:item=>item.text,itemStableId:item=>item.id,
+    messageActionsFromItem:item=>item.actions,
+    selectedChatModelRequestOptions:()=>({model:'gpt-6-astra'}),threadWorkspaceCwd:()=>host.root,
+    DESKTOP_APPROVAL_POLICY:'never',DESKTOP_SANDBOX_POLICY:{type:'readOnly'},
+    waitMs:async()=>{},scheduleThreadListRefresh:()=>{},
+    sortTimeFromValues:(...values)=>values.map(Date.parse).find(Number.isFinite)??null,
+    queueTradingExpertTranscriptPersistenceRetry:()=>assert.fail('new analysis must persist without a deferred retry'),
+  });
+  h.c.codexTradingTools.collect=()=>false;
+  vm.runInContext(productionFunctions(['tradingTranscriptPayloadFromItem','persistTradingExpertTranscriptItems',
+    'persistCompletedTradingExpertTranscript','stampCompletedTradingExpertTranscriptTiming']),h.c);
+  await h.send();
+  assert.equal(h.calls.filter(call=>call[0]==='failed').length,0);
+  assert.equal(h.calls.filter(call=>call[0]==='cloud').length,1);
+  assert.equal(h.calls.find(call=>call[0]==='cloud')[1],harmonic.id);
+  assert.equal(h.calls.find(call=>call[0]==='cloud')[2].sourceThreadId,host.threadId);
+  assert.equal(runner.jobs.size,0);
+  assert.equal(h.c.pureTradingAnalysisThreads.size,0);
+  assert.equal(h.c.submittingComposerThreadIds.size,0);
+  const saved=await host.readItems();
+  assert.deepEqual(saved.slice(0,history.length).map(item=>item.id),history.map(item=>item.id));
+  assert.equal(saved.filter(item=>item.id==='user-1').length,1);
+  assert.equal(saved.at(-1).text,report.report);
+  assert.equal(saved.at(-1).cloudReports[0].report,report.report);
+  assert.ok(host.events.some(event=>event.stage==='persist.completed'&&event.finalCount>0));
+  assert.equal(host.events.filter(event=>event.stage==='persist.failed').length,0);
+  host.restart();
+  const restored=(await host.restore()).thread.turns.flatMap(turn=>turn.items);
+  assert.equal(restored.length,saved.length);
+  assert.equal(restored.find(item=>item.id===saved.at(-1).id).__youleCloudReports[0].report,report.report);
+});
 
 test('real composer + runner deliver the full report and actionable plan, then restore the send state',async()=>{
   for(const report of [cloudPlanCardFixture(),legacyCloudPlanCardFixture('price-action','zh-CN')]) {
