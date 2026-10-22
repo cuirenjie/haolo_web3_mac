@@ -10,6 +10,15 @@ const fail = (code, detail={}) => Object.assign(new Error(code), {code,...detail
 const fingerprint = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const terminal = new Set(['succeeded','failed','cancelled']);
 
+export function cloudAccountConnection(connections, target) {
+  if (!target.marketKey.startsWith('binance:usdm:') || !target.marketKey.endsWith('USDT')) return null;
+  // The server projects effective consent for both new and legacy bindings.
+  // Keep credentials and compatibility decisions on the server.
+  const active = connections.filter(item => item.revoked !== true);
+  const authorized = active.find(item => item.analysisConsent === true && item.credentialsBound === true);
+  return {id:authorized?.id || null, unavailable:active.length > 0 && !authorized};
+}
+
 export function cloudMarketContext(params) {
   const id = String(params.marketId || '');
   const binance = /^BINANCE:(SPOT|FUTURES):([A-Z0-9_\p{Script=Han}]{2,40})$/u.exec(id);

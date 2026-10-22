@@ -23,7 +23,7 @@ const entryModes: Array<{ value: EntryMode; label: string; detail: string }> = [
   { value: "right", label: "右侧入场", detail: "等待执行周期的确认条件成立后再考虑入场。" },
   { value: "auto", label: "自动判断", detail: "根据本次行情证据选择左侧、右侧或等待。" },
 ];
-const entryMode = (value: unknown): EntryMode => value === "left" || value === "right" ? value : "auto";
+const entryMode = (value: unknown): EntryMode => value === "left" || value === "auto" ? value : "right";
 type MemoryEntry = { scope: string; key: string; value: string | number | boolean; kind: "preference" | "constraint" | "fact" | "goal"; strength?: "normal" | "hard" };
 type Profile = {
   entryMode?: EntryMode;
@@ -39,8 +39,8 @@ type Profile = {
   preferenceForm?: { choices: TradingPreferenceChoiceDraft; extraNotes: string; entryMode?: EntryMode } | null;
 };
 type Migration = { code: string; fields: Array<{ fieldId: string; local: unknown; cloud: unknown }>; localEntries?: Array<{ key: string; value: unknown }> };
-type ProfileResult = { ok?: boolean; completed?: boolean; profile?: Profile; migration?: Migration | null; error?: { fieldId?: string; message?: string } };
-type SettingsDraft = { choices: TradingPreferenceChoiceDraft; extraNotes: string; entryMode: EntryMode; changedFields?: string[] };
+type ProfileResult = { ok?: boolean; completed?: boolean; revision?: number; profile?: Profile; migration?: Migration | null; error?: { code?: string; fieldId?: string; message?: string } };
+type SettingsDraft = { choices: TradingPreferenceChoiceDraft; extraNotes: string; entryMode: EntryMode; changedFields?: string[]; expectedRevision?: number };
 const html = (value: unknown) => String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
 
 export function tradingPreferenceSettingsDraft(profile: Profile = {}): SettingsDraft {
@@ -110,7 +110,7 @@ export function createTradingPreferenceSettings(deps: {
   resolveMigration?: (resolutions: Record<string, string | boolean>) => Promise<ProfileResult>;
   render: () => void;
   localize?: (element: HTMLElement) => void;
-  onSaved: () => void;
+  onSaved: () => void | Promise<void>;
 }) {
   let generation = 0;
   let status: "idle" | "loading" | "ready" | "error" = "idle";
@@ -118,20 +118,32 @@ export function createTradingPreferenceSettings(deps: {
   let saving = false;
   let saved = false;
   let dirty = false;
-  let completed = false;
+  let revision: number | undefined;
   let error = "";
+  let errorTitle = "保存失败";
   let invalidField = "";
   let migration: Migration | null = null;
   let resolutions: Record<string, string> = {};
   let fieldSources: Record<string, string> = {};
   const editedFields = new Set<string>();
+  const notifySaved = async () => {
+    // Saving has already been confirmed. A dependent view's refresh cannot
+    // undo it or replace the success message with a false save failure.
+    try { await deps.onSaved(); } catch { /* Keep the confirmed save state. */ }
+  };
+  const failureTitle = (code?: string) => code === "TRADING_PREFERENCE_CONFIRMATION_PENDING" || code === "TRADING_PREFERENCE_SAVE_UNCONFIRMED"
+    ? "保存结果待确认" : code === "PREFERENCE_UPDATED_AFTER_SAVE" ? "配置已更新" : "保存失败";
+  const needsConfirmation = () => Boolean(error) && errorTitle === "保存结果待确认";
+  const needsReview = () => Boolean(error) && errorTitle === "配置已更新";
 
   const reset = () => {
     generation++;
     status = "idle";
     draft = tradingPreferenceSettingsDraft();
-    saving = saved = dirty = completed = false;
+    saving = saved = dirty = false;
+    revision = undefined;
     error = invalidField = "";
+    errorTitle = "保存失败";
     migration = null;
     resolutions = {};
     fieldSources = {};
@@ -148,9 +160,9 @@ export function createTradingPreferenceSettings(deps: {
       if (token !== generation) return;
       if (result?.ok !== true || !result.profile) throw new Error();
       draft = tradingPreferenceSettingsDraft(result.profile);
+      revision = result.revision;
       fieldSources = result.profile.fieldSources || {};
       editedFields.clear();
-      completed = result.completed === true || result.profile.onboardingCompleted === true;
       migration = result.migration || null;
       resolutions = {};
       status = "ready";
@@ -164,6 +176,7 @@ export function createTradingPreferenceSettings(deps: {
   const save = async () => {
     if (saving || status !== "ready" || migration) return;
     error = invalidField = "";
+    errorTitle = "保存失败";
     for (const field of stages.flatMap(stage => TRADING_PREFERENCE_CHOICE_FIELDS[stage])) {
       const choice = draft.choices[field.id];
       if (!choice.selected.length || (choice.selected.includes("custom") && (!choice.custom.trim() || choice.custom.length > 280))) {
@@ -183,18 +196,23 @@ export function createTradingPreferenceSettings(deps: {
     saved = false;
     deps.render();
     try {
-      const result = await deps.save({ ...structuredClone(draft), ...(editedFields.size ? { changedFields: [...editedFields] } : {}) });
+      const result = await deps.save({ ...structuredClone(draft),
+        ...(revision !== undefined ? { expectedRevision: revision } : {}),
+        ...(editedFields.size ? { changedFields: [...editedFields] } : {}) });
       if (token !== generation) return;
-      if (result?.ok !== true || result.completed !== true) {
+      // ok is the save receipt; completed only describes legacy onboarding.
+      if (result?.ok !== true) {
         error = result?.error?.message || "交易偏好保存失败，已保留你的修改，请重试。";
+        errorTitle = failureTitle(result?.error?.code);
         invalidField = [...Object.keys(draft.choices), "entryMode", "extraNotes"].includes(result?.error?.fieldId || "") ? result!.error!.fieldId! : "";
         return;
       }
       if (result.profile) { draft = tradingPreferenceSettingsDraft(result.profile); fieldSources = result.profile.fieldSources || {}; }
+      revision = result.revision ?? revision;
       editedFields.clear();
-      saved = completed = true;
+      saved = true;
       dirty = false;
-      deps.onSaved();
+      await notifySaved();
     } catch {
       if (token !== generation) return;
       error = "交易偏好保存失败，已保留你的修改，请重试。";
@@ -207,23 +225,25 @@ export function createTradingPreferenceSettings(deps: {
     const token = generation;
     saving = true;
     error = "";
+    errorTitle = "保存失败";
     deps.render();
     try {
       const resolved = await deps.resolveMigration(selection);
       if (token !== generation) return;
       if (!resolved.ok || !resolved.profile) {
         error = resolved.error?.message || "交易偏好保存失败，已保留你的修改，请重试。";
+        errorTitle = failureTitle(resolved.error?.code);
         return;
       }
       draft = tradingPreferenceSettingsDraft(resolved.profile);
+      revision = resolved.revision;
       fieldSources = resolved.profile.fieldSources || {};
       editedFields.clear();
-      completed = resolved.completed === true;
       migration = resolved.migration || null;
       resolutions = {};
       dirty = false;
       saved = true;
-      deps.onSaved();
+      await notifySaved();
     } catch {
       if (token === generation) error = "交易偏好保存失败，已保留你的修改，请重试。";
     } finally {
@@ -236,7 +256,9 @@ export function createTradingPreferenceSettings(deps: {
     const field = stages.flatMap(stage => TRADING_PREFERENCE_CHOICE_FIELDS[stage]).find(f => f.id === id);
     return choice?.selected?.map(value => value === "custom" ? choice.custom || "" : field?.options.find(option => option.value === value)?.label || value).join("；") || "";
   };
-  const sourceText = (id: string) => editedFields.has(id) ? "未保存的修改" : fieldSources[id] === "user_saved" ? "已保存的偏好" : "产品默认值";
+  const sourceText = (id: string) => editedFields.has(id)
+    ? needsConfirmation() ? "保存结果待确认" : needsReview() ? "待核对的修改" : "未保存的修改"
+    : fieldSources[id] === "user_saved" ? "已保存的偏好" : "产品默认值";
   const renderMigration = () => !migration ? "" : `<section class="settings-trading-group" data-preference-migration>
     <h4>核对本地与云端的交易偏好</h4>
     <p class="settings-trading-hint">请选择需要保留的答案。核对完成后，新分析才会使用云端配置。</p>
@@ -257,8 +279,6 @@ export function createTradingPreferenceSettings(deps: {
     if (status === "error") return `<div class="settings-trading-loading"><p role="alert">${html(error)}</p><button type="button" class="secondary-button" data-preference-retry>重新加载</button></div>`;
     return `<div class="trading-preference-choices settings-trading-preferences" data-trading-settings aria-busy="${saving}">
       ${renderMigration()}
-      <p class="settings-trading-intro">${completed ? "已选中你保存的答案，修改后点击下方保存。" : "未设置的项目已按默认交易偏好生效，修改后点击保存。"}</p>
-      <p class="settings-trading-hint">自定义内容会先由 AI 理解并校验，全部通过后才会保存生效；无法理解或与题目无关时将提示保存失败。</p>
       <section class="settings-trading-group"><h4>1. 入场方式</h4>
         <fieldset data-preference-field="entryMode" ${saving || migration ? "disabled" : ""}>
           <legend>你倾向于哪种入场方式？ <span>单选</span></legend>
@@ -284,9 +304,9 @@ export function createTradingPreferenceSettings(deps: {
         }).join("")}</section>`).join("")}
       ${draft.extraNotes ? `<label class="settings-trading-extra">补充偏好说明<textarea class="trading-preference-choice-custom" data-preference-extra maxlength="2000" rows="3" ${saving || migration ? "disabled" : ""}>${html(draft.extraNotes)}</textarea></label>` : ""}
       <div class="settings-trading-actions">
-        <div class="trading-preference-choice-error" role="alert" ${error ? "" : "hidden"}><span>保存失败</span>：<span>${invalidField === "entryMode" ? "你倾向于哪种入场方式？" : invalidField ? html(stages.flatMap(stage => TRADING_PREFERENCE_CHOICE_FIELDS[stage]).find(field => field.id === invalidField)?.title || "补充偏好说明") : ""}</span> <span>${html(error)}</span></div>
-        <span class="settings-trading-status" role="status">${saved ? "交易偏好已保存" : dirty ? "有未保存的修改" : ""}</span>
-        <button type="button" class="trading-preference-onboarding-start" data-preference-save ${saving || !dirty || migration ? "disabled" : ""}>${saving ? "正在校验并保存…" : error ? "重试保存" : "保存修改"}</button>
+        <div class="trading-preference-choice-error" role="alert" ${error ? "" : "hidden"}><span>${html(errorTitle)}</span>：<span>${invalidField === "entryMode" ? "你倾向于哪种入场方式？" : invalidField ? html(stages.flatMap(stage => TRADING_PREFERENCE_CHOICE_FIELDS[stage]).find(field => field.id === invalidField)?.title || "补充偏好说明") : ""}</span> <span>${html(error)}</span></div>
+        <span class="settings-trading-status" role="status">${saved ? "交易偏好已保存" : needsConfirmation() ? "保存结果待确认" : needsReview() ? "配置已更新" : dirty ? "有未保存的修改" : ""}</span>
+        <button type="button" class="trading-preference-onboarding-start" data-preference-save ${saving || (!dirty && !needsReview()) || migration ? "disabled" : ""}>${saving ? "正在校验并保存…" : needsConfirmation() ? "重试确认" : needsReview() ? "重新加载" : error ? "重试保存" : "保存修改"}</button>
       </div>
     </div>`;
   };
@@ -310,11 +330,12 @@ export function createTradingPreferenceSettings(deps: {
     });
     const changed = (fieldId: string) => {
       editedFields.add(fieldId);
+      error = invalidField = "";
+      errorTitle = "保存失败";
       const source = panel.querySelector<HTMLElement>(`[data-preference-source="${fieldId}"]`);
       if (source) source.textContent = sourceText(fieldId);
       dirty = true;
       saved = false;
-      error = invalidField = "";
       const alert = panel.querySelector<HTMLElement>('[role="alert"]');
       if (alert) { alert.hidden = true; alert.textContent = ""; }
       const message = panel.querySelector<HTMLElement>(".settings-trading-status");
@@ -351,7 +372,11 @@ export function createTradingPreferenceSettings(deps: {
       if (input.hasAttribute("data-preference-extra")) draft.extraNotes = input.value;
       changed(fieldId || "extraNotes");
     });
-    panel.querySelector("[data-preference-save]")?.addEventListener("click", () => { if (canEdit()) void save(); });
+    panel.querySelector("[data-preference-save]")?.addEventListener("click", () => {
+      if (!canEdit()) return;
+      if (needsReview()) { reset(); void load(); }
+      else void save();
+    });
     if (invalidField) {
       const field = panel.querySelector(`[data-preference-field="${invalidField}"]`);
       const control = invalidField === "extraNotes" ? panel.querySelector<HTMLElement>("[data-preference-extra]") : field?.querySelector<HTMLElement>("textarea:not([hidden])") || field?.querySelector<HTMLElement>("input");

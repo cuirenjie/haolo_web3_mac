@@ -204,7 +204,7 @@ test("video recovery stays silent and does not create system dashboard orchestra
   assert.doesNotMatch(resumeIpcBlock, /youle:videoGenerationProgress|sendProgress|onProgress/);
   assert.match(
     resumeIpcBlock,
-    /return runCancellableVideoGeneration\(params, resumeLatestVideoGeneration\)/,
+    /runCodexVideoConversation\(event, params, resumeLatestVideoGeneration\)/,
   );
 });
 

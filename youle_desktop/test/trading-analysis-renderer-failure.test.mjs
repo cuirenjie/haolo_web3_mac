@@ -22,7 +22,7 @@ function harness({ language = "zh-CN", modelId = "validated-model", strategyId, 
   const candles = Array.from({ length: 600 }, (_, i) => ({ time: 1_800_000_000 + i * 3600, open: 100, high: 102, low: 99, close: 101, volume: 100 }));
   const state = { active: true, completed: false, apiCalls: 0, drawingCalls: 0, recoveryCalls: 0, failures: [], progress: [] };
   const deps = {
-    ...expansion, tradingMarketAvailable, tradingMarketUnavailableMessage, cloudAnalysisWindow, cloudAnalysisText, cloudReportFromResponse:()=>[],
+    ...expansion, tradingMarketAvailable, tradingMarketUnavailableMessage, cloudAnalysisWindow, cloudAnalysisText, cloudAnalysisDrawingPlan, cloudReportFromResponse:()=>[],
     window: { codexDesktop: { runTradingGeneralAnalysis: async () => {
       state.apiCalls++;
       if (apiError) return { ok: false, error: apiError };
@@ -181,3 +181,4 @@ test("display alias never replaces the real model ID in drawing failure diagnost
   assert.equal(state.failures[0].context.modelId, "deepseek-flash");
   assert.equal(result.drawingDeferred, true);
 });
+import {cloudAnalysisDrawingPlan} from '../src/shared/execution-plan-drawings.mjs';

@@ -1,9 +1,29 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { tradingRiskProfileFromEntries } from './memory-store.mjs';
 
 const choiceFields = ['entryMode', 'risk', 'breakEven', 'ratio', 'style', 'sections', 'discipline'];
 const fingerprint = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const failure = (code, detail = {}) => Object.assign(new Error(code), { code, detail });
+
+export function cloudTradingPreferenceFailure(error) {
+  const detail = error?.payload?.detail || error?.detail || {};
+  const code = String(detail.code || error?.code || "TRADING_PREFERENCE_SAVE_FAILED");
+  const messages = {
+    PREFERENCE_VERSION_CONFLICT: "其他设备已修改交易偏好，请重新加载后核对；本次修改尚未保存。",
+    PREFERENCE_UPDATED_AFTER_SAVE: "本次交易偏好已保存，但随后有其他更新。请重新打开交易偏好，核对最新配置。",
+    TRADING_PREFERENCE_CONFIRMATION_PENDING: "服务器已接受保存，但暂时无法确认最新配置。你的修改已保留，请重试确认。",
+    TRADING_PREFERENCE_SAVE_UNCONFIRMED: "未收到完整的保存回执，暂时无法确认是否保存成功。你的修改已保留，请重试确认。",
+    PREFERENCE_IMPORT_RESOLUTION_REQUIRED: "请先核对本地与云端的交易偏好。",
+    PREFERENCE_SAVE_PENDING: "交易偏好正在保存，请稍候。",
+    TRADING_PREFERENCE_SAVE_PENDING: "交易偏好正在保存，请稍候。",
+    TRADING_PREFERENCE_OWNER_CHANGED: "登录账号已变化，请重新打开交易偏好。",
+    TRADING_PREFERENCE_NOT_UNDERSTOOD: "自定义内容无法明确理解或与其他设置冲突，请修改。",
+    TRADING_PREFERENCE_MODEL_UNAVAILABLE: "大模型理解服务暂不可用或请求超时，请稍后重试。",
+  };
+  return { ok: false, error: { code, fieldId: String(detail.fieldId || ""),
+    message: messages[code] || "交易偏好保存失败，已保留你的修改，请重试。" } };
+}
 
 function validateConfig(config) {
   if (!config || config.schemaVersion !== 1 || !Number.isSafeInteger(config.revision) || config.revision < 0
@@ -59,10 +79,14 @@ export function createCloudTradingPreferences({ owner, api }) {
     // longer imported; only deliberate settings saves can change this config.
     const config = await request(captured, 'preferences');
     if (remember) {
-      if ((states.get(captured.ownerId)?.config.revision ?? -1) > config.revision) {
+      const state = states.get(captured.ownerId);
+      if ((state?.config.revision ?? -1) > config.revision) {
         throw failure('PREFERENCE_VERSION_CONFLICT');
       }
-      states.set(captured.ownerId, { config, retry: null });
+      // Keep an uncertain save's idempotency receipt across background reads.
+      // A new edit/revision creates its own key when save() builds its payload.
+      if (state) state.config = config;
+      else states.set(captured.ownerId, { config, retry: null });
     }
     return result(config);
   }
@@ -73,20 +97,66 @@ export function createCloudTradingPreferences({ owner, api }) {
     if (pending.has(captured.ownerId)) throw failure('TRADING_PREFERENCE_SAVE_PENDING');
     pending.add(captured.ownerId);
     try {
+      // Retired questionnaire callers send only memory entries. Do not turn
+      // ignored answers into an empty-note PATCH and claim they were saved.
+      if (!params.choices && params.entryMode === undefined && !Object.hasOwn(params, 'extraNotes')) {
+        throw failure('TRADING_PREFERENCE_INVALID');
+      }
       const choices = { ...params.choices, ...(params.entryMode !== undefined ? { entryMode: { selected: [params.entryMode], custom: '' } } : {}) };
       const edited = Array.isArray(params.changedFields) ? params.changedFields : null;
       if (edited && (new Set(edited).size !== edited.length || edited.some(id => ![...choiceFields, 'extraNotes'].includes(id)))) {
         throw failure('TRADING_PREFERENCE_INVALID');
       }
-      const payload = { expectedRevision: state.config.revision,
+      // Bind the write to the revision the user actually edited. Background
+      // profile reads may have refreshed the adapter's state in the meantime.
+      const expectedRevision = params.expectedRevision ?? state.config.revision;
+      if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) throw failure('TRADING_PREFERENCE_INVALID');
+      const payload = { expectedRevision,
             changes: edited ? Object.fromEntries(edited.filter(id => id !== 'extraNotes').map(id => [id, choices[id]])) : choices,
             ...(!edited || edited.includes('extraNotes') ? { extraNotes: params.extraNotes ?? '' } : {}) };
       const hash = fingerprint(payload);
       if (state.retry?.hash !== hash) state.retry = { hash, key: `pref-save:${randomUUID()}` };
-      const config = await request(captured, 'savePreferences', payload, { idempotencyKey: state.retry.key });
-      state.config = config;
+      let config;
+      try {
+        config = await request(captured, 'savePreferences', payload, { idempotencyKey: state.retry.key });
+      } catch (error) {
+        // A network failure can occur after commit. Retrying must use the same
+        // operation key, and the UI must not claim the server rejected it.
+        if (['transport', 'timeout'].includes(error?.category)
+          || ['REQUEST_TIMEOUT', 'NETWORK_ERROR'].includes(error?.code)) {
+          throw failure('TRADING_PREFERENCE_SAVE_UNCONFIRMED');
+        }
+        throw error;
+      }
+      if (config.revision !== expectedRevision + 1
+        || Object.entries(payload.changes).some(([id, choice]) =>
+          !isDeepStrictEqual(config.fields[id]?.choice, choice) || config.fields[id]?.source !== 'user_saved')
+        || (Object.hasOwn(payload, 'extraNotes')
+          && (config.extraNotes?.value !== payload.extraNotes || config.extraNotes?.source !== 'user_saved'))) {
+        throw failure('TRADING_PREFERENCE_CLOUD_INVALID');
+      }
+      // A successful PATCH receipt alone is insufficient: a new client/device
+      // must be able to GET the same persisted configuration. Keep the original
+      // revision and idempotency key until this readback succeeds, so retrying
+      // an interrupted confirmation cannot issue a second write.
+      let persisted;
+      try {
+        persisted = await request(captured, 'preferences');
+      } catch (error) {
+        if (error?.code === 'TRADING_PREFERENCE_OWNER_CHANGED') throw error;
+        // The write was acknowledged. An interrupted confirmation must not be
+        // described as a rejected write; retain the original retry identity.
+        throw failure('TRADING_PREFERENCE_CONFIRMATION_PENDING');
+      }
+      if (persisted.revision > config.revision) throw failure('PREFERENCE_UPDATED_AFTER_SAVE');
+      if (persisted.revision !== config.revision || persisted.configHash !== config.configHash
+        || !isDeepStrictEqual(persisted.fields, config.fields)
+        || !isDeepStrictEqual(persisted.extraNotes, config.extraNotes)) {
+        throw failure('TRADING_PREFERENCE_CLOUD_INVALID');
+      }
+      state.config = persisted;
       state.retry = null;
-      return result(config);
+      return result(persisted);
     } finally {
       pending.delete(captured.ownerId);
     }

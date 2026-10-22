@@ -14,7 +14,7 @@ const trayIconOutput = path.join(resourcesDir, "haolo-tray-icon.png");
 const trayIconRasterSource = path.join(os.tmpdir(), "haolo-logo-mac-tray-source.png");
 const requestedArches = resolveRequestedArches(process.argv.slice(2));
 const requiredBinaries = requestedArches.flatMap((arch) =>
-  ["haolo_ai", "rg"].map((name) => path.join(resourcesDir, "bin", `darwin-${arch}`, name)),
+  ["haolo_ai", "rg", "codex-code-mode-host"].map((name) => path.join(resourcesDir, "bin", `darwin-${arch}`, name)),
 );
 
 const missingBinaries = requiredBinaries.filter((candidate) => !fs.existsSync(candidate));

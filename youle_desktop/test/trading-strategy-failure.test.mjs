@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 import ts from "typescript";
+import { tradingAnalysisCompletionText } from "../src/renderer/cloud-analysis-text.ts";
 import { isQuotaFailure } from "../src/main/error-signals.mjs";
 import { buildTradingStrategyFailureReport, describeTradingAnalysisFailure } from "../src/main/trading-analysis/failure.mjs";
 
@@ -18,6 +19,9 @@ const javascript = ts.transpileModule(names.map((name) => {
 function harness(error, result, language = "zh-CN") {
   const state = { strategyCalls: [], generalCalls: 0, reports: [], persisted: [], progress: [], finished: 0, quotas: 0 };
   const deps = {
+    tradingAnalysisCompletionText,
+    state: { currentThreadId: "thread-one" },
+    codexTradingTools: { isToolTurn: () => false },
     isQuotaFailure,
     tradingStrategyAnalysisTargetByRequest: new WeakMap(),
     beginTradingExpertAnalysisJob: (_thread, strategy) => `analysis-${strategy}`,
@@ -49,10 +53,10 @@ function harness(error, result, language = "zh-CN") {
   const run = new Function(...Object.keys(deps), `${javascript}; return runTradingStrategyChartRequest;`)(...Object.values(deps));
   return {
     state,
-    run: (id = "wyckoff", name = "威科夫") => run("thread-one", {
+    run: (id = "wyckoff", name = "威科夫", request = {}) => run("thread-one", {
       id, display: { name }, dataRequirements: { candles: { minCount: 60 } }, capabilities: ["execution-plan"],
       ui: { preparingMessage: `${name}分析`, completionPhase: "complete", completionMetric: () => `${name}分析` },
-    }, { instruction: "", drawingRequested: true }),
+    }, { instruction: "", drawingRequested: true, ...request }),
   };
 }
 
@@ -131,5 +135,25 @@ test("English no-range reports use fixed copy and reject invalid candle counts",
     }, { language: "en" });
     assert.match(report, /^Wyckoff: No trading range/);
     assert.doesNotMatch(report, /secret|NaN|Infinity|script|\p{Script=Han}/u);
+  }
+});
+
+test("cloud strategy completion never exposes engine IDs, missing candle counts or premature drawing success", async () => {
+  for (const language of ["zh-CN", "zh-Hant", "en"]) {
+    for (const deferPresentation of [false, true]) {
+      const h = harness(null, { report: "verified plan", symbol: "ETHUSDT",
+        candleCount: 0, modelName: "price-action-ohlc-engine-v1" }, language);
+      await h.run("price-action", "裸K分析", { deferPresentation });
+      const message = h.state.progress.at(-1).message;
+      assert.ok(message.includes("ETHUSDT"));
+      assert.doesNotMatch(message, /engine-v1|0 根|分析分析|0 candles/);
+      if (deferPresentation) {
+        assert.doesNotMatch(message, /绘图已完成|繪圖已完成|chart drawing are complete/);
+        assert.match(message, /等待展示|ready to present/);
+        assert.equal(h.state.reports.length, 0);
+      }
+      if (language === "en") assert.doesNotMatch(message, /\p{Script=Han}/u);
+      if (language === "zh-Hant") assert.doesNotMatch(message, /结果|绘图/);
+    }
   }
 });

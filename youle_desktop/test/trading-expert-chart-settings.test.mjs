@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { TRADING_VISIBILITY_LAYERS } from '../src/renderer/trading-drawing-visibility.ts';
 
 import {
   DEFAULT_TRADING_CHART_SETTINGS,
@@ -353,9 +354,16 @@ test("settings dialog contains nine categories with order display last", () => {
 test("drawing visibility switches render independent conversation state without changing chart preferences", () => {
   const settings = cloneTradingChartSettings();
   const before = JSON.stringify(settings);
-  for (const aiHidden of [false, true]) for (const manualHidden of [false, true]) {
-    const html = renderTradingChartSettingsDialog(settings, "light", { aiHidden, manualHidden });
-    for (const [key, checked] of Object.entries({ aiHidden, manualHidden })) {
+  for (let mask = 0; mask < 32; mask++) {
+    const visibility = Object.fromEntries(TRADING_VISIBILITY_LAYERS.map(({ key }, i) => [key, Boolean(mask & (1 << i))]));
+    const html = renderTradingChartSettingsDialog(settings, "light", visibility);
+    const background = html.match(/<section data-chart-settings-panel="background"[\s\S]*?<\/section>/)[0];
+    const panel = html.match(/<section data-chart-settings-panel="drawing-visibility"[\s\S]*?<\/section>/)[0];
+    assert.doesNotMatch(background, /隐藏数据标注|drawingVisibility\.|hideKlineAnnotations/);
+    assert.doesNotMatch(html, /data-chart-setting="hideKlineAnnotations"/);
+    assert.equal((panel.match(/role="switch"/g) || []).length, 5);
+    for (const { label } of TRADING_VISIBILITY_LAYERS) assert.ok(panel.includes(label));
+    for (const [key, checked] of Object.entries(visibility)) {
       const input = html.match(new RegExp(`<input[^>]+data-chart-setting="drawingVisibility\\.${key}"[^>]*>`))?.[0];
       assert.ok(input);
       assert.equal(/\bchecked\b/.test(input), checked);

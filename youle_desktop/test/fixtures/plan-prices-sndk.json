@@ -1,0 +1,861 @@
+{
+  "source": "SNDK screenshot 2026-10-21; price-only excerpt of original local receipt, no account or conversation data",
+  "locale": "zh-CN",
+  "executionPlan": {
+    "schemaVersion": 1,
+    "planId": "plan-dabe739ef1b6d1c507a0e834",
+    "analysisId": "price-action-analysis-198b3e116e540077e7",
+    "strategy": {
+      "id": "price-action",
+      "name": "裸K分析",
+      "version": "1.1.0"
+    },
+    "market": {
+      "symbol": "SNDKUSDT",
+      "interval": "60",
+      "marketId": "BINANCE:FUTURES:SNDKUSDT"
+    },
+    "preferredSide": "long",
+    "action": "wait",
+    "scenarios": [
+      {
+        "id": "long-scenario",
+        "side": "long",
+        "status": "preferred",
+        "trigger": {
+          "price": 1391.74,
+          "evidenceIds": [
+            "price-action-long-trigger",
+            "price-action-long-invalidation",
+            "price-action-long-target",
+            "price-action-market-uptrend",
+            "pa-swing-225b86f77c29720f",
+            "pa-swing-1216aca3526de07f",
+            "pa-swing-c83d1b694ba32a13",
+            "pa-swing-57b414c2e39843a9",
+            "pa-swing-f7e8be459357af4e",
+            "pa-swing-d92fd4cd399b99f2",
+            "pa-swing-7571ced019c0b0c5",
+            "pa-swing-7407bcf13c9e46d4",
+            "pa-zone-fa5e85b0ef6620b5",
+            "pa-zone-33a1ec26d66894a6",
+            "pa-zone-f9f4913924d6a3ad",
+            "pa-zone-e63bbaad9e1d8dc1"
+          ]
+        },
+        "stop": {
+          "price": 1360.64,
+          "evidenceIds": [
+            "price-action-long-trigger",
+            "price-action-long-invalidation",
+            "price-action-long-target",
+            "price-action-market-uptrend",
+            "pa-swing-225b86f77c29720f",
+            "pa-swing-1216aca3526de07f",
+            "pa-swing-c83d1b694ba32a13",
+            "pa-swing-57b414c2e39843a9",
+            "pa-swing-f7e8be459357af4e",
+            "pa-swing-d92fd4cd399b99f2",
+            "pa-swing-7571ced019c0b0c5",
+            "pa-swing-7407bcf13c9e46d4",
+            "pa-zone-fa5e85b0ef6620b5",
+            "pa-zone-33a1ec26d66894a6",
+            "pa-zone-f9f4913924d6a3ad",
+            "pa-zone-e63bbaad9e1d8dc1"
+          ]
+        },
+        "targets": [
+          {
+            "price": 1411.46,
+            "evidenceIds": [
+              "price-action-long-trigger",
+              "price-action-long-invalidation",
+              "price-action-long-target",
+              "price-action-market-uptrend",
+              "pa-swing-225b86f77c29720f",
+              "pa-swing-1216aca3526de07f",
+              "pa-swing-c83d1b694ba32a13",
+              "pa-swing-57b414c2e39843a9",
+              "pa-swing-f7e8be459357af4e",
+              "pa-swing-d92fd4cd399b99f2",
+              "pa-swing-7571ced019c0b0c5",
+              "pa-swing-7407bcf13c9e46d4",
+              "pa-zone-fa5e85b0ef6620b5",
+              "pa-zone-33a1ec26d66894a6",
+              "pa-zone-f9f4913924d6a3ad",
+              "pa-zone-e63bbaad9e1d8dc1"
+            ]
+          },
+          {
+            "price": 1421.63,
+            "evidenceIds": [
+              "price-action-long-trigger",
+              "price-action-long-invalidation",
+              "price-action-long-target",
+              "price-action-market-uptrend",
+              "pa-swing-225b86f77c29720f",
+              "pa-swing-1216aca3526de07f",
+              "pa-swing-c83d1b694ba32a13",
+              "pa-swing-57b414c2e39843a9",
+              "pa-swing-f7e8be459357af4e",
+              "pa-swing-d92fd4cd399b99f2",
+              "pa-swing-7571ced019c0b0c5",
+              "pa-swing-7407bcf13c9e46d4",
+              "pa-zone-fa5e85b0ef6620b5",
+              "pa-zone-33a1ec26d66894a6",
+              "pa-zone-f9f4913924d6a3ad",
+              "pa-zone-e63bbaad9e1d8dc1"
+            ]
+          },
+          {
+            "price": 1453.96,
+            "evidenceIds": [
+              "price-action-long-trigger",
+              "price-action-long-invalidation",
+              "price-action-long-target",
+              "price-action-market-uptrend",
+              "pa-swing-225b86f77c29720f",
+              "pa-swing-1216aca3526de07f",
+              "pa-swing-c83d1b694ba32a13",
+              "pa-swing-57b414c2e39843a9",
+              "pa-swing-f7e8be459357af4e",
+              "pa-swing-d92fd4cd399b99f2",
+              "pa-swing-7571ced019c0b0c5",
+              "pa-swing-7407bcf13c9e46d4",
+              "pa-zone-fa5e85b0ef6620b5",
+              "pa-zone-33a1ec26d66894a6",
+              "pa-zone-f9f4913924d6a3ad",
+              "pa-zone-e63bbaad9e1d8dc1"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "drawingPatch": {
+    "interval": "60",
+    "marketId": "BINANCE:FUTURES:SNDKUSDT",
+    "analysisId": "price-action-analysis-198b3e116e540077e7",
+    "operations": [
+      {
+        "op": "upsert",
+        "drawing": {
+          "id": "price-action-analysis-198b3e116e540077e7-market-structure",
+          "tool": "path",
+          "layer": "ai/strategy/price-action",
+          "locked": true,
+          "points": [
+            {
+              "time": 1792213200,
+              "price": 1306
+            },
+            {
+              "time": 1792238400,
+              "price": 1294.14
+            },
+            {
+              "time": 1792263600,
+              "price": 1303.07
+            },
+            {
+              "time": 1792270800,
+              "price": 1215.35
+            },
+            {
+              "time": 1792314000,
+              "price": 1286.88
+            },
+            {
+              "time": 1792342800,
+              "price": 1252.3
+            },
+            {
+              "time": 1792422000,
+              "price": 1409.49
+            },
+            {
+              "time": 1792494000,
+              "price": 1324.29
+            }
+          ],
+          "status": "confirmed",
+          "symbol": "BINANCE:FUTURES:SNDKUSDT",
+          "theory": "strategy",
+          "interval": "60",
+          "lineStyle": "solid",
+          "lineWidth": 2.5,
+          "colorToken": "strategy-primary",
+          "strategyId": "price-action",
+          "evidenceIds": [
+            "pa-swing-225b86f77c29720f",
+            "pa-swing-1216aca3526de07f",
+            "pa-swing-c83d1b694ba32a13",
+            "pa-swing-57b414c2e39843a9",
+            "pa-swing-f7e8be459357af4e",
+            "pa-swing-d92fd4cd399b99f2",
+            "pa-swing-7571ced019c0b0c5",
+            "pa-swing-7407bcf13c9e46d4"
+          ]
+        }
+      },
+      {
+        "op": "upsert",
+        "drawing": {
+          "id": "price-action-analysis-198b3e116e540077e7-swing-label-0",
+          "bold": true,
+          "text": "H",
+          "tool": "text",
+          "layer": "ai/strategy/price-action",
+          "locked": true,
+          "points": [
+            {
+              "time": 1792213200,
+              "price": 1310.8535
+            }
+          ],
+          "status": "confirmed",
+          "symbol": "BINANCE:FUTURES:SNDKUSDT",
+          "theory": "strategy",
+          "fontSize": 12,
+          "interval": "60",
+          "colorToken": "strategy-primary",
+          "strategyId": "price-action",
+          "evidenceIds": [
+            "pa-swing-225b86f77c29720f"
+          ]
+        }
+      },
+      {
+        "op": "upsert",
+        "drawing": {
+          "id": "price-action-analysis-198b3e116e540077e7-swing-label-1",
+          "bold": true,
+          "text": "HL",
+          "tool": "text",
+          "layer": "ai/strategy/price-action",
+          "locked": true,
+          "points": [
+            {
+              "time": 1792238400,
+              "price": 1289.2865000000002
+            }
+          ],
+          "status": "confirmed",
+          "symbol": "BINANCE:FUTURES:SNDKUSDT",
+          "theory": "strategy",
+          "fontSize": 12,
+          "interval": "60",
+          "colorToken": "strategy-primary",
+          "strategyId": "price-action",
+          "evidenceIds": [
+            "pa-swing-1216aca3526de07f"
+          ]
+        }
+      },
+      {
+        "op": "upsert",
+        "drawing": {
+          "id": "price-action-analysis-198b3e116e540077e7-swing-label-2",
+          "bold": true,
+          "text": "LH",
+          "tool": "text",
+          "layer": "ai/strategy/price-action",
+          "locked": true,
+          "points": [
+            {
+              "time": 1792263600,
+              "price": 1307.9234999999999
+            }
+          ],
+          "status": "confirmed",
+          "symbol": "BINANCE:FUTURES:SNDKUSDT",
+          "theory": "strategy",
+          "fontSize": 12,
+          "interval": "60",
+          "colorToken": "strategy-primary",
+          "strategyId": "price-action",
+          "evidenceIds": [
+            "pa-swing-c83d1b694ba32a13"
+          ]
+        }
+      },
+      {
+        "op": "upsert",
+        "drawing": {
+          "id": "price-action-analysis-198b3e116e540077e7-swing-label-3",
+          "bold": true,
+          "text": "LL",
+          "tool": "text",
+          "layer": "ai/strategy/price-action",
+          "locked": true,
+          "points": [
+            {
+              "time": 1792270800,
+              "price": 1210.4965
+            }
+          ],
+          "status": "confirmed",
+          "symbol": "BINANCE:FUTURES:SNDKUSDT",
+          "theory": "strategy",
+          "fontSize": 12,
+          "interval": "60",
+          "colorToken": "strategy-primary",
+          "strategyId": "price-action",
+          "evidenceIds": [
+            "pa-swing-57b414c2e39843a9"
+          ]
+        }
+      },
+      {
+        "op": "upsert",
+        "drawing": {
+          "id": "price-action-analysis-198b3e116e540077e7-swing-label-4",
+          "bold": true,
+          "text": "LH",
+          "tool": "text",
+          "layer": "ai/strategy/price-action",
+          "locked": true,
+          "points": [
+            {
+              "time": 1792314000,
+              "price": 1291.7335
+            }
+          ],
+          "status": "confirmed",
+          "symbol": "BINANCE:FUTURES:SNDKUSDT",
+          "theory": "strategy",
+          "fontSize": 12,
+          "interval": "60",
+          "colorToken": "strategy-primary",
+          "strategyId": "price-action",
+          "evidenceIds": [
+            "pa-swing-f7e8be459357af4e"
+          ]
+        }
+      },
+      {
+        "op": "upsert",
+        "drawing": {
+          "id": "price-action-analysis-198b3e116e540077e7-swing-label-5",
+          "bold": true,
+          "text": "HL",
+          "tool": "text",
+          "layer": "ai/strategy/price-action",
+          "locked": true,
+          "points": [
+            {
+              "time": 1792342800,
+              "price": 1247.4465
+            }
+          ],
+          "status": "confirmed",
+          "symbol": "BINANCE:FUTURES:SNDKUSDT",
+          "theory": "strategy",
+          "fontSize": 12,
+          "interval": "60",
+          "colorToken": "strategy-primary",
+          "strategyId": "price-action",
+          "evidenceIds": [
+            "pa-swing-d92fd4cd399b99f2"
+          ]
+        }
+      },
+      {
+        "op": "upsert",
+        "drawing": {
+          "id": "price-action-analysis-198b3e116e540077e7-swing-label-6",
+          "bold": true,
+          "text": "HH",
+          "tool": "text",
+          "layer": "ai/strategy/price-action",
+          "locked": true,
+          "points": [
+            {
+              "time": 1792422000,
+              "price": 1414.3435
+            }
+          ],
+          "status": "confirmed",
+          "symbol": "BINANCE:FUTURES:SNDKUSDT",
+          "theory": "strategy",
+          "fontSize": 12,
+          "interval": "60",
+          "colorToken": "strategy-primary",
+          "strategyId": "price-action",
+          "evidenceIds": [
+            "pa-swing-7571ced019c0b0c5"
+          ]
+        }
+      },
+      {
+        "op": "upsert",
+        "drawing": {
+          "id": "price-action-analysis-198b3e116e540077e7-swing-label-7",
+          "bold": true,
+          "text": "HL",
+          "tool": "text",
+          "layer": "ai/strategy/price-action",
+          "locked": true,
+          "points": [
+            {
+              "time": 1792494000,
+              "price": 1319.4365
+            }
+          ],
+          "status": "confirmed",
+          "symbol": "BINANCE:FUTURES:SNDKUSDT",
+          "theory": "strategy",
+          "fontSize": 12,
+          "interval": "60",
+          "colorToken": "strategy-primary",
+          "strategyId": "price-action",
+          "evidenceIds": [
+            "pa-swing-7407bcf13c9e46d4"
+          ]
+        }
+      },
+      {
+        "op": "upsert",
+        "drawing": {
+          "id": "price-action-analysis-198b3e116e540077e7-zone-0",
+          "text": "支撑区 1,365.02–1,371.98（2 个触点）",
+          "tool": "rectangle",
+          "layer": "ai/strategy/price-action",
+          "locked": true,
+          "points": [
+            {
+              "time": 1792378800,
+              "price": 1365.0168
+            },
+            {
+              "time": 1792512000,
+              "price": 1371.9832
+            }
+          ],
+          "status": "confirmed",
+          "symbol": "BINANCE:FUTURES:SNDKUSDT",
+          "theory": "strategy",
+          "interval": "60",
+          "lineStyle": "dashed",
+          "lineWidth": 1.5,
+          "colorToken": "strategy-support",
+          "strategyId": "price-action",
+          "evidenceIds": [
+            "pa-swing-d1cd6bdbf9694955",
+            "pa-swing-28d54b29893b66b9"
+          ]
+        }
+      },
+      {
+        "op": "upsert",
+        "drawing": {
+          "id": "price-action-analysis-198b3e116e540077e7-zone-1",
+          "text": "阻力区 1,386.15–1,390.19（1 个触点）",
+          "tool": "rectangle",
+          "layer": "ai/strategy/price-action",
+          "locked": true,
+          "points": [
+            {
+              "time": 1792364400,
+              "price": 1386.1468
+            },
+            {
+              "time": 1792512000,
+              "price": 1390.1932
+            }
+          ],
+          "status": "confirmed",
+          "symbol": "BINANCE:FUTURES:SNDKUSDT",
+          "theory": "strategy",
+          "interval": "60",
+          "lineStyle": "dashed",
+          "lineWidth": 1.5,
+          "colorToken": "strategy-resistance",
+          "strategyId": "price-action",
+          "evidenceIds": [
+            "pa-swing-dc37b77a277a76bd"
+          ]
+        }
+      },
+      {
+        "op": "upsert",
+        "drawing": {
+          "id": "price-action-analysis-198b3e116e540077e7-candlestick-pattern-label-0",
+          "bold": false,
+          "text": "高浪线 · 待收盘",
+          "tool": "text",
+          "layer": "ai/strategy/price-action",
+          "locked": true,
+          "points": [
+            {
+              "time": 1792512000,
+              "price": 1387.1816000000001
+            }
+          ],
+          "status": "tentative",
+          "symbol": "BINANCE:FUTURES:SNDKUSDT",
+          "theory": "strategy",
+          "fontSize": 12,
+          "interval": "60",
+          "colorToken": "strategy-note",
+          "strategyId": "price-action",
+          "evidenceIds": [
+            "pa-candlestick-15406cbd6b21bbd6",
+            "pa-pattern-candle-3a0231a579a6c9cd"
+          ]
+        }
+      },
+      {
+        "op": "upsert",
+        "drawing": {
+          "id": "price-action-analysis-198b3e116e540077e7-candlestick-pattern-1",
+          "text": "三外升",
+          "tool": "ellipse",
+          "layer": "ai/strategy/price-action",
+          "locked": true,
+          "points": [
+            {
+              "time": 1792492272,
+              "price": 1317.514
+            },
+            {
+              "time": 1792502928,
+              "price": 1373.4160000000002
+            }
+          ],
+          "status": "confirmed",
+          "symbol": "BINANCE:FUTURES:SNDKUSDT",
+          "theory": "strategy",
+          "interval": "60",
+          "lineStyle": "solid",
+          "lineWidth": 0.8,
+          "colorToken": "strategy-support",
+          "strategyId": "price-action",
+          "evidenceIds": [
+            "pa-candlestick-96aa67f4076a7a89",
+            "pa-pattern-candle-a98164af07c5df59",
+            "pa-pattern-candle-2a928c812ddb3627",
+            "pa-pattern-candle-cc54c561560a9d4b"
+          ]
+        }
+      },
+      {
+        "op": "upsert",
+        "drawing": {
+          "id": "price-action-analysis-198b3e116e540077e7-candlestick-pattern-label-1",
+          "bold": false,
+          "text": "三外升",
+          "tool": "text",
+          "layer": "ai/strategy/price-action",
+          "locked": true,
+          "points": [
+            {
+              "time": 1792497600,
+              "price": 1373.4160000000002
+            }
+          ],
+          "status": "confirmed",
+          "symbol": "BINANCE:FUTURES:SNDKUSDT",
+          "theory": "strategy",
+          "fontSize": 12,
+          "interval": "60",
+          "colorToken": "strategy-support",
+          "strategyId": "price-action",
+          "evidenceIds": [
+            "pa-candlestick-96aa67f4076a7a89",
+            "pa-pattern-candle-a98164af07c5df59",
+            "pa-pattern-candle-2a928c812ddb3627",
+            "pa-pattern-candle-cc54c561560a9d4b"
+          ]
+        }
+      },
+      {
+        "op": "upsert",
+        "drawing": {
+          "id": "price-action-analysis-198b3e116e540077e7-candlestick-pattern-2",
+          "text": "看涨吞没",
+          "tool": "ellipse",
+          "layer": "ai/strategy/price-action",
+          "locked": true,
+          "points": [
+            {
+              "time": 1792492272,
+              "price": 1321.5331999999999
+            },
+            {
+              "time": 1792499328,
+              "price": 1344.2768
+            }
+          ],
+          "status": "confirmed",
+          "symbol": "BINANCE:FUTURES:SNDKUSDT",
+          "theory": "strategy",
+          "interval": "60",
+          "lineStyle": "solid",
+          "lineWidth": 0.8,
+          "colorToken": "strategy-support",
+          "strategyId": "price-action",
+          "evidenceIds": [
+            "pa-candlestick-ff2648eb6f353740",
+            "pa-pattern-candle-a98164af07c5df59",
+            "pa-pattern-candle-2a928c812ddb3627"
+          ]
+        }
+      },
+      {
+        "op": "upsert",
+        "drawing": {
+          "id": "price-action-analysis-198b3e116e540077e7-candlestick-pattern-label-2",
+          "bold": false,
+          "text": "看涨吞没",
+          "tool": "text",
+          "layer": "ai/strategy/price-action",
+          "locked": true,
+          "points": [
+            {
+              "time": 1792495800,
+              "price": 1344.2768
+            }
+          ],
+          "status": "confirmed",
+          "symbol": "BINANCE:FUTURES:SNDKUSDT",
+          "theory": "strategy",
+          "fontSize": 12,
+          "interval": "60",
+          "colorToken": "strategy-support",
+          "strategyId": "price-action",
+          "evidenceIds": [
+            "pa-candlestick-ff2648eb6f353740",
+            "pa-pattern-candle-a98164af07c5df59",
+            "pa-pattern-candle-2a928c812ddb3627"
+          ]
+        }
+      },
+      {
+        "op": "upsert",
+        "drawing": {
+          "id": "price-action-analysis-198b3e116e540077e7-candlestick-pattern-3",
+          "text": "底分型",
+          "tool": "ellipse",
+          "layer": "ai/strategy/price-action",
+          "locked": true,
+          "points": [
+            {
+              "time": 1792488672,
+              "price": 1321.5331999999999
+            },
+            {
+              "time": 1792499328,
+              "price": 1344.2768
+            }
+          ],
+          "status": "confirmed",
+          "symbol": "BINANCE:FUTURES:SNDKUSDT",
+          "theory": "strategy",
+          "interval": "60",
+          "lineStyle": "solid",
+          "lineWidth": 0.8,
+          "colorToken": "strategy-support",
+          "strategyId": "price-action",
+          "evidenceIds": [
+            "pa-candlestick-8b7e13a31d0dc057",
+            "pa-pattern-candle-7b2b9c5fca68c01a",
+            "pa-pattern-candle-a98164af07c5df59",
+            "pa-pattern-candle-2a928c812ddb3627"
+          ]
+        }
+      },
+      {
+        "op": "upsert",
+        "drawing": {
+          "id": "price-action-analysis-198b3e116e540077e7-candlestick-pattern-label-3",
+          "bold": false,
+          "text": "底分型",
+          "tool": "text",
+          "layer": "ai/strategy/price-action",
+          "locked": true,
+          "points": [
+            {
+              "time": 1792494000,
+              "price": 1344.2768
+            }
+          ],
+          "status": "confirmed",
+          "symbol": "BINANCE:FUTURES:SNDKUSDT",
+          "theory": "strategy",
+          "fontSize": 12,
+          "interval": "60",
+          "colorToken": "strategy-support",
+          "strategyId": "price-action",
+          "evidenceIds": [
+            "pa-candlestick-8b7e13a31d0dc057",
+            "pa-pattern-candle-7b2b9c5fca68c01a",
+            "pa-pattern-candle-a98164af07c5df59",
+            "pa-pattern-candle-2a928c812ddb3627"
+          ]
+        }
+      },
+      {
+        "op": "upsert",
+        "drawing": {
+          "id": "price-action-analysis-198b3e116e540077e7-signal",
+          "text": "向下假突破后收回 · 结构已形成，等待条件触发",
+          "tool": "arrow-up",
+          "layer": "ai/strategy/price-action",
+          "locked": true,
+          "points": [
+            {
+              "time": 1792504800,
+              "price": 1361.76
+            }
+          ],
+          "status": "tentative",
+          "symbol": "BINANCE:FUTURES:SNDKUSDT",
+          "theory": "strategy",
+          "interval": "60",
+          "colorToken": "strategy-support",
+          "strategyId": "price-action",
+          "evidenceIds": [
+            "pa-candle-7ba7fe880c62d5d2",
+            "pa-swing-d1cd6bdbf9694955",
+            "pa-swing-28d54b29893b66b9"
+          ]
+        }
+      },
+      {
+        "op": "upsert",
+        "drawing": {
+          "id": "price-action-analysis-198b3e116e540077e7-level-main-0",
+          "text": "触发 1,391.74",
+          "tool": "path",
+          "layer": "ai/strategy/price-action",
+          "locked": true,
+          "points": [
+            {
+              "time": 1792468800,
+              "price": 1391.744
+            },
+            {
+              "time": 1792512000,
+              "price": 1391.744
+            }
+          ],
+          "status": "tentative",
+          "symbol": "BINANCE:FUTURES:SNDKUSDT",
+          "theory": "strategy",
+          "interval": "60",
+          "lineStyle": "dashed",
+          "lineWidth": 1.5,
+          "colorToken": "strategy-entry",
+          "strategyId": "price-action",
+          "evidenceIds": [
+            "pa-candle-7ba7fe880c62d5d2",
+            "pa-swing-d1cd6bdbf9694955",
+            "pa-swing-28d54b29893b66b9"
+          ]
+        }
+      },
+      {
+        "op": "upsert",
+        "drawing": {
+          "id": "price-action-analysis-198b3e116e540077e7-level-main-1",
+          "text": "失效 1,360.64",
+          "tool": "path",
+          "layer": "ai/strategy/price-action",
+          "locked": true,
+          "points": [
+            {
+              "time": 1792468800,
+              "price": 1360.636
+            },
+            {
+              "time": 1792512000,
+              "price": 1360.636
+            }
+          ],
+          "status": "tentative",
+          "symbol": "BINANCE:FUTURES:SNDKUSDT",
+          "theory": "strategy",
+          "interval": "60",
+          "lineStyle": "dashed",
+          "lineWidth": 1.5,
+          "colorToken": "strategy-stop",
+          "strategyId": "price-action",
+          "evidenceIds": [
+            "pa-candle-7ba7fe880c62d5d2",
+            "pa-swing-d1cd6bdbf9694955",
+            "pa-swing-28d54b29893b66b9"
+          ]
+        }
+      },
+      {
+        "op": "upsert",
+        "drawing": {
+          "id": "price-action-analysis-198b3e116e540077e7-level-main-2",
+          "text": "T1 1,438.41",
+          "tool": "path",
+          "layer": "ai/strategy/price-action",
+          "locked": true,
+          "points": [
+            {
+              "time": 1792468800,
+              "price": 1438.406
+            },
+            {
+              "time": 1792512000,
+              "price": 1438.406
+            }
+          ],
+          "status": "tentative",
+          "symbol": "BINANCE:FUTURES:SNDKUSDT",
+          "theory": "strategy",
+          "interval": "60",
+          "lineStyle": "dashed",
+          "lineWidth": 1.5,
+          "colorToken": "strategy-target",
+          "strategyId": "price-action",
+          "evidenceIds": [
+            "pa-candle-7ba7fe880c62d5d2",
+            "pa-swing-d1cd6bdbf9694955",
+            "pa-swing-28d54b29893b66b9"
+          ]
+        }
+      },
+      {
+        "op": "upsert",
+        "drawing": {
+          "id": "price-action-analysis-198b3e116e540077e7-level-main-3",
+          "text": "T2 1,453.96",
+          "tool": "path",
+          "layer": "ai/strategy/price-action",
+          "locked": true,
+          "points": [
+            {
+              "time": 1792468800,
+              "price": 1453.96
+            },
+            {
+              "time": 1792512000,
+              "price": 1453.96
+            }
+          ],
+          "status": "tentative",
+          "symbol": "BINANCE:FUTURES:SNDKUSDT",
+          "theory": "strategy",
+          "interval": "60",
+          "lineStyle": "dashed",
+          "lineWidth": 1.5,
+          "colorToken": "strategy-target",
+          "strategyId": "price-action",
+          "evidenceIds": [
+            "pa-candle-7ba7fe880c62d5d2",
+            "pa-swing-d1cd6bdbf9694955",
+            "pa-swing-28d54b29893b66b9"
+          ]
+        }
+      }
+    ],
+    "baseRevision": 0,
+    "schemaVersion": 1
+  }
+}

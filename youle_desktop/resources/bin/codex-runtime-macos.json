@@ -1,10 +1,10 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "platform": "darwin",
-  "version": "0.144.1",
-  "versionOutput": "codex-cli 0.144.1",
-  "releaseTag": "rust-v0.144.1",
-  "releaseUrl": "https://github.com/openai/codex/releases/tag/rust-v0.144.1",
+  "version": "0.163.0",
+  "versionOutput": "codex-cli 0.163.0",
+  "releaseTag": "rust-v0.163.0",
+  "releaseUrl": "https://github.com/openai/codex/releases/tag/rust-v0.163.0",
   "signature": {
     "authority": "Developer ID Application: OpenAI OpCo, LLC (2DC432GLL2)",
     "teamIdentifier": "2DC432GLL2"
@@ -14,25 +14,25 @@
       "arch": "arm64",
       "path": "darwin-arm64/haolo_ai",
       "machOArchitecture": "arm64",
-      "sourceName": "codex-aarch64-apple-darwin",
-      "sourceAsset": "codex-aarch64-apple-darwin.tar.gz",
-      "sourceAssetUrl": "https://github.com/openai/codex/releases/download/rust-v0.144.1/codex-aarch64-apple-darwin.tar.gz",
-      "sourceAssetSize": 98299911,
-      "sourceAssetSha256": "88e72ac8bd30815f7d18e62dac333dc20ce3ad1cba94be1649a1977dd9bfdbb8",
-      "size": 260405808,
-      "sha256": "29915529b97697def1a957b0505e770aa6a45744435d62fc263e98d7619e167a"
+      "sourceName": "bin/codex",
+      "sourceAsset": "codex-package-aarch64-apple-darwin.tar.gz",
+      "sourceAssetUrl": "https://github.com/openai/codex/releases/download/rust-v0.163.0/codex-package-aarch64-apple-darwin.tar.gz",
+      "sourceAssetSize": 133412281,
+      "sourceAssetSha256": "b0344fc2e41f15e0071147e5869008047b8ff4bf2c4a8897975d3bae3f103b34",
+      "size": 249952688,
+      "sha256": "8813367285524ac798dd96d1b071aea30d58708c7226fd236cd275cf1cfdee31"
     },
     {
       "arch": "x64",
       "path": "darwin-x64/haolo_ai",
       "machOArchitecture": "x86_64",
-      "sourceName": "codex-x86_64-apple-darwin",
-      "sourceAsset": "codex-x86_64-apple-darwin.tar.gz",
-      "sourceAssetUrl": "https://github.com/openai/codex/releases/download/rust-v0.144.1/codex-x86_64-apple-darwin.tar.gz",
-      "sourceAssetSize": 107297255,
-      "sourceAssetSha256": "0ea72d21c794504342d5fe0d5d057b0221c0a42f4bdf4a48b95af243af2b0c0e",
-      "size": 282836688,
-      "sha256": "c6eb747e4145ecb3bed2647dbd0f8464b190a5ccba964666ef7c98d4681a4a4c"
+      "sourceName": "bin/codex",
+      "sourceAsset": "codex-package-x86_64-apple-darwin.tar.gz",
+      "sourceAssetUrl": "https://github.com/openai/codex/releases/download/rust-v0.163.0/codex-package-x86_64-apple-darwin.tar.gz",
+      "sourceAssetSize": 144982749,
+      "sourceAssetSha256": "0c182d6194da7003943678dc87866b54b3dee719edaf8d092f304affbc6b57d1",
+      "size": 269718432,
+      "sha256": "73697f229103f463acaafd8659976caaa4892ec11e2c246c7fa97f93d523f90e"
     }
   ],
   "tools": [
@@ -69,6 +69,32 @@
           "sha256": "3bafa7e6ee51ba3ac4ed065883484a309be09b26ea6dad561ae4049bfe049c50"
         }
       ]
+    }
+  ],
+  "companions": [
+    {
+      "arch": "arm64",
+      "path": "darwin-arm64/codex-code-mode-host",
+      "machOArchitecture": "arm64",
+      "sourceName": "bin/codex-code-mode-host",
+      "sourceAsset": "codex-package-aarch64-apple-darwin.tar.gz",
+      "sourceAssetUrl": "https://github.com/openai/codex/releases/download/rust-v0.163.0/codex-package-aarch64-apple-darwin.tar.gz",
+      "sourceAssetSize": 133412281,
+      "sourceAssetSha256": "b0344fc2e41f15e0071147e5869008047b8ff4bf2c4a8897975d3bae3f103b34",
+      "size": 65643072,
+      "sha256": "79f123a85dbc61e8f5d0f0c050dfc3f4b81a8305d33a32b41e008b7f6e035698"
+    },
+    {
+      "arch": "x64",
+      "path": "darwin-x64/codex-code-mode-host",
+      "machOArchitecture": "x86_64",
+      "sourceName": "bin/codex-code-mode-host",
+      "sourceAsset": "codex-package-x86_64-apple-darwin.tar.gz",
+      "sourceAssetUrl": "https://github.com/openai/codex/releases/download/rust-v0.163.0/codex-package-x86_64-apple-darwin.tar.gz",
+      "sourceAssetSize": 144982749,
+      "sourceAssetSha256": "0c182d6194da7003943678dc87866b54b3dee719edaf8d092f304affbc6b57d1",
+      "size": 69667456,
+      "sha256": "0b19cc492c7ce87cf2a7f8a872370d0851c564cbc229aebca1ba337b4b29ce30"
     }
   ]
 }

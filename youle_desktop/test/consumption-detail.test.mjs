@@ -805,9 +805,15 @@ test("consumption record rows reuse history navigation to open and highlight the
 test("all supported task sources report one interaction lifecycle", async () => {
   const [renderer, mainProcess, apiClient] = await Promise.all([rendererSource, mainProcessSource, apiClientSource]);
 
-  assert.match(renderer, /sourceType: "wechat"/);
-  assert.match(renderer, /sourceType: "feishu"/);
-  assert.match(renderer, /sourceType: "telegram"/);
+  const channelInput = await readFile(new URL("../src/main/channel-codex-input.mjs", import.meta.url), "utf8");
+  assert.match(channelInput, /sourceType: params.channel/);
+  for (const channel of ["wechat", "feishu", "telegram"]) {
+    assert.match(renderer, new RegExp(`return runIsolatedChannelAgent\\("${channel}"`));
+  }
+  const channels = sourceBlock(mainProcess, "async function sendChannelCodexMessage", 'ipcMain.handle("codex:interruptChannelMessage"');
+  assert.match(channels, /sourceType: params.sourceType/);
+  assert.match(channels, /rememberConsumptionInteraction\(interaction\)/);
+  assert.match(channels, /completeConsumptionInteraction\(/);
   assert.match(renderer, /sourceType: selectedProvider/);
   assert.match(renderer, /sourceType: "video"/);
   assert.match(mainProcess, /sourceType: "auto_task"/);
@@ -826,9 +832,9 @@ test("all supported task sources report one interaction lifecycle", async () => 
   assert.match(mainProcess, /createSerializedConsumptionReporter/);
   assert.match(mainProcess, /question: visibleQuestion/);
   assert.match(renderer, /visibleQuestion: request\.prompt/);
-  assert.match(renderer, /steerExternalChannelBusyMessage\("wechat"/);
-  assert.match(renderer, /steerExternalChannelBusyMessage\("feishu"/);
-  assert.match(renderer, /steerExternalChannelBusyMessage\("telegram"/);
+  assert.doesNotMatch(renderer, /steerExternalChannelBusyMessage/);
+  assert.match(renderer, /stopExternalChannelBusyMessage\("feishu"/);
+  assert.match(renderer, /stopExternalChannelBusyMessage\("telegram"/);
   assert.match(apiClient, /"X-Haolo-Interaction-ID"/);
   assert.match(apiClient, /"X-Haolo-Conversation-ID"/);
   assert.match(apiClient, /"X-Haolo-Source-Type"/);

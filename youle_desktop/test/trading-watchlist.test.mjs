@@ -104,6 +104,22 @@ test("membership is independent across default and custom lists and market ident
   assert.equal(store.groups[2].markets.length, 0);
 });
 
+test("new members and batches prepend in each editable group without moving existing members", () => {
+  const storage = memoryStorage();
+  const store = new TradingWatchlistStore(storage, "newest", normalize);
+  for (const custom of [false, true]) {
+    if (custom) store.addGroup("观察组");
+    store.addMarkets([record("BTC"), record("ETH")]);
+    store.setMembership(record("SOL"), true);
+    store.setMembership(record("BTC"), true);
+    assert.deepEqual(store.activeGroup.markets.map(m => m.baseAsset), ["SOL", "BTC", "ETH"]);
+    store.addMarkets([record("XAU"), record("SOL"), record("BNB"), record("XAU")]);
+    const expected = ["XAU", "BNB", "SOL", "BTC", "ETH"];
+    assert.deepEqual(store.activeGroup.markets.map(m => m.baseAsset), expected);
+    assert.deepEqual(new TradingWatchlistStore(storage, "newest", normalize).activeGroup.markets.map(m => m.baseAsset), expected);
+  }
+});
+
 test("group selection, expansion, members and drag order persist only for the current account", () => {
   const storage = memoryStorage();
   const store = new TradingWatchlistStore(
@@ -113,8 +129,7 @@ test("group selection, expansion, members and drag order persist only for the cu
   );
   store.addGroup("观察组");
   const groupId = store.activeGroup.id;
-  for (const symbol of ["BTC", "ETH", "SOL"])
-    store.setMembership(record(symbol), true);
+  store.addMarkets(["BTC", "ETH", "SOL"].map(symbol => record(symbol)));
   store.move(record("SOL").id, record("BTC").id, false);
   store.expanded = true;
   store.save();
@@ -142,8 +157,7 @@ test("group selection, expansion, members and drag order persist only for the cu
 
 test("moving rows works in both directions and cannot corrupt other groups or drop unknown IDs", () => {
   const store = new TradingWatchlistStore(memoryStorage(), "", normalize);
-  for (const symbol of ["BTC", "ETH", "SOL"])
-    store.setMembership(record(symbol), true);
+  store.addMarkets(["BTC", "ETH", "SOL"].map(symbol => record(symbol)));
   store.addGroup("观察组");
   store.setMembership(record("BTC"), true);
   store.selectGroup("watchlist");
@@ -215,7 +229,7 @@ test("fixed recommendations add only the selected Binance USDT perpetuals once, 
   const selected = WATCHLIST_RECOMMENDED_MARKETS.filter(m => ["BTC", "MU", "XAU"].includes(m.baseAsset));
   store.addMarkets(selected);
   store.addMarkets(selected);
-  assert.deepEqual(store.activeGroup.markets.map(m => m.id), [record("BTC", "spot").id, ...selected.map(m => m.id)]);
+  assert.deepEqual(store.activeGroup.markets.map(m => m.id), [...selected.map(m => m.id), record("BTC", "spot").id]);
   store.addGroup("推荐");
   store.addMarkets(WATCHLIST_RECOMMENDED_MARKETS);
   assert.deepEqual(store.activeGroup.markets, WATCHLIST_RECOMMENDED_MARKETS);
@@ -401,7 +415,7 @@ test("history collapse updates a live workspace or restores a collapsed list for
 test("composer sends collapse only the active trading watchlist after content and send guards pass", async () => {
   const source = await readFile(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
   const start = source.indexOf("async function sendCurrentMessage(");
-  const end = source.indexOf("  const tradingExpertRoutingText =", start);
+  const end = source.indexOf("  const tradingAnalysisTargetAtSend =", start);
   assert.ok(start >= 0 && end > start);
   // Run the real send preflight without dispatching a model request.
   const compiled = ts.transpileModule(source.slice(start, end) + "\n}", {
@@ -425,6 +439,7 @@ test("composer sends collapse only the active trading watchlist after content an
     const input = { value: scenario.text };
     const context = {
       state: {
+        serverReady: true,
         currentThreadId: scenario.currentThreadId || "task",
         attachments: scenario.attachments || [],
         voiceInput: { status: scenario.voiceStatus || "idle" },

@@ -102,12 +102,10 @@
       "src/main/personal-context/trading-preference-form.mjs",
       "src/main/trading-analysis/app-server-provider.mjs",
       "src/main/trading-analysis/diagnostics.mjs",
-      "src/main/trading-analysis/external-strategy-router.mjs",
       "src/main/trading-analysis/failure.mjs",
-      "src/main/trading-analysis/general-request-router.mjs",
       "src/main/trading-analysis/model-budget.mjs",
       "src/main/trading-analysis/model-provider.mjs",
-      "src/main/trading-analysis/request-routing-policy.mjs",
+      "src/main/trading-analysis/user-constraints.mjs",
       "src/main/trading-analysis/strategy-selection.mjs",
       "src/main/trading-strategy-runtime/cloud-alert-feed.mjs",
       "src/main/trading-strategy-runtime/cloud-catalog.mjs",
@@ -167,21 +165,55 @@
       ],
       "artifactName": "${productName}-${version}-Setup.${ext}",
       "extraResources": [
-        { "from": "resources/bin/haolo_ai.exe", "to": "bin/haolo_ai.exe" },
-        { "from": "resources/bin/codex-command-runner.exe", "to": "bin/codex-command-runner.exe" },
-        { "from": "resources/bin/codex-windows-sandbox-setup.exe", "to": "bin/codex-windows-sandbox-setup.exe" },
-        { "from": "resources/bin/codex-runtime.json", "to": "bin/codex-runtime.json" },
-        { "from": "resources/bin/haolo-chrome-native-host.exe", "to": "bin/haolo-chrome-native-host.exe" },
+        {
+          "from": "resources/bin/haolo_ai.exe",
+          "to": "bin/haolo_ai.exe"
+        },
+        {
+          "from": "resources/bin/codex-command-runner.exe",
+          "to": "bin/codex-command-runner.exe"
+        },
+        {
+          "from": "resources/bin/codex-windows-sandbox-setup.exe",
+          "to": "bin/codex-windows-sandbox-setup.exe"
+        },
+        {
+          "from": "resources/bin/codex-runtime.json",
+          "to": "bin/codex-runtime.json"
+        },
+        {
+          "from": "resources/bin/haolo-chrome-native-host.exe",
+          "to": "bin/haolo-chrome-native-host.exe"
+        },
         {
           "from": "resources/default-haolo-ai",
           "to": "default-haolo-ai",
-          "filter": ["**/*", "!**/auth.json", "!**/auth.zip"]
+          "filter": [
+            "**/*",
+            "!**/auth.json",
+            "!**/auth.zip"
+          ]
         },
-        { "from": "resources/mcp", "to": "mcp" },
-        { "from": "extensions/haolo-chrome", "to": "chrome-extension" },
-        { "from": "resources/chrome-release-policy.json", "to": "chrome-release-policy.json" },
-        { "from": "resources/binance-gateway.json", "to": "binance-gateway.json" },
-        { "from": "scripts/clean-haolo-user-config.cmd", "to": "clean-haolo-user-config.cmd" }
+        {
+          "from": "resources/mcp",
+          "to": "mcp"
+        },
+        {
+          "from": "extensions/haolo-chrome",
+          "to": "chrome-extension"
+        },
+        {
+          "from": "resources/chrome-release-policy.json",
+          "to": "chrome-release-policy.json"
+        },
+        {
+          "from": "resources/binance-gateway.json",
+          "to": "binance-gateway.json"
+        },
+        {
+          "from": "scripts/clean-haolo-user-config.cmd",
+          "to": "clean-haolo-user-config.cmd"
+        }
       ]
     },
     "mac": {
@@ -195,27 +227,77 @@
       "entitlementsInherit": "resources/entitlements.mac.inherit.plist",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
-      "target": [{ "target": "dmg" }],
+      "target": [
+        {
+          "target": "dmg"
+        }
+      ],
       "artifactName": "好咯-${version}-${arch}.${ext}",
       "extraResources": [
-        { "from": "resources/haolo-logo.icns", "to": "haolo-logo.icns" },
-        { "from": "resources/haolo-logo.svg", "to": "haolo-logo.svg" },
-        { "from": "resources/haolo-tray-icon.png", "to": "haolo-tray-icon.png" },
-        { "from": "resources/bin/darwin-${arch}/haolo_ai", "to": "bin/haolo_ai" },
-        { "from": "resources/bin/darwin-${arch}/rg", "to": "bin/rg" },
-        { "from": "resources/licenses/ripgrep-LICENSE-MIT.txt", "to": "licenses/ripgrep-LICENSE-MIT.txt" },
+        {
+          "from": "resources/haolo-logo.icns",
+          "to": "haolo-logo.icns"
+        },
+        {
+          "from": "resources/haolo-logo.svg",
+          "to": "haolo-logo.svg"
+        },
+        {
+          "from": "resources/haolo-tray-icon.png",
+          "to": "haolo-tray-icon.png"
+        },
+        {
+          "from": "resources/bin/darwin-${arch}/haolo_ai",
+          "to": "bin/haolo_ai"
+        },
+        {
+          "from": "resources/bin/darwin-${arch}/rg",
+          "to": "bin/rg"
+        },
+        {
+          "from": "resources/bin/darwin-${arch}/codex-code-mode-host",
+          "to": "bin/codex-code-mode-host"
+        },
+        {
+          "from": "resources/licenses/ripgrep-LICENSE-MIT.txt",
+          "to": "licenses/ripgrep-LICENSE-MIT.txt"
+        },
         {
           "from": "resources/default-haolo-ai",
           "to": "default-haolo-ai",
-          "filter": ["**/*", "!**/*.exe", "!**/*.cmd", "!**/*.dll", "!**/*.bat", "!**/*.ps1", "!**/*.msi", "!**/codex-runtime.json", "!**/auth.json", "!**/auth.zip"]
+          "filter": [
+            "**/*",
+            "!**/*.exe",
+            "!**/*.cmd",
+            "!**/*.dll",
+            "!**/*.bat",
+            "!**/*.ps1",
+            "!**/*.msi",
+            "!**/codex-runtime.json",
+            "!**/auth.json",
+            "!**/auth.zip"
+          ]
         },
         {
           "from": "resources/mcp",
           "to": "mcp",
-          "filter": ["**/*", "!**/*.exe", "!**/*.cmd", "!**/*.dll", "!**/*.bat", "!**/*.ps1", "!**/*.msi", "!**/codex-runtime.json"]
+          "filter": [
+            "**/*",
+            "!**/*.exe",
+            "!**/*.cmd",
+            "!**/*.dll",
+            "!**/*.bat",
+            "!**/*.ps1",
+            "!**/*.msi",
+            "!**/codex-runtime.json"
+          ]
         }
       ],
-      "binaries": ["Contents/Resources/bin/haolo_ai", "Contents/Resources/bin/rg"]
+      "binaries": [
+        "Contents/Resources/bin/haolo_ai",
+        "Contents/Resources/bin/rg",
+        "Contents/Resources/bin/codex-code-mode-host"
+      ]
     },
     "dmg": {
       "artifactName": "好咯-${version}-${arch}.${ext}",

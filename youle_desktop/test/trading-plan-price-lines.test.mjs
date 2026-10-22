@@ -22,7 +22,7 @@ test('five plan levels reuse account-line labels with exact prices and no accoun
   assert.equal(drawingIds.size, 5);
   assert.deepEqual(lines.map(line => line.shortLabel), ['入场', '止损', '第1止盈', '第2止盈', '第3止盈']);
   assert.deepEqual(lines.map(line => line.kind), ['plan-entry', 'stop-loss', 'take-profit', 'take-profit', 'take-profit']);
-  assert.equal(lines.at(-1).label, '1,285.246');
+  assert.equal(lines.at(-1).label, '1285.246', 'same decimal formatting as the plan card');
   const bounds = { width: 1000, height: 600 }, project = price => (1500 - price) * 2;
   const svg = renderTradingOrderLineSvg(lines, market, bounds, project);
   assert.equal((svg.match(/data-trading-plan-price-line/g) || []).length, 5);
@@ -115,7 +115,7 @@ test('controller keeps plan visibility, playback, pane and market scoping indepe
     getCandleSeries: () => ({ priceToCoordinate: price => (1500 - price) * scale }),
     plotBounds: () => ({ width: 1000, height: 600 }), selectedDrawing: () => null,
     overlay: { classList: { remove() {} }, getAttribute: key => attributes.get(key), setAttribute: (key, value) => attributes.set(key, value) },
-    orderLineContent: layer(), orderPositionCardLayer: layer(), aiContent: layer(), aiTextHitContent: layer(), aiCursorContent: layer(),
+    content: layer(), orderLineContent: layer(), orderPositionCardLayer: layer(), aiContent: layer(), aiTextHitContent: layer(), aiCursorContent: layer(),
     manualLayer: { render() {} }, visibleCandleObstacles: () => [],
     renderDrawing: drawing => `<path data-original="${drawing.id}"/>`,
   });
@@ -131,10 +131,18 @@ test('controller keeps plan visibility, playback, pane and market scoping indepe
   assert.notEqual(controller.orderLineContent.innerHTML, before);
   for (const manualHidden of [true, false]) {
     Object.assign(controller.drawingVisibility, { aiHidden: true, manualHidden });
-    controller.redraw(); assert.equal(count(), 0);
+    controller.redraw(); assert.equal(count(), 5, 'hiding AI geometry preserves plan levels');
     assert.match(controller.orderLineContent.innerHTML, /data-trading-order-line="account-order"/);
     controller.drawingVisibility.aiHidden = false;
   }
+  for (const aiHidden of [true, false]) for (const manualHidden of [true, false])
+    for (const plansHidden of [true, false]) for (const ordersHidden of [true, false]) {
+      Object.assign(controller.drawingVisibility, { aiHidden, manualHidden, plansHidden, ordersHidden });
+      controller.redraw();
+      assert.equal(count(), plansHidden ? 0 : 5);
+      assert.equal(controller.orderLineContent.innerHTML.includes('data-trading-order-line="account-order"'), !ordersHidden);
+    }
+  Object.assign(controller.drawingVisibility, { aiHidden: false, manualHidden: true, plansHidden: false, ordersHidden: false });
   interval = '4h'; controller.redraw(); assert.equal(count(), 0);
   interval = '1h'; symbol = 'BINANCE:FUTURES:BTCUSDT'; controller.redraw(); assert.equal(count(), 0);
   symbol = market; controller.drawingScope = 'indicator:volume'; controller.redraw(); assert.equal(count(), 0);

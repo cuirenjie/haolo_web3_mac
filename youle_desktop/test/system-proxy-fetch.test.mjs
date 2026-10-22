@@ -3,7 +3,7 @@ import test from "node:test";
 import { createSystemProxyFetch, networkErrorCode } from "../src/main/system-proxy-fetch.mjs";
 
 const reset = () => new Error("net::ERR_CONNECTION_RESET");
-function fixture(fetchImpl, overrides = {}) {
+function fixture(fetchImpl, overrides = {}, configurationTimeoutMs = 3_000) {
   const calls = { configurations: [], refreshes: 0, requests: [], diagnostics: [] };
   const ses = {
     setProxy: async (config) => { calls.configurations.push(config); },
@@ -12,7 +12,7 @@ function fixture(fetchImpl, overrides = {}) {
     closeAllConnections: () => assert.fail("Must not close in-flight streams"),
     ...overrides,
   };
-  return { calls, fetch: createSystemProxyFetch({ getSession: () => ses, onDiagnostic: (entry) => calls.diagnostics.push(entry), configurationTimeoutMs: 30 }) };
+  return { calls, fetch: createSystemProxyFetch({ getSession: () => ses, onDiagnostic: (entry) => calls.diagnostics.push(entry), configurationTimeoutMs }) };
 }
 
 test("uses one system/PAC session and preserves auth, bytes and caller cancellation", async () => {
@@ -93,7 +93,7 @@ test("cancellation during proxy refresh does not start another request", async (
 });
 
 test("proxy refresh timeout preserves the network error without an infinite wait", async () => {
-  const f = fixture(async () => { throw reset(); }, { forceReloadProxyConfig: () => new Promise(() => {}) });
+  const f = fixture(async () => { throw reset(); }, { forceReloadProxyConfig: () => new Promise(() => {}) }, 30);
   await assert.rejects(f.fetch("https://haolo.com/api/test"), /ERR_CONNECTION_RESET/);
   assert.equal(f.calls.requests.length, 1);
 });

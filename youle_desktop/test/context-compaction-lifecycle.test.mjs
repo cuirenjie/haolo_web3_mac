@@ -4,6 +4,7 @@ import vm from "node:vm";
 import test from "node:test";
 import ts from "typescript";
 import { errorSignals } from "../src/main/error-signals.mjs";
+import { ExternalChannelRecoveryTurns } from "../src/renderer/external-channel-recovery.mjs";
 import * as lifecycle from "../src/renderer/context-compaction-lifecycle.ts";
 import { GENERATED_ENGLISH_UI_PHRASES } from "../src/renderer/app-language-en-generated.mjs";
 import { GENERATED_TRADITIONAL_UI_PHRASES } from "../src/renderer/app-language-zh-tw-generated.mjs";
@@ -49,6 +50,7 @@ function harness() {
     contextCompactionTerminalTurns: new Map(), activeCodexThreadIds: new Set(), pendingCodexTurns: new Map(),
     threadsAwaitingAgentReply: new Set(), contextWindowRecoveryReplays: new Map(), internalSubagentThreadIds: new Set(),
     interruptedCodexTurnIds: new Set(), automaticTurnRecoveryNoticeKeys: new Set(),
+    externalChannelRecoveryTurns: new ExternalChannelRecoveryTurns(),
     activeCodexSendSequences: new Map(), interruptedCodexSendSequences: new Map(), localHistoryAheadThreadIds: new Set(),
     firstString: (...values) => values.find((value) => typeof value === "string" && value.trim()) || null,
     errorMessage: (error) => error?.message || String(error || ""),
@@ -280,10 +282,12 @@ test("the main process always forwards recovery exhaustion with its turn identit
   const ast = ts.createSourceFile("main.mjs", main, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
   const fn = ast.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === "handleAutomaticTurnRecoveryEvent");
   const messages = [];
-  const runtime = { appendAppServerLogLine() {}, safeLogToken: String, sendToRenderer: (channel, message) => messages.push({ channel, message }) };
+  const cancelled = [];
+  const runtime = { codexBusinessTools: { cancel: (...args) => cancelled.push(args) }, appendAppServerLogLine() {}, safeLogToken: String, sendToRenderer: (channel, message) => messages.push({ channel, message }) };
   vm.runInNewContext(fn.getText(ast), runtime);
   runtime.handleAutomaticTurnRecoveryEvent({ event: "exhausted", threadId: "thread", failedTurnId: "turn", failedToStart: false });
   assert.equal(messages.length, 1);
   assert.equal(messages[0].message.params.turnId, "turn");
   assert.equal(messages[0].message.params.haoloAutoRecovery.status, "exhausted");
+  assert.equal(cancelled[0][0], "thread");
 });

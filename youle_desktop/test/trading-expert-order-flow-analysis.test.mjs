@@ -281,12 +281,12 @@ test("neutral order-flow review keeps both deterministic sides as separate execu
     providerId: "fixture-provider",
   });
   assert.equal(result.analysisPlan.actionPlan.primaryBias, "neutral");
-  // The original micro-range ends exactly at the risk floor: it cannot safely
-  // fit three distinct exits. Preserve that refusal, then exercise the neutral
-  // routing/card contract with explicit, sufficiently separated fixture levels.
-  assert.deepEqual(buildExecutionPlanV1({ id: "order-flow", version: "1.0.0" }, result).scenarios, []);
-  result.analysisPlan.actionPlan = executableOrderFlowFixtureLevels(result.analysisPlan.actionPlan);
-  const plan = buildExecutionPlanV1({ id: "order-flow", version: "1.0.0" }, result);
+  const defaultPlan = buildExecutionPlanV1({ id: "order-flow", version: "1.0.0" }, result);
+  assert.equal(defaultPlan.action, "insufficient_data", "the fixture's net R/R is below the default 0.4 floor");
+  assert.deepEqual(defaultPlan.scenarios, [], "never invent targets to force a qualifying trade");
+  const plan = buildExecutionPlanV1({ id: "order-flow", version: "1.0.0" }, result, {
+    userRiskProfile: { minimumRiskRewardRatio: 0.2 },
+  });
   assert.equal(plan.preferredSide, "neutral");
   assert.deepEqual(plan.scenarios.map((scenario) => scenario.side), ["long", "short"]);
   const markdown = formatExecutionPlanMarkdown(plan);
@@ -319,6 +319,7 @@ test("English order-flow execution plans keep localized target evidence and rema
   result.analysisPlan.actionPlan = executableOrderFlowFixtureLevels(result.analysisPlan.actionPlan);
   const plan = buildExecutionPlanV1({ id: "order-flow", version: "1.0.0" }, result, {
     candles: fixtureParams().candles,
+    userRiskProfile: { minimumRiskRewardRatio: 0.2 },
   });
   const report = formatExecutionPlanMarkdown(plan, { language: "en" });
   const partitions = executionPlanTextPartitions(report);
@@ -555,26 +556,26 @@ test("Trading Expert wires @策略:订单流 through IPC, real Binance inputs, p
     readFile(new URL("../src/main/preload.mjs", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/main.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/trading-strategy-runtime/catalog.ts", import.meta.url), "utf8"),
-    readFile(new URL("../src/renderer/trading-strategy-runtime/client.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/main/codex-business-tools.mjs", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/trading-expert-market.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/trading-expert-drawing.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/trading-expert-ai-playback.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/styles.css", import.meta.url), "utf8"),
   ]);
 
-  assert.match(mainSource, /tradingAnalysis:classifyOrderFlowRequest/);
+  assert.doesNotMatch(mainSource, /tradingAnalysis:classifyOrderFlowRequest/);
   assert.match(orderFlowAdapterSource, /deterministicRouting:\s*deterministicOrderFlowChartRequest/);
   assert.match(coordinatorSource, /buildGeneralRequestRoutingPrompt/);
   assert.match(coordinatorSource, /source: "model-first-unified-intent"/);
   assert.match(coordinatorSource, /source: "deterministic-recovery"/);
   assert.match(mainSource, /tradingAnalysis:runOrderFlow/);
-  assert.match(preloadSource, /classifyTradingOrderFlowRequest/);
+  assert.doesNotMatch(preloadSource, /classifyTradingOrderFlowRequest/);
   assert.match(preloadSource, /runTradingOrderFlowAnalysis/);
-  assert.match(rendererSource, /await classifyTradingStrategyForSend\(/);
-  assert.match(clientSource, /client\.classifyTradingStrategyRequest\(/);
-  assert.match(rendererSource, /tradingStrategyRequestAtSend\?\.mode === "chart-analysis"/);
-  assert.match(rendererSource, /runTradingStrategyChartRequest\(threadId, tradingStrategyAtSend/);
-  assert.match(catalogSource, /buildTradingOrderFlowExpertPrompt/);
+  assert.match(rendererSource, /const codexTradingTools = new CodexTradingTools\(/);
+  assert.match(clientSource, /resolveExplicitTradingStrategyIds/);
+  assert.match(rendererSource, /mode: "chart-analysis" as const, instruction: String\(args\.instruction/);
+  assert.match(rendererSource, /runTradingStrategyChartRequest\(threadId, strategy, request\)/);
+  assert.match(catalogSource, /OFFICIAL_TRADING_CATALOG/);
   assert.match(
     rendererSource,
     /\["<haolo_trading_order_flow_expert_prompt>", "<\/haolo_trading_order_flow_expert_prompt>"\]/,

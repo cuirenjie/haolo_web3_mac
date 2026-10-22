@@ -238,7 +238,7 @@ test("order labels follow price coordinates, filter by market, and avoid collisi
     { width: 900, height: 400 },
     [{ x: 120, y: 20, width: 18, height: 40 }],
   );
-  assert.equal(rightmostLeft, 668);
+  assert.equal(rightmostLeft + 160, 892, 'use the blank area beside the price axis');
   const clearLeftOfCurrentCandles = layoutTradingOrderLineLabelLeft(
     160,
     40,
@@ -259,7 +259,8 @@ test("order labels follow price coordinates, filter by market, and avoid collisi
     { width: 900, height: 400 },
     denseCandles,
   );
-  assert.equal(denseFallbackLeft, 378);
+  assert.ok(denseFallbackLeft >= 8 && denseFallbackLeft + 160 <= denseCandles.at(-8).x - 4,
+    'when candles fill the viewport, protect the most recent eight bars');
 
   const svg = renderTradingOrderLineSvg(
     lines,
@@ -273,7 +274,8 @@ test("order labels follow price coordinates, filter by market, and avoid collisi
   assert.doesNotMatch(svg, /不应显示/);
   assert.match(svg, /trading-order-line-label-bg/);
   assert.match(svg, /x1="0"[^>]*x2="900"/);
-  assert.match(svg, /data-order-label-left="498"/);
+  const left = Number(svg.match(/data-order-label-left="([^"]+)"/)[1]);
+  assert.ok(left >= 734 || left < 650, 'use right-side whitespace or move left of the candles');
   assert.match(svg, /trading-order-line-label-bg[^>]*height="13"/);
   assert.doesNotMatch(svg, /trading-order-line-label-(?:bg|key|key-square)[^>]*height="15"/);
   assert.doesNotMatch(svg, /trading-order-line-label-(?:bg|key|key-square)[^>]*height="18"/);

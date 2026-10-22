@@ -126,12 +126,12 @@ const ORDER_LINE_LABEL_TEXT_GAP = 6;
 const ORDER_LINE_LABEL_RIGHT_PADDING = 10;
 const ORDER_LINE_DEFAULT_KEY_WIDTH = 52;
 const ORDER_LINE_PRICE_LEVEL_LABEL_GAP = 12;
-const ORDER_LINE_PRICE_AXIS_GUTTER = 72;
+// plot bounds already exclude the price axis; use the empty space beside it.
+const ORDER_LINE_PRICE_AXIS_GUTTER = 8;
 const ORDER_POSITION_CARD_GAP = 5;
 const ORDER_LINE_CANDLE_GAP = 4;
 const ORDER_LINE_RECENT_CANDLE_COUNT = 8;
 const ORDER_LINE_HORIZONTAL_SCAN_STEP = 4;
-const ORDER_LINE_LABEL_MINIMUM_VIEWPORT_RATIO = 0.42;
 
 function finitePositive(value: unknown) {
   const number = Number(value);
@@ -493,16 +493,14 @@ export function layoutTradingOrderLineLabelLeft(
   labelY: number,
   bounds: { width: number; height: number },
   candleObstacles: readonly TradingOrderLineCandleObstacle[] = [],
+  annotationObstacles: readonly TradingOrderLineCandleObstacle[] = [],
 ) {
-  const labelRight = Math.max(150, bounds.width - ORDER_LINE_PRICE_AXIS_GUTTER);
+  const labelRight = Math.max(1, bounds.width - ORDER_LINE_PRICE_AXIS_GUTTER);
   const normalizedWidth = Math.min(Math.max(labelWidth, 1), Math.max(1, labelRight - 12));
-  const minimumLeft = Math.min(
-    Math.max(8, bounds.width * ORDER_LINE_LABEL_MINIMUM_VIEWPORT_RATIO),
-    Math.max(8, labelRight - normalizedWidth),
-  );
+  const minimumLeft = Math.min(8, Math.max(0, labelRight - normalizedWidth));
   const maximumLeft = Math.max(minimumLeft, labelRight - normalizedWidth);
   const labelTop = labelY - ORDER_LINE_LABEL_HEIGHT / 2;
-  const relevantObstacles = candleObstacles.flatMap((obstacle) => {
+  const relevant = (obstacles: readonly TradingOrderLineCandleObstacle[]) => obstacles.flatMap((obstacle) => {
     if (
       !Number.isFinite(obstacle.x)
       || !Number.isFinite(obstacle.y)
@@ -522,6 +520,9 @@ export function layoutTradingOrderLineLabelLeft(
       height: Math.min(bounds.height, obstacle.y + obstacle.height) - Math.max(0, obstacle.y),
     }];
   });
+  const relevantCandles = relevant(candleObstacles);
+  const relevantAnnotations = relevant(annotationObstacles);
+  const relevantObstacles = [...relevantCandles, ...relevantAnnotations];
   if (!relevantObstacles.length) return maximumLeft;
 
   const clampLeft = (left: number) => Math.min(maximumLeft, Math.max(minimumLeft, left));
@@ -547,7 +548,7 @@ export function layoutTradingOrderLineLabelLeft(
   ));
   if (collisionFree !== undefined) return collisionFree;
 
-  const recentObstacles = new Set([...relevantObstacles]
+  const recentObstacles = new Set([...relevantCandles]
     .sort((first, second) => (
       second.x + second.width - (first.x + first.width)
     ))
@@ -570,13 +571,17 @@ export function layoutTradingOrderLineLabelLeft(
     });
     return {
       left,
+      // Text must remain readable even when no candle-free position exists.
+      annotationArea: relevantAnnotations.reduce((total, obstacle) => (
+        total + orderLineRectOverlapArea(rect, obstacle, ORDER_LINE_CANDLE_GAP)
+      ), 0),
       score: recentOverlapCount * 1_000_000_000_000
         + recentOverlapArea * 100_000_000
         + overlapCount * 1_000_000
         + overlapArea * 100
         + (maximumLeft - left),
     };
-  }).sort((first, second) => first.score - second.score)[0]?.left ?? maximumLeft;
+  }).sort((first, second) => first.annotationArea - second.annotationArea || first.score - second.score)[0]?.left ?? maximumLeft;
 }
 
 function escapeXml(value: string) {
@@ -594,6 +599,7 @@ function visibleTradingOrderLineGeometry(
   bounds: { width: number; height: number },
   priceToCoordinate: (price: number) => number | null,
   candleObstacles: readonly TradingOrderLineCandleObstacle[],
+  annotationObstacles: readonly TradingOrderLineCandleObstacle[],
 ): TradingOrderLineRenderGeometry[] {
   const visible = lines.flatMap((line) => {
     if (line.marketId !== market) return [];
@@ -602,7 +608,7 @@ function visibleTradingOrderLineGeometry(
       ? [{ line, lineY }]
       : [];
   });
-  const labelRight = Math.max(150, bounds.width - ORDER_LINE_PRICE_AXIS_GUTTER);
+  const labelRight = Math.max(1, bounds.width - ORDER_LINE_PRICE_AXIS_GUTTER);
   const grouped = new Map<number, Array<{ line: TradingOrderLine; lineY: number; labelWidth: number }>>();
   visible.forEach((entry) => {
     const member = {
@@ -630,6 +636,7 @@ function visibleTradingOrderLineGeometry(
       entry.labelY,
       bounds,
       candleObstacles,
+      annotationObstacles,
     );
     return members.map((member, priceLevelIndex) => {
       const labelLeft = nextLeft;
@@ -825,6 +832,7 @@ export function renderTradingOrderLineSvg(
   bounds: { width: number; height: number },
   priceToCoordinate: (price: number) => number | null,
   candleObstacles: readonly TradingOrderLineCandleObstacle[] = [],
+  annotationObstacles: readonly TradingOrderLineCandleObstacle[] = [],
 ) {
   if (bounds.width <= 0 || bounds.height <= 0) return "";
   const entries = visibleTradingOrderLineGeometry(
@@ -833,6 +841,7 @@ export function renderTradingOrderLineSvg(
     bounds,
     priceToCoordinate,
     candleObstacles,
+    annotationObstacles,
   );
   const priceLevelSvg = groupTradingOrderLinePriceLevels(entries).map((level) => {
     const dominantKind = level.dominant.line.kind;
@@ -975,6 +984,7 @@ export function renderTradingOrderPositionCards(
   bounds: { width: number; height: number },
   priceToCoordinate: (price: number) => number | null,
   candleObstacles: readonly TradingOrderLineCandleObstacle[] = [],
+  annotationObstacles: readonly TradingOrderLineCandleObstacle[] = [],
 ) {
   if (bounds.width <= 0 || bounds.height <= 0) return "";
   return visibleTradingOrderLineGeometry(
@@ -983,6 +993,7 @@ export function renderTradingOrderPositionCards(
     bounds,
     priceToCoordinate,
     candleObstacles,
+    annotationObstacles,
   ).flatMap(({ line, labelLeft, labelTop, labelWidth }) => {
     const position = line.position;
     const order = line.order;

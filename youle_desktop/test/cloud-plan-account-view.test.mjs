@@ -51,7 +51,7 @@ for(const strategy of OFFICIAL_TRADING_CATALOG)test(`${strategy.id}: server acco
     for(const html of [renderCurrentReports([report]).rendered.cards,
       renderCurrentSavedPlan(saved,language),executionPlanStickyHtml({cloudReport:report,language})]){
       for(const value of [...words[locale].slice(0,4),'146.61','73.30','73.31','-1.38','+0.67','+1.61'])assert.ok(html.includes(value),value);
-      assert.ok(!html.includes(words[locale][5]));
+      assert.equal(html.includes(words[locale][5]), html.includes('class="execution-plan-created-at"') || html.includes('data-execution-plan-sticky'));
       assert.equal((html.match(/class="execution-plan-account-detail execution-plan-target-profit execution-plan-estimate"/g)||[]).length,2);
       assert.equal((html.match(/class="execution-plan-account-detail execution-plan-target-amount"/g)||[]).length,2);
       assert.doesNotMatch(html,/\+1\.34|\+1\.88|NaN|Infinity/);

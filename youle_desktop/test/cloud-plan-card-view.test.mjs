@@ -39,7 +39,12 @@ for(const locale of ['zh-CN','zh-Hant','en'])test(`restored ${locale} cards shar
     assert.ok(html.includes(card.html), 'prices and account content are unchanged across surfaces');
     assert.doesNotMatch(html,/class="execution-plan-expiry"|>Valid until |有效至/);
     assert.equal((html.match(/<h2 /g)||[]).length,1);
-    assert.doesNotMatch(html,/等待条件触发|等待條件觸發|Wait for the trigger/);
+    if (html.includes('class="execution-plan-created-at"') || html.includes('data-execution-plan-sticky>')) {
+      assert.match(html, /execution-plan-current-action/);
+      assert.match(html, /等待条件触发|等待條件觸發|Wait for the trigger/);
+    } else {
+      assert.doesNotMatch(html,/等待条件触发|等待條件觸發|Wait for the trigger/);
+    }
   }
   assert.match(actions,/data-execution-plan-index="0"/);
   assert.equal(bindings[0][1].cloudReport.planRecords[0].id,original.executionPlan.planId);

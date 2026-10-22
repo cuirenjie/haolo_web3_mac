@@ -42,6 +42,8 @@ function harness(t, { runtime = true, failStop = false, custom = false } = {}) {
     let binancePublicMarketService = null, binanceAccountService = null, personalContextService = null;
     let githubMcpBridge = null, client = options.runtime ? {} : null;
     let authChangeRestartPromise = null;
+    const activeChannelCodexRequests = new Map();
+    const codexBusinessTools = { contexts: new Map(), cancel() {} };
     const appServerClients = new Map(client ? [['workspace', client]] : []);
     const appServerClientByThreadId = new Map(), appServerWorkspaceByKey = new Map(), idleStoppingAppServerKeys = new Set();
     const internalSubagentThreads = { clearAll() {} };

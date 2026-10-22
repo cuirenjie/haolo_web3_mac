@@ -24875,7 +24875,6 @@ html[data-theme="dark"] .app-confirmation-dialog.app-selection-confirmation-dial
   background: transparent;
 }
 
-.settings-trading-intro,
 .settings-trading-hint {
   margin: 0 0 18px;
   color: var(--text-secondary);
@@ -24883,10 +24882,18 @@ html[data-theme="dark"] .app-confirmation-dialog.app-selection-confirmation-dial
   line-height: 1.65;
 }
 
+.settings-trading-preferences .trading-preference-choice-options + .settings-trading-hint {
+  margin-top: 18px;
+}
+
 .settings-trading-group {
-  border-top: 1px solid var(--border-subtle);
   padding-top: 20px;
   margin-top: 22px;
+}
+
+.settings-trading-group:first-child {
+  padding-top: 0;
+  margin-top: 0;
 }
 
 .settings-trading-group h4 {
@@ -24967,13 +24974,6 @@ html[data-theme="dark"] .settings-trading-actions {
   max-width: 390px;
   gap: 26px;
   margin-top: 36px;
-}
-
-[data-settings-sync-status] {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: calc(12px + var(--app-font-size-offset));
-  line-height: 1.5;
 }
 
 .external-model-settings-panel {
@@ -36943,7 +36943,7 @@ html[data-theme="dark"] .trading-drawing-color-grid > button.transparent > span 
   border: 0;
   border-radius: 3px;
   background: transparent;
-  color: var(--trading-market-text);
+  color: var(--trading-market-muted);
   padding: 0 9px;
   font: inherit;
   font-size: calc(12px + var(--app-font-size-offset));
@@ -36972,6 +36972,7 @@ html[data-theme="dark"] .trading-drawing-color-grid > button.transparent > span 
 }
 
 .trading-market-period-more {
+  color: var(--trading-market-muted);
   white-space: nowrap;
 }
 
@@ -40231,9 +40232,10 @@ html[data-theme="dark"] .conversation-row-wrap.conversation-row-minimal.active {
   min-height: 0;
   max-width: 1180px;
   flex: 1 1 auto;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, calc(240px + var(--app-font-size-offset, 0px) * 12)), 1fr));
   align-content: start;
-  gap: 20px;
+  align-items: stretch;
+  gap: 14px;
   box-sizing: border-box;
   margin: 0 auto;
   overflow-x: hidden;
@@ -40241,6 +40243,10 @@ html[data-theme="dark"] .conversation-row-wrap.conversation-row-minimal.active {
   padding: 0 0 34px;
   scrollbar-color: color-mix(in srgb, var(--text-tertiary) 42%, transparent) transparent;
   scrollbar-width: thin;
+}
+
+.execution-plan-list .execution-plan-card > header:not(:has(.execution-plan-card-status)) {
+  padding-right: 0;
 }
 
 .execution-plan-card {
@@ -40698,16 +40704,9 @@ html[data-theme="dark"] .execution-plan-end-menu button:hover {
   }
 }
 
-@media (max-width: 980px) {
-  .execution-plan-list {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
 @media (max-width: 660px) {
   .execution-plan-list {
     width: calc(100% - 40px);
-    grid-template-columns: minmax(0, 1fr);
   }
 }
 

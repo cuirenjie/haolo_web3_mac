@@ -2,8 +2,12 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 import ts from "typescript";
-import { withTradingTranscriptItems } from "../src/main/trading-expert-transcript.mjs";
+import { withTradingTranscriptItems, tradingTranscriptInjectionItems, parseTradingTranscriptMarkerText } from "../src/main/trading-expert-transcript.mjs";
 import { executionPlanCandidatesFromText } from "../src/renderer/execution-plans.ts";
+import { isCompletedTradingAnalysisReport } from "../src/renderer/trading-analysis-completion.ts";
+import { businessPresentationItems } from "../src/shared/codex-business-presentation.mjs";
+import { turnResultFoldTargets } from "../src/renderer/turn-result-fold.ts";
+import { completedTradingAnalysisReport, tradingAnalysisDeliveryItems } from "../src/renderer/trading-analysis-completion.ts";
 
 const source = fs.readFileSync(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
 const ast = ts.createSourceFile("main.ts", source, ts.ScriptTarget.Latest, true);
@@ -38,11 +42,25 @@ const records = [
 ];
 const stage = { id: "trading-stage-job-1", type: "agentMessage", phase: "commentary", text: "正在整理结果.", createdAt: "2026-09-27T08:00:02Z" };
 
+test("injected/native transcript roundtrip preserves supporting-card status and never hides the root answer", () => {
+  const record = { ...records[2], nativeResponseComplete: false };
+  const injected = tradingTranscriptInjectionItems([record]);
+  const parsed = parseTradingTranscriptMarkerText(injected[0].content[0].text);
+  assert.equal(parsed.nativeResponseComplete, false);
+  const { thread } = withTradingTranscriptItems({ thread: { turns: [] } }, [parsed]);
+  const card = { ...thread.turns[0].items[0], turnId: "root" };
+  assert.equal(card.__youleNativeResponseComplete, false);
+  assert.equal(completedTradingAnalysisReport([card], "root"), null);
+  const answer = { id: "root-answer", type: "agentMessage", phase: "final_answer", turnId: "root", text: "Requested explanation." };
+  assert.deepEqual(tradingAnalysisDeliveryItems([card, answer]).map(x => x.id), [card.id, answer.id]);
+  assert.match(source, /nativeResponseComplete: item\.__youleNativeResponseComplete/);
+});
+
 function harness() {
   const state = { items: { thread: {} }, resultProcessExpanded: {} };
   const firstString = (...values) => values.find((value) => typeof value === "string" && value.trim())?.trim() || "";
   const deps = {
-    state, firstString, localHistoryAheadThreadIds: new Set(["thread"]),
+    state, firstString, isCompletedTradingAnalysisReport, businessPresentationItems, turnResultFoldTargets, localHistoryAheadThreadIds: new Set(["thread"]),
     liveConversationSupplementIds: new Set(), interruptedCodexTurnIds: new Set(),
     agentMessagePhase: (item) => item?.phase || "",
     itemSortTime: (item) => Date.parse(item?.createdAt) || null,

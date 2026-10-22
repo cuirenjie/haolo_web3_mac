@@ -49,6 +49,7 @@ export type TradingAiDrawingColorToken =
   | "strategy-note";
 
 export interface TradingAiDrawing {
+  planLevel?: import('../shared/execution-plan-drawings.mjs').PlanLevel;
   entryConditionRef?: {conditionId:string;revision:number;conditionHash:string};
   id: string;
   strategyId?: string;

@@ -32,9 +32,9 @@ test("legacy main and preload channels stay available during migration", () => {
   const mainSource = readSource("src/main/main.mjs");
   const preloadSource = readSource("src/main/preload.mjs");
   for (const strategy of contract.catalog) {
-    assert.ok(mainSource.includes(`ipcMain.handle("${strategy.legacyClassifyChannel}"`));
+    assert.ok(!mainSource.includes(`ipcMain.handle("${strategy.legacyClassifyChannel}"`));
     assert.ok(mainSource.includes(`ipcMain.handle("${strategy.legacyRunChannel}"`));
-    assert.ok(preloadSource.includes(`ipcRenderer.invoke("${strategy.legacyClassifyChannel}"`));
+    assert.ok(!preloadSource.includes(`ipcRenderer.invoke("${strategy.legacyClassifyChannel}"`));
     assert.ok(preloadSource.includes(`ipcRenderer.invoke("${strategy.legacyRunChannel}"`));
   }
 });

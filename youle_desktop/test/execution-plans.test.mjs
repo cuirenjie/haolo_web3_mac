@@ -742,7 +742,7 @@ test("the final assistant bubble, plan empty state, and both themes are wired to
   assert.match(planEventBlock, /closest<HTMLButtonElement>\("\[data-execution-plan-filter\]"\)/);
   assert.match(planEventBlock, /root\.addEventListener\("keydown"[\s\S]*event\.key !== "Escape"/);
   assert.doesNotMatch(renderer, /querySelectorAll<HTMLButtonElement>\("\[data-execution-plan-action\]"\)/);
-  assert.match(planCardBlock, /renderExecutionPlanCardContent\(plan\.content\)/);
+  assert.match(planCardBlock, /executionPlanCardBody\(lines, state\.settings\.language, \{hideAction:true\}\)/);
   assert.match(planCardBlock, /executionPlanCardTitle\([\s\S]*fallbackTitle: plan\.title/);
   assert.doesNotMatch(planCardBlock, /tradingLastAnalysisLabelForThread/);
   assert.doesNotMatch(planCardBlock, /execution-plan-card-mark|<svg/);
@@ -754,10 +754,10 @@ test("the final assistant bubble, plan empty state, and both themes are wired to
   assert.match(messagePlanBlock, /executionPlanHasStructuredTradingFields\(candidate\)/);
   assert.match(messagePlanBlock, /executionPlanHasConcreteTradingPlan\(candidate\)/);
   assert.match(renderer, /__youleExecutionPlanPresentation: "plain"/);
-  assert.equal(
-    (renderer.match(/result\.report,\s*undefined,\s*undefined,\s*request\.positionManagementRequested === true \? "plain" : "execution-plan"/g) || []).length,
-    2,
-  );
+  const generalDelivery = renderer.slice(renderer.indexOf("async function runTradingGeneralChartRequest"), renderer.indexOf("async function runTradingStrategyChartRequest"));
+  const strategyDelivery = renderer.slice(renderer.indexOf("async function runTradingStrategyChartRequest"));
+  assert.match(generalDelivery, /result\.report,\s*undefined,\s*undefined,\s*"plain"/);
+  assert.match(strategyDelivery, /result\.report,\s*undefined,\s*undefined,\s*request\.positionManagementRequested === true \? "plain" : "execution-plan"/);
   assert.match(messagePlanBlock, /executionPlanCandidateWithSourceText\(rawCandidate, text\)/);
   assert.doesNotMatch(messagePlanBlock, /tradingLastAnalysisLabelForThread|state\.threads/);
   assert.match(messagePlanBlock, /class="message-execution-plan execution-plan-surface"/);

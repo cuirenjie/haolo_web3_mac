@@ -68,6 +68,8 @@ export class TradingWatchlistPanel {
   private indexLanguageObserver: MutationObserver | null = null;
   private sorter: TradingFavoriteTickerSortController | null = null;
   private sort: { column: "price" | "change"; direction: 1 | -1 } | null = null;
+  private renderedGroupId: string | null = null;
+  private renderedMarketIds = new Set<string>();
   private deferredRender = false;
   private menuCloseTimer: number | null = null;
   private readonly indices: TradingPublicIndices;
@@ -176,9 +178,14 @@ export class TradingWatchlistPanel {
       this.deferredRender = true;
       return;
     }
-    const scrollTop =
-      this.host.querySelector("[data-watchlist-rows]")?.scrollTop || 0;
     const active = store.activeGroup;
+    const hasNewMarket = !store.fixedGroup && this.renderedGroupId === active.id
+      && active.markets.some((market) => !this.renderedMarketIds.has(market.id));
+    if (hasNewMarket) this.sort = null;
+    const scrollTop = hasNewMarket ? 0
+      : this.host.querySelector("[data-watchlist-rows]")?.scrollTop || 0;
+    this.renderedGroupId = active.id;
+    this.renderedMarketIds = new Set(active.markets.map((market) => market.id));
     const personalGroups = store.groups.filter((group) => group.id === "watchlist" || group.id.startsWith("custom-"));
     const dropdownGroup = store.fixedGroup ? store.groups[0] : active;
     const activeGroupName = displayGroupName(active);

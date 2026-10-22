@@ -68,6 +68,7 @@ interface NavigationOptions {
   getLockedPriceRange?: (logicalRange: { from: number; to: number } | null) => { from: number; to: number } | null;
   onAutoScaleChange?: (enabled: boolean) => void;
   onPriceModeChange?: (mode: "linear" | "logarithmic" | "percentage") => void;
+  onRemoveAllDrawings?: () => void;
 }
 
 const defaultAutoscaleInfo: AutoscaleInfoProvider = (base) => base();
@@ -774,6 +775,7 @@ export class TradingChartNavigation {
     else if (action === "log") this.setMode(chart.priceScale("right", 0).options().mode === 1 ? 0 : 1);
     else if (action === "percent") this.setMode(chart.priceScale("right", 0).options().mode === 2 ? 0 : 2);
     else if (action === "invert") scale.applyOptions({ invertScale: !scale.options().invertScale });
+    else if (action === "remove-all-drawings") this.options.onRemoveAllDrawings?.();
     else if (action === "zoom-in") this.zoom(0.8);
     else if (action === "zoom-out") this.zoom(1.25);
     else if (action === "left" || action === "right") this.pan(action === "left" ? -10 : 10);
@@ -790,11 +792,14 @@ export class TradingChartNavigation {
     if (this.activePane !== 0) actions.push(["auto", "自动适配副图"]);
     if (this.activePane === 0) actions.push(["log", "对数坐标（Alt + L）"], ["percent", "百分比坐标（Alt + P）"]);
     actions.push(["invert", "反转坐标（Alt + I）"]);
+    if (this.options.onRemoveAllDrawings) actions.push(["remove-all-drawings", "移除所有绘图"]);
     for (const [action, label] of actions) {
       const button = document.createElement("button"); button.type = "button"; button.textContent = translateAppText(label);
-      button.setAttribute("role", action === "reset" ? "menuitem" : "menuitemcheckbox");
+      button.dataset.navigationAction = action;
+      const toggle = ["auto", "log", "percent", "invert"].includes(action);
+      button.setAttribute("role", toggle ? "menuitemcheckbox" : "menuitem");
       const scaleOptions = this.getChart()!.priceScale("right", this.activePane).options();
-      if (action !== "reset") button.setAttribute("aria-checked", String(action === "auto" ? scaleOptions.autoScale : action === "log" ? scaleOptions.mode === 1 : action === "percent" ? scaleOptions.mode === 2 : scaleOptions.invertScale));
+      if (toggle) button.setAttribute("aria-checked", String(action === "auto" ? scaleOptions.autoScale : action === "log" ? scaleOptions.mode === 1 : action === "percent" ? scaleOptions.mode === 2 : scaleOptions.invertScale));
       button.addEventListener("click", () => { this.runAction(action); this.element.focus(); }); menu.append(button);
     }
     menu.addEventListener("keydown", (e) => {

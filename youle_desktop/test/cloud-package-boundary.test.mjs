@@ -55,13 +55,13 @@ test('every shipped host import resolves within the public package and private i
   assert.equal(pkg.build.afterPack,'scripts/after-pack-cloud.cjs');
 });
 
-test('17 public catalog entries retain intent routing without exposing executable adapters or rule assets',async()=>{
-  const catalog=new CloudTradingCatalog({modelRegistry:{analyze:async()=>{throw Error('offline');}},providerId:'fixture'});
+test('17 public catalog entries remain discoverable without a second intent router or executable assets',async()=>{
+  const catalog=new CloudTradingCatalog();
   assert.equal(catalog.run,undefined);assert.equal(catalog.listStrategies().strategies.length,17);
+  assert.equal(catalog.classify,undefined);
   for(const item of OFFICIAL_TRADING_CATALOG) {
     assert.equal(item.assets,undefined);assert.equal(item.implementation.kind,'cloud-v1');
-    const result=await catalog.classify(item.id,{text:`@策略:${item.mentions.canonical} 分析 BTCUSDT 1h K线`});
-    assert.equal(result.request.mode,'chart-analysis');assert.equal(result.request.interval,'60');
+    assert.equal(catalog.listStrategies().strategies.find(entry=>entry.id===item.id),item);
   }
 });
 

@@ -270,6 +270,15 @@ html[data-language="en"] .trading-drawing-tool-menu[data-drawing-tool-menu="brus
 html[data-language="en"] .trading-drawing-tool-menu[data-drawing-tool-menu="annotation"] { width: 254px; }
 .trading-drawing-tool-menu[hidden], .trading-drawing-favorites-bar[hidden] { display: none !important; }
 .trading-drawing-magnet-group > .trading-drawing-action { margin-left: 9px; height: 34px; min-height: 34px; flex-basis: 34px; }
+.trading-drawing-visibility-group > .trading-drawing-action { margin-left: 9px; height: 34px; min-height: 34px; flex-basis: 34px; }
+.trading-drawing-visibility-group > .trading-drawing-disclosure { opacity: 1; }
+.trading-drawing-tool-menu.trading-drawing-visibility-menu { width: max-content; min-width: 180px; box-sizing: border-box; padding: 6px; overflow-y: auto; }
+.trading-drawing-visibility-menu > button { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; min-height: 40px; padding: 6px 10px; border: 0; border-radius: 5px; background: transparent; color: inherit; font: 14px/1.5 Arial, 'Microsoft YaHei', sans-serif; text-align: left; cursor: pointer; white-space: nowrap; }
+.trading-drawing-visibility-menu > button:hover,
+.trading-drawing-visibility-menu > button[aria-checked="true"] { background: var(--drawing-hover); }
+.trading-drawing-visibility-menu > button:focus-visible { outline: 2px solid var(--interaction-accent); outline-offset: -2px; }
+.trading-drawing-visibility-menu .trading-drawing-visibility-check { width: 18px; height: 18px; flex: 0 0 18px; visibility: hidden; }
+.trading-drawing-visibility-menu [aria-checked="true"] > .trading-drawing-visibility-check { visibility: visible; }
 .trading-drawing-tool-menu.trading-drawing-magnet-menu { width: 160px; box-sizing: border-box; padding: 6px; border-radius: 7px; overflow-y: auto; }
 .trading-drawing-magnet-menu > button { display: flex; align-items: center; flex: 0 0 auto; gap: 8px; width: 100%; min-height: 40px; padding: 6px; border: 0; border-radius: 6px; background: transparent; color: inherit; font: 14px/1.5 Arial, 'Microsoft YaHei', sans-serif; text-align: left; cursor: pointer; white-space: nowrap; }
 .trading-drawing-magnet-menu > button:hover { background: var(--drawing-hover); }

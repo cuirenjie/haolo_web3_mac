@@ -88,6 +88,10 @@ test("default resource sync installs both skills into every Haolo Codex home", (
       fs.existsSync(path.join(codexHome, "skills", "find-skills", "SKILL.md")),
       true,
     );
+    assert.equal(
+      fs.existsSync(path.join(codexHome, "skills", "trading-chart-open", "SKILL.md")),
+      true,
+    );
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }

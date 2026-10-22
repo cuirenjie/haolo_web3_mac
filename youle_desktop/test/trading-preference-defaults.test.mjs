@@ -50,7 +50,8 @@ test("new accounts receive the same effective defaults as the settings choices w
     let writes = 0;
     const settings = createTradingPreferenceSettings({ load: async () => ({ ok: true, profile }), save: async () => { writes++; return { ok: true, completed: true }; }, memoryEntries: tradingPreferenceMemoryEntries, render() {}, onSaved() {} });
     await settings.load();
-    assert.match(settings.render(), /默认交易偏好生效/);
+    assert.match(settings.render(), /data-preference-source="entryMode">产品默认值/);
+    assert.match(settings.render(), /name="settings-preference-entryMode" value="right" checked/);
     assert.match(settings.render(), /data-preference-save disabled/);
     assert.equal(writes, 0);
     assert.deepEqual(tradingPreferenceSettingsDraft(profile).choices.discipline.selected, ["none"]);

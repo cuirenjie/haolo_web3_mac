@@ -15,7 +15,15 @@ for(const locale of ['zh-CN','en','zh-Hant'])for(const side of ['','-short'])tes
  assert.ok(card.content.includes(locale==='en'?'condition is retained':'保留已通'));
  const savedReport=structuredClone(report);savedReport.planRecords[0].status='pending';
  const saved=mergeCloudExecutionPlans([savedReport],[])[0];
- for(const html of [renderCurrentReports([report]).rendered.cards,renderCurrentSavedPlan(saved,language),executionPlanStickyHtml({cloudReport:report,language})])assert.ok(html.includes(card.html));
+ assert.ok(renderCurrentReports([report]).rendered.cards.includes(card.html));
+  const savedCard=cloudPlanCard(report,{language,separateAction:true});
+  const savedHtml=renderCurrentSavedPlan(saved,language);
+  assert.ok(savedHtml.includes(savedCard.html),'saved plan preserves the original body');
+  assert.ok(savedCard.actionHtml && savedHtml.includes(savedCard.actionHtml),'saved plan retains its action');
+  const stickyCard=cloudPlanCard(report,{language,separateAction:true});
+  const sticky=executionPlanStickyHtml({cloudReport:report,language});
+  assert.ok(sticky.includes(stickyCard.html),'sticky preserves the original plan body');
+  assert.ok(stickyCard.actionHtml && sticky.includes(stickyCard.actionHtml),'sticky retains the condition action in its footer');
  assert.deepEqual(normalizeCloudReports([report]),[report]);
  assert.equal(p.entryCondition.direction,side?'short':'long');
  if(locale==='en')assert.doesNotMatch(card.content,/[\u4e00-\u9fff]/);

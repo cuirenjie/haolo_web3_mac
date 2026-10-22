@@ -1,7 +1,7 @@
 // Invoked by the backend integration gate against its isolated loopback server.
 import assert from 'node:assert/strict';
 import {YouleApiClient} from '../../src/main/youle-api-client.mjs';
-import {createCloudStrategyRuntime,validateCloudResult} from '../../src/main/trading-strategy-runtime/cloud-runtime.mjs';
+import {createCloudStrategyRuntime,validateCloudResult,cloudAccountConnection} from '../../src/main/trading-strategy-runtime/cloud-runtime.mjs';
 import {createCloudPlans} from '../../src/main/trading-strategy-runtime/cloud-plans.mjs';
 import {cloudReportFromResponse,cloudPlanCard} from '../../src/main/cloud-plan-contract.mjs';
 import {tradingTranscriptInjectionItems,parseTradingTranscriptMarkerText} from '../../src/main/trading-expert-transcript.mjs';
@@ -18,10 +18,12 @@ api.loaded=true;api.baseUrl=baseUrl;api.profile={id:accountId};api.token='isolat
 const account={ownerId:`${baseUrl}::${accountId}`,accountId,baseUrl};
 const prefs=await api.tradingCloudRequest('preferences',{}, {expectedAccountId:accountId,expectedBaseUrl:baseUrl});
 const records=new Map();
-const {testConnectionId,testAccountUnavailable,testObservationOnly,...windowInput}=JSON.parse(windowJson);
+const {testConnectionId,testAccountUnavailable,testObservationOnly,testDiscoverConnection,testExpectSizing,...windowInput}=JSON.parse(windowJson);
 const journal={async get(owner,key){return structuredClone(records.get(`${owner}:${key}`)??null);},async put(owner,key,value){records.set(`${owner}:${key}`,structuredClone(value));},async list(){return [...records.values()];}};
 const runtime=createCloudStrategyRuntime({owner:async()=>account,api:()=>api,journal,pollMs:50,
-  connection:async()=>testConnectionId?{id:testConnectionId}:testAccountUnavailable?{unavailable:true}:null});
+  connection:async(_owner,target)=>testDiscoverConnection
+    ? cloudAccountConnection((await api.listAccountConnections()).items,target)
+    : testConnectionId?{id:testConnectionId}:testAccountUnavailable?{unavailable:true}:null});
 const result=await runtime.run(strategyId,{analysisJobId:'http-chain-fixture',marketId:'BINANCE:FUTURES:BTCUSDT',interval:'60',
   ...windowInput,
   analysisKind,positionManagementRequested:analysisKind==='general',
@@ -29,6 +31,15 @@ const result=await runtime.run(strategyId,{analysisJobId:'http-chain-fixture',ma
   entryMode,sourceThreadId:'original-sdk-thread',storageSessionId:'original-sdk-pane',
   language,instruction:'Analyze this chart and provide the validated strategy report.',preferencesRevision:prefs.revision,preferencesHash:prefs.configHash});
 assert.equal(result.strategy.id,strategyId);
+if (testExpectSizing) {
+  const sizing = result.executionPlan.positionSizing;
+  assert.equal(sizing.accountStatus,'available');
+  assert.ok(sizing.accountPlan.quantity > 0);
+  assert.equal(sizing.accountPlan.equity,10000);
+  assert.equal([...records.values()][0].body.accountBindingUnavailable,false);
+  assert.ok([...records.values()][0].body.connectionId);
+  assert.doesNotMatch(result.analysisPlan.report,/缺少可用账户快照|No usable account snapshot|缺少可用帳戶快照/);
+}
 if(entryMode!=='right')assert.ok(result.analysisPlan.drawingPatch.operations.length);
 assert.equal(result.cloud.appliedPreferences.configHash,prefs.configHash);
 assert.equal(result.executionPlan.schemaVersion,entryMode==='right'?1:2);

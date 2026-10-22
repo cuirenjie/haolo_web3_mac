@@ -1404,7 +1404,7 @@ test("strategy runtime and execution plans expose no order-placement or credenti
     "../src/main/trading-strategy-runtime/coordinator.mjs",
     "../src/main/trading-strategy-runtime/execution-plan-builder.mjs",
     "../src/main/trading-strategy-runtime/declarative-adapter.mjs",
-    "../src/renderer/trading-strategy-runtime/client.ts",
+    "../src/renderer/codex-trading-tools.ts",
   ].map((relativePath) => readFile(new URL(relativePath, import.meta.url), "utf8")));
   const source = sources.join("\n");
   assert.doesNotMatch(source, /fapi\/v1\/order|placeOrder|createOrder|executeOrder|apiSecret/i);

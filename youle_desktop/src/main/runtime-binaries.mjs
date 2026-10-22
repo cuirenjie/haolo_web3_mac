@@ -147,10 +147,10 @@ function readAndValidateRuntimeManifest(binDir, { platform }) {
     assertRegularFile(path.join(binDir, executable), `Bundled Haolo runtime file is missing: ${executable}`);
     return {
       version: "unversioned",
-      files: [{
-        name: executable,
-        sha256: sha256File(path.join(binDir, executable)),
-      }],
+      // Copy the code-mode sidecar beside the CLI. It is required by current
+      // macOS builds; legacy installations and other Unix runtimes lack it.
+      files: [executable, ...["codex-code-mode-host", "rg"].filter(name => fs.existsSync(path.join(binDir, name)))]
+        .map(name => ({ name, sha256: sha256File(path.join(binDir, name)) })),
     };
   }
 
@@ -173,7 +173,10 @@ function readAndValidateRuntimeManifest(binDir, { platform }) {
   const files = manifest.files.map((entry) => {
     const name = String(entry?.name || "").trim();
     const sha256 = String(entry?.sha256 || "").trim().toLowerCase();
-    if (!name || path.basename(name) !== name || name === "." || name === "..") {
+    // Official runtimes now ship code-mode and platform resources in subfolders.
+    // Accept canonical relative paths only; never materialize outside binDir.
+    if (!name || name.includes("\\") || name.includes(":") || path.isAbsolute(name) ||
+        name.split("/").some(part => !part || part === "." || part === "..")) {
       throw runtimeError(`Bundled Haolo runtime contains an unsafe file name: ${name || "<empty>"}.`, "HAOLO_RUNTIME_MANIFEST_INVALID");
     }
     if (!SHA256_PATTERN.test(sha256)) {

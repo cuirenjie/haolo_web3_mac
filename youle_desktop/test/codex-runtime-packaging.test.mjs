@@ -19,7 +19,7 @@ test("packages the complete versioned Codex Windows runtime", async () => {
   const macManifest = JSON.parse(await readFile(new URL("../resources/bin/codex-runtime-macos.json", import.meta.url), "utf8"));
   assert.equal([...config.matchAll(/http_headers = \{ version = "([^"]+)"/g)].length, 2);
   for (const match of config.matchAll(/http_headers = \{ version = "([^"]+)"/g)) {
-    assert.equal(match[1], manifest.version);
+    assert.equal(match[1], macManifest.version);
   }
   assert.match(
     clientSource,

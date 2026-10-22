@@ -117,12 +117,16 @@ test("empty fallback responses cannot reset the recovery budget through validati
 const main = await readFile(new URL("../src/main/main.mjs", import.meta.url), "utf8");
 function recoveryEntry(overrides = {}) {
   const source = main.slice(main.indexOf("async function startAutomaticTurnRecovery("), main.indexOf("function handleClientNotification("));
-  const calls = [], released = [], active = [];
+  const calls = [], released = [], active = [], business = [];
   const deps = {
     appShuttingDown: false, appCleanupStarted: false,
     acquireSerializedThreadSettingsOperation: async () => () => released.push(true),
     activeCodexTurnsByThread: new Map(), pendingCodexTurnThreadIds: new Set(),
     rootRecoveryModelsByThread: new Map(),
+    codexBusinessTools: {
+      resume: id => business.push(["resume", id]),
+      input: (id, text) => { business.push(["input", id]); return text; },
+    },
     getClientForThread: () => ({ __youleWorkspaceCwd: "workspace" }), currentSkillsCwd: "workspace", desktopWorkspace: () => "workspace",
     rememberThreadClient() {}, rememberPendingCodexTurnThread() {}, forgetPendingCodexTurnThread() {},
     rememberActiveCodexTurn: (...args) => active.push(args),
@@ -131,7 +135,7 @@ function recoveryEntry(overrides = {}) {
     ANALYSIS_RECOVERY_MODEL, ANALYSIS_RECOVERY_EFFORT, ANALYSIS_RECOVERY_PROVIDER, HAOLO_REASONING_FIXED_EFFORT_FIELD,
     ...overrides,
   };
-  return { start: new Function(...Object.keys(deps), `${source}; return startAutomaticTurnRecovery;`)(...Object.values(deps)), calls, released, active };
+  return { start: new Function(...Object.keys(deps), `${source}; return startAutomaticTurnRecovery;`)(...Object.values(deps)), calls, released, active, business };
 }
 
 test("production root recovery RPC resumes the same thread and sends fixed max on the wire", async () => {
@@ -144,6 +148,7 @@ test("production root recovery RPC resumes the same thread and sends fixed max o
   assert.equal(harness.calls[1][1].effort, "max");
   assert.equal(harness.calls[1][1].input[0].text, "continue retained progress");
   assert.equal(harness.released.length, 1);
+  assert.deepEqual(harness.business, [["resume", "existing-thread"], ["input", "existing-thread"]]);
 });
 
 test("production media recovery RPC retains the GPT provider, effort and original thread", async () => {

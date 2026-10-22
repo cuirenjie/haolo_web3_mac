@@ -575,7 +575,8 @@ test("main process owns the bridge, injects risk memory, and keeps encrypted mem
   assert.match(main, /explicit value may be higher than 3%; preserve it exactly/);
   assert.match(main, /BLOCKING RISK-PREFERENCE CONFLICT/);
   assert.match(main, /Preferred ordinary take-profit distance/);
-  assert.match(main, /getAccountService: getBinanceAccountService/);
+  assert.match(main, /getAccountService: \(\) => createSharedBinanceAccountReader/);
+  assert.match(main, /readStatus: readBinanceAccountStatusWithSharedBinding/);
   assert.match(main, /binanceAccountService = null;[\s\S]*personalContextService = null;/);
   assert.match(main, /loadBinanceAccountContext: loadTradingStrategyReadOnlyBinanceAccountContext/);
   assert.match(main, /snapshot\(owner\.ownerId, \{ force: true, live: true \}\)/);

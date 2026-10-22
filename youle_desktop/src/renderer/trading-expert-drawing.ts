@@ -23,6 +23,9 @@ import {
   type TradingOrderLine,
 } from "./trading-expert-order-lines.ts";
 import { buildTradingPlanPriceLines } from './trading-plan-price-lines.ts';
+import { normalizePlanLevel, type PlanLevel } from '../shared/execution-plan-drawings.mjs';
+import { PLAN_DRAWING_HISTORY_CHANGED, projectStoredTradingPlanDrawings } from './trading-plan-drawing-history.ts';
+import { tradingDrawingLabelObstacles } from './trading-drawing-label-obstacles.ts';
 import { translateAppText, translateDrawingText, translateTradingAnnotationText, type AppLanguage } from "./app-language.mjs";
 import { DRAWING_MENU_SECTIONS, DRAWING_SHORTCUTS, DRAWING_SYMBOLS, renderDrawingIcon as drawingIcon, drawingMenuGroup } from './trading-drawing-catalog.ts';
 import { renderExtraDrawingGeometry, renderExtraAnnotation, drawingImageUrl, type DrawingCandle } from './trading-drawing-extra-tools.ts';
@@ -39,7 +42,7 @@ import { TradingDrawingHoverText } from './trading-drawing-hover-text.ts';
 import { isPlainTextDrawing, isManualNote, isManualPriceNote, isPinNote, isCallout, isComment, isSignpost, isAnnotationTable, isInlineAnnotation, annotationTextGeometry, annotationPrice, priceLabelGeometry, calloutPath, PLAIN_TEXT_FONT_SIZE, PLAIN_TEXT_COLOR, PLAIN_TEXT_FONT_FAMILY } from './trading-plain-text.ts';
 import { annotationTableCells, annotationTableGeometry, annotationTableCellAt, updateAnnotationTableCell, type TableCell } from './trading-annotation-table.ts';
 import { TradingDrawingCrosshair } from './trading-drawing-crosshair.ts';
-import { TradingDrawingVisibility } from './trading-drawing-visibility.ts';
+import { TradingDrawingVisibility, TRADING_VISIBILITY_LAYERS } from './trading-drawing-visibility.ts';
 import { tradingInfoLineRows, renderTradingInfoLineCard } from './trading-info-line.ts';
 import { renderTradingTrendAngleAnnotation } from './trading-trend-angle.ts';
 import { isTradingPitchfork, renderTradingPitchfork } from './trading-pitchfork.ts';
@@ -505,6 +508,7 @@ export interface TradingDrawingPoint {
 export interface TradingDrawingModel extends TradingDrawingStyle {
   barsPattern?: BarsPatternSnapshot;
   entryConditionRef?: {conditionId:string;revision:number;conditionHash:string};
+  planLevel?: PlanLevel;
   id: string;
   strategyId?: string;
   symbol: string;
@@ -980,11 +984,17 @@ export function renderTradingDrawingToolbar() {
         ${toolbarAction("toggle-stay", "保持绘图模式", "pin", 'aria-pressed="false"')}
         ${toolbarAction("toggle-lock", "锁定全部绘图", "unlock", 'aria-pressed="false"')}
         ${toolbarAction("screenshot", "截图并保存到桌面", "camera")}
-        ${toolbarAction("toggle-visibility", "隐藏全部绘图", "drawings-visible", 'aria-pressed="false"')}
+        <div class="trading-drawing-group trading-drawing-visibility-group" data-drawing-group="visibility">
+          ${toolbarAction("toggle-visibility", "隐藏全部绘图", "drawings-visible", 'aria-pressed="false"')}
+          <button type="button" class="trading-drawing-disclosure" data-drawing-action="toggle-tool-menu" data-drawing-group-id="visibility" aria-label="展开隐藏绘图选项" aria-haspopup="menu" aria-expanded="false"><svg viewBox="0 0 8 8" aria-hidden="true"><path d="m3 2 2 2-2 2"/></svg></button>
+        </div>
         <div class="trading-drawing-divider" aria-hidden="true"></div>
         ${toolbarAction("clear", "清空本会话所有绘图", "trash")}
       </div>
       ${TRADING_DRAWING_GROUPS.map(renderDrawingToolMenu).join("")}
+      <section class="trading-drawing-tool-menu trading-drawing-visibility-menu" data-drawing-tool-menu="visibility" role="menu" aria-label="隐藏绘图" hidden>
+        ${TRADING_VISIBILITY_LAYERS.map(({ key, label }) => `<button type="button" role="menuitemcheckbox" aria-checked="false" data-drawing-action="toggle-layer-visibility" data-drawing-visibility-layer="${key}"><span>${label}</span><svg class="trading-drawing-visibility-check" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></button>`).join('')}
+      </section>
       <section class="trading-drawing-tool-menu trading-drawing-magnet-menu" data-drawing-tool-menu="magnet" role="menu" aria-label="磁铁模式" hidden>
         <button type="button" role="menuitemradio" aria-checked="false" data-drawing-action="set-magnet-mode" data-magnet-mode="weak">${drawingIcon('magnet')}<span>弱磁铁</span></button>
         <button type="button" role="menuitemradio" aria-checked="false" data-drawing-action="set-magnet-mode" data-magnet-mode="strong">${drawingIcon('magnet-strong')}<span>强磁铁</span></button>
@@ -1444,6 +1454,7 @@ function loadStoredAiDrawings(storageSessionId: string): TradingDrawingModel[] {
         locked: true,
         source: "ai",
         entryConditionRef:conditionReference(candidate.entryConditionRef),
+        planLevel:normalizePlanLevel(candidate.planLevel),
         colorToken: colorToken as TradingAiDrawingColorToken,
         lineStyle: drawingLineStyle(candidate.lineStyle),
         lineWidth: drawingLineWidth(candidate.lineWidth),
@@ -2471,6 +2482,7 @@ export function normalizeTradingAiDrawingPatch(
     return {
       id: String(drawing.id || `ai-${index}`).slice(0, 160),
       entryConditionRef:conditionReference(patch.entryConditionRef),
+      planLevel:normalizePlanLevel(drawing.planLevel),
       strategyId: drawing.theory === "strategy" ? String(drawing.strategyId) : undefined,
       symbol: patch.marketId,
       interval: patch.interval,
@@ -2504,6 +2516,7 @@ function tradingAiDrawingModel(drawing: TradingAiDrawing): TradingDrawingModel {
   return {
     id: drawing.id,
     entryConditionRef:conditionReference(drawing.entryConditionRef),
+    planLevel:normalizePlanLevel(drawing.planLevel),
     strategyId: drawing.strategyId,
     symbol: drawing.symbol,
     interval: drawing.interval,
@@ -2661,6 +2674,7 @@ export class TradingDrawingController {
   private manualDrawingSession!: ManualDrawingSession;
   private get drawings() { return this.manualDrawingSession.drawings; }
   private set drawings(value: TradingDrawingModel[]) { this.manualDrawingSession.drawings = value; }
+  private aiDrawingClearVersion = 0;
   private readonly drawingVisibility: TradingDrawingVisibility;
   private manualSync: DesktopDrawingSync | null = null;
   private applyingManualSync = false;
@@ -2679,7 +2693,7 @@ export class TradingDrawingController {
   private redoStack: TradingDrawingModel[] = [];
   private readonly getNavigation?: () => TradingChartNavigation | null;
   private activeTool: TradingDrawingToolId = "crosshair";
-  private activeMenu: TradingDrawingGroupId | 'magnet' | null = null;
+  private activeMenu: TradingDrawingGroupId | 'magnet' | 'visibility' | null = null;
   private activeSelectionMenu: TradingDrawingSelectionMenu | null = null;
   private draft: TradingDrawingModel | null = null;
   private draftConfirmedPointCount = 0;
@@ -3131,6 +3145,7 @@ export class TradingDrawingController {
     document.addEventListener('paste', this.handleDrawingImagePaste);
     this.overlay.addEventListener("lostpointercapture", this.handlePointerCancel);
     window.addEventListener("blur", this.cancelPointerInteraction);
+    window.addEventListener(PLAN_DRAWING_HISTORY_CHANGED, this.handlePlanDrawingHistoryChanged);
     document.addEventListener("pointerdown", this.handleChartBackgroundPointerDown, true);
     document.addEventListener("pointerdown", this.handleToolMenuOutsidePointerDown, true);
     document.addEventListener("pointerdown", this.handleOutsidePointerDown);
@@ -3572,7 +3587,12 @@ export class TradingDrawingController {
       return;
     }
     if (action === "toggle-tool-menu") {
-      this.toggleToolMenu(target.dataset.drawingGroupId as TradingDrawingGroupId | 'magnet', target);
+      this.toggleToolMenu(target.dataset.drawingGroupId as TradingDrawingGroupId | 'magnet' | 'visibility', target);
+      return;
+    }
+    if (action === 'toggle-layer-visibility') {
+      const layer = TRADING_VISIBILITY_LAYERS.find(({ key }) => key === target.dataset.drawingVisibilityLayer);
+      if (layer) this.drawingVisibility.setLayers({ [layer.key]: !this.drawingVisibility.layers()[layer.key] });
       return;
     }
     if (action === "measure" || action === "zoom-in") {
@@ -3621,9 +3641,9 @@ export class TradingDrawingController {
       this.persistDrawings();
       this.setStatus(this.drawingsLocked ? "全部绘图已锁定" : "全部绘图已解锁");
     } else if (action === "toggle-visibility") {
-      const hidden = !this.drawingsHidden;
-      this.drawingVisibility.setLayers({ aiHidden: hidden, manualHidden: hidden });
-      this.setStatus(this.drawingsHidden ? "绘图已隐藏" : "绘图已显示");
+      const hidden = !this.drawingVisibility.allHidden;
+      this.drawingVisibility.setAll(hidden);
+      this.setStatus(hidden ? "绘图已隐藏" : "绘图已显示");
       this.redraw();
     } else if (action === "undo") {
       this.undo();
@@ -4874,7 +4894,7 @@ export class TradingDrawingController {
     this.status.textContent = message;
   }
 
-  private toggleToolMenu(group: TradingDrawingGroupId | 'magnet', trigger: HTMLElement) {
+  private toggleToolMenu(group: TradingDrawingGroupId | 'magnet' | 'visibility', trigger: HTMLElement) {
     const open = this.activeMenu !== group;
     this.closeToolMenus();
     if (!open) return;
@@ -5875,13 +5895,14 @@ export class TradingDrawingController {
     }
   }
 
-  private clearAllDrawings() {
+  clearAllDrawings({ allScopes = false }: { allScopes?: boolean } = {}) {
     const clearedManual = this.drawings.slice();
+    this.aiDrawingClearVersion += 1;
     this.aiPlayback.cancel();
     this.cancelDragRedraw();
     this.releasePointer();
     this.finishSelectionToolbarDrag();
-    const scopedClear = this.drawingScope !== "main";
+    const scopedClear = !allScopes && this.drawingScope !== "main";
     this.drawings = scopedClear
       ? this.drawings.filter((drawing) => (
           (drawing.drawingScope || "main") !== this.drawingScope
@@ -5900,7 +5921,7 @@ export class TradingDrawingController {
     this.draftConfirmedPointCount = 0;
     this.draftRequiredPointCount = 0;
     this.drawingsLocked = false;
-    this.drawingVisibility.setLayers({ aiHidden: false, manualHidden: false });
+    this.drawingVisibility.setLayers({ aiHidden: false, manualHidden: false, plansHidden: false });
     this.overlay.classList.remove("dragging-drawing");
     this.closeSelectionMenus();
     if (scopedClear) {
@@ -5997,7 +6018,7 @@ export class TradingDrawingController {
     const canRedo = this.redoStack.some(drawing => tradingManualDrawingMatchesContext(drawing, symbol, interval, this.drawingScope));
     const navigationTool = this.getNavigation?.()?.getTool();
     const state = JSON.stringify([this.activeTool, navigationTool, this.magnetEnabled, this.magnetMode, this.snapToIndicators, this.magnetModifierHeld,
-      this.stayInDrawingMode, this.drawingsLocked, this.drawingsHidden, canUndo, canRedo,
+      this.stayInDrawingMode, this.drawingsLocked, this.drawingVisibility.layers(), canUndo, canRedo,
       [...this.lastToolByGroup], [...this.favoriteTools]]);
     if (drawingToolbarState.get(this.toolbar) === state) return;
     drawingToolbarState.set(this.toolbar, state);
@@ -6045,7 +6066,13 @@ export class TradingDrawingController {
     this.toolbar.querySelector('[data-drawing-action="toggle-magnet-indicators"]')?.setAttribute('aria-checked', String(this.snapToIndicators));
     setPressed("toggle-stay", this.stayInDrawingMode, this.stayInDrawingMode ? "pin-locked" : "pin");
     setPressed("toggle-lock", this.drawingsLocked, this.drawingsLocked ? "lock" : "unlock", this.drawingsLocked ? "解锁全部绘图" : "锁定全部绘图");
-    setPressed("toggle-visibility", this.drawingsHidden, this.drawingsHidden ? "drawings-hidden" : "drawings-visible", this.drawingsHidden ? "显示全部绘图" : "隐藏全部绘图");
+    const allHidden = this.drawingVisibility.allHidden;
+    setPressed("toggle-visibility", allHidden, allHidden ? "drawings-hidden" : "drawings-visible", allHidden ? "显示全部绘图" : "隐藏全部绘图");
+    const visibility = this.drawingVisibility.layers();
+    this.toolbar.querySelectorAll<HTMLElement>('[data-drawing-visibility-layer]').forEach(button => {
+      const layer = TRADING_VISIBILITY_LAYERS.find(({ key }) => key === button.dataset.drawingVisibilityLayer);
+      if (layer) button.setAttribute('aria-checked', String(visibility[layer.key]));
+    });
     const undo = this.toolbar.querySelector<HTMLButtonElement>('[data-drawing-action="undo"]');
     const redo = this.toolbar.querySelector<HTMLButtonElement>('[data-drawing-action="redo"]');
     if (undo) undo.disabled = !canUndo;
@@ -6406,10 +6433,13 @@ export class TradingDrawingController {
   ) {
     const drawings = this.normalizeAiDrawingPatch(patch);
     const playbackStorageSessionId = this.storageSessionId;
+    // Explicit removal must also invalidate pending playback and its final patch save.
+    const playbackClearVersion = this.aiDrawingClearVersion;
     this.cancelAiPlayback({ clear: true });
     await options.beforePlayback?.();
     if (
       this.destroyed
+      || this.aiDrawingClearVersion !== playbackClearVersion
       || this.storageSessionId !== playbackStorageSessionId
       || this.getSymbol() !== patch.marketId
       || this.getInterval() !== patch.interval
@@ -6417,6 +6447,7 @@ export class TradingDrawingController {
     await this.aiPlayback.play(drawings, options);
     if (
       !this.destroyed
+      && this.aiDrawingClearVersion === playbackClearVersion
       && this.storageSessionId === playbackStorageSessionId
       && this.getSymbol() === patch.marketId
       && this.getInterval() === patch.interval
@@ -6698,44 +6729,56 @@ export class TradingDrawingController {
     const priceToCoordinate = (price: number) => finiteTradingChartCoordinate(candleSeries?.priceToCoordinate(price));
     const symbol = this.getSymbol();
     const interval = this.getInterval();
-    const aiSourceDrawings = !this.drawingsHidden && this.drawingScope === "main" && !this.drawingVisibility.aiHidden
-      ? this.aiDrawings.filter((drawing) => tradingAiDrawingMatchesContext(drawing, symbol, interval))
+    const aiSourceDrawings = this.drawingScope === "main"
+      ? projectStoredTradingPlanDrawings(this.aiDrawings, this.storageSessionId).filter((drawing) => tradingAiDrawingMatchesContext(drawing, symbol, interval))
       : [];
-    if (!this.drawingsHidden && this.drawingScope === "main" && !this.drawingVisibility.aiHidden
+    if (this.drawingScope === "main"
       && this.aiDraft && tradingAiDrawingMatchesContext(this.aiDraft, symbol, interval)) {
       aiSourceDrawings.push(this.aiDraft);
     }
     const planPriceLines = buildTradingPlanPriceLines(aiSourceDrawings);
-    const displayedOrderLines = [...this.orderLines, ...planPriceLines.lines];
+    const displayedOrderLines = [
+      ...(this.drawingVisibility.ordersHidden ? [] : this.orderLines),
+      ...(this.drawingVisibility.plansHidden ? [] : planPriceLines.lines),
+    ];
     // Most charts have no order labels or notes to avoid. Do not scan history
     // just to render an empty layer, and share the work when both need it.
     let obstacles: TradingDrawingCollisionRect[] | null = null;
     const candleObstacles = () => obstacles ??= this.drawingScope === "main" ? this.visibleCandleObstacles(bounds) : [];
-    updateTradingDrawingMarkup(this.orderLineContent, candleSeries && this.drawingScope === "main" && displayedOrderLines.length
-      ? renderTradingOrderLineSvg(
-        displayedOrderLines,
-        this.getSymbol(),
-        bounds,
-        priceToCoordinate,
-        candleObstacles(),
-      )
-      : "");
-    updateTradingDrawingMarkup(this.orderPositionCardLayer, candleSeries && this.drawingScope === "main" && displayedOrderLines.length
-      ? renderTradingOrderPositionCards(
-        displayedOrderLines,
-        this.getSymbol(),
-        bounds,
-        priceToCoordinate,
-        candleObstacles(),
-      )
-      : "");
-    fitTradingOrderLineLabels(this.orderLineContent, this.orderPositionCardLayer, bounds);
-    this.setOpenOrderPositionCard(this.openOrderPositionCardId);
+    // Resolve drawing text first, then place price badges using this frame's
+    // actual glyph bounds (including wrapped region labels and rotated text).
+    const renderOrderLines = () => {
+      const annotationObstacles = displayedOrderLines.length && !this.drawingsHidden
+        ? tradingDrawingLabelObstacles(this.overlay, [this.content, this.aiContent]) : [];
+      updateTradingDrawingMarkup(this.orderLineContent, candleSeries && this.drawingScope === "main" && displayedOrderLines.length
+        ? renderTradingOrderLineSvg(
+          displayedOrderLines,
+          this.getSymbol(),
+          bounds,
+          priceToCoordinate,
+          candleObstacles(),
+          annotationObstacles,
+        )
+        : "");
+      updateTradingDrawingMarkup(this.orderPositionCardLayer, candleSeries && this.drawingScope === "main" && displayedOrderLines.length
+        ? renderTradingOrderPositionCards(
+          displayedOrderLines,
+          this.getSymbol(),
+          bounds,
+          priceToCoordinate,
+          candleObstacles(),
+          annotationObstacles,
+        )
+        : "");
+      fitTradingOrderLineLabels(this.orderLineContent, this.orderPositionCardLayer, bounds);
+      this.setOpenOrderPositionCard(this.openOrderPositionCardId);
+    };
     if (this.drawingsHidden) {
       this.manualLayer.render([]);
       updateTradingDrawingMarkup(this.aiContent, "");
       updateTradingDrawingMarkup(this.aiTextHitContent, "");
       updateTradingDrawingMarkup(this.aiCursorContent, "");
+      renderOrderLines();
       this.updateAiTextSizeToolbar(bounds);
       this.updateSelectionToolbar(bounds);
       this.updateAxisMarkers(bounds);
@@ -6763,7 +6806,7 @@ export class TradingDrawingController {
       }
       return { id: drawing.id, render };
     }));
-    const aiDrawings = aiSourceDrawings.filter(drawing => !planPriceLines.drawingIds.has(drawing.id))
+    const aiDrawings = aiSourceDrawings.filter(drawing => !this.drawingVisibility.aiHidden && !planPriceLines.drawingIds.has(drawing.id))
       .map((drawing) => tradingAiDrawingDisplayModel(drawing));
     const aiCandlestickLabelRequests = aiDrawings.flatMap((drawing): TradingAiNoteLayoutRequest[] => {
       if (!tradingDrawingIsPriceActionCandlestickPatternLabel(drawing) || !drawing.points[0]) return [];
@@ -6835,6 +6878,7 @@ export class TradingDrawingController {
         return this.renderAiTextSizeHitTarget(drawing, bounds, textLayout);
       })
       .join(""));
+    renderOrderLines();
     this.renderAiCursor(bounds);
     this.updateAiTextSizeToolbar(bounds);
     this.updateToolbarState();
@@ -7697,6 +7741,16 @@ export class TradingDrawingController {
   }
 
   private updateAiTextSizeToolbar(bounds: { width: number; height: number }) {
+    // Keep the eye state current even while the toolbar is dismissed, or a
+    // drawing tool owns the canvas. Restoring the toolbar must not show stale state.
+    const eye = this.aiTextSizeToolbar.querySelector<HTMLButtonElement>('[data-ai-text-size-action="toggle-visibility"]');
+    if (eye) {
+      const hidden = this.drawingVisibility.aiHidden;
+      updateTradingDrawingMarkup(eye, selectionIcon(hidden ? 'eye-closed' : 'eye'));
+      eye.setAttribute('aria-pressed', String(hidden));
+      eye.setAttribute('aria-label', hidden ? '显示当前会话 AI 画线' : '隐藏当前会话 AI 画线');
+      eye.title = hidden ? '显示当前会话 AI 画线' : '隐藏当前会话 AI 画线';
+    }
     if (
       !this.userDrawingEnabled
       || tradingDrawingToolDefinition(this.activeTool)?.kind !== "cursor"
@@ -7722,14 +7776,6 @@ export class TradingDrawingController {
     const textDrawings = this.aiTextDrawingsForCurrentContext();
     if (!this.aiTextSizeToolbarVisibility.setAvailable(true)) return;
     this.aiTextSizeToolbar.setAttribute("aria-label", 'AI 画线显示与字号');
-    const eye = this.aiTextSizeToolbar.querySelector<HTMLButtonElement>('[data-ai-text-size-action="toggle-visibility"]');
-    if (eye) {
-      const hidden = this.drawingVisibility.aiHidden;
-      updateTradingDrawingMarkup(eye, selectionIcon(hidden ? 'eye-closed' : 'eye'));
-      eye.setAttribute('aria-pressed', String(hidden));
-      eye.setAttribute('aria-label', hidden ? '显示当前会话 AI 画线' : '隐藏当前会话 AI 画线');
-      eye.title = hidden ? '显示当前会话 AI 画线' : '隐藏当前会话 AI 画线';
-    }
     this.aiTextSizeToolbar.querySelectorAll<HTMLButtonElement>(
       '[data-ai-text-size-action="decrease"], [data-ai-text-size-action="increase"]',
     ).forEach((button) => {
@@ -7857,6 +7903,10 @@ export class TradingDrawingController {
       + `<text x="${x + 7}" y="${y - 5}" fill="#fff" font-size="10" font-weight="600">${escapeHtml(label)}</text>`;
   }
 
+  private handlePlanDrawingHistoryChanged = (event: Event) => {
+    if ((event as CustomEvent<string>).detail === this.storageSessionId) this.redraw();
+  };
+
   destroy() {
     for (const timer of this.volumeProfileTimers.values()) window.clearTimeout(timer);
     this.volumeHistory?.destroy();
@@ -7928,6 +7978,7 @@ export class TradingDrawingController {
     this.xPostDialog.close();
     this.overlay.removeEventListener("lostpointercapture", this.handlePointerCancel);
     window.removeEventListener("blur", this.cancelPointerInteraction);
+    window.removeEventListener(PLAN_DRAWING_HISTORY_CHANGED, this.handlePlanDrawingHistoryChanged);
     document.removeEventListener("pointerdown", this.handleOutsidePointerDown);
     document.removeEventListener("pointerdown", this.handleToolMenuOutsidePointerDown, true);
     document.removeEventListener("pointerdown", this.handleChartBackgroundPointerDown, true);

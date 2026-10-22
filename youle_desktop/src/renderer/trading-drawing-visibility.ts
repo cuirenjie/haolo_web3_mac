@@ -1,7 +1,21 @@
 // Display preferences are local to a conversation. Never put them in drawing
 // geometry, cloud synchronization payloads or the manual undo/redo history.
 type DrawingIdentity = { id: string; symbol: string; drawingScope?: string };
-export type TradingDrawingLayerVisibility = { aiHidden: boolean; manualHidden: boolean };
+export const TRADING_VISIBILITY_LAYERS = [
+  { key: 'aiHidden', label: '隐藏AI绘图' },
+  { key: 'manualHidden', label: '隐藏手动绘图' },
+  { key: 'dataHidden', label: '隐藏数据标注' },
+  { key: 'ordersHidden', label: '隐藏仓位线' },
+  { key: 'plansHidden', label: '隐藏计划线' },
+] as const;
+export type TradingDrawingVisibilityKey = typeof TRADING_VISIBILITY_LAYERS[number]['key'];
+export type TradingDrawingLayerVisibility = Record<TradingDrawingVisibilityKey, boolean>;
+export const DEFAULT_TRADING_DRAWING_VISIBILITY: TradingDrawingLayerVisibility = {
+  aiHidden: false, manualHidden: false, dataHidden: false, ordersHidden: false, plansHidden: false,
+};
+function layersFrom(value: Partial<TradingDrawingLayerVisibility>): TradingDrawingLayerVisibility {
+  return Object.fromEntries(TRADING_VISIBILITY_LAYERS.map(({ key }) => [key, value[key] === true])) as TradingDrawingLayerVisibility;
+}
 type VisibilityState = TradingDrawingLayerVisibility & { hidden: string[] };
 const prefix = 'haolo.trading-market.drawing-visibility.v1.';
 const changed = 'haolo-drawing-visibility-changed';
@@ -26,15 +40,15 @@ export class TradingDrawingVisibility {
   private readSession(session: string): VisibilityState {
     try {
       const value = JSON.parse(window.localStorage.getItem(prefix + encodeURIComponent(session)) || '{}');
-      return { aiHidden: value.aiHidden === true, manualHidden: value.manualHidden === true, hidden: Array.isArray(value.hidden)
+      return { ...layersFrom(value), hidden: Array.isArray(value.hidden)
         ? [...new Set<string>((value.hidden as unknown[]).filter((key): key is string => typeof key === 'string'))] : [] };
-    } catch { return { aiHidden: false, manualHidden: false, hidden: [] }; }
+    } catch { return { ...DEFAULT_TRADING_DRAWING_VISIBILITY, hidden: [] }; }
   }
 
   private read(): VisibilityState {
     const local = this.readSession(this.session);
     const shared = this.readSession(conversation(this.session));
-    return { ...local, aiHidden: shared.aiHidden, manualHidden: shared.manualHidden };
+    return { ...local, ...layersFrom(shared) };
   }
 
   private save() {
@@ -56,19 +70,34 @@ export class TradingDrawingVisibility {
   private readonly receive = (event: Event) => {
     const detail = (event as CustomEvent<{ session: string; state: VisibilityState }>).detail;
     if (conversation(detail.session) !== conversation(this.session)) return;
-    this.state = { aiHidden: detail.state.aiHidden, manualHidden: detail.state.manualHidden,
+    this.state = { ...layersFrom(detail.state),
       hidden: detail.session === this.session ? [...detail.state.hidden] : this.state.hidden };
     this.onChange();
   };
 
   get aiHidden() { return this.state.aiHidden; }
   get manualHidden() { return this.state.manualHidden; }
-  layers(): TradingDrawingLayerVisibility { return { aiHidden: this.aiHidden, manualHidden: this.manualHidden }; }
+  get dataHidden() { return this.state.dataHidden; }
+  get ordersHidden() { return this.state.ordersHidden; }
+  get plansHidden() { return this.state.plansHidden; }
+  get allHidden() { return TRADING_VISIBILITY_LAYERS.every(({ key }) => this.state[key]); }
+  layers(): TradingDrawingLayerVisibility { return layersFrom(this.state); }
   setLayers(update: Partial<TradingDrawingLayerVisibility>) {
     const next = { ...this.layers(), ...update };
-    if (next.aiHidden === this.aiHidden && next.manualHidden === this.manualHidden) return;
+    if (TRADING_VISIBILITY_LAYERS.every(({ key }) => next[key] === this.state[key])) return;
     this.state = { ...this.state, ...next };
     this.save();
+  }
+  setAll(hidden: boolean) { this.setLayers(layersFrom(Object.fromEntries(TRADING_VISIBILITY_LAYERS.map(({ key }) => [key, hidden])))); }
+  // Older chart settings kept this preference globally. Use it only as the
+  // initial value for conversations without an explicit data-layer choice.
+  migrateLegacyDataVisibility(hidden: boolean) {
+    if (!hidden || this.dataHidden) return;
+    try {
+      const stored = JSON.parse(window.localStorage.getItem(prefix + encodeURIComponent(conversation(this.session))) || '{}');
+      if (typeof stored?.dataHidden === 'boolean') return;
+    } catch { /* A missing/corrupt preference can inherit the legacy setting. */ }
+    this.setLayers({ dataHidden: true });
   }
   toggleAi() { this.setLayers({ aiHidden: !this.aiHidden }); }
   isHidden(drawing: DrawingIdentity) { return this.state.hidden.includes(identity(drawing)); }

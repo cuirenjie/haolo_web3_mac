@@ -25,6 +25,8 @@ async function submit() {
   const tradingStrategiesToRunAtSend = general ? [] : [strategy];
   const tradingGeneralCandidateAtSend = general;
   const personalStrategyCandidateAtSend = false, tradingAlertCandidateAtSend = false;
+  const businessContextId = "frozen-context";
+  let businessContextHandedOff = false;
   let tradingAnalysisTargetAtSend = {};
   let tradingStrategyRequestAtSend = null, tradingGeneralRequestAtSend = null;
   const tradingStrategyRequestsAtSend = [];
@@ -38,7 +40,7 @@ function deferred() {
   return { promise, resolve };
 }
 
-function harness({ general = false, mode = "chart-analysis", access = "available", promoteFailure = false, persistFailure = false } = {}) {
+function harness({ general = false, mode = "chart-analysis", access = "available", promoteFailure = false, persistFailure = false, budgetOk = true } = {}) {
   const gates = Object.fromEntries(["classify", "access", "promote", "persist", "analyze", "context"].map(name => [name, { entered: deferred(), release: deferred() }]));
   const frames = [], calls = [], aliases = new Map(), thinking = new Map();
   const state = { currentThreadId: "draft", items: {}, attachments: [], composerQuote: null, settings: {} };
@@ -59,12 +61,17 @@ function harness({ general = false, mode = "chart-analysis", access = "available
   }
   const strategy = { id: "price-action", ui: { classificationMessage: "正在识别裸K分析请求", preparingMessage: "正在准备裸K分析" } };
   const deps = {
+    businessModelPoolsState: { configured: false },
+    hasThreadCodexWork: () => false, threadsAwaitingAgentReply: new Set(), setCodexThreadBusy: noop,
+    beginCodexSend: () => "send", prepareThreadReferencesForSend: async () => ({ ok: true }),
+    sendAgentText: async (...args) => { calls.push({ root: args }); await stage("analyze"); },
+    codexTradingTools: { updateAttachments: noop, release: id => calls.push({ released: id }) },
     state, general, strategy, console: { warn: noop }, api: {},
     tradingExpertThinkingStateByThreadId: thinking,
     submittingComposerThreadIds: new Set(), localHistoryAheadThreadIds: new Set(),
     tradingStrategyAnalysisTargetByRequest: new Map(),
     groupIdForThreadContext: () => null, isDefaultThreadGroup: () => true,
-    expandSystemDashboardForNewMessage: noop, cloneLocalAttachments: identity,
+    syncTradingExpertCollapseControlsState: noop, expandSystemDashboardForNewMessage: noop, cloneLocalAttachments: identity,
     mediaCreationSubmissionAttachments: (_id, attachments) => attachments,
     cloneComposerQuote: identity, activeComposerThreadReferences: () => [],
     clearTradingExpertComposerAfterSend: noop, commitSelectedNewThreadGroupForSend: noop,
@@ -111,7 +118,7 @@ function harness({ general = false, mode = "chart-analysis", access = "available
     isTradingExpertThreadId: () => true, syncTradingExpertCollapseControlsState: noop,
     isThinkingNoiseMessage: () => false, localGroupChatRecord: () => null,
     activeThinkingElapsedLabel: () => "0s", isThreadBusy: () => false,
-    prepareContextBudgetForSend: () => stage("context", { ok: false }),
+    prepareContextBudgetForSend: () => stage("context", { ok: budgetOk }),
   };
   const context = vm.createContext(deps);
   const draw = () => frames.push(context.withThinkingMessage(state.currentThreadId, Object.values(state.items[state.currentThreadId] || {})));
@@ -135,70 +142,45 @@ function harness({ general = false, mode = "chart-analysis", access = "available
 }
 
 for (const general of [false, true]) {
-  test(`${general ? "general chart" : "strategy"} responds immediately and stays visible throughout slow preflight`, async () => {
+  test(`${general ? "general chart" : "strategy"} shows the user bubble during preparation and reaches root Codex`, { timeout: 3000 }, async () => {
     const h = harness({ general });
     const pending = h.submit();
-    assert.equal(h.visible().at(-1)?.text, "正在理解请求", "response must exist before the first async result");
-    const started = h.thinking.get("draft").startedAtMs;
-    for (const [before, next] of [["classify", "access"], ["access", "promote"], ["promote", "persist"], ["persist", "analyze"]]) {
-      h.release(before);
-      await h.at(next);
-      assert.ok(h.visible().some(row => row.id?.startsWith("thinking-")), `no blank gap while waiting for ${next}`);
-      assert.equal(h.thinking.get(h.state.currentThreadId).startedAtMs, started);
-    }
+    assert.equal(h.state.items.draft.user.text, "@策略:裸K分析");
+    await h.at("context");
+    assert.ok(!h.calls.includes("classify"));
+    h.release("context");
+    await h.at("promote");
+    h.release("promote");
+    await h.at("analyze");
+    const dispatch = h.calls.find(c => c?.root)?.root;
+    assert.equal(dispatch[0], "promoted");
+    assert.equal(dispatch[6].businessContextId, "frozen-context");
+    assert.ok(!h.calls.includes("persist"));
     h.release("analyze");
     await pending;
-    assert.equal(h.thinking.get("recovered").phase, "analyzing", "send cleanup must not erase the runner's replacement state");
-    assert.equal(h.thinking.size, 1, "no stale draft status after thread replacements");
+    assert.ok(!h.calls.some(c => c?.released));
   });
 }
 
-for (const access of ["membership-required", "insufficient", "unknown"]) {
-  test(`failed ${access} preflight clears immediate feedback without starting analysis`, async () => {
-    const h = harness({ access });
-    const pending = h.submit();
-    h.release("classify");
-    await h.at("access");
-    assert.equal(h.visible().length, 1);
-    h.release("access");
-    await pending;
-    assert.equal(h.thinking.size, 0);
-    assert.ok(!h.calls.includes("analyze"));
-    assert.ok(h.frames.at(-1).every(row => !row.id?.startsWith("thinking-")));
-  });
-}
+test("blocked context preparation retains the user bubble and releases the frozen chart", { timeout: 3000 }, async () => {
+  const h = harness({ budgetOk: false });
+  const pending = h.submit();
+  h.release("context");
+  await pending;
+  assert.equal(h.state.items.draft.user.type, "userMessage");
+  assert.ok(h.calls.includes("failed"));
+  assert.ok(h.calls.some(c => c?.released === "frozen-context"));
+  assert.ok(!h.calls.includes("promote"));
+});
 
-test("thread creation failure clears feedback", async () => {
+test("thread creation failure does not invoke Codex or a trading runner", { timeout: 3000 }, async () => {
   const h = harness({ promoteFailure: true });
   const pending = h.submit();
-  h.release("classify"); h.release("access");
+  h.release("context");
   await h.at("promote");
   h.release("promote");
   await pending;
-  assert.equal(h.thinking.size, 0);
   assert.ok(h.calls.includes("failed"));
-});
-
-test("persistence recovery retains feedback and still dispatches analysis after queuing a retry", async () => {
-  const h = harness({ persistFailure: true });
-  const pending = h.submit();
-  for (const name of ["classify", "access", "promote", "persist"]) h.release(name);
-  await h.at("analyze");
-  assert.ok(h.calls.includes("retry"));
-  assert.equal(h.state.currentThreadId, "recovered");
-  h.release("analyze");
-  await pending;
-  assert.equal(h.thinking.size, 1);
-});
-
-test("conceptual conversation releases chart feedback before handing off to the root agent", async () => {
-  const h = harness({ mode: "conversation" });
-  const pending = h.submit();
-  h.release("classify");
-  await h.at("context");
-  assert.equal(h.thinking.size, 0);
-  h.release("context");
-  await pending;
-  assert.ok(!h.calls.includes("access"));
+  assert.ok(h.calls.some(c => c?.released === "frozen-context"));
   assert.ok(!h.calls.includes("analyze"));
 });

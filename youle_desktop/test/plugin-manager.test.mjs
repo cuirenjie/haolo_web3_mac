@@ -327,8 +327,11 @@ test("default resource sync registers five installed plugins for the bundled Cod
   } finally {
     if (previousSkipDeepSeek === undefined) delete process.env.HAOLO_DESKTOP_SKIP_BUILTIN_DEEPSEEK_MCP;
     else process.env.HAOLO_DESKTOP_SKIP_BUILTIN_DEEPSEEK_MCP = previousSkipDeepSeek;
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    fs.rmSync(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    // Let process close callbacks and SQLite handle cleanup run between Windows
+    // retries. rmSync blocks those callbacks during a busy full-suite run.
+    assert.equal(path.dirname(tempRoot), path.resolve(os.tmpdir()));
+    assert.match(path.basename(tempRoot), /^haolo-plugin-runtime-/);
+    await fs.promises.rm(tempRoot, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   }
 });
 

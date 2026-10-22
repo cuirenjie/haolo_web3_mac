@@ -124,3 +124,22 @@ function writeFakeWindowsRuntime(binDir) {
 function fileSha256(filePath) {
   return createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
 }
+
+
+test("macOS runtime materialization keeps code-mode and search helpers executable and repairs them", t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "haolo-mac-runtime-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const sourceBinDir = path.join(root, "source"), targetBinDir = path.join(root, "target");
+  fs.mkdirSync(sourceBinDir);
+  for (const name of ["haolo_ai", "codex-code-mode-host", "rg"]) {
+    fs.writeFileSync(path.join(sourceBinDir, name), `fixture-${name}`, { mode: 0o755 });
+  }
+  materializeHaoloRuntime({ sourceBinDir, targetBinDir, platform: "darwin" });
+  for (const name of ["haolo_ai", "codex-code-mode-host", "rg"]) {
+    assert.equal(fs.readFileSync(path.join(targetBinDir, name), "utf8"), `fixture-${name}`);
+    assert.ok(fs.statSync(path.join(targetBinDir, name)).mode & 0o111);
+  }
+  fs.writeFileSync(path.join(targetBinDir, "codex-code-mode-host"), "corrupt");
+  assert.equal(materializeHaoloRuntime({ sourceBinDir, targetBinDir, platform: "darwin" }).action, "prepared");
+  assert.equal(fs.readFileSync(path.join(targetBinDir, "codex-code-mode-host"), "utf8"), "fixture-codex-code-mode-host");
+});

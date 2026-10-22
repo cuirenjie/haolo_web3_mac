@@ -665,20 +665,13 @@ test("renderer route prioritizes explicit targets, verifies the loaded chart, an
   const marketSource = fs.readFileSync(path.join(root, "src/renderer/trading-expert-market.ts"), "utf8");
   const drawingSource = fs.readFileSync(path.join(root, "src/renderer/trading-expert-drawing.ts"), "utf8");
   const preloadSource = fs.readFileSync(path.join(root, "src/main/preload.mjs"), "utf8");
-  assert.match(mainSource, /tradingGeneralCandidateAtSend/);
-  assert.match(mainSource, /await classifyTradingGeneralRequestForSend\(/);
-  assert.match(mainSource, /hasTradingExpertCurrentAnalysis\(\)/);
-  assert.match(mainSource, /generalRequest\?\.analysisFollowup === true/);
-  assert.match(mainSource, /buildTradingAnalysisFollowupPrompt\(baseAgentText\)/);
-  assert.match(mainSource, /hasCurrentAnalysis,/);
-  assert.match(mainSource, /drawingRequested: chartAnalysis && !explicitNoDrawingRequested\(fallback\.instruction\)/);
+  assert.match(mainSource, /const codexTradingTools = new CodexTradingTools/);
+  assert.match(mainSource, /return runTradingGeneralChartRequest\(threadId, request, target\)/);
   assert.match(mainSource, /runTradingExpertGeneralConversation\(\{/);
   assert.match(mainSource, /positionManagementRequested: request\.positionManagementRequested/);
   assert.match(mainSource, /request\.positionManagementRequested === true \? "plain" : "execution-plan"/);
   assert.doesNotMatch(mainSource, /general(?:Analysis)?Mentioned/);
-  assert.match(mainSource, /symbol: chartAnalysis \? fallback\.symbol : null/);
-  assert.match(mainSource, /interval: chartAnalysis \? fallback\.interval : null/);
-  assert.match(mainSource, /正在由大模型识别问题意图；需要盘面时将进入行情分析与画线智能体/);
+  assert.match(mainSource, /const codexTradingTools = new CodexTradingTools/);
   assert.doesNotMatch(mainSource, /routeTradingExpertFastChatForSend\(\{/);
   assert.match(marketSource, /selectTradingAnalysisMarket\(this\.markets/);
   assert.match(marketSource, /selectTradingAnalysisInterval\(\{/);
@@ -689,7 +682,7 @@ test("renderer route prioritizes explicit targets, verifies the loaded chart, an
   assert.match(marketSource, /responseMode: directResponseRequested \? "direct" : "full"/);
   assert.match(marketSource, /request\.positionManagementRequested === true[\s\S]*?response\.analysisPlan\.report/);
   assert.match(marketSource, /visibleCandlesInLogicalRange\(this\.candles,\s*visibleRange\)/);
-  assert.match(marketSource, /if \(request\.drawingRequested !== false\)[\s\S]*?commitTradingAnalysisDrawingPatch/);
+  assert.match(marketSource, /if \(request\.drawingRequested !== false && !request\.deferPresentation\)[\s\S]*?commitTradingAnalysisDrawingPatch/);
   assert.match(marketSource, /patch\.marketId !== currentJob\.marketId \|\| patch\.interval !== currentJob\.interval/);
   assert.match(marketSource, /绘图目标与任务快照不一致/);
   assert.match(marketSource, /activeWorkspace\?\.drawingStorageSessionMatches\(currentJob\.storageSessionId\)/);
@@ -698,7 +691,7 @@ test("renderer route prioritizes explicit targets, verifies the loaded chart, an
   assert.match(marketSource, /persistTradingAiDrawingPatch\(storageSessionId, patch\)/);
   assert.match(marketSource, /hasCurrentAnalysis\([\s\S]*?hasAiAnalysisForCurrentContext\(theory\)/);
   assert.match(drawingSource, /hasAiAnalysisForCurrentContext\([\s\S]*?tradingAiDrawingMatchesContext\(drawing, this\.getSymbol\(\), this\.getInterval\(\)\)/);
-  assert.match(preloadSource, /classifyTradingGeneralRequest/);
+  assert.doesNotMatch(preloadSource, /classifyTradingGeneralRequest/);
   assert.match(preloadSource, /runTradingGeneralAnalysis/);
 });
 

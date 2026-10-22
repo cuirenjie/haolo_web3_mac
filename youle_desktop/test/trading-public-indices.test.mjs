@@ -37,7 +37,7 @@ test("public index copy and number/time formatting follow the active application
   }
 });
 
-test("indices preload the catalogue for favorites, reuse data on switching and stay warm in the background", async () => {
+test("indices preload once, notify shared favorites, reuse data on switching and stay warm in the background", async () => {
   let calls = 0;
   const f = fixture(async () => { calls++; return snapshot; });
   try {
@@ -47,7 +47,7 @@ test("indices preload the catalogue for favorites, reuse data on switching and s
     await flush();
     assert.equal(calls, 1);
     assert.equal(f.intervals.size, 1);
-    assert.equal(f.paints(), 1, "catalogue updates notify index favorites and picker even outside the index tab");
+    assert.equal(f.paints(), 1, "background updates must reach index favorites and open charts");
     assert.equal(f.intervals.values().next().value.ms, 300_000);
     assert.equal(f.indices.indices[0].value, 0);
     f.indices.setActive(true);
@@ -62,14 +62,14 @@ test("indices preload the catalogue for favorites, reuse data on switching and s
     f.document.dispatchEvent(new Event("visibilitychange"));
     await flush();
     assert.equal(calls, 2);
-    assert.equal(f.paints(), calls);
+    assert.equal(f.paints(), 2);
     f.indices.setActive(false);
     assert.equal(f.intervals.size, 1);
     assert.equal(f.intervals.values().next().value.ms, 300_000);
     for (const { fn } of f.intervals.values()) fn();
     await flush();
     assert.equal(calls, 3);
-    assert.equal(f.paints(), calls);
+    assert.equal(f.paints(), 3);
     f.indices.destroy();
     assert.equal(f.intervals.size, 0);
     f.document.dispatchEvent(new Event("visibilitychange"));

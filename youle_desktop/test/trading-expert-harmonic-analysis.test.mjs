@@ -682,7 +682,8 @@ test("renderer discovers harmonic metadata and requests enough closed candles wi
   const market = fs.readFileSync(path.join(root, "src", "renderer", "trading-expert-market.ts"), "utf8");
   const renderer = fs.readFileSync(path.join(root, "src", "renderer", "main.ts"), "utf8");
   assert.match(catalog, /OFFICIAL_TRADING_CATALOG/);
-  assert.match(catalog, /buildTradingHarmonicExpertPrompt/);
+  assert.doesNotMatch(catalog, /buildTradingHarmonicExpertPrompt/);
+  assert.match(renderer, /runTradingStrategyChartRequest\(threadId, strategy, request\)/);
   assert.match(catalog, /dataRequirements\?: Record<string/);
   assert.match(market, /minimumCandles/);
   assert.match(market, /preferredCandles/);

@@ -400,7 +400,8 @@ test("manual and AI drawings persist in isolated conversation storage", async ()
   assert.match(restoreLastAnalysis, /context\.market[\s\S]*this\.favoriteMarketRecords[\s\S]*binanceMarketFromAnalysisContext\(context\)/);
   assert.match(restoreLastAnalysis, /this\.activeInterval = context\.interval;[\s\S]*if \(!this\.selectMarket\(market\)\) return false;[\s\S]*this\.updateSymbolUi\(\);/);
   assert.match(market, /migrateTradingLastAnalysisContext\([\s\S]*migrateFromSessionId,[\s\S]*drawingStorageSessionId/);
-  assert.equal((market.match(/rememberTradingAnalysisJobContext\(job\)/g) || []).length, 1);
+  // General, detached and independently applied Skill drawing results.
+  assert.equal((market.match(/rememberTradingAnalysisJobContext\(job\)/g) || []).length, 3);
   assert.match(drawing, /onAiDrawingContextsChanged\(null\)/);
   assert.match(main, /const storageSessionId = tradingExpertMarketWorkspaceStorageSessionId\(\) \|\| threadId/);
   assert.match(main, /syncTradingExpertMarketWorkspace\([\s\S]*targetThreadId \|\| preserved\.threadId,[\s\S]*sourceStorageSessionId && sourceStorageSessionId !== targetStorageSessionId[\s\S]*?sourceStorageSessionId/);
@@ -417,7 +418,7 @@ test("manual and AI drawings persist in isolated conversation storage", async ()
   );
   assert.doesNotMatch(restartBlock, /cancelTradingAnalysis|cancelChanAnalysis/);
   assert.doesNotMatch(destroyBlock, /cancelTradingAnalysis|cancelChanAnalysis/);
-  assert.equal((market.match(/const job = tradingAnalysisJobs\.start\(\{/g) || []).length, 1);
+  assert.equal((market.match(/const job = tradingAnalysisJobs\.start\(\{/g) || []).length, 3);
   assert.match(market, /persistTradingAiDrawingPatch\(storageSessionId, patch\)/);
 });
 
@@ -871,7 +872,7 @@ test("drawing trash confirms before permanently clearing manual, AI, and persist
   assert.match(drawing, /data-drawing-clear-action="cancel">取消<[\s\S]*data-drawing-clear-action="confirm">确认清空</);
   assert.match(drawing, /action === "clear"[\s\S]*this\.openClearDialog\(target\)/);
   assert.match(drawing, /action === "confirm"[\s\S]*this\.clearAllDrawings\(\)[\s\S]*this\.clearDialog\.close\(\)/);
-  assert.match(drawing, /private clearAllDrawings\(\)[\s\S]*this\.aiPlayback\.cancel\(\)[\s\S]*const scopedClear = this\.drawingScope !== "main"[\s\S]*this\.drawings = scopedClear[\s\S]*this\.aiDrawings = scopedClear \? this\.aiDrawings : \[\][\s\S]*this\.redoStack = \[\]/);
+  assert.match(drawing, /clearAllDrawings\(\{ allScopes = false \}[\s\S]*this\.aiPlayback\.cancel\(\)[\s\S]*const scopedClear = !allScopes && this\.drawingScope !== "main"[\s\S]*this\.drawings = scopedClear[\s\S]*this\.aiDrawings = scopedClear \? this\.aiDrawings : \[\][\s\S]*this\.redoStack = \[\]/);
   assert.match(drawing, /window\.localStorage\.removeItem\(tradingDrawingSessionStorageKey\("manual", this\.storageSessionId\)\)[\s\S]*window\.localStorage\.removeItem\(tradingDrawingSessionStorageKey\("ai", this\.storageSessionId\)\)/);
   assert.doesNotMatch(drawing, /private clearCurrentSymbol\(/);
   assert.match(styles, /\.trading-drawing-clear-dialog\s*\{[^}]*background: var\(--trading-market-panel\);[^}]*color: var\(--trading-market-text\);/s);

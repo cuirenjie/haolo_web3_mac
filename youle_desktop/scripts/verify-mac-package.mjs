@@ -20,6 +20,7 @@ const universalPackageTarget = {
 const electronHelperSuffixes = ["", " (GPU)", " (Plugin)", " (Renderer)"];
 const requiredResourceFiles = [
   "bin/haolo_ai",
+  "bin/codex-code-mode-host",
   "bin/rg",
   "licenses/ripgrep-LICENSE-MIT.txt",
   "haolo-logo.icns",

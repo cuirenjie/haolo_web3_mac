@@ -23,7 +23,7 @@ if (process.platform !== "darwin") {
 const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
 validateManifest(manifest);
 
-for (const file of manifest.files) {
+for (const file of [...manifest.files, ...manifest.companions]) {
   await verifyRuntimeFile(file, manifest);
   if (archivesDir) await verifySourceAsset(file);
 }
@@ -35,7 +35,7 @@ for (const tool of manifest.tools) {
 }
 
 console.log(
-  `Verified macOS Codex runtime ${manifest.version}: ${manifest.files.length} signed binaries and ${manifest.tools.reduce(
+  `Verified macOS Codex runtime ${manifest.version}: ${manifest.files.length + manifest.companions.length} signed binaries and ${manifest.tools.reduce(
     (count, tool) => count + tool.files.length,
     0,
   )} bundled tool binaries${
@@ -64,7 +64,7 @@ function parseArgs(args) {
 }
 
 function validateManifest(manifest) {
-  if (manifest.schemaVersion !== 1 || manifest.platform !== "darwin") {
+  if (manifest.schemaVersion !== 2 || manifest.platform !== "darwin") {
     throw new Error(`Not a supported macOS Codex runtime manifest: ${manifestPath}`);
   }
   if (!manifest.version || manifest.versionOutput !== `codex-cli ${manifest.version}`) {
@@ -90,7 +90,8 @@ function validateManifest(manifest) {
       {
         path: "darwin-arm64/haolo_ai",
         machOArchitecture: "arm64",
-        sourceName: "codex-aarch64-apple-darwin",
+        sourceName: "bin/codex",
+        sourceAsset: "codex-package-aarch64-apple-darwin.tar.gz",
       },
     ],
     [
@@ -98,7 +99,8 @@ function validateManifest(manifest) {
       {
         path: "darwin-x64/haolo_ai",
         machOArchitecture: "x86_64",
-        sourceName: "codex-x86_64-apple-darwin",
+        sourceName: "bin/codex",
+        sourceAsset: "codex-package-x86_64-apple-darwin.tar.gz",
       },
     ],
   ]);
@@ -113,7 +115,7 @@ function validateManifest(manifest) {
       file.path !== expectedFile.path ||
       file.machOArchitecture !== expectedFile.machOArchitecture ||
       file.sourceName !== expectedFile.sourceName ||
-      file.sourceAsset !== `${expectedFile.sourceName}.tar.gz`
+      file.sourceAsset !== expectedFile.sourceAsset
     ) {
       throw new Error(`Unexpected macOS Codex runtime entry: ${JSON.stringify(file)}`);
     }
@@ -137,6 +139,22 @@ function validateManifest(manifest) {
     throw new Error(`Missing macOS Codex runtime entries: ${[...expected.keys()].join(", ")}`);
   }
 
+  if (!Array.isArray(manifest.companions) || manifest.companions.length !== 2) {
+    throw new Error("Expected both macOS code-mode hosts.");
+  }
+  const companionArches = new Set();
+  for (const companion of manifest.companions) {
+    const main = manifest.files.find(file => file.arch === companion.arch);
+    if (!main || companionArches.has(companion.arch) ||
+        companion.path !== `darwin-${companion.arch}/codex-code-mode-host` ||
+        companion.sourceName !== "bin/codex-code-mode-host" ||
+        companion.machOArchitecture !== main.machOArchitecture ||
+        ["sourceAsset", "sourceAssetUrl", "sourceAssetSize", "sourceAssetSha256"].some(key => companion[key] !== main[key]) ||
+        !sha256Pattern.test(companion.sha256) || !Number.isSafeInteger(companion.size) || companion.size <= 0) {
+      throw new Error("Invalid macOS code-mode host metadata.");
+    }
+    companionArches.add(companion.arch);
+  }
   validateBundledTools(manifest.tools);
 }
 
@@ -229,8 +247,9 @@ async function verifyRuntimeFile(file, manifest) {
     throw new Error(`Unexpected signing team for ${file.path}`);
   }
 
-  const versionOutput = run(binaryPath, ["--version"], 120_000).stdout;
-  if (versionOutput !== manifest.versionOutput) {
+  const versionOutput = file.sourceName === "bin/codex"
+    ? run(binaryPath, ["--version"], 120_000).stdout : null;
+  if (versionOutput !== null && versionOutput !== manifest.versionOutput) {
     throw new Error(`Unexpected version for ${file.path}: expected '${manifest.versionOutput}', got '${versionOutput}'`);
   }
 

@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { SettingsReplica, DesktopSettingsSync, LEGACY_SETTINGS_TIME, flattenSettings, applySettingValues } from '../src/renderer/account-settings-sync.ts';
 import { clientSettingsRequest } from '../src/main/client-settings-sync.mjs';
+import { YouleApiClient, isYouleAuthExpiredError } from '../src/main/youle-api-client.mjs';
+
+const mainSource = readFileSync(new URL('../src/main/main.mjs', import.meta.url), 'utf8');
+const wrapperSource = mainSource.slice(mainSource.indexOf('function wrapYouleApiClient('), mainSource.indexOf('\nfunction getAutomationStore('));
+const wrapApi = new Function('isYouleAuthExpiredError', 'expireYouleSession', `${wrapperSource}; return wrapYouleApiClient;`)(
+  isYouleAuthExpiredError, async () => {},
+);
 
 const receipt = (entries = [], version = 1) => ({ schemaVersion: 1, version, serverTime: Date.now(), entries });
 class Storage {
@@ -136,4 +144,104 @@ test('corrupt account storage cannot retain or upload the previous account outbo
       if (broken === 'invalid-json') assert.equal(storage.getItem(key), '{broken');
     } finally { sync.dispose(); }
   }
+});
+
+test('production API wrapper sends authenticated settings reads and writes with token refresh intact', async () => {
+  const requests = [], refreshes = [];
+  const raw = new YouleApiClient({ serviceFetch: async (url, init) => {
+    requests.push({ url, init });
+    if (init.headers.Authorization !== 'Bearer refreshed-settings-token') {
+      return new Response(JSON.stringify({ detail: { code: 'AUTH_HEADER_MISSING', message: 'Authorization header is required' } }), { status: 401 });
+    }
+    return new Response(JSON.stringify(receipt()), { status: 200 });
+  } });
+  raw.loaded = true;
+  raw.baseUrl = 'https://haolo.test';
+  raw.token = 'initial-settings-token';
+  raw.profile = { id: 'one' };
+  raw.refreshAccessToken = async options => { refreshes.push(options); raw.token = 'refreshed-settings-token'; };
+  const api = wrapApi(raw);
+  const identity = { owner: 'one', baseUrl: raw.baseUrl };
+  await clientSettingsRequest(api, { ...identity, action: 'read' });
+  const body = { schemaVersion: 1, mutationId: 'settings-write', operations: [] };
+  await clientSettingsRequest(api, { ...identity, action: 'write', body });
+  assert.deepEqual(requests.map(r => r.init.method), ['GET', 'PUT']);
+  assert.ok(requests.every(r => r.url === 'https://haolo.test/api/mobile/v1/client-settings'));
+  assert.equal(requests[1].init.body, JSON.stringify(body));
+  assert.equal(requests[1].init.headers['content-type'], 'application/json');
+  assert.equal(refreshes.length, 2);
+});
+
+test('production API wrapper keeps the login guard synchronous', () => {
+  const raw = new YouleApiClient();
+  raw.token = null;
+  assert.throws(() => wrapApi(raw).requireAuth(), /请先登录/);
+});
+
+const histogramKey = 'indicator.sub:macd.series.histogram.histogramStyle';
+const unsupportedError = (index = 0) => Object.assign(new Error('HTTP 422'), { status: 422,
+  payload: { detail: [{ type: 'value_error', loc: ['body', 'operations', index], msg: 'Value error, Unsupported setting or value' }] } });
+
+test('422 isolates unsupported fields durably, preserves configuration and new edits, and permits later retry', () => {
+  let replica = new SettingsReplica(); replica.merge(receipt());
+  replica.edit({}, { [histogramKey]: 'solid', 'app.theme': 'dark' });
+  const rejected = replica.begin();
+  replica.rejectUnsupported([histogramKey]);
+  replica = new SettingsReplica(replica.serialize());
+  assert.equal(replica.values()[histogramKey], 'solid');
+  const supported = replica.begin();
+  assert.notEqual(supported.mutationId, rejected.mutationId);
+  assert.deepEqual(supported.operations.map(op => op.key), ['app.theme']);
+  replica.acknowledge(); replica.merge(receipt(supported.operations));
+  assert.equal(replica.values()[histogramKey], 'solid');
+  assert.equal(replica.begin(), null); assert.equal(replica.dirty, true);
+  replica.deferred[histogramKey] = Date.now() - 1;
+  const retry = replica.begin(); assert.equal(retry.operations[0].value, 'solid');
+  replica.edit(replica.values(), { [histogramKey]: 'hollow' });
+  replica.rejectUnsupported([histogramKey]);
+  assert.equal(replica.begin().operations[0].value, 'hollow');
+  replica.acknowledge(); assert.equal(replica.dirty, false);
+});
+
+test('IPC only exposes verified atomic field rejections, never treats generic or stale 422 as safe to reissue', async () => {
+  const api = { token: 'fixture', profile: { id: 'one' }, baseUrl: 'https://haolo.test',
+    load: async () => {}, requireAuth() {}, authHeaders: () => ({}), requestJson: async () => { throw unsupportedError(); } };
+  const params = { action: 'write', owner: 'one', baseUrl: api.baseUrl,
+    body: { schemaVersion: 1, mutationId: 'fixture', operations: [{ key: histogramKey, value: 'solid' }] } };
+  assert.deepEqual(await clientSettingsRequest(api, params), { rejected: 'SETTINGS_UNSUPPORTED_FIELDS', keys: [histogramKey] });
+  for (const error of [unsupportedError(99), Object.assign(unsupportedError(), { status: 500 }),
+    Object.assign(new Error('HTTP 422'), { status: 422, payload: { detail: [{ msg: 'invalid body' }] } })]) {
+    api.requestJson = async () => { throw error; };
+    await assert.rejects(clientSettingsRequest(api, params));
+  }
+  api.requestJson = async () => { api.profile.id = 'two'; throw unsupportedError(); };
+  await assert.rejects(clientSettingsRequest(api, params), /ACCOUNT_CHANGED/);
+});
+
+test('coordinator unblocks supported settings while rejected styles remain local and pending across restart', async () => {
+  const storage = new Storage(), requests = [], saved = new Map();
+  const request = async p => {
+    if (p.action === 'write') {
+      requests.push(p.body);
+      if (p.body.operations.some(op => op.key === histogramKey))
+        return { rejected: 'SETTINGS_UNSUPPORTED_FIELDS', keys: [histogramKey] };
+      for (const op of p.body.operations) saved.set(op.key, op);
+    }
+    return receipt([...saved.values()]);
+  };
+  let values = { 'app.theme': 'light', [histogramKey]: 'solid' };
+  let sync = new DesktopSettingsSync(storage, request);
+  const register = () => sync.register('app', { snapshot: () => values, defaults: () => ({ 'app.theme': 'light', [histogramKey]: 'solid' }), apply: v => { values = v; } });
+  try {
+    register(); sync.activate('one', 'https://haolo.test'); await sync.sync();
+    sync.edit(values, { 'app.theme': 'dark', [histogramKey]: 'hollow' }); await sync.sync();
+    assert.equal(saved.get('app.theme').value, 'dark');
+    assert.equal(values[histogramKey], 'hollow'); assert.equal(sync.status, 'pending');
+    assert.equal(requests.length, 2); assert.notEqual(requests[0].mutationId, requests[1].mutationId);
+    sync.dispose(); sync = new DesktopSettingsSync(storage, request); register();
+    sync.activate('one', 'https://haolo.test'); await sync.sync();
+    assert.equal(values[histogramKey], 'hollow'); assert.equal(requests.length, 2);
+    sync.activate('two', 'https://haolo.test'); await sync.sync();
+    assert.equal(values[histogramKey], 'solid');
+  } finally { sync.dispose(); }
 });

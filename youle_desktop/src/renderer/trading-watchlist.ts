@@ -27,6 +27,11 @@ export interface TradingWatchlistGroup {
   markets: TradingFavoriteMarketRecord[];
 }
 
+interface SharedMembershipChange {
+  record: TradingFavoriteMarketRecord;
+  added: boolean;
+}
+
 export function tradingWatchlistStorageKey(accountIdentity = "") {
   const account = accountIdentity.trim().toLowerCase();
   return `haolo.trading-market.watchlists.v1${account ? `.account.${encodeURIComponent(account)}` : ""}`;
@@ -56,6 +61,8 @@ export class TradingWatchlistStore {
   }));
   activeGroupId = "watchlist";
   expanded = true;
+  readonly pendingMemberships = new Map<string, SharedMembershipChange>();
+  private starFavoritesMigrated = false;
   private readonly key: string;
   private readonly storage: Pick<Storage, "getItem" | "setItem">;
   private readonly normalizeRecords: (
@@ -116,6 +123,14 @@ export class TradingWatchlistStore {
       if (this.groups.some((group) => group.id === saved.activeGroupId))
         this.activeGroupId = saved.activeGroupId;
       this.expanded = saved.expanded !== false;
+      this.starFavoritesMigrated = saved.starFavoritesMigrated === true;
+      if (Array.isArray(saved.pendingMemberships)) {
+        for (const change of saved.pendingMemberships) {
+          const record = normalizeRecords([change?.record])[0];
+          if (record && typeof change?.added === "boolean")
+            this.pendingMemberships.set(record.id, { record, added: change.added });
+        }
+      }
     } catch {
       // Invalid or unavailable local storage starts with empty independent lists.
     }
@@ -148,6 +163,8 @@ export class TradingWatchlistStore {
             ? { ...group, markets: [] } : group),
           activeGroupId: this.activeGroupId,
           expanded: this.expanded,
+          starFavoritesMigrated: this.starFavoritesMigrated,
+          pendingMemberships: [...this.pendingMemberships.values()],
         }),
       );
     } catch {
@@ -192,11 +209,13 @@ export class TradingWatchlistStore {
   addMarkets(records: readonly TradingFavoriteMarketRecord[]) {
     if (this.fixedGroup) return;
     const existing = new Set(this.activeGroup.markets.map((market) => market.id));
+    const added: TradingFavoriteMarketRecord[] = [];
     for (const record of this.normalizeRecords(records)) {
       if (existing.has(record.id)) continue;
-      this.activeGroup.markets.push(record);
+      added.push(record);
       existing.add(record.id);
     }
+    this.activeGroup.markets.unshift(...added);
     this.save();
   }
 
@@ -206,10 +225,58 @@ export class TradingWatchlistStore {
     if (checked) {
       const normalized = this.normalizeRecords([record])[0];
       if (!normalized || this.has(normalized.id)) return;
-      group.markets.push(normalized);
+      group.markets.unshift(normalized);
     } else {
       group.markets = group.markets.filter((market) => market.id !== record.id);
     }
+    this.save();
+  }
+
+  // Stars always belong to the default shared watchlist, even while a custom
+  // group or a read-only catalogue is selected.
+  setSharedMembership(record: TradingFavoriteMarketRecord, added: boolean) {
+    const normalized = this.normalizeRecords([record])[0];
+    if (!normalized) return;
+    const group = this.groups[0];
+    if (added) {
+      if (!group.markets.some((market) => market.id === normalized.id))
+        group.markets.unshift(normalized);
+    } else {
+      group.markets = group.markets.filter((market) => market.id !== normalized.id);
+    }
+    this.pendingMemberships.set(normalized.id, { record: normalized, added });
+    this.save();
+  }
+
+  acknowledgeSharedMembership(change: SharedMembershipChange) {
+    // An older request must not acknowledge a newer click on the same star.
+    if (this.pendingMemberships.get(change.record.id) !== change) return;
+    this.pendingMemberships.delete(change.record.id);
+    this.save();
+  }
+
+  mergeSharedSnapshot(records: readonly TradingFavoriteMarketRecord[]) {
+    const merged = new Map(this.normalizeRecords(records).map((record) => [record.id, record]));
+    for (const { record, added } of this.pendingMemberships.values()) {
+      if (added) merged.set(record.id, record);
+      else merged.delete(record.id);
+    }
+    // A snapshot read before a new click must not append that pending addition.
+    const pendingAdds = this.groups[0].markets.filter((record) => this.pendingMemberships.get(record.id)?.added);
+    for (const record of pendingAdds) merged.delete(record.id);
+    return this.replaceGroupMarkets("watchlist", [...pendingAdds, ...merged.values()]);
+  }
+
+  migrateStarFavorites(records: readonly TradingFavoriteMarketRecord[]) {
+    if (this.starFavoritesMigrated) return;
+    for (const record of this.normalizeRecords(records)) {
+      if (!this.groups[0].markets.some((market) => market.id === record.id)) {
+        // Importing old saved stars preserves their existing order.
+        this.groups[0].markets.push(record);
+        this.setSharedMembership(record, true);
+      }
+    }
+    this.starFavoritesMigrated = true;
     this.save();
   }
 

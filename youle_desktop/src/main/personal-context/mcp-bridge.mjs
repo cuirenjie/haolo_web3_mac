@@ -5,9 +5,11 @@ const HOST = "127.0.0.1";
 const MAX_REQUEST_BYTES = 256 * 1_024;
 
 export class PersonalContextMcpBridge {
-  constructor({ invoke } = {}) {
+  constructor({ invoke, envPrefix = "HAOLO_PERSONAL_CONTEXT", tools = null } = {}) {
     if (typeof invoke !== "function") throw new TypeError("PersonalContextMcpBridge requires an invoke function");
     this.invoke = invoke;
+    this.envPrefix = envPrefix;
+    this.tools = tools;
     this.server = null;
     this.baseUrl = null;
     this.token = null;
@@ -43,8 +45,8 @@ export class PersonalContextMcpBridge {
       throw new Error("Personal context MCP bridge is not running");
     }
     return {
-      HAOLO_PERSONAL_CONTEXT_BROKER_URL: this.baseUrl,
-      HAOLO_PERSONAL_CONTEXT_BROKER_TOKEN: this.token,
+      [`${this.envPrefix}_BROKER_URL`]: this.baseUrl,
+      [`${this.envPrefix}_BROKER_TOKEN`]: this.token,
     };
   }
 
@@ -63,7 +65,7 @@ export class PersonalContextMcpBridge {
       writeJson(response, 200, { ok: true });
       return;
     }
-    if (request.method !== "POST" || request.url !== "/v1/tools/call") {
+    if (request.method !== "POST" || !["/v1/tools/call", "/v1/tools/list"].includes(request.url)) {
       writeJson(response, 404, { error: { code: "NOT_FOUND", message: "Not found" } });
       return;
     }
@@ -72,6 +74,10 @@ export class PersonalContextMcpBridge {
       return;
     }
     try {
+      if (request.url === "/v1/tools/list") {
+        writeJson(response, 200, { tools: this.tools || [] });
+        return;
+      }
       const body = await readJsonBody(request);
       if (!body || typeof body !== "object" || Array.isArray(body)) {
         throw bridgeError("INVALID_REQUEST", "Request body must be an object.", 400);

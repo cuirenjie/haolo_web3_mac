@@ -441,7 +441,7 @@ test("Trading Expert routes @策略:缠论 through model JSON or controlled char
     readFile(new URL("../src/main/preload.mjs", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/main.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/trading-strategy-runtime/catalog.ts", import.meta.url), "utf8"),
-    readFile(new URL("../src/renderer/trading-strategy-runtime/client.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/main/codex-business-tools.mjs", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/trading-expert-chan-request.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/main/trading-analysis/chan-request-router.mjs", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/trading-expert-market.ts", import.meta.url), "utf8"),
@@ -452,7 +452,7 @@ test("Trading Expert routes @策略:缠论 through model JSON or controlled char
   ]);
 
   assert.match(mainSource, /createTradingAnalysisModelProviderRegistry/);
-  assert.match(mainSource, /tradingAnalysis:classifyChanRequest/);
+  assert.doesNotMatch(mainSource, /tradingAnalysis:classifyChanRequest/);
   assert.match(mainSource, /tradingAnalysis:runChanTest/);
   assert.match(mainSource, /DEFAULT_TRADING_ANALYSIS_PROVIDER_ID/);
   assert.match(mainSource, /const turnPolicy = tradingAnalysisTurnPolicy\(request\.task, \{ requestedReasoningEffort, modelId \}\)/);
@@ -481,19 +481,19 @@ test("Trading Expert routes @策略:缠论 through model JSON or controlled char
     /type === "userMessage"[\s\S]{0,180}type === "agentMessage"/,
     "submitted user messages must not be classified as model side effects",
   );
-  assert.match(preloadSource, /classifyTradingChanRequest/);
+  assert.doesNotMatch(preloadSource, /classifyTradingChanRequest/);
   assert.match(preloadSource, /runTradingChanTest/);
   assert.doesNotMatch(marketSource, /data-market-action="chan-test"|data-market-chan-test|>测试<|chanTestButton/);
   assert.doesNotMatch(stylesSource, /\.trading-market-chan-test/);
   assert.doesNotMatch(requestSource, /_PATTERN|parseTradingChanRequest|parseTradingChanSymbol|parseTradingChanInterval|parseTradingChanLookback/);
   assert.match(routerSource, /输出必须是单个 JSON 对象/);
   assert.match(routerSource, /不得根据常见默认值、上下文猜测或补全 BTC、日线、时间范围/);
-  assert.match(rendererSource, /await classifyTradingStrategyForSend\(/);
-  assert.match(clientSource, /client\.classifyTradingStrategyRequest\(/);
+  assert.match(rendererSource, /const codexTradingTools = new CodexTradingTools\(/);
+  assert.match(clientSource, /resolveExplicitTradingStrategyIds/);
   assert.match(rendererSource, /label: "正在理解请求"/);
-  assert.match(rendererSource, /tradingStrategyRequestAtSend\?\.mode === "chart-analysis"/);
-  assert.match(rendererSource, /runTradingStrategyChartRequest\(threadId, tradingStrategyAtSend/);
-  assert.match(catalogSource, /buildTradingChanExpertPrompt/);
+  assert.match(rendererSource, /mode: "chart-analysis" as const, instruction: String\(args\.instruction/);
+  assert.match(rendererSource, /runTradingStrategyChartRequest\(threadId, strategy, request\)/);
+  assert.match(catalogSource, /OFFICIAL_TRADING_CATALOG/);
   assert.match(marketSource, /chan: \(request:[\s\S]{0,180}runTradingExpertChanConversation/);
   assert.match(marketSource, /selectTradingAnalysisMarket\(this\.markets,[\s\S]{0,240}explicitSymbol: Boolean\(request\.symbol\)/);
   assert.match(marketSource, /visibleCandlesInLogicalRange\(this\.candles,\s*visibleRange\)/);
@@ -530,16 +530,7 @@ test("Trading Expert keeps the sent bubble and updates analysis progress without
     new URL("../src/renderer/main.ts", import.meta.url),
     "utf8",
   );
-  const chartSendStart = rendererSource.indexOf(
-    'localHistoryAheadThreadIds.add(threadId);\n      if (pendingSend) clearPendingComposerSend',
-  );
-  assert.notEqual(chartSendStart, -1);
-  const chartSendEnd = rendererSource.indexOf(
-    "if (isMultiModelClusterThread(threadId))",
-    chartSendStart,
-  );
-  assert.notEqual(chartSendEnd, -1);
-  const chartSendBlock = rendererSource.slice(chartSendStart, chartSendEnd);
+  const chartSendBlock = rendererSource.slice(rendererSource.indexOf("async function sendCurrentMessage"), rendererSource.indexOf("async function sendCurrentProviderMessage"));
   const progressBlock = rendererSource.slice(
     rendererSource.indexOf("function refreshTradingExpertConversationSurface"),
     rendererSource.indexOf("async function runTradingGeneralChartRequest"),
@@ -549,11 +540,10 @@ test("Trading Expert keeps the sent bubble and updates analysis progress without
     rendererSource.indexOf("function updateTradingExpertThinkingState"),
   );
 
-  assert.match(chartSendBlock, /localHistoryAheadThreadIds\.add\(threadId\)/);
-  assert.match(chartSendBlock, /clearPendingComposerSend\(threadId, pendingSend\.itemId\)/);
-  assert.match(chartSendBlock, /clearTradingExpertComposerAfterSend\(threadId\)/);
-  assert.match(chartSendBlock, /refreshTradingExpertConversationSurface\(threadId\)/);
-  assert.doesNotMatch(chartSendBlock, /\brender\(\)/);
+  assert.match(chartSendBlock, /beginPendingComposerSend/);
+  assert.match(chartSendBlock, /clearPendingComposerSend/);
+  assert.match(chartSendBlock, /clearTradingExpertComposerAfterSend/);
+  assert.match(chartSendBlock, /await sendAgentText/);
   assert.match(progressBlock, /function clearTradingExpertComposerAfterSend[\s\S]*?state\.composerText = ""/);
   assert.match(progressBlock, /querySelectorAll<HTMLFormElement>\("#composerForm"\)[\s\S]*?form\.dataset\.threadId !== threadId[\s\S]*?input\.value = ""/);
   assert.match(progressBlock, /const highlight = form\.querySelector<HTMLElement>\("\.composer-highlight"\)[\s\S]*?highlight\.innerHTML = ""/);
@@ -627,11 +617,11 @@ test("Trading Expert keeps the sent bubble and updates analysis progress without
     "pendingSend = beginPendingComposerSend(threadId, text, submissionSnapshotAttachments",
   );
   const immediateClear = rendererSource.indexOf(
-    "if (tradingStrategyAtSend) clearTradingExpertComposerAfterSend(threadId);",
+    "clearTradingExpertComposerAfterSend(threadId);",
     pendingSendStart,
   );
   const routeModelWait = rendererSource.indexOf(
-    "tradingStrategyRequestAtSend = await classifyTradingStrategyForSend(",
+    "await sendAgentText(",
     pendingSendStart,
   );
   assert.ok(pendingSendStart >= 0 && immediateClear > pendingSendStart);

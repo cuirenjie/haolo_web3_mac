@@ -57,6 +57,7 @@ export class TradingIndexFavorites {
     this.records.delete(key); this.order = this.order.filter(item => item !== key); this.save();
   }
   reorder(ids: string[]) { this.order = [...new Set(ids.map(tickerIdentity))]; this.save(); }
+  prepend(id: string) { this.reorder([id, ...this.order]); }
   sort<T extends {id: string}>(items: T[]): T[] {
     const byId = new Map(items.map(item => [item.id, item]));
     const ids = [...new Set([...this.order, ...byId.keys()])];

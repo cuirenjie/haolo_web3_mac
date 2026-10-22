@@ -1,4 +1,3 @@
-import { repairExternalTradingRoutingFromText } from "../trading-analysis/external-strategy-router.mjs";
 
 export const TRADING_AUTOMATION_EXECUTION_PROFILE = "trading-agent-v1";
 export const TRADING_AUTOMATION_MODEL = "gpt-5.6-sol";
@@ -14,8 +13,6 @@ const DEFAULT_CONTEXT = Object.freeze({
   resolution: "60",
 });
 
-const ANALYSIS_SIGNAL = /(?:K\s*线|行情|盘面|走势|趋势|价格|价位|报价|涨跌|振幅|成交量|资金费率|持仓量|支撑|压力|阻力|复盘|研判|分析|看盘|监控|监测|盯盘|提醒|预警|突破|跌破|买点|卖点|入场|止损|止盈|交易计划|缠论|波浪|威科夫|订单流|ICT|SMC|SMT)/iu;
-const KNOWLEDGE_ONLY_SIGNAL = /(?:什么是|是什么意思|概念|定义|原理|教程|教学|怎么理解|如何理解|介绍一下)/iu;
 
 function firstText(...values) {
   return values.find((value) => typeof value === "string" && value.trim())?.trim() || "";
@@ -90,46 +87,24 @@ export function isTradingAutomationJob(job = {}) {
     || String(job.id || "").startsWith("auto-task-ui-");
 }
 
-export function resolveTradingAutomationRoute({ prompt = "", context = null, strategies = [] } = {}) {
-  const text = String(prompt || "").trim();
-  const savedContext = normalizeTradingAutomationContext(context || {}, { withDefaults: true });
-  const repaired = repairExternalTradingRoutingFromText({
-    text,
-    route: {
-      mode: "analysis",
-      strategyId: null,
-      symbol: null,
-      interval: null,
-      lookbackMs: null,
-      lookbackLabel: null,
-      confidence: 1,
-      clarificationQuestion: null,
-    },
-    strategies,
-  });
-  const explicitAnalysis = ANALYSIS_SIGNAL.test(text);
-  const knowledgeOnly = KNOWLEDGE_ONLY_SIGNAL.test(text)
-    && !/(?:当前|现在|实时|最新|今日|今天|我的|持仓|账户|价格|价位)/u.test(text);
-  if ((!explicitAnalysis && !repaired.strategyId) || knowledgeOnly) {
-    return Object.freeze({ mode: "conversation", reason: knowledgeOnly ? "knowledge-only" : "no-market-analysis-signal" });
-  }
-  return Object.freeze({
-    mode: "analysis",
-    strategyId: repaired.strategyId || null,
-    symbol: repaired.symbol || savedContext.symbol,
-    interval: repaired.interval || savedContext.interval,
-    lookbackMs: repaired.lookbackMs ?? null,
-    lookbackLabel: repaired.lookbackLabel ?? null,
-    provider: repaired.symbol ? "binance" : savedContext.provider,
-    venue: repaired.symbol ? "Binance" : savedContext.venue,
-    marketType: savedContext.marketType,
-    marketId: repaired.symbol
-      ? `BINANCE:${savedContext.marketType === "spot" ? "SPOT" : "FUTURES"}:${repaired.symbol}`
-      : savedContext.marketId,
-    drawingRequested: true,
-    executionPlanRequested: true,
-    source: repaired.strategyId ? "strategy-router" : "general-price-action",
-  });
+// Called only after Codex selects an analysis tool. Never reclassify prompt text.
+export function resolveTradingAutomationAnalysis({ args, context = null } = {}) {
+  if (!args || !["analyze", "analyze_only"].includes(args.action)) throw new TypeError("A Codex analysis tool call is required.");
+  const saved = normalizeTradingAutomationContext(context || {});
+  const marketId = firstText(args.marketId);
+  const explicitSymbol = args.symbol ? normalizedSymbol(args.symbol, { appendUsdt: !marketId || marketId.startsWith("BINANCE:") }) : "";
+  if (args.symbol && !explicitSymbol) throw new TypeError("Invalid explicit market symbol.");
+  const interval = args.interval ? normalizeTradingAutomationInterval(args.interval) : saved.interval;
+  if (!interval) throw new TypeError("Invalid explicit candle interval.");
+  const target = marketId
+    ? normalizeTradingAutomationContext({ marketId, interval }, { withDefaults: false })
+    : normalizeTradingAutomationContext({ ...saved, interval, ...(explicitSymbol ? {
+        provider: "binance", venue: "Binance", symbol: explicitSymbol,
+        marketId: `BINANCE:${saved.marketType === "spot" ? "SPOT" : "FUTURES"}:${explicitSymbol}`,
+      } : {}) }, { withDefaults: false });
+  if (!target || (explicitSymbol && target.symbol !== explicitSymbol)) throw new TypeError("Market identity and symbol disagree.");
+  return Object.freeze({ ...target, mode: "analysis", strategyId: args.strategyId || null,
+    drawingRequested: args.drawingRequested !== false, executionPlanRequested: true });
 }
 
 export function buildTradingAutomationDeveloperInstructions(job = {}) {

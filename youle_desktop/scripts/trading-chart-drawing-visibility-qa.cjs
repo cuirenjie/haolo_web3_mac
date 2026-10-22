@@ -30,7 +30,9 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
   const aiEye = '[data-ai-text-size-action="toggle-visibility"]';
   const sideEye = '[data-drawing-action="toggle-visibility"]';
   const counts = () => js('[d.content.childElementCount,d.aiContent.childElementCount]');
-  const flags = () => js('workspace.drawingVisibilitySettings.layers()');
+  // This regression covers the original settings page's two drawing switches;
+  // trading-visibility-menu-qa.cjs covers all five toolbar categories.
+  const flags = () => js('({aiHidden:workspace.drawingVisibilitySettings.aiHidden,manualHidden:workspace.drawingVisibilitySettings.manualHidden})');
   const snapshot = () => js('JSON.stringify({manual:d.drawings,ai:d.aiDrawings,redo:d.redoStack})');
   const cases = [];
   for (const theme of ['light','dark']) {
@@ -39,7 +41,7 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
     assert.equal(await js('Boolean(window.ready)'),true,await js('String(window.qaError)'));
     await js(`document.documentElement.dataset.theme='${theme}';document.querySelector('#host').style.cssText='width:100%;height:100%';
       workspace.applyChartTheme();window.d=workspace.drawingController;
-      workspace.drawingVisibilitySettings.setLayers({aiHidden:false,manualHidden:false});
+      workspace.drawingVisibilitySettings.setAll(false);
       d.setUserDrawingEnabled(true);d.selectTool('cursor');
       window.line={id:'visible-line-${theme}',tool:'trend-line',symbol:d.getSymbol(),interval:d.getInterval(),drawingScope:'main',
         points:[{time:workspace.candles.at(-85).time,price:1320},{time:workspace.candles.at(-25).time,price:1335}]};
@@ -113,7 +115,7 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
       await js(`(async()=>{const m=await import('/app-language.mjs');m.applyAppLanguage('${language}',{root:document.body});m.localizeAppTree(document.body,'${language}')})()`);
       await settle();
       const labels = await js(`Array.from(document.querySelectorAll('[data-chart-settings-panel="drawing-visibility"] input')).map(e=>e.getAttribute('aria-label'))`);
-      assert.equal(labels.length,2);
+      assert.equal(labels.length,5);
       if(language==='en')assert.ok(labels.every(label=>!/[\u3400-\u9fff]/.test(label)),JSON.stringify(labels));
       if(language==='zh-TW')assert.ok(labels.every(label=>label.includes('隱藏')),JSON.stringify(labels));
       const overflow = await js(`Array.from(document.querySelectorAll('[data-chart-settings-panel="drawing-visibility"] .trading-chart-order-display-copy')).some(e=>e.scrollWidth>e.clientWidth)`);

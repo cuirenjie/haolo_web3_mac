@@ -14,19 +14,20 @@ const profileFor = answers => tradingRiskProfileFromEntries(entriesFor(answers))
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 const controller = overrides => createTradingPreferenceSettings({ load: async () => ({ ok: true, profile: profileFor({}) }), save: async () => ({ ok: true, completed: true }), memoryEntries: entriesFor, render() {}, onSaved() {}, ...overrides });
 
-test("entry approach is the first question, defaults to auto and has no custom answer", async () => {
+test("entry approach is the first question, defaults to right and has no custom answer", async () => {
   const editor = controller();
   await editor.load();
   const view = editor.render();
   assert.ok(view.indexOf('data-preference-field="entryMode"') < view.indexOf('data-preference-field="risk"'));
   const field = view.match(/<fieldset data-preference-field="entryMode"[\s\S]*?<\/fieldset>/)[0];
   assert.equal((field.match(/type="radio"/g) || []).length, 3);
-  assert.match(field, /value="auto" checked/);
+  assert.match(field, /value="right" checked/);
   assert.doesNotMatch(field, /textarea|value="custom"/);
   assert.match(field, /产品默认值/);
   assert.equal(tradingPreferenceSettingsDraft({entryMode:'right'}).entryMode, 'right');
   const saved = controller({load:async()=>({ok:true,profile:{entryMode:'auto',fieldSources:{entryMode:'user_saved'}}})});
   await saved.load();
+  assert.match(saved.render(), /name="settings-preference-entryMode" value="auto" checked/);
   assert.match(saved.render(), /data-preference-source="entryMode">已保存的偏好/);
 });
 
@@ -204,4 +205,25 @@ test("unknown legacy provenance stays reviewable and never preselects import", a
   assert.match(view, /原始记录仍保留在本机/);
   assert.match(view, /data-migration-keep-cloud/);
   assert.doesNotMatch(view, /data-migration-resolve/);
+});
+
+test("settings carry the displayed cloud revision through saves and reload on reopening", async () => {
+  let remoteRevision = 3;
+  const payloads = [];
+  const editor = controller({
+    load: async () => ({ ok: true, revision: remoteRevision, profile: profileFor({ maxLossPerTradePercent: 1 }) }),
+    save: async payload => {
+      payloads.push(payload);
+      return { ok: true, completed: true, revision: ++remoteRevision, profile: profileFor({ maxLossPerTradePercent: 1 }) };
+    },
+  });
+  await editor.load();
+  await editor.save();
+  await editor.save();
+  assert.deepEqual(payloads.map(p => p.expectedRevision), [3, 4]);
+  remoteRevision = 9;
+  editor.beginSession();
+  await editor.load();
+  await editor.save();
+  assert.equal(payloads.at(-1).expectedRevision, 9);
 });

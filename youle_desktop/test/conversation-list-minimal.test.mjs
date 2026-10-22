@@ -304,7 +304,7 @@ test("group menu destructive, hover, active, focus and disabled states use both 
   assert.match(states, /:disabled\s*\{[^}]*background: transparent;[^}]*color: var\(--text-muted\)/s);
   assert.doesNotMatch(states, /#[0-9a-f]{3,8}|rgba?\(/i);
   for (const theme of [sourceBlock(styles, ":root {", 'html[data-font-size="small"]'), sourceBlock(styles, 'html[data-theme="dark"] {', "* {")]) {
-    for (const token of ["danger", "text-primary", "surface-hover", "surface-hover-strong", "brand-blue", "text-muted"]) {
+    for (const token of ["danger", "text-primary", "surface-hover", "surface-hover-strong", "interaction-accent", "text-muted"]) {
       assert.ok(theme.includes(`--${token}:`), `${token} must be defined in both themes`);
     }
   }

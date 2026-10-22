@@ -121,14 +121,14 @@ test("a server-backed blank thread retries app-server readiness before sending",
   const send = sourceBlock(renderer, "async function sendCurrentMessage", "async function sendCurrentProviderMessage");
   const readinessGuard = sourceBlock(
     send,
-    "const tradingGeneralCandidateAtSend",
+    "if (!state.serverReady && isBlankNewThread",
     "recoverStaleCodexWorkForComposer",
   );
   assert.match(
     readinessGuard,
     /!state\.serverReady[\s\S]*isBlankNewThread\(threadId\) && !isLocalBlankThreadId\(threadId\)/,
   );
-  assert.match(readinessGuard, /if \(!\(await ensureServerReadyForComposerSend\(\)\)\) \{[\s\S]*releaseTradingExpertAnalysisTarget\(tradingAnalysisTargetAtSend\);[\s\S]*return;/);
+  assert.match(readinessGuard, /if \(!\(await ensureServerReadyForComposerSend\(\)\)\) return/);
   assert.doesNotMatch(readinessGuard, /app-server 未启动成功/);
 });
 

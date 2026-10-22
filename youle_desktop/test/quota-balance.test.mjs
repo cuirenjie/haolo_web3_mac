@@ -175,9 +175,6 @@ test("chat dispatch refreshes a locally insufficient balance before deciding to 
     "the refreshed client guard must run before dispatch",
   );
   for (const reason of [
-    "wechat-channel-send",
-    "feishu-channel-send",
-    "telegram-channel-send",
     "local-agent-channel-send",
     "desktop-agent-channel-send",
     "provider-chat-send",
@@ -190,6 +187,12 @@ test("chat dispatch refreshes a locally insufficient balance before deciding to 
       ),
       `missing refreshed balance guard for ${reason}`,
     );
+  }
+  const channels = sourceBlock(renderer, "async function runIsolatedChannelAgent", "async function waitForWechatThreadIdle");
+  assert.match(channels, /await confirmInsufficientAvailableBalanceBeforeSend\(channel \+ "-channel-send"\)/);
+  assert.ok(channels.indexOf("confirmInsufficientAvailableBalanceBeforeSend") < channels.indexOf("api.sendChannelCodexMessage"));
+  for (const channel of ["wechat", "feishu", "telegram"]) {
+    assert.match(channels, new RegExp(`return runIsolatedChannelAgent\\("${channel}"`));
   }
   assert.match(balanceRefresh, /confirmProfileAvailableBalanceStateBeforeSend/);
   assert.match(balanceRefresh, /await refreshAvailableBalanceProfile\(reason\)/);

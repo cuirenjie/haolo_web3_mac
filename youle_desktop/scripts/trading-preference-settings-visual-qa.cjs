@@ -29,6 +29,7 @@ app.disableHardwareAcceleration();
   const transpile = source => ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
   const dialog = transpile(main.slice(main.indexOf("function renderSettingsDialog()"), main.indexOf("function renderGitHubSettingsPanel()")));
   const openSettingsSource = transpile(main.slice(main.indexOf('function openSettingsDialog('), main.indexOf('async function refreshGitHubConnection(')));
+  const toastSource = transpile(main.slice(main.indexOf('function showToast('), main.indexOf('function openMyConfigPage(')));
   const navAt = main.indexOf('.querySelectorAll<HTMLButtonElement>("[data-settings-tab]")');
   const navigation = transpile(main.slice(main.lastIndexOf("\n  root", navAt), main.indexOf("\n  root", navAt)));
   const assets = Object.fromEntries(["PROFILE", "CONSUMPTION", "GENERAL", "ABOUT", "CLOSE"].map(name => [`SETTINGS_${name}_ICON_URL`, pathToFileURL(path.join(project, `src/renderer/assets/images/settings-${name.toLowerCase()}.svg`)).href]));
@@ -40,12 +41,18 @@ app.disableHardwareAcceleration();
   const win = new BrowserWindow({ show: false, width: 1200, height: 860, webPreferences: { preload, offscreen: true, backgroundThrottling: false } });
   const js = code => win.webContents.executeJavaScript(code, true);
   const errors = [];
-  win.webContents.on("console-message", event => { if (event.level === "error") errors.push(event.message); });
+  win.webContents.on("console-message", event => {
+    if (event.level === "error") {
+      errors.push(event.message);
+      console.error(event.message);
+    }
+  });
   const bootstrap = `${harnessSource}
     window.root = document.querySelector('#root');
     window.stored = { onboardingCompleted:true, maxLossPerTradePercent:1, moveStopToBreakEven:false, breakEvenTriggerR:1, minimumRiskRewardRatio:2, analysisStyle:'detailed', requiredAnalysisSections:'根据问题按需选择栏目', entries:[{scope:'trading.discipline',key:'user_custom_rules',value:'不允许亏损加仓；每天最多两次'}] };
     window.saveCalls = []; window.failSave = false; window.failLoad = false;
-    window.h = createHarness({localizeAppTree, render:()=>redraw(), openSettingsDialog:tab=>window.openSettings(tab), api:{
+    window.h = createHarness({localizeAppTree, window, localStorage, render:()=>redraw(),
+      openSettingsDialog:tab=>window.openSettings(tab), showToast:(...args)=>window.showSetupToast(...args), api:{
       getTradingPreferenceProfile:async()=>{if(failLoad) throw Error('load'); return {ok:true,completed:stored.onboardingCompleted,profile:stored}},
       saveTradingPreferenceProfile:async payload=>{saveCalls.push(payload);if(failSave) throw Error('save'); const result=await qa.compile(payload); if(result.ok) stored=result.profile; return result;}
     }});
@@ -61,7 +68,8 @@ app.disableHardwareAcceleration();
     const renderDialog = new Function(...Object.keys(deps), ${JSON.stringify(dialog + ";return renderSettingsDialog;")})(...Object.values(deps));
     const bindNavigation = new Function(...Object.keys(deps), ${JSON.stringify(navigation)});
     window.openSettings = new Function(...Object.keys(deps), ${JSON.stringify(openSettingsSource + ";return openSettingsDialog;")})(...Object.values(deps));
-    window.redraw=()=>{const restore=tradingPreferenceSettings.captureView(root);root.innerHTML=renderDialog();localizeAppTree(root,state.settings.language);restore(root);bindNavigation(...Object.values(deps));tradingPreferenceSettings.bind(root);};
+    window.showSetupToast = new Function(...Object.keys(deps), ${JSON.stringify("let toastTimer = null;" + toastSource + ";return showToast;")})(...Object.values(deps));
+    window.redraw=()=>{const restore=tradingPreferenceSettings.captureView(root);root.innerHTML=(state.settingsOpen?renderDialog():'')+(state.error?'<div class="toast">'+esc(state.error)+'</div>':'');localizeAppTree(root,state.settings.language);restore(root);bindNavigation(...Object.values(deps));tradingPreferenceSettings.bind(root);};
     window.choose=(field,value)=>document.querySelector('[data-preference-field="'+field+'"] input[value="'+value+'"]').click();
     window.fill=(field,text)=>{const input=document.querySelector('[data-preference-custom="'+field+'"]');input.value=text;input.dispatchEvent(new Event('input',{bubbles:true}));};
     window.reopen=async()=>{tradingPreferenceSettings.beginSession();await tradingPreferenceSettings.load();};
@@ -70,17 +78,18 @@ app.disableHardwareAcceleration();
   `;
   const report = { themes: [], errors };
   for (const theme of ["light", "dark"]) {
+    await win.webContents.session.clearStorageData();
     await win.loadFile(fixture);
     await js(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`);
     await js(bootstrap);
-    assert.deepEqual(await js(`Array.from(document.querySelectorAll('[data-settings-tab]')).map(e=>e.dataset.settingsTab)`), ["profile", "general", "trading", "about"]);
+    assert.deepEqual(await js(`Array.from(document.querySelectorAll('[data-settings-tab]')).map(e=>e.dataset.settingsTab)`), ["profile", "trading", "general", "about"]);
     await js(`h.state.settingsOpen=false;h.startTradingPreferenceOnboarding()`);
     assert.equal(await js(`h.state.settingsOpen && h.state.settings.tab==='trading'`), true);
     assert.equal(await js(`h.flows.size`), 0);
     assert.equal(await js(`Object.keys(h.state.items).length`), 0);
     assert.equal(await js(`document.querySelector('[data-preference-field=risk] input:checked').value`), "1");
     assert.equal(await js(`document.querySelector('[data-preference-field]')?.dataset.preferenceField`), "entryMode");
-    assert.equal(await js(`document.querySelector('[data-preference-field=entryMode] input:checked').value`), "auto");
+    assert.equal(await js(`document.querySelector('[data-preference-field=entryMode] input:checked').value`), "right");
     assert.equal(await js(`document.querySelectorAll('[data-preference-field=entryMode] input').length`), 3);
     assert.equal(await js(`document.querySelector('[data-preference-field=entryMode] textarea')`), null);
     assert.equal(await js(`document.querySelector('[data-preference-field=breakEven] input:checked').value`), "off");
@@ -138,7 +147,7 @@ app.disableHardwareAcceleration();
     assert.equal(await js(`document.querySelectorAll('[data-preference-field]').length`), 7);
     const writesBeforeDefaults = await js(`saveCalls.length`);
     await js(`stored={onboardingCompleted:false,maxLossPerTradePercent:2,minimumRiskRewardRatio:0.4,moveStopToBreakEven:true,breakEvenTriggerR:1,analysisStyle:'concise',entries:[]};reopen()`);
-    assert.match(await js(`document.querySelector('.settings-trading-intro').textContent`), /默认交易偏好生效/);
+    assert.equal(await js(`document.querySelector('.settings-trading-intro')`), null);
     assert.equal(await js(`document.querySelector('[data-preference-save]').disabled`), true);
     assert.equal(await js(`saveCalls.length`), writesBeforeDefaults);
     await js(`choose('risk','3')`);
@@ -147,6 +156,24 @@ app.disableHardwareAcceleration();
     await js(`document.querySelector('[data-preference-save]').click()`);
     assert.equal(await js(`stored.maxLossPerTradePercent`), 3);
     assert.equal(await js(`document.querySelector('[data-preference-save]').disabled`), true);
+    win.setSize(1200, 860);
+    await js(`document.documentElement.style.setProperty('--settings-font-size-offset','0px');
+      stored={onboardingCompleted:false};h.resetTradingPreferenceProfileState();state.settingsOpen=false;state.error=null;redraw();
+      h.loadTradingPreferenceProfile()`);
+    await js(`h.scheduleTradingPreferenceSetupPrompt();new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);
+    assert.equal(await js(`state.settingsOpen && state.settings.tab==='trading'`), true);
+    assert.deepEqual(await js(`Array.from(document.querySelectorAll('.settings-nav > button')).map(button=>button.dataset.settingsTab||button.dataset.action)`),
+      ["profile", "trading", "open-consumption", "general", "about"]);
+    assert.equal(await js(`document.querySelector('.toast').textContent`), "请设置交易偏好，新增左侧入场策略");
+    assert.equal(await js(`getComputedStyle(document.querySelector('.toast')).bottom`), "22px");
+    fs.writeFileSync(path.join(output, `${theme}-first-setup.png`), (await win.webContents.capturePage()).toPNG());
+    await js(`state.settingsOpen=false;redraw();h.scheduleTradingPreferenceSetupPrompt();new Promise(resolve=>requestAnimationFrame(resolve))`);
+    assert.equal(await js(`state.settingsOpen`), false);
+    await win.loadFile(fixture);
+    await js(bootstrap);
+    await js(`stored={onboardingCompleted:false};h.resetTradingPreferenceProfileState();state.settingsOpen=false;redraw();h.loadTradingPreferenceProfile()`);
+    await js(`h.scheduleTradingPreferenceSetupPrompt();new Promise(resolve=>requestAnimationFrame(resolve))`);
+    assert.equal(await js(`state.settingsOpen`), false, "persisted prompt history must survive renderer reload");
     report.themes.push(theme);
   }
   assert.deepEqual(errors, []);
