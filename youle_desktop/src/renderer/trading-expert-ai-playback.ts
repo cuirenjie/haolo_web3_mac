@@ -70,6 +70,8 @@ export interface TradingAiDrawing {
   evidenceIds: string[];
 }
 export interface TradingAiDrawingPatch {
+  /** Renderer-owned chat turn identity; independent of each analysis job. */
+  drawingTurnId?: string;
   resultPolicy?: 'entry-v2';
   entryConditionRef?: {conditionId:string;revision:number;conditionHash:string};
   schemaVersion: 1;
@@ -151,6 +153,7 @@ export class TradingAiDrawingPlaybackController {
   private readonly options: TradingAiPlaybackControllerOptions;
   private generation = 0;
   private currentCursor: TradingDrawingPoint | null = null;
+  private shouldContinue: (() => boolean) | undefined;
 
   constructor(options: TradingAiPlaybackControllerOptions) {
     this.options = options;
@@ -165,16 +168,33 @@ export class TradingAiDrawingPlaybackController {
 
   async play(
     drawings: ReadonlyArray<TradingAiDrawing>,
-    options: { onPhase?: (phase: TradingAiPlaybackPhase, drawing?: TradingAiDrawing) => void } = {},
+    options: { onPhase?: (phase: TradingAiPlaybackPhase, drawing?: TradingAiDrawing) => void; shouldContinue?: () => boolean; speedMultiplier?: number } = {},
   ) {
     const generation = ++this.generation;
+    this.shouldContinue = options.shouldContinue;
     const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
-    const duration = (normal: number) => reducedMotion ? 0 : normal;
+    const requestedSpeed = options.speedMultiplier ?? 1;
+    const speed = Number.isFinite(requestedSpeed) && requestedSpeed > 0 ? requestedSpeed : 1;
+    const duration = (normal: number) => normal / speed;
     try {
       for (const drawing of drawings) {
         this.assertCurrent(generation);
         const first = drawing.points[0];
         if (!first) continue;
+        if (reducedMotion) {
+          // Windows accessibility/remote-desktop settings can enable reduced
+          // motion. Keep observable steps without cursor travel or flashing;
+          // zero-duration promises otherwise commit the entire patch before paint.
+          this.options.setCursor(null);
+          options.onPhase?.("drawing", drawing);
+          this.options.setDraft(drawing);
+          await this.animate(Math.max(160, 260 / speed), generation, () => {});
+          this.assertCurrent(generation);
+          options.onPhase?.("committing", drawing);
+          this.options.setDraft(null);
+          this.options.commit(drawing);
+          continue;
+        }
         options.onPhase?.("moving", drawing);
         if (this.currentCursor) {
           const origin = this.currentCursor;
@@ -213,6 +233,10 @@ export class TradingAiDrawingPlaybackController {
       this.options.setCursor(null);
     } catch (error) {
       if (String((error as Error)?.name || "") === "AbortError") {
+        if (generation === this.generation) {
+          this.options.setDraft(null);
+          this.options.setCursor(null);
+        }
         options.onPhase?.("cancelled");
         return;
       }
@@ -260,8 +284,9 @@ export class TradingAiDrawingPlaybackController {
     return new Promise<void>((resolve, reject) => {
       let startedAt: number | null = null;
       const frame = (now: number) => {
-        if (generation !== this.generation) {
-          reject(playbackAbortError());
+        try { this.assertCurrent(generation); }
+        catch (error) {
+          reject(error);
           return;
         }
         startedAt ??= now;
@@ -281,13 +306,13 @@ export class TradingAiDrawingPlaybackController {
     }
     return new Promise<void>((resolve, reject) => {
       window.setTimeout(() => {
-        if (generation !== this.generation) reject(playbackAbortError());
-        else resolve();
+        try { this.assertCurrent(generation); resolve(); }
+        catch (error) { reject(error); }
       }, duration);
     });
   }
 
   private assertCurrent(generation: number) {
-    if (generation !== this.generation) throw playbackAbortError();
+    if (generation !== this.generation || this.shouldContinue?.() === false) throw playbackAbortError();
   }
 }

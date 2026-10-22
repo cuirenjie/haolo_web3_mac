@@ -6,6 +6,7 @@ import * as view from "../../src/main/execution-plan-card-view.mjs";
 import * as cloud from "../../src/main/cloud-plan-contract.mjs";
 import { tradingAnalysisDeliveryItems } from "../../src/renderer/trading-analysis-completion.ts";
 import { turnResultFoldTargets } from "../../src/renderer/turn-result-fold.ts";
+import { pureAnalysisPresentationGroups } from "../../src/renderer/pure-analysis-presentation.ts";
 
 const source = fs.readFileSync(new URL("../../src/renderer/main.ts", import.meta.url), "utf8");
 const ast = ts.createSourceFile("main.ts", source, ts.ScriptTarget.Latest, true);
@@ -29,7 +30,7 @@ export function renderTradingAnswer(items, { expanded = false, language = "zh-CN
   const state = { items: { fixture: Object.fromEntries(items.map(item => [item.id, item])) },
     resultProcessExpanded: {}, settings: { language }, executionPlans: [] };
   const deps = {
-    ...plans, ...view, ...cloud, state, turnResultFoldTargets,
+    ...plans, ...view, ...cloud, state, turnResultFoldTargets, pureAnalysisPresentationGroups,
     itemTurnId: item => item?.turnId || item?.turn_id,
     agentMessagePhase: item => item?.phase || item?.message_phase || item?.messagePhase,
     isRenderedUserSideMessage: message => message.kind === "user_text",

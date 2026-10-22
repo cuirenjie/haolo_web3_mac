@@ -10,8 +10,8 @@ import { combineTradingAnalysisReports } from "../../src/renderer/trading-expert
 import { applyAppLanguage } from "../../src/renderer/app-language.mjs";
 import { executionPlanTextPartitions } from "../../src/renderer/execution-plans.ts";
 
-const PRIMARY = "gpt-5.6-sol";
-const BACKUP = "deepseek-flash";
+const PRIMARY = "deepseek-flash";
+const BACKUP = "gpt-5.6-sol";
 const directAnswer = "等待候选确认，当前不要追价。";
 
 // Exercise each real engine, prompt, parser and drawing gateway through the
@@ -99,7 +99,12 @@ export function registerStrategyModelRecoveryTests({ name, strategyId, runPipeli
           return true;
         });
         assert.deepEqual(calls.map((call) => call.modelId), [PRIMARY, BACKUP]);
-        assert.equal(clock, 165_002, "Neither validation nor transport recovery may reset the budget");
+        assert.equal(clock, 180_002, "Neither validation nor transport recovery may reset the budget");
+        return;
+      }
+      if (scenario === "upstream-503-502") {
+        await assert.rejects(pending, /upstream server unavailable/);
+        assert.deepEqual(calls.map(call => call.modelId), [PRIMARY, BACKUP], "a second upstream failure must stop after one fallback");
         return;
       }
       if (["cancelled", "permission-denied"].includes(scenario)) {
@@ -138,11 +143,11 @@ export function registerStrategyModelRecoveryTests({ name, strategyId, runPipeli
       assert.equal(calls[0].reasoningEffort, firstEffort);
       if (repair) {
         const last = calls.at(-1);
-        assert.equal(last.remaining, scenario === "backup-json-repair" ? 25_000 : 100_000);
+        assert.equal(last.remaining, 70_000);
         assert.match(last.request.prompt, /SECOND_PASS_REVIEW/);
         assert.equal(last.request.snapshotId, calls[0].request.snapshotId);
       }
-      assert.ok(calls.filter((call) => call.modelId === BACKUP).every((call) => call.reasoningEffort === "max"));
+      assert.ok(calls.filter((call) => call.modelId === BACKUP).every((call) => call.reasoningEffort === "high"));
     });
   }
 }

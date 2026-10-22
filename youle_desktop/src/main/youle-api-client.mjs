@@ -1,6 +1,9 @@
 import { HAOLO_GATEWAY_BASE_URL, migrateHaoloGatewayAuth, normalizeHaoloGatewayBaseUrl } from "./haolo-gateway.mjs";
 import crypto from "node:crypto";
 import { BINANCE_REBIND_MESSAGE } from "../shared/binance-account-errors.mjs";
+import { verifyPlanInvitation } from './execution-plan-share.mjs';
+import { createAccountReadCoordinator } from "./binance-account/read-coordinator.mjs";
+import { waitForRunEvent } from "./trading-strategy-runtime/run-event-stream.mjs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Readable, Transform } from "node:stream";
@@ -56,12 +59,6 @@ const DEFAULT_TRADING_ALERT_EMAIL_PATH = "/api/trading-alerts/email-notification
 const DEFAULT_SUB2API_ACCOUNT_PATH = "/api/sub2api/me";
 const DEFAULT_SUB2API_KEYS_PATH = "/api/sub2api/me/keys";
 const DEFAULT_BUSINESS_MODEL_POOLS_PATH = "/api/sub2api/model-pools";
-const VIDEO_MODEL_CATALOG_ID_ALIASES = new Map([
-  ["grok-video-3.5", "aihubcc/grok-video-3.5"],
-  ["grok-imagine-video-1.5-preview", "grok-imagine-video-1.5"],
-  ["aihubcc/grok-imagine-video-1.5-preview", "grok-imagine-video-1.5"],
-  ["aihubcc/grok-imagine-video-1.5", "grok-imagine-video-1.5"],
-]);
 const BUSINESS_IMAGE_MODEL_CATALOG_CACHE_KEY =
   "business-model-pool:media_creation:image_generation";
 const DEFAULT_SUB2API_SUBSCRIPTION_BALANCE_DETAILS_PATH = "/api/sub2api/me/subscription-balance-details";
@@ -1640,10 +1637,7 @@ export class YouleApiClient {
   async listAccountConnections() {
     await this.load();
     this.requireAuth();
-    const response = await this.requestJson(joinUrl(this.baseUrl, this.accountConnectionsPath), {
-      method: "GET",
-      headers: this.authHeaders(),
-    });
+    const response = await this.requestAccountJson(this.accountConnectionsPath, {}, { ttlMs: 750 });
     return {
       items: Array.isArray(response?.items) ? response.items : [],
       raw: response,
@@ -1710,10 +1704,39 @@ export class YouleApiClient {
     if (!id) throw new Error("connectionId is required");
     const path = `${this.accountConnectionsPath}/${encodeURIComponent(id)}/snapshot`;
     const query = includeTodayPnl ? { pnlTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone } : {};
-    return this.requestJson(joinUrl(this.baseUrl, appendQuery(path, query)), {
-      method: "GET",
-      headers: this.authHeaders(),
-    });
+    return this.requestAccountJson(appendQuery(path, query), {
+      timeoutMessage: "账户摘要读取超时，请稍后重试。",
+    }, { group: `${id}:snapshot` });
+  }
+
+  async getAccountConnectionDetails(connectionId, { section, cursor } = {}) {
+    await this.load();
+    this.requireAuth();
+    const id = String(connectionId || "").trim();
+    if (!id || !["openOrders", "positionHistory"].includes(section)) throw new Error("Invalid account detail request");
+    return this.requestAccountJson(appendQuery(`${this.accountConnectionsPath}/${encodeURIComponent(id)}/details`, {
+      section, limit: 50, ...(cursor ? { cursor } : {}),
+    }), { timeoutMessage: "账户明细读取超时，请稍后重试。" }, { group: `${id}:${section}` });
+  }
+
+  async getAccountConnectionProfitCalendar(connectionId, { month } = {}) {
+    await this.load();
+    this.requireAuth();
+    const id = String(connectionId || "").trim();
+    if (!id || !/^\d{4}-(?:0[1-9]|1[0-2])$/.test(String(month || ""))) throw new Error("Invalid account calendar request");
+    return this.requestAccountJson(appendQuery(`${this.accountConnectionsPath}/${encodeURIComponent(id)}/profit-calendar`, {
+      month, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    }), { timeoutMessage: "收益日历读取超时，请稍后重试。" }, { group: `${id}:calendar` });
+  }
+
+  async requestAccountJson(path, init = {}, options = {}) {
+    const baseUrl = this.baseUrl;
+    const token = this.token;
+    this.accountReadCoordinator ||= createAccountReadCoordinator();
+    return this.accountReadCoordinator.run({
+      scope: `${baseUrl}\n${token}`, key: path, ...options,
+      isCurrent: () => this.baseUrl === baseUrl && this.token === token,
+    }, () => this.requestJson(joinUrl(baseUrl, path), { ...init, method: "GET", headers: this.authHeaders() }));
   }
 
   async patchConversationPreferences(params = {}) {
@@ -2152,6 +2175,10 @@ export class YouleApiClient {
       headers: this.clientHeaders({ auth: true, json: true }),
       body: "{}",
     });
+  }
+
+  async verifyPlanShareInvitation(params = {}) {
+    return verifyPlanInvitation(this, params.id);
   }
 
   async reportConsumptionEvent(params = {}) {
@@ -3328,6 +3355,45 @@ export class YouleApiClient {
     });
   }
 
+  async waitForTradingCloudRunEvent(runId, options = {}) {
+    if (typeof runId !== 'string' || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(runId)) throw new TypeError('Invalid cloud run id');
+    const after = options.after ?? 0;
+    if (!Number.isSafeInteger(after) || after < 0) throw new TypeError('Invalid event cursor');
+    await this.load();
+    this.requireAuth();
+    const accountId = options.expectedAccountId || String(this.profile?.id || '');
+    const baseUrl = options.expectedBaseUrl || this.baseUrl;
+    const assertOwner = () => {
+      if (!this.token || String(this.profile?.id || '') !== accountId || this.baseUrl !== baseUrl) {
+        throw Object.assign(new Error('The account changed during the trading request'), {code:'TRADING_PREFERENCE_OWNER_CHANGED'});
+      }
+    };
+    assertOwner();
+    return waitForRunEvent({
+      signal:options.signal, after, timeoutMs:options.timeoutMs ?? 15000, assertOwner,
+      open:async signal => {
+        await this.refreshAccessToken({reason:'trading-run-events'});
+        signal.throwIfAborted();
+        assertOwner();
+        const fetchStream = () => this.serviceFetch(joinUrl(baseUrl, `/api/mobile/v1/agent-runs/${runId}/stream?after=${after}`), {
+          method:'GET', signal,
+          headers:stripYouleAuthRetryHeader({...this.clientHeaders({auth:true}), Accept:'text/event-stream'}),
+        });
+        let response = await fetchStream();
+        assertOwner();
+        if (response.status === 401) {
+          await response.body?.cancel();
+          await this.refreshAccessToken({force:true, reason:'trading-run-events-401'});
+          signal.throwIfAborted();
+          assertOwner();
+          response = await fetchStream();
+          assertOwner();
+        }
+        return response;
+      },
+    });
+  }
+
   async tradingCloudRequest(operation, payload = {}, options = {}) {
     const routes = {
       preferences: ["GET", "/trading-preferences"],
@@ -3336,7 +3402,16 @@ export class YouleApiClient {
       capabilities: ["GET", "/trading-capabilities"],
       createRun: ["POST", "/agent-runs"],
       plans: ["GET", "/trading-plans"],
+      priceAlerts: ["GET", "/alerts"],
+      createPriceAlertDraft: ["POST", "/alert-drafts"],
     };
+    if (["confirmPriceAlert", "priceAlertAction"].includes(operation)) {
+      const {alertId, action, ...body} = payload;
+      if (typeof alertId !== 'string' || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(alertId)) throw new TypeError('Invalid cloud alert id');
+      if (operation === 'priceAlertAction' && !['pause','resume','delete'].includes(action)) throw new TypeError('Invalid cloud alert action');
+      routes[operation] = ['POST', operation === 'confirmPriceAlert' ? `/alert-drafts/${alertId}/confirm` : `/alerts/${alertId}/${action}`];
+      payload = body;
+    }
     if (["plan", "savePlan", "activatePlan", "planLifecycle", "deletePlan"].includes(operation)) {
       const {planId, ...body} = payload;
       if (typeof planId !== 'string' || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(planId)) throw new TypeError('Invalid cloud plan id');
@@ -3673,18 +3748,12 @@ export class YouleApiClient {
       routeGroupID != null
         ? this.modelKeys.find((item) => item.groupId === routeGroupID) || null
         : null;
+    // Explicit model routing wins over the legacy shared media credential.
+    // In particular, official images use the existing Codex group key.
+    if (routeGroupID != null) return routeGroupKey;
     if (poolID === "media_creation") {
-      if (
-        routeGroupKey &&
-        normalizeProvider(routeGroupKey.provider) === "media"
-      ) {
-        return routeGroupKey;
-      }
       const mediaKey = this.providerKey("media");
       if (mediaKey) return mediaKey;
-    }
-    if (routeGroupID != null) {
-      return routeGroupKey;
     }
     const provider = normalizeProvider(model?.provider || providerHint);
     return this.providerKey(provider);
@@ -3780,7 +3849,7 @@ export class YouleApiClient {
           "X-Haolo-Model-Capability": "image_generation",
         },
       });
-      const models = normalizeRelayImageModels(payload).map((model) => ({
+      const models = normalizeRelayImageModels(payload).filter((model) => model.id === "codex/gpt-image-2").map((model) => ({
         ...documentedImageModelCapability(model.id),
         ...model,
       }));
@@ -4311,7 +4380,14 @@ export class YouleApiClient {
   }
 
   async requestJson(url, init = {}) {
-    return requestJson(url, { ...init, logPath: this.logPath, fetchImpl: this.serviceFetch });
+    const accountMutation = !["GET", "HEAD"].includes(String(init.method || "GET").toUpperCase())
+      && new URL(url).pathname.startsWith(`${this.accountConnectionsPath}`);
+    if (accountMutation) this.accountReadCoordinator?.invalidate();
+    try {
+      return await requestJson(url, { ...init, logPath: this.logPath, fetchImpl: this.serviceFetch });
+    } finally {
+      if (accountMutation) this.accountReadCoordinator?.invalidate();
+    }
   }
 
   async requestBinary(url, init = {}) {
@@ -4628,7 +4704,9 @@ async function requestJson(url, init = {}) {
       if (response.ok && allowNonJson) {
         return {};
       }
-      throw new Error(nonJsonResponseMessage(url, response, text));
+      throw Object.assign(new Error(nonJsonResponseMessage(url, response, text)), {
+        status: response.status, retryable: [408, 425, 429, 502, 503, 504].includes(response.status),
+      });
     }
     const payload = parsed.payload;
     if (!response.ok) {
@@ -6258,6 +6336,7 @@ function normalizeSub2ApiKeys(value) {
       return {
         provider,
         apiKey,
+        apiKeyId: positiveIntegerOrNull(item?.api_key_id ?? item?.apiKeyId),
         baseUrl: normalizeTransitBaseUrl(firstProfileString(item?.transit_base_url, item?.transitBaseUrl, item?.base_url, item?.baseUrl)) || DEFAULT_TRANSIT_BASE_URL,
         groupId: positiveIntegerOrNull(
           item?.group_id ?? item?.groupId ?? item?.route_group_id ?? item?.routeGroupId,
@@ -6371,6 +6450,8 @@ function businessModelPoolModels(config, poolID, capability = "") {
   return (Array.isArray(pool.models) ? pool.models : []).filter(
     (model) =>
       model?.enabled !== false &&
+      (capability !== "image_generation" || model.id === "codex/gpt-image-2") &&
+      (capability !== "video_generation" || ["bytedance/seedance-2.0", "omni_flash-10s"].includes(model.id)) &&
       (!capability ||
         (Array.isArray(model.capabilities) &&
           model.capabilities.includes(capability))),
@@ -6405,169 +6486,24 @@ function normalizeBusinessModelAliases(value) {
 
 function videoModelCatalogMatchID(value) {
   const id = String(value || "").trim().toLowerCase();
-  return VIDEO_MODEL_CATALOG_ID_ALIASES.get(id) || id;
+  return id;
 }
 
 function canonicalVideoModelCatalogID(value) {
   const id = String(value || "").trim();
-  return VIDEO_MODEL_CATALOG_ID_ALIASES.get(id.toLowerCase()) || id;
+  return id;
 }
 
 function documentedImageModelCapability(value) {
-  const id =
-    String(value || "")
-      .trim()
-      .toLowerCase()
-      .split("/")
-      .at(-1) || "";
-  if (id === "gpt-image-2" || id === "image-2") {
-    return {
-      input_mode: "text-or-image-to-image",
-      required_image_count: 0,
-      max_image_count: 1,
-      max_image_total_bytes: 0,
-      max_image_long_edge: 2048,
-    };
-  }
-  if (
-    id === "gpt-image-2-1k" ||
-    id === "image-2-1k" ||
-    id === "gpt-image-2-1k-async" ||
-    id === "image-2-1k-async" ||
-    id === "gpt-image-2-2k" ||
-    id === "image-2-2k" ||
-    id === "gpt-image-2-3.5k" ||
-    id === "image-2-3.5k"
-  ) {
-    return {
-      input_mode: "text-or-image-to-image",
-      required_image_count: 0,
-      max_image_count: 6,
-      max_image_total_bytes: 5 * 1024 * 1024,
-      max_image_long_edge: 0,
-    };
-  }
-  return {};
+  if (String(value || "").trim() !== "codex/gpt-image-2") return {};
+  return {
+    input_mode: "text-or-image-to-image", required_image_count: 0,
+    max_image_count: 4, max_image_total_bytes: 20 * 1024 * 1024,
+    max_image_long_edge: 0,
+  };
 }
 
-function videoModelScreenSize(value, label, size = "", resolution = "") {
-  return { value, label, size, resolution };
-}
 
-function documentedVideoModelCapability(value) {
-  const id = String(value || "").trim();
-  const normalizedID = id.toLowerCase();
-  const seedanceMatch =
-    /^seedance-2\.0-(?:mini-(480p|720p)|(480p|720p|1080p))$/i.exec(id);
-  if (seedanceMatch) {
-    const resolution = (seedanceMatch[1] || seedanceMatch[2]).toLowerCase();
-    return {
-      id,
-      input_mode: "multimodal-to-video",
-      required_image_count: 0,
-      max_image_count: 4,
-      required_video_count: 0,
-      max_video_count: 3,
-      required_audio_count: 0,
-      max_audio_count: 1,
-      max_prompt_chars: 5000,
-      max_image_bytes: 30 * 1024 * 1024,
-      max_video_bytes: 50 * 1024 * 1024,
-      screen_sizes: [
-        videoModelScreenSize("16:9", "横屏 16:9", "", resolution),
-        videoModelScreenSize("9:16", "竖屏 9:16", "", resolution),
-        videoModelScreenSize("1:1", "方形 1:1", "", resolution),
-        videoModelScreenSize("21:9", "超宽屏 21:9", "", resolution),
-        videoModelScreenSize("3:4", "竖向 3:4", "", resolution),
-        videoModelScreenSize("4:3", "横向 4:3", "", resolution),
-      ],
-      durations: Array.from({ length: 12 }, (_, index) => {
-        const duration = String(index + 4);
-        return { value: duration, label: `${duration}秒` };
-      }),
-      default_screen_size: "16:9",
-      default_duration: "5",
-      default_resolution: resolution,
-    };
-  }
-  if (
-    normalizedID === "grok-imagine-video-1.5" ||
-    normalizedID === "grok-imagine-video-1.5-preview" ||
-    normalizedID === "aihubcc/grok-imagine-video-1.5-preview"
-  ) {
-    return {
-      id: "grok-imagine-video-1.5",
-      input_mode: "text-or-image-to-video",
-      required_image_count: 0,
-      max_image_count: 1,
-      required_video_count: 0,
-      max_video_count: 0,
-      required_audio_count: 0,
-      max_audio_count: 0,
-      screen_sizes: [
-        videoModelScreenSize("16:9", "横屏 16:9", "", "720p"),
-        videoModelScreenSize("9:16", "竖屏 9:16", "", "720p"),
-        videoModelScreenSize("1:1", "方形 1:1", "", "720p"),
-        videoModelScreenSize("4:3", "横向 4:3", "", "720p"),
-        videoModelScreenSize("3:4", "竖向 3:4", "", "720p"),
-        videoModelScreenSize("2:3", "竖向 2:3", "", "720p"),
-        videoModelScreenSize("3:2", "横向 3:2", "", "720p"),
-      ],
-      durations: Array.from({ length: 15 }, (_, index) => String(index + 1)).map((duration) => ({
-        value: duration,
-        label: `${duration}秒`,
-      })),
-      default_screen_size: "16:9",
-      default_duration: "6",
-      default_resolution: "720p",
-    };
-  }
-  if (normalizedID === "omni-fast-no-water") {
-    return {
-      id,
-      input_mode: "text-or-image-to-video",
-      required_image_count: 0,
-      max_image_count: 5,
-      required_video_count: 0,
-      max_video_count: 0,
-      required_audio_count: 0,
-      max_audio_count: 0,
-      max_image_bytes: 8 * 1024 * 1024,
-      screen_sizes: [
-        videoModelScreenSize("16:9", "横屏 16:9"),
-        videoModelScreenSize("9:16", "竖屏 9:16"),
-      ],
-      durations: [{ value: "10", label: "10秒" }],
-      default_screen_size: "16:9",
-      default_duration: "10",
-      default_resolution: "720p",
-    };
-  }
-  if (normalizedID === "omni-fast-v2v-no-water") {
-    return {
-      id,
-      input_mode: "video-to-video",
-      required_image_count: 0,
-      max_image_count: 0,
-      required_video_count: 1,
-      max_video_count: 2,
-      required_audio_count: 0,
-      max_audio_count: 0,
-      max_video_bytes: 8 * 1024 * 1024,
-      max_video_width: 1920,
-      max_video_height: 1080,
-      screen_sizes: [
-        videoModelScreenSize("16:9", "横屏 16:9"),
-        videoModelScreenSize("9:16", "竖屏 9:16"),
-      ],
-      durations: [{ value: "10", label: "10秒" }],
-      default_screen_size: "16:9",
-      default_duration: "10",
-      default_resolution: "720p",
-    };
-  }
-  return null;
-}
 
 function filterVideoModelCatalog(payload, configuredModels) {
   const filterRoot = (root) => {
@@ -6592,7 +6528,6 @@ function filterVideoModelCatalog(payload, configuredModels) {
     const models = configuredModels
       .map((configured) => {
         const configuredID = canonicalVideoModelCatalogID(configured.id);
-        const documented = documentedVideoModelCapability(configuredID);
         const exactCatalog = catalogByExactID.get(configuredID.toLowerCase());
         const compatibleCatalog = catalogByMatchID.get(
           videoModelCatalogMatchID(configuredID),
@@ -6600,11 +6535,10 @@ function filterVideoModelCatalog(payload, configuredModels) {
         const capability =
           exactCatalog || compatibleCatalog
             ? {
-                ...(documented || {}),
                 ...(compatibleCatalog || {}),
                 ...(exactCatalog || {}),
               }
-            : documented;
+            : null;
         if (!capability) return null;
         return {
           ...capability,

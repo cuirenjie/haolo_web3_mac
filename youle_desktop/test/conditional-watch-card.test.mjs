@@ -1,0 +1,60 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {cloudPlanCard,normalizeCloudReports} from '../src/main/cloud-plan-contract.mjs';
+import {cloudPlanCardFixture} from './support/cloud-plan-card-fixture.mjs';
+import {renderCurrentReports} from './support/right-renderer-parity.mjs';
+import {OFFICIAL_TRADING_CATALOG} from '../src/shared/official-trading-catalog.mjs';
+
+function reportFor(mode,locale,strategyId='price-action') {
+  const report=cloudPlanCardFixture(locale),plan=report.executionPlan;
+  report.strategyId=strategyId;report.planRecords=[];
+  plan.scenarios=[];plan.requestedMode=mode;plan.selectedMode=null;
+  delete plan.entryCondition;delete plan.conditionHash;
+  plan.outcome={capability:'supported',candidateStatus:'none',evaluationStatus:'completed',action:'wait',reason:'NO_QUALIFIED_CANDIDATE'};
+  plan.createdAt=1800000000000;
+  plan.conditionalWatch={version:'conditional-watch-v1',mode,strategyId,actionable:false,canCreateAlert:false,
+    createdAt:plan.createdAt,expiresAt:plan.createdAt+3600000,reason:plan.outcome.reason,
+    reasonText:['尚待策略确认','Strategy confirmation pending','尚待策略確認'],evaluationStatus:'completed',
+    conditions:[{side:'long',price:99,source:'closed_range',operator:mode==='left'?'at_or_below':'cross_up',
+      confirmation:mode==='left'?'reclaim_follow':'closed_breakout_retest'}]};
+  return report;
+}
+
+for(const mode of ['left','right']) for(const locale of ['zh-CN','en','zh-Hant']) {
+  test(`${mode}/${locale}: waiting reports render a concrete conditional card without execution controls`,()=>{
+    const report=reportFor(mode,locale),before=structuredClone(report);
+    const normalized=normalizeCloudReports([report])[0],card=cloudPlanCard(normalized);
+    const {rendered,actions,bindings}=renderCurrentReports([normalized],{allowPlanAction:true});
+    assert.equal(card.readOnly,true);
+    assert.match(rendered.cards,new RegExp(`data-conditional-watch="${mode}"`));
+    assert.match(card.content,/99/);
+    assert.equal(actions,'');assert.deepEqual(bindings,[]);
+    assert.doesNotMatch(rendered.cards,/data-message-action="add-to-plan"|data-message-execution-plan-action="sticky"/);
+    if(locale==='en')assert.doesNotMatch(card.content,/[\u4e00-\u9fff]/);
+    assert.deepEqual(report,before);
+  });
+}
+
+test('all official entries can display conditions and failed evaluations display prerequisites',()=>{
+  for(const strategy of OFFICIAL_TRADING_CATALOG) for(const mode of ['left','right']) {
+    const report=reportFor(mode,'en',strategy.id);
+    assert.ok(cloudPlanCard(normalizeCloudReports([report])[0]));
+    report.executionPlan.conditionalWatch.conditions=[];
+    report.executionPlan.conditionalWatch.evaluationStatus='data_unavailable';
+    report.executionPlan.outcome.evaluationStatus='data_unavailable';
+    report.executionPlan.outcome.action='unavailable';
+    assert.match(cloudPlanCard(normalizeCloudReports([report])[0]).content,/Restore sufficient/);
+  }
+});
+
+test('malformed, mismatched, executable and HTML-bearing watch data are fenced',()=>{
+  for(const alter of [w=>w.mode='right',w=>w.strategyId='other',w=>w.actionable=true,w=>w.canCreateAlert=true,
+    w=>w.conditions[0].price=NaN,w=>w.conditions[0].operator='cross_up',w=>w.expiresAt=0,
+    w=>w.conditions=[null],w=>{w.evaluationStatus='data_unavailable';w.conditions=[];}]) {
+    const report=reportFor('left','en');alter(report.executionPlan.conditionalWatch);
+    assert.throws(()=>normalizeCloudReports([report]),/CLOUD_REPORT_INVALID/);
+  }
+  const report=reportFor('left','en');report.executionPlan.conditionalWatch.reasonText[1]='<img src=x onerror=alert(1)>';
+  const html=cloudPlanCard(normalizeCloudReports([report])[0]).html;
+  assert.doesNotMatch(html,/<img/);assert.match(html,/&lt;img/);
+});

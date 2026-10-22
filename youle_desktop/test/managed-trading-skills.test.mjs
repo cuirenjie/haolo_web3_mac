@@ -29,7 +29,7 @@ test("every enabled strategy and indicator has one discoverable Skill with its s
     const name=`trading-analysis-${entry.id}`;
     const source=fs.readFileSync(new URL(`../resources/default-haolo-ai/skills/${name}/SKILL.md`,import.meta.url),"utf8");
     assert.equal(names.has(name),false);names.add(name);
-    assert.ok(source.includes(`name: ${name}\n`));
+    assert.ok(source.replaceAll("\r\n", "\n").includes(`name: ${name}\n`));
     assert.ok(source.includes(`strategyId \`${entry.id}\``));
     assert.ok(source.includes("haolo_analysis"));
   }

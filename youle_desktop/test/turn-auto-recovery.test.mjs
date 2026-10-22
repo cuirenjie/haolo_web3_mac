@@ -68,7 +68,7 @@ test("three-agent disconnect recovery starts one deduplicated continuation with 
   });
 
   assert.equal(decision.status, "scheduled");
-  assert.equal(decision.delayMs, 1_500);
+  assert.equal(decision.delayMs, 0);
   assert.equal(duplicate.duplicate, true);
   assert.equal(timers.pending().length, 1);
   timers.runNext();
@@ -92,7 +92,7 @@ test("repeated failures cool down and stop after three model recovery attempts",
   const coordinator = new TurnAutoRecoveryCoordinator({
     setTimer: timers.setTimer,
     clearTimer: timers.clearTimer,
-    recoveryDelaysMs: [10, 20, 30],
+    recoveryDelaysMs: [10, 20, 30], maxRecoveryAttempts: 3,
     noProgressFailureLimit: 3,
     startRecovery: async () => ({ turn: { id: `recovery-${++startCount}` } }),
   });
@@ -130,7 +130,7 @@ test("media recovery keeps GPT for all bounded retries and a new ordinary turn r
     onEvent: event => events.push(event),
   });
   coordinator.setRecoverySelection("root-thread", { modelId: "gpt-5.6-sol", modelProvider: "haolo_ai", reasoningEffort: "high" });
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  for (let attempt = 1; attempt <= 1; attempt++) {
     const decision = coordinator.handleTerminalFailure(disconnect(`media-${attempt}`));
     assert.equal(decision.modelId, "gpt-5.6-sol");
     assert.equal(decision.reasoningEffort, "high");
@@ -138,15 +138,15 @@ test("media recovery keeps GPT for all bounded retries and a new ordinary turn r
     await drainMicrotasks();
   }
   assert.equal(coordinator.handleTerminalFailure(disconnect("media-exhausted")).status, "exhausted");
-  assert.equal(starts.length, 3);
+  assert.equal(starts.length, 1);
   assert.ok(starts.every(request => request.modelId === "gpt-5.6-sol" && request.modelProvider === "haolo_ai" && request.reasoningEffort === "high" && request.threadId === "root-thread"));
   assert.ok(events.filter(event => event.event === "starting").every(event => event.modelId === "gpt-5.6-sol"));
   assert.equal(timers.pending().length, 0);
   coordinator.noteUserTurn("root-thread");
   coordinator.noteTurnStarted("root-thread", "ordinary");
   const ordinary = coordinator.handleTerminalFailure(disconnect("ordinary"));
-  assert.equal(ordinary.modelId, "deepseek-flash");
-  assert.equal(ordinary.reasoningEffort, "max");
+  assert.equal(ordinary.modelId, "gpt-5.6-sol");
+  assert.equal(ordinary.reasoningEffort, "high");
   coordinator.cancel("root-thread", "user_cancel");
   assert.equal(timers.pending().length, 0);
 });
@@ -156,7 +156,7 @@ test("durable progress resets the no-progress backoff and a user turn cancels pe
   const coordinator = new TurnAutoRecoveryCoordinator({
     setTimer: timers.setTimer,
     clearTimer: timers.clearTimer,
-    recoveryDelaysMs: [10, 20, 30],
+    recoveryDelaysMs: [10, 20, 30], maxRecoveryAttempts: 3,
     startRecovery: async () => ({ turn: { id: "unused" } }),
   });
 
@@ -193,8 +193,8 @@ test("late terminals, child activity, cancellation and a new user turn cannot re
   assert.equal(coordinator.handleTerminalFailure(disconnect("old-turn")).status, "ignored");
   const decision = coordinator.handleTerminalFailure(disconnect("current-turn"));
   assert.equal(decision.status, "scheduled");
-  assert.equal(decision.modelId, "deepseek-flash");
-  assert.equal(decision.reasoningEffort, "max");
+  assert.equal(decision.modelId, "gpt-5.6-sol");
+  assert.equal(decision.reasoningEffort, "high");
   timers.runNext();
   await drainMicrotasks();
   assert.equal(activeCheck(), true);
@@ -267,3 +267,15 @@ async function drainMicrotasks() {
   await Promise.resolve();
   await new Promise((resolve) => setImmediate(resolve));
 }
+
+test("default policy falls back immediately once and never loops back", async () => {
+ const timers = fakeTimers();
+ let calls = 0;
+ const coordinator = new TurnAutoRecoveryCoordinator({ setTimer: timers.setTimer, clearTimer: timers.clearTimer,
+   startRecovery: async () => { calls++; return { turn: { id: "backup" } }; } });
+ assert.equal(coordinator.handleTerminalFailure(disconnect("primary")).delayMs, 0);
+ timers.runNext(); await drainMicrotasks();
+ assert.equal(coordinator.handleTerminalFailure(disconnect("backup")).status, "exhausted");
+ assert.equal(calls, 1);
+ assert.equal(timers.pending().length, 0);
+});

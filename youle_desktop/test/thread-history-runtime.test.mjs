@@ -17,9 +17,14 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // A real app-server talking only to a loopback model stub, in disposable storage.
 // This catches the startup timing / SQLite projection gap that RPC mocks miss.
-for (const separateSqliteHome of [false, true]) {
-  test(`bundled runtime initializes empty history and preserves followups (separate sqlite: ${separateSqliteHome})`, { skip, timeout: 45_000 }, async (t) => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "haolo-history-runtime-"));
+for (const { separateSqliteHome, roamingHome = false } of [
+  { separateSqliteHome: false }, { separateSqliteHome: true }, { separateSqliteHome: false, roamingHome: true },
+]) {
+  test(`bundled runtime initializes empty history and preserves followups (separate sqlite: ${separateSqliteHome}, roaming: ${roamingHome})`, { skip, timeout: 45_000 }, async (t) => {
+    // A development app launched by packaged Codex inherits AppData redirection.
+    // Exercise its real logical/physical path pair as well as ordinary temp homes.
+    const tempBase = roamingHome ? process.env.APPDATA : os.tmpdir();
+    const root = fs.mkdtempSync(path.join(tempBase, "haolo-history-runtime-"));
     const codexHome = path.join(root, "runtime");
     const sqliteHome = separateSqliteHome ? path.join(root, "sqlite") : codexHome;
     const cwd = path.join(root, "workspace");
@@ -52,7 +57,7 @@ for (const separateSqliteHome of [false, true]) {
       for (const client of clients) await client.stop();
       server.closeAllConnections();
       await new Promise((resolve) => server.close(resolve));
-      assert.equal(path.dirname(path.resolve(root)), path.resolve(os.tmpdir()));
+      assert.equal(path.dirname(path.resolve(root)), path.resolve(tempBase));
       assert.match(path.basename(root), /^haolo-history-runtime-/);
       await fs.promises.rm(root, { recursive: true, force: true, maxRetries: 2, retryDelay: 100 });
     });

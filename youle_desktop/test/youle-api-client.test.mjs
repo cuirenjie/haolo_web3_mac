@@ -4341,6 +4341,7 @@ test("refreshProfile refreshes centrally provisioned model keys without requirin
           {
             provider: "doubao",
             api_key: "sk-doubao-refresh",
+            api_key_id: 101,
             base_url: "https://aiapi.example.test/v1",
           },
           {
@@ -4376,6 +4377,7 @@ test("refreshProfile refreshes centrally provisioned model keys without requirin
 
     assert.deepEqual(session.modelProviders.sort(), ["doubao", "qwen"]);
     assert.equal(client.providerKey("doubao").apiKey, "sk-doubao-refresh");
+    assert.equal(client.providerKey("doubao").apiKeyId, 101);
     assert.equal(client.providerKey("qwen").apiKey, "sk-qwen-refresh");
     assert.ok(requests.some((url) => url.endsWith("/api/sub2api/me/keys")));
   } finally {
@@ -5261,4 +5263,13 @@ test("desktop main injects Electron net.fetch into material uploads", async () =
     source,
     /function appNetworkFetch\(url, options = \{\}\)[\s\S]*?net\?\.fetch[\s\S]*?return net\.fetch\(url, options\)/,
   );
+});
+
+test("official image route uses its Codex group key even when a shared media key exists", () => {
+  const client = new YouleApiClient();
+  const codex = {groupId: 2, provider: "codex", apiKey: "codex-test-key"};
+  const media = {groupId: 13, provider: "media", apiKey: "media-test-key"};
+  client.modelKeys = [media, codex];
+  assert.equal(client.businessModelRouteKey({routeGroupId: 2, provider: "codex"}, "", "media_creation"), codex);
+  assert.equal(client.businessModelRouteKey({routeGroupId: 999, provider: "codex"}, "", "media_creation"), null);
 });

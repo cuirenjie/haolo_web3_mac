@@ -10,7 +10,7 @@
     "aliases": ["VPVR分析", "可见范围成交量分布", "成交量分布", "Volume Profile", "POC分析", "价值区分析"]
   },
   "implementation": { "kind": "builtin-adapter", "adapterId": "vpvr-analysis" },
-  "capabilities": ["conversation", "chart-analysis", "drawing"],
+  "capabilities": ["conversation", "chart-analysis", "drawing", "execution-plan"],
   "dataRequirements": {
     "candles": { "required": true, "minCount": 20, "preferredCount": 20, "minimumCoverage": "available" },
     "visible-candles": { "required": true, "minCount": 20, "preferredCount": 20, "minimumCoverage": "available" },
@@ -18,6 +18,6 @@
   },
   "chartIndicator": { "id": "vpvr", "scope": "main", "parameters": [96] },
   "drawingPolicyId": "vpvr-analysis-v1",
-  "executionPlanPolicyId": "observation-only-v1",
+  "executionPlanPolicyId": "price-action-indicator-v1",
   "assets": { "skill": "SKILL.md", "rules": "references/rules.md" }
 }

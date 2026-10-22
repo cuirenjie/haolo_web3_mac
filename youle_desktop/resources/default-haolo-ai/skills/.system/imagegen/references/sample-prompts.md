@@ -1,7 +1,7 @@
 # Sample prompts (copy/paste)
 
 These prompt recipes are shared across both supported modes of the skill:
-- locally preset-gated Director through AIHubCC (default)
+- locally preset-gated Director through official Codex (default)
 - `scripts/image_gen.py` CLI fallback for explicit CLI/API/model requests or user-confirmed true-transparent-output fallback requests
 
 Use these as starting points. They are intentionally complete prompt recipes, not the default amount of augmentation to add to every user request.
@@ -13,13 +13,13 @@ When adapting a user's prompt:
 
 The labeled lines are prompt scaffolding, not a closed schema. `Asset type` and `Input images` are prompt-only scaffolding; the CLI does not expose them as dedicated flags.
 
-Execution details such as explicit CLI flags, `quality`, `input_fidelity`, masks, output formats, and local output paths depend on mode. Use the locally preset-gated Director through AIHubCC by default, including simple transparent-image requests. For transparent images, prompt for a flat chroma-key background and remove it locally with `python "${CODEX_HOME:-$HOME/.codex}/skills/.system/imagegen/scripts/remove_chroma_key.py"`; only apply CLI-specific controls when the user explicitly opts into fallback mode or explicitly confirms that the transparent request should use true CLI transparency.
+Execution details such as explicit CLI flags, `quality`, `input_fidelity`, masks, output formats, and local output paths depend on mode. Use the locally preset-gated Director through official Codex by default, including simple transparent-image requests. For transparent images, prompt for a flat chroma-key background and remove it locally with `python "${CODEX_HOME:-$HOME/.codex}/skills/.system/imagegen/scripts/remove_chroma_key.py"`; only apply CLI-specific controls when the user explicitly opts into fallback mode or explicitly confirms that the transparent request should use true CLI transparency.
 
 CLI model notes:
-- `aihubcc/gpt-image-2` is the fallback CLI default public model for new workflows.
+- `codex/gpt-image-2` is the fallback CLI default public model for new workflows.
 - `gpt-image-2` supports `quality` values `low`, `medium`, `high`, and `auto`.
 - For 4K-style `gpt-image-2` output, use `3840x2160` or `2160x3840`.
-- If transparent output needs true CLI fallback, ask before using `gpt-image-1.5` unless the user already explicitly requested `gpt-image-1.5`, `scripts/image_gen.py`, or CLI fallback. Explain that Director/AIHubCC chroma-key removal is the default path, but `gpt-image-2` does not support `background=transparent`.
+- If transparent output needs true CLI fallback, ask before using `gpt-image-1.5` unless the user already explicitly requested `gpt-image-1.5`, `scripts/image_gen.py`, or CLI fallback. Explain that Director/official Codex chroma-key removal is the default path, but `gpt-image-2` does not support `background=transparent`.
 - Do not set `input_fidelity` with `gpt-image-2`; image inputs already use high fidelity.
 
 For prompting principles (structure, specificity, invariants, iteration), see `references/prompting.md`.
@@ -395,7 +395,7 @@ Scene/backdrop: perfectly flat solid #00ff00 chroma-key background for local bac
 Constraints: background must be one uniform color with no shadows, gradients, texture, reflections, floor plane, or lighting variation; crisp silhouette; generous padding; no halos or fringing; preserve label text exactly; no restyling; do not use #00ff00 anywhere in the subject
 ```
 
-Post-process note: after gated Director/AIHubCC generation, run `python "${CODEX_HOME:-$HOME/.codex}/skills/.system/imagegen/scripts/remove_chroma_key.py" --input <source> --out <final.png> --auto-key border --soft-matte --transparent-threshold 12 --opaque-threshold 220 --despill`. Ask before using CLI `gpt-image-1.5 --background transparent --output-format png` for true/native transparency, failed chroma-key validation, or complex subjects such as hair, fur, glass, smoke, liquids, translucent materials, reflections, or soft shadows, unless the user already explicitly requested `gpt-image-1.5`, `scripts/image_gen.py`, or CLI fallback.
+Post-process note: after gated Director/official Codex generation, run `python "${CODEX_HOME:-$HOME/.codex}/skills/.system/imagegen/scripts/remove_chroma_key.py" --input <source> --out <final.png> --auto-key border --soft-matte --transparent-threshold 12 --opaque-threshold 220 --despill`. Ask before using CLI `gpt-image-1.5 --background transparent --output-format png` for true/native transparency, failed chroma-key validation, or complex subjects such as hair, fur, glass, smoke, liquids, translucent materials, reflections, or soft shadows, unless the user already explicitly requested `gpt-image-1.5`, `scripts/image_gen.py`, or CLI fallback.
 
 ### style-transfer
 ```

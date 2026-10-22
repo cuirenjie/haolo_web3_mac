@@ -576,7 +576,7 @@ test("ExecutionPlanV1 keeps a reached short action visible when a risk gate bloc
 test("every execution-plan strategy reports a reached short condition as short", () => {
   const registry = createTradingStrategyRegistry({ adapters: BUILTIN_TRADING_STRATEGY_ADAPTERS });
   const executionStrategies = registry.list().filter((strategy) => strategy.capabilities.includes("execution-plan"));
-  assert.equal(executionStrategies.length, 16);
+  assert.equal(executionStrategies.length, 17);
   for (const strategy of executionStrategies) {
     const legacyResult = sampleLegacyResult();
     legacyResult.theoryResult.signals = [{ direction: "bearish", strength: 1 }];

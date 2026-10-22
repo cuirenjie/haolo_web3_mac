@@ -82,6 +82,7 @@ const PHRASES = Object.freeze({
   "绘图设置": "Drawing settings", "已更新绘图": "Drawing updated", "端点": "Point", "时间 (UTC+8)": "Time (UTC+8)",
   "隐藏此画线": "Hide drawing", "显示此画线": "Show drawing",
   "隐藏当前会话 AI 画线": "Hide AI drawings in this conversation",
+  "切换 K 线绘制": "Next chart drawing",
   "显示当前会话 AI 画线": "Show AI drawings in this conversation",
   "当前会话 AI 画线已隐藏": "AI drawings hidden in this conversation",
   "当前会话 AI 画线已显示": "AI drawings shown in this conversation",

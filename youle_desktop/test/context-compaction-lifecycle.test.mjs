@@ -111,7 +111,7 @@ test("real notification handler closes failed pre-sampling compaction and exhaus
     assertStopped(h, "failed", `compact-${attempt}`);
   }
   h.emit("haolo/turnAutoRecovery", "turn-3", { haoloAutoRecovery: { status: "exhausted", chainId: "chain" } });
-  const exhausted = h.calls.filter((call) => call.name === "appendAgentNotice" && call.args[1].includes("自动恢复仍未完成"));
+  const exhausted = h.calls.filter((call) => call.name === "appendAgentNotice" && call.args[1].includes("备用模型也未能完成本轮请求"));
   assert.equal(exhausted.length, 1);
   assert.equal(h.state.threadContextUsage.thread.compactionCount, 0);
 });

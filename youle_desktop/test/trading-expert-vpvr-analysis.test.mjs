@@ -135,7 +135,7 @@ test("VPVR drawings are thin dashed support/resistance lines on the main price c
   )), true);
 });
 
-test("VPVR mention, manifest, native overlay, and execution-plan opt-out are independently wired", async () => {
+test("VPVR mention, manifest and native overlay support the combined general plan", async () => {
   assert.equal(stripVpvrAnalysisMentionLiteral("@指标:VPVR 帮我分析"), "帮我分析");
   assert.equal(stripVpvrAnalysisMentionLiteral("@指标：可见范围成交量分布"), "");
   const registry = createTradingStrategyRegistry({ adapters: BUILTIN_TRADING_STRATEGY_ADAPTERS });
@@ -143,12 +143,17 @@ test("VPVR mention, manifest, native overlay, and execution-plan opt-out are ind
   assert.equal(manifest.display.group, "indicator");
   assert.deepEqual(manifest.chartIndicator, { id: "vpvr", scope: "main", parameters: [96] });
   assert.equal(manifest.dataRequirements["visible-candles"].required, true);
-  assert.equal(manifest.capabilities.includes("execution-plan"), false);
+  assert.equal(manifest.capabilities.includes("execution-plan"), true);
   assert.equal(registry.adapter("vpvr-analysis").id, "vpvr-analysis");
 
   const coordinator = new TradingStrategyCoordinator({
     registry,
-    modelRegistry: { async analyze() { throw new Error("exact VPVR mention must stay deterministic"); } },
+    modelRegistry: { async analyze(_provider, request) {
+      assert.match(request.prompt, /indicatorEvidenceIds/);
+      return {requestId: request.requestId, text: JSON.stringify({schemaVersion: 1,
+        verdict: 'approve', summary: '裸 K 结构与成交量分布仍需确认，继续等待。',
+        rationale: '结合支撑压力与成交量分布观察。', planSide: 'wait', evidenceIds: []})};
+    } },
     providerId: "unused",
   });
   const classified = await coordinator.classify("vpvr-analysis", { text: "@指标:VPVR" });
@@ -157,7 +162,9 @@ test("VPVR mention, manifest, native overlay, and execution-plan opt-out are ind
   assert.equal(result.ok, true);
   assert.equal(result.strategy.id, "vpvr-analysis");
   assert.equal(result.executionPlan.action, "wait");
-  assert.doesNotMatch(result.analysisPlan.report, /标准执行方案|入场|止损|止盈|仓位/);
+  assert.match(result.analysisPlan.report, /裸 K 策略与指标综合判断/);
+  assert.equal(result.executionPlan.scenarios.length, 0);
+  assert.ok(result.analysisPlan.drawingPatch.operations.some(o => o.drawing.id.includes('-price-action-')));
 });
 
 test("VPVR card and visible-range host path cover both light and dark themes", async () => {

@@ -100,10 +100,11 @@ test('corrected drawing metadata survives validated storage and keeps third targ
   try {
     const patch=projectExecutionPlanDrawings(original,plan,'en');
     persistTradingAiDrawingPatch('persisted',patch);
-    const stored=JSON.parse([...data.values()][0]);
+    const storedKey='haolo.trading-market.ai-drawings.v2.persisted';
+    const stored=JSON.parse(data.get(storedKey));
     assert.equal(stored.filter(d=>d.planLevel?.role==='target').length,3);
     assert.equal(buildTradingPlanPriceLines(stored).lines.at(-1).shortLabel,'TP3');
     persistTradingAiDrawingPatch('persisted',patch);
-    assert.equal(JSON.parse([...data.values()][0]).length,patch.operations.length);
+    assert.equal(JSON.parse(data.get(storedKey)).length,patch.operations.length);
   } finally {globalThis.window=previous;}
 });

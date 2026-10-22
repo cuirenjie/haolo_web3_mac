@@ -97,10 +97,10 @@ export async function repairThreadHistoryIndex({ codexHome, sqliteHome = codexHo
 }
 
 function repairIndex({ codexHome, sqliteHome, threadId, DatabaseSync }) {
-  const home = fs.realpathSync(codexHome);
-  const databaseRoot = fs.realpathSync(sqliteHome);
+  const home = canonicalStoragePath(codexHome);
+  const databaseRoot = canonicalStoragePath(sqliteHome);
   // 0.144.1 and 0.153.4 share this schema. Unknown future schemas fail closed.
-  const databasePath = fs.realpathSync(path.join(databaseRoot, "state_5.sqlite"));
+  const databasePath = canonicalStoragePath(path.join(databaseRoot, "state_5.sqlite"));
   if (!isWithin(databaseRoot, databasePath) || !fs.statSync(databasePath).isFile()) {
     return { status: "unavailable", reason: "invalid_database_path" };
   }
@@ -119,7 +119,7 @@ function repairIndex({ codexHome, sqliteHome, threadId, DatabaseSync }) {
     if (!path.isAbsolute(row.rollout_path || "") || !/\.jsonl$/i.test(row.rollout_path)) {
       return { status: "unavailable", reason: "unsupported_rollout_path" };
     }
-    const rolloutPath = fs.realpathSync(row.rollout_path);
+    const rolloutPath = canonicalStoragePath(row.rollout_path);
     if (!isWithin(home, rolloutPath)) return { status: "unavailable", reason: "rollout_outside_runtime_home" };
     const { metadata, headerHash } = readSessionMetadata(rolloutPath);
     if (metadata.id !== threadId) return { status: "unavailable", reason: "rollout_identity_mismatch" };
@@ -136,7 +136,7 @@ function repairIndex({ codexHome, sqliteHome, threadId, DatabaseSync }) {
       after: { historyMode: "paginated" },
       headerHash,
     });
-    if (fs.realpathSync(row.rollout_path) !== rolloutPath || readSessionMetadata(rolloutPath).headerHash !== headerHash) {
+    if (canonicalStoragePath(row.rollout_path) !== rolloutPath || readSessionMetadata(rolloutPath).headerHash !== headerHash) {
       throw new Error("rollout_changed_during_repair");
     }
     const result = database.prepare(
@@ -163,10 +163,10 @@ async function materializeEmptyThreadIndex({ request, codexHome, sqliteHome, thr
     || !path.isAbsolute(thread.path || "") || !/\.jsonl$/i.test(thread.path)) {
     return { status: "unavailable", reason: "thread_index_missing" };
   }
-  const home = fs.realpathSync(codexHome);
-  const databaseRoot = fs.realpathSync(sqliteHome);
-  const sessionsRoot = fs.realpathSync(path.join(home, "sessions"));
-  const rolloutPath = fs.realpathSync(thread.path);
+  const home = canonicalStoragePath(codexHome);
+  const databaseRoot = canonicalStoragePath(sqliteHome);
+  const sessionsRoot = canonicalStoragePath(path.join(home, "sessions"));
+  const rolloutPath = canonicalStoragePath(thread.path);
   if (!isWithin(home, sessionsRoot) || !isWithin(sessionsRoot, rolloutPath)) {
     return { status: "unavailable", reason: "unverified_empty_rollout_path" };
   }
@@ -200,7 +200,7 @@ async function materializeEmptyThreadIndex({ request, codexHome, sqliteHome, thr
     headerHash: snapshot.headerHash,
   });
   const current = readSessionMetadata(rolloutPath);
-  if (fs.realpathSync(thread.path) !== rolloutPath || !current.headerOnly
+  if (canonicalStoragePath(thread.path) !== rolloutPath || !current.headerOnly
     || current.headerHash !== snapshot.headerHash) throw new Error("rollout_changed_during_repair");
   const persisted = await request("thread/metadata/update", { threadId, gitInfo: { sha } }, 5_000);
   if (persisted?.thread?.id !== threadId) throw new Error("empty_thread_materialization_unverified");
@@ -211,7 +211,7 @@ async function materializeEmptyThreadIndex({ request, codexHome, sqliteHome, thr
 
 async function hasEmptyHistoryProjection({ databaseRoot, threadId, headerBytes }) {
   const { DatabaseSync } = await import("node:sqlite");
-  const databasePath = fs.realpathSync(path.join(databaseRoot, "thread_history_1.sqlite"));
+  const databasePath = canonicalStoragePath(path.join(databaseRoot, "thread_history_1.sqlite"));
   if (!isWithin(databaseRoot, databasePath)) return false;
   const database = new DatabaseSync(databasePath, { readOnly: true });
   try {
@@ -232,7 +232,7 @@ async function hasEmptyHistoryProjection({ databaseRoot, threadId, headerBytes }
 function writeRecoveryJournal(databaseRoot, change) {
   const backupRoot = path.join(databaseRoot, "haolo-history-index-recovery");
   fs.mkdirSync(backupRoot, { recursive: true });
-  if (!isWithin(databaseRoot, fs.realpathSync(backupRoot))) throw new Error("invalid_backup_path");
+  if (!isWithin(databaseRoot, canonicalStoragePath(backupRoot))) throw new Error("invalid_backup_path");
   const fd = fs.openSync(path.join(backupRoot, `${Date.now()}-${randomUUID()}.json`), "wx", 0o600);
   try {
     fs.writeFileSync(fd, `${JSON.stringify({
@@ -262,6 +262,14 @@ function readSessionMetadata(filePath) {
       headerOnly: fs.fstatSync(fd).size === newline + 1,
     };
   } finally { fs.closeSync(fd); }
+}
+
+function canonicalStoragePath(filePath) {
+  // Windows package AppData redirection is not a symlink: the JS realpath
+  // implementation can retain the logical Roaming path while the runtime
+  // returns its physical LocalCache path. Resolve both with the OS before
+  // checking containment, including journals and pre-write revalidation.
+  return process.platform === "win32" ? fs.realpathSync.native(filePath) : fs.realpathSync(filePath);
 }
 
 function isWithin(root, filePath) {

@@ -3,7 +3,25 @@ import {isDeepStrictEqual as equal} from 'node:util';
 import {normalizeCloudReports,cloudReportFromResponse} from '../cloud-plan-contract.mjs';
 import {parseExecutionPlanAlertInput} from '../trading-alerts/execution-plan-alert.mjs';
 
-const fail=()=>{throw Object.assign(new Error('CLOUD_RESULT_CONTEXT_INVALID'),{code:'CLOUD_RESULT_CONTEXT_INVALID'});};
+const fail=()=>{throw Object.assign(new Error('CLOUD_RESULT_CONTEXT_INVALID'),{code:'CLOUD_RESULT_CONTEXT_INVALID',retryable:false});};
+
+// Legacy receipts contain TP1 only in the monitor, while newer plan records
+// retain the complete native ladder. Additional levels must match exactly one
+// frozen scenario; accepting any array that merely starts with TP1 is unsafe.
+function validScenarioTargets(scenario, spec, executionPlan) {
+  if (equal(scenario.targets, [spec.takeProfit])) return true;
+  const targets = scenario.targets;
+  if (!Array.isArray(targets) || targets.length < 2 || targets.length > 8
+    || targets[0] !== spec.takeProfit || !targets.every(price => typeof price === 'number' && Number.isFinite(price) && price > 0)) return false;
+  const direction = spec.direction === 'long' ? 1 : -1;
+  if (direction * (spec.entry - spec.stopLoss) <= 0
+    || targets.some((price, index) => direction * (price - (index ? targets[index - 1] : spec.entry)) <= 0)) return false;
+  if (!Array.isArray(executionPlan?.scenarios)) return false;
+  const matches = executionPlan.scenarios.filter(source => source?.side === spec.direction
+    && source.trigger?.price === spec.entry && source.stop?.price === spec.stopLoss);
+  return matches.length === 1 && Array.isArray(matches[0].targets)
+    && equal(targets, matches[0].targets.map(target => target?.price));
+}
 export function validateCloudRightResult(result,record) {
   const cloud=result.cloud,receipt=cloud?.nativeReceipt;
   if(cloud?.executionPolicy!=='right-legacy-v1'||cloud.appliedPreferences?.policyVersion!=='right-legacy-v1'
@@ -32,7 +50,7 @@ export function validateCloudRightResult(result,record) {
     const rule=plan.alertPreview,scenario=plan.scenario;
     if(spec.marketId!==record.marketId||spec.interval!==record.body.context.interval
       ||scenario?.eligible!==true||scenario.side!==spec.direction||scenario.entry!==spec.entry
-      ||scenario.stop!==spec.stopLoss||!equal(scenario.targets,[spec.takeProfit])
+      ||scenario.stop!==spec.stopLoss||!validScenarioTargets(scenario,spec,result.executionPlan)
       ||rule?.side!==spec.direction||rule.entry!==spec.entry||rule.stop!==spec.stopLoss
       ||!equal(rule.targets,[spec.takeProfit])||rule.monitoringPolicy!=='windows_v1'
       ||rule.confirmation!=='intrabar'||rule.exitConfirmation!=='intrabar'

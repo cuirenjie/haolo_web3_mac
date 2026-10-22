@@ -295,7 +295,7 @@ test("bound account separates assets, positions, open orders, and real position 
   assert.match(historyPage, /开仓价格/);
   assert.match(historyPage, /平仓均价/);
   assert.match(historyPage, /\+0\.01 USDT/);
-  assert.match(historyPage, /\+1\.34%/);
+  assert.match(historyPage, /\+0\.11%/);
   const historyTime = historyPage.match(/<div class="binance-account-history-time">\s*<span>([^<]+)<\/span>\s*<\/div>/)?.[1] || "";
   assert.match(historyTime, /^2026-08-13 \d{2}:20:12 → 2026-08-13 \d{2}:20:50&nbsp;&nbsp;\(0分\)$/);
   assert.doesNotMatch(historyTime, /开仓时间|最后平仓时间|持续|\d{2}\/\d{2}\/\d{4}/);
@@ -460,7 +460,7 @@ test("account re-entry keeps the last successful snapshot and rate-limits automa
   assert.match(preload, /getBinanceAccountSnapshot: \(params\) => invokeBinanceAccountSnapshot\(params\)/);
   assert.match(desktopMain, /const requestOptions = \{[\s\S]*force: params\?\.force === true,[\s\S]*live: params\?\.live === true,[\s\S]*summary: params\?\.summary === true/);
   assert.match(desktopMain, /snapshot\(owner\.ownerId, requestOptions\)[\s\S]*elapsedMs: Date\.now\(\) - startedAt/);
-  assert.match(desktopMain, /error\?\.code !== "BINANCE_RATE_LIMITED"[\s\S]*retryAfterMs: Number\.isFinite\(error\?\.retryAfterMs\)/);
+  assert.match(desktopMain, /return binanceAccountReadErrorResult\(error\)/);
   assert.match(desktopMain, /sharedQuerySucceeded[\s\S]*serverCredentialConnection[\s\S]*getBinanceAccountService\(\)\.remove\(owner\.ownerId\)/);
   assert.match(renderer, /const status = api\.getBinanceAccountStatus[\s\S]*remoteOnlyWithoutServerCredentials[\s\S]*syncTradingExpertOrderLineSnapshot\(null\)/);
 });
@@ -634,7 +634,7 @@ test("account styles cover light and dark surfaces plus every interactive state"
   assert.match(accountStyles, /\.binance-account-profit-month-total > strong \{[^}]*color: inherit;[^}]*font-weight: 500;/s);
   assert.match(accountStyles, /\.binance-account-profit-month-total > small \{[^}]*position: relative;[^}]*top: -1px;[^}]*color: var\(--binance-label-text\);/s);
   assert.match(accountStyles, /\.binance-account-profit-grid,[\s\S]*?\.binance-account-profit-calendar-loading \{[^}]*grid-template-columns: repeat\(7, minmax\(0, 1fr\)\);[^}]*gap: 7px;/s);
-  assert.match(accountStyles, /\.binance-account-profit-day \{[\s\S]*?min-height: 52px;[\s\S]*?gap: 2px;/s);
+  assert.match(accountStyles, /\.binance-account-profit-day \{[\s\S]*?min-height: 62px;[\s\S]*?gap: 2px;/s);
   assert.match(accountStyles, /\.binance-account-profit-day\.profit \{[^}]*background: var\(--binance-calendar-profit-bg\);/s);
   assert.match(accountStyles, /\.binance-account-profit-day\.loss \{[^}]*background: var\(--binance-calendar-loss-bg\);/s);
   assert.match(accountStyles, /\.binance-account-profit-day \{[\s\S]*?background: var\(--binance-calendar-neutral-bg\);/s);

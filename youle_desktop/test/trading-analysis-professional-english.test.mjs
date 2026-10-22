@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { nativeIndicatorPipelines } from "./helpers/native-indicator-pipelines.mjs";
 import { BUILTIN_TRADING_STRATEGY_ADAPTERS } from "../src/main/trading-strategy-runtime/builtins/index.mjs";
 import { englishAnalysisText } from "../src/main/trading-analysis/report-language.mjs";
 import { runValidatedTradingModelReview, clearTradingModelReviewCache } from "../src/main/trading-analysis/model-review.mjs";
@@ -20,8 +21,9 @@ for (const adapter of BUILTIN_TRADING_STRATEGY_ADAPTERS.filter((item) => local.h
     test(`${adapter.id}/${mode}: professional English preserves facts without model access`, async () => {
       const input = params(mode);
       const options = { modelRegistry: { async analyze() { assert.fail("Deterministic localization must not call a model"); } } };
-      const original = await adapter.run({ ...input, language: "zh-CN" }, options);
-      const result = await adapter.run({ ...input, language: "en" }, options);
+      const run = nativeIndicatorPipelines[adapter.id] || adapter.run;
+      const original = await run({ ...input, language: "zh-CN" }, options);
+      const result = await run({ ...input, language: "en" }, options);
       assert.deepEqual(result.theoryResult, original.theoryResult);
       const text = [result.analysisPlan.report, result.analysisPlan.narrative,
         result.analysisPlan.actionPlan?.confirmation || "", result.analysisPlan.actionPlan?.observeTrigger || "",

@@ -336,6 +336,7 @@ test("opening trading history collapses before same-thread, pending and cached s
     { name: "server not ready", ready: false, expected: 0 },
   ]) {
     const collapsedAccounts = [];
+    const notices = [];
     const context = {
       state: {
         serverReady: scenario.ready !== false,
@@ -356,11 +357,13 @@ test("opening trading history collapses before same-thread, pending and cached s
       isLocalCodexThread: () => false,
       refreshSkillsForThreadIfNeeded: () => {},
       channelIdFromThreadId: () => null,
+      showToast: message => notices.push(message),
     };
     const select = new Function(...Object.keys(context), `${compiled}\nreturn selectThread;`)(...Object.values(context));
     await select("history");
     await select("history");
     assert.deepEqual(collapsedAccounts, Array(scenario.expected * 2).fill("account-a"), scenario.name);
+    assert.deepEqual(notices, scenario.ready === false ? Array(2).fill("工作区连接尚未就绪，请稍后重试") : [], scenario.name);
   }
 });
 
@@ -452,6 +455,7 @@ test("composer sends collapse only the active trading watchlist after content an
       currentComposerThreadId: () => "task",
       composerThreadIdForSend: (id) => id,
       isComposerSendPending: () => scenario.pending,
+      isPureTradingAnalysisThread: () => false,
       activeWorkflowRunForThread: () => scenario.workflowRunning,
       showToast: () => {},
       localGroupChatRecord: () => null,

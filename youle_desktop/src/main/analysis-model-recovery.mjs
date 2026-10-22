@@ -3,7 +3,7 @@ import { modelFailureFacts } from "./model-failure-policy.mjs";
 import { ANALYSIS_RECOVERY_MODEL, ANALYSIS_RECOVERY_EFFORT, ANALYSIS_RECOVERY_PROVIDER } from "./analysis-model-policy.mjs";
 export { ANALYSIS_RECOVERY_MODEL, ANALYSIS_RECOVERY_EFFORT, ANALYSIS_RECOVERY_PROVIDER } from "./analysis-model-policy.mjs";
 
-export const ANALYSIS_RECOVERY_ATTEMPTS = 2;
+export const ANALYSIS_RECOVERY_ATTEMPTS = 1;
 
 function failureFields(error) {
   const fields = [];
@@ -52,7 +52,7 @@ function checkCancelled(signal) {
 // Only for isolated, read-only model calls. The same request/snapshot remains
 // owned by the caller; no data refresh, drawing or tool effects are replayed.
 export async function runWithAnalysisModelRecovery({ operation, modelId, modelProvider, reasoningEffort, signal, onRecovery, maxFallbackAttempts = ANALYSIS_RECOVERY_ATTEMPTS, wait = waitForModelTransportRecovery }) {
-  let fallbackAttempts = modelId === ANALYSIS_RECOVERY_MODEL && reasoningEffort === ANALYSIS_RECOVERY_EFFORT ? 1 : 0;
+  let fallbackAttempts = modelId === ANALYSIS_RECOVERY_MODEL ? 1 : 0;
   let selection = { modelId, reasoningEffort, ...(modelProvider ? { modelProvider } : {}), ...(fallbackAttempts ? { modelProvider: ANALYSIS_RECOVERY_PROVIDER } : {}) };
   for (;;) {
     checkCancelled(signal);
@@ -72,7 +72,7 @@ export async function runWithAnalysisModelRecovery({ operation, modelId, modelPr
         throw error;
       }
       const deadlineExceeded = /TRADING_ANALYSIS_MODEL_TIMEOUT|WORKFLOW_TURN_TIMEOUT/.test(String(error?.code || ""));
-      const delayMs = deadlineExceeded ? 0 : fallbackAttempts ? 4_000 : 1_500;
+      const delayMs = 0;
       const failedModelId = selection.modelId;
       fallbackAttempts += 1;
       selection = { modelId: ANALYSIS_RECOVERY_MODEL, modelProvider: ANALYSIS_RECOVERY_PROVIDER, reasoningEffort: ANALYSIS_RECOVERY_EFFORT };

@@ -1,0 +1,97 @@
+{
+  "complete": true,
+  "version": "0.1.177",
+  "clientVariant": "haolo_windows_web3",
+  "arch": "x64",
+  "forceUpdate": false,
+  "sourceCommit": "104945ccbf38685e6e1c162379cecaadcfb34333",
+  "publishedVerifiedAt": "2026-10-20T18:12:41.920Z",
+  "finishedAt": "2026-10-20T18:12:48.034Z",
+  "downloadUrl": "https://assets.haolo.com/app-updates/windows/0.1.177/haolo_windows_web3/haolo_desktop-0.1.177-Setup.exe",
+  "latestDownloadRoute": "https://haolo.com/api/app-updates/windows/latest/download?arch=x64&client_variant=haolo_windows_web3",
+  "ossObjectKey": "app-updates/windows/0.1.177/haolo_windows_web3/haolo_desktop-0.1.177-Setup.exe",
+  "installerBytes": 247922992,
+  "installerSha256": "2d5a11848778868b61cd225998efa0f97a7e817990be6d2797dd46eb8652be6f",
+  "executable": "C:\\Users\\潘艳芳\\Documents\\ChatGPT\\haolo_windows_web3\\youle_desktop\\release\\build-0.1.177-production-20261021\\win-unpacked\\haolo_desktop.exe",
+  "installer": "C:\\Users\\潘艳芳\\Documents\\ChatGPT\\haolo_windows_web3\\youle_desktop\\release\\build-0.1.177-production-20261021\\haolo_desktop-0.1.177-Setup.exe",
+  "desktopInstaller": "C:\\Users\\潘艳芳\\Desktop\\好咯最新安装包\\haolo_windows_web3\\haolo_desktop-0.1.177-Setup.exe",
+  "verification": {
+    "testsPassed": 4670,
+    "typecheckPassed": true,
+    "rendererBuildPassed": true,
+    "evSignatures": 4,
+    "archiveFilesCompared": 280,
+    "extraResourceFilesCompared": 324,
+    "runtimeVersion": "0.163.0",
+    "runtimeFilesVerified": 47,
+    "thirdPartyExecutablesPreserved": 8,
+    "startupPassed": true,
+    "updateRoundtripFiles": 400,
+    "fullPublicDownloadHashMatched": true,
+    "rangeStatus": 206,
+    "blockmapHashMatched": true,
+    "standardChannelUnchanged": true,
+    "oldClientDetectsUpdate": true,
+    "currentClientDoesNotRepeatUpdate": true
+  },
+  "releaseId": "8a84675f-e515-4b8e-a62c-ab3f5a41d44f",
+  "uploadHttpStatus": 504,
+  "uploadRecoveredAfterGatewayTimeout": true,
+  "previousWithdrawnRelease": {
+    "id": "48fe5a1a-4da2-4eaa-8cee-a4ce36abc91d",
+    "sha256": "60b5614efa17f3357ea71f78fb411dcff7197679aa6c83560b8200364cd5fa7a",
+    "backup": "/opt/haolo-backend/desktop-release-archives/0.1.177-withdrawn-20261020-original.json",
+    "archived": true
+  },
+  "backend": {
+    "complete": true,
+    "active": "green",
+    "workerReceipt": "/opt/haolo-backend/mobile-worker-releases/account-drawings-release-20261021/state.json",
+    "services": {
+      "api": {
+        "name": "haolo-backend-api-green",
+        "image": "sha256:ab98818c0d873c7e6a701f61bf1729787e385575430fed6ffa89493620cf1b13",
+        "id": "0c3c5ad4826e5715ff40038301e06b750cc04685744a429b99badfe93a8b2b2d",
+        "startedAt": "2026-10-20T17:01:23.011365823Z",
+        "health": "healthy",
+        "commit": "eb9942f6e4e8c3dcbb0bde3e66728234016f42a4",
+        "manifest_keys": [
+          "commit",
+          "source",
+          "base_image",
+          "source_archive_sha256",
+          "runtime_files",
+          "changes",
+          "dependency_hashes"
+        ],
+        "runtimeFilesVerified": 1021,
+        "protocol": "haolo-mobile-planning3:wyckoff1:chan1:orderflow1:wave1:ictsmc1:smt1:harmonic1:chartpatterns1:dow1:gann1:indicators1:assistant1:alerts1:preferences1:selectedmodel1:windows1:entryv2:1:windowsservice1:rightlegacy1:paleft1:padual1:paprotect1:indexohlc1:leftcondition1:"
+      },
+      "strategyWorker": {
+        "name": "haolo-backend-mobile-worker",
+        "image": "sha256:339360251e588a7729136fcb1bbde169d49dc2144430507ccd7048aa3bc3940d",
+        "id": "a78a16273e35e565be6b0ecdb25544ae2f6d3e8635e2717e8c22440cd9fe1d8b",
+        "startedAt": "2026-10-20T17:05:00.8852073Z",
+        "health": "healthy",
+        "commit": "eb9942f6e4e8c3dcbb0bde3e66728234016f42a4",
+        "manifest_keys": [
+          "commit",
+          "source",
+          "base_image",
+          "source_archive_sha256",
+          "runtime_files",
+          "changes",
+          "dependency_hashes"
+        ],
+        "runtimeFilesVerified": 1021,
+        "protocol": "haolo-mobile-planning3:wyckoff1:chan1:orderflow1:wave1:ictsmc1:smt1:harmonic1:chartpatterns1:dow1:gann1:indicators1:assistant1:alerts1:preferences1:selectedmodel1:windows1:entryv2:1:windowsservice1:rightlegacy1:paleft1:padual1:paprotect1:indexohlc1:leftcondition1:"
+      }
+    },
+    "verifiedAt": "2026-10-20T18:11:16.563137+00:00"
+  },
+  "shutdownRequested": true,
+  "evidenceDirectory": "C:\\Users\\潘艳芳\\Documents\\ChatGPT\\haolo_windows_web3\\youle_desktop\\release\\build-0.1.177-production-20261021",
+  "remainingLocalChanges": [
+    "Pre-existing untracked youle_desktop/output/ preserved and excluded"
+  ]
+}

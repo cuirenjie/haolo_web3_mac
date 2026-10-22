@@ -17,13 +17,12 @@ const groups = [
   ["浮盈保护和盈亏比", "1R 代表最初承担的风险。保本位置包含交易成本，净盈亏比 1:0.4 表示盈利空间至少是止损风险的 0.4 倍。"],
   ["分析方式和交易纪律", `完整分析栏目包括：${TRADING_PREFERENCE_REQUIRED_SECTIONS}。`],
 ];
-type EntryMode = "left" | "right" | "auto";
+type EntryMode = "left" | "right";
 const entryModes: Array<{ value: EntryMode; label: string; detail: string }> = [
   { value: "left", label: "左侧入场", detail: "在结构反应区提前参与，仍须满足结构证据与风险要求。" },
   { value: "right", label: "右侧入场", detail: "等待执行周期的确认条件成立后再考虑入场。" },
-  { value: "auto", label: "自动判断", detail: "根据本次行情证据选择左侧、右侧或等待。" },
 ];
-const entryMode = (value: unknown): EntryMode => value === "left" || value === "auto" ? value : "right";
+const entryMode = (value: unknown): EntryMode => value === "left" ? "left" : "right";
 type MemoryEntry = { scope: string; key: string; value: string | number | boolean; kind: "preference" | "constraint" | "fact" | "goal"; strength?: "normal" | "hard" };
 type Profile = {
   entryMode?: EntryMode;

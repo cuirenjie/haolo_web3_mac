@@ -115,6 +115,7 @@
       "src/main/trading-strategy-runtime/cloud-plans.mjs",
       "src/main/trading-strategy-runtime/cloud-run-journal.mjs",
       "src/main/trading-strategy-runtime/cloud-runtime.mjs",
+      "src/main/trading-strategy-runtime/run-event-stream.mjs",
       "src/shared/**/*.mjs",
       "resources/haolo-logo.ico",
       "resources/haolo-runtime-icon.ico",

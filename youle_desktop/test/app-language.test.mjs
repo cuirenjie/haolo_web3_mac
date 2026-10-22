@@ -18,6 +18,18 @@ test("dynamic accessibility labels translate complete templates and preserve nam
   ]) assert.equal(translateAppText(source, "en"), expected);
 });
 
+test("fallback notices are localized without naming the inference provider", () => {
+  for (const text of [
+    "备用模型也未能完成本轮请求。任务记录已保留，请稍后重试。",
+    "模型服务暂时不可用，任务记录已保留。",
+    "模型响应异常或长时间没有进展，正在使用备用模型继续处理。",
+  ]) {
+    assert.doesNotMatch(translateAppText(text, "en"), /[\u3400-\u9fff]/u);
+    assert.notEqual(translateAppText(text, "zh-TW"), text);
+    assert.doesNotMatch(translateAppText(text, "en"), /DeepSeek|Astra|hour/i);
+  }
+});
+
 import {
   APP_LANGUAGE_STORAGE_KEY,
   appLanguageLocale,

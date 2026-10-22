@@ -47,71 +47,71 @@ test("actual provider changes model and effort, retaining the identical request 
     waitForRecovery: async (ms) => delays.push(ms), onRecovery: (event) => events.push(event),
   });
   const result = await provider.analyze(request, { reasoningEffort: "medium" });
-  assert.deepEqual(calls.map((c) => [c.modelId, c.reasoningEffort]), [["gpt-5.6-sol", "medium"], ["deepseek-flash", "max"]]);
-  assert.equal(calls[1].modelProvider, "deepseek");
+  assert.deepEqual(calls.map((c) => [c.modelId, c.reasoningEffort]), [["deepseek-flash", "medium"], ["gpt-5.6-sol", "high"]]);
+  assert.equal(calls[1].modelProvider, "haolo_ai");
   assert.ok(calls.every((call) => call.request === request));
-  assert.deepEqual(delays, [1500]);
+  assert.deepEqual(delays, []);
   assert.equal(events[0].snapshotId, request.snapshotId);
-  assert.equal(result.modelId, "deepseek-flash");
-  assert.equal(result.reasoningEffort, "max");
+  assert.equal(result.modelId, "gpt-5.6-sol");
+  assert.equal(result.reasoningEffort, "high");
   assert.equal(result.recovery.attempts, 1);
   const policy = tradingAnalysisTurnPolicy(request.task, { modelId: calls[1].modelId, requestedReasoningEffort: calls[1].reasoningEffort });
   const wire = withAdaptiveTurnReasoning("turn/start", { model: calls[1].modelId, input: [{ type: "text", text: "你好" }], effort: policy.reasoningEffort, [HAOLO_REASONING_FIXED_EFFORT_FIELD]: policy.reasoningEffort });
-  assert.equal(wire.effort, "max");
+  assert.equal(wire.effort, "high");
   assert.equal(HAOLO_REASONING_FIXED_EFFORT_FIELD in wire, false);
 });
 
-test("two failed fallback calls end recovery without cycling back to the primary model", async () => {
+test("one failed fallback call end recovery without cycling back to the primary model", async () => {
   const calls = [];
   const provider = createAppServerTradingAnalysisProvider({ invoke: async (args) => { calls.push(args); return overload(); }, waitForRecovery: async () => {} });
-  await assert.rejects(provider.analyze(request), (error) => error.modelId === "deepseek-flash" && error.recovery.exhausted && error.recovery.attempts === 2);
-  assert.deepEqual(calls.map((c) => c.modelId), ["gpt-5.6-sol", "deepseek-flash", "deepseek-flash"]);
+  await assert.rejects(provider.analyze(request), (error) => error.modelId === "gpt-5.6-sol" && error.recovery.exhausted && error.recovery.attempts === 1);
+  assert.deepEqual(calls.map((c) => c.modelId), ["deepseek-flash", "gpt-5.6-sol"]);
 });
 
-test("hard failures and routing/alert tasks never enter analysis model fallback", async () => {
-  for (const [task, response] of [
-    [request.task, { status: "failed", code: "INVALID_API_KEY", error: "at capacity", httpStatus: 401 }],
-    ["chan-request-routing", overload()], ["trading_alert_intent_compile", overload()],
+test("account failures stop, while routing and alert calls share the fallback policy", async () => {
+  for (const [task, response, expected] of [
+    [request.task, { status: "failed", code: "INVALID_API_KEY", error: "at capacity", httpStatus: 401 }, 1],
+    ["chan-request-routing", overload(), 2], ["trading_alert_intent_compile", overload(), 2],
   ]) {
-    let calls = 0;
-    const provider = createAppServerTradingAnalysisProvider({ invoke: async () => { calls++; return response; }, waitForRecovery: async () => assert.fail("must not wait") });
+    const calls = [];
+    const provider = createAppServerTradingAnalysisProvider({ invoke: async (args) => { calls.push(args); return response; } });
     await assert.rejects(provider.analyze({ ...request, task }));
-    assert.equal(calls, 1);
+    assert.equal(calls.length, expected);
+    if (expected === 2) assert.deepEqual(calls.map(c => c.modelId), ["deepseek-flash", "gpt-5.6-sol"]);
   }
 });
 
-test("cancelling during backoff or after a late model result prevents recovery success", async () => {
-  for (const duringWait of [true, false]) {
+test("cancellation before fallback or after a late model result prevents success", async () => {
+  for (const cancelFirst of [true, false]) {
     const controller = new AbortController();
     let calls = 0;
     const provider = createAppServerTradingAnalysisProvider({
-      invoke: async () => { calls++; if (!duringWait && calls === 2) controller.abort(); return calls === 1 ? overload() : success; },
-      waitForRecovery: async () => { if (duringWait) controller.abort(); },
+      invoke: async () => { calls++; if (calls === (cancelFirst ? 1 : 2)) controller.abort(); return calls === 1 ? overload() : success; },
     });
     await assert.rejects(provider.analyze(request, { signal: controller.signal }), { name: "AbortError" });
-    assert.equal(calls, duringWait ? 1 : 2);
+    assert.equal(calls, cancelFirst ? 1 : 2);
   }
 });
 
-test("validation repair stays on DeepSeek V4.1 Flash max and retains original data after failover", async () => {
+test("validation repair stays on GPT high and retains original data after failover", async () => {
   const calls = [];
   const provider = createAppServerTradingAnalysisProvider({
     invoke: async (args) => { calls.push(args); return calls.length === 1 ? overload() : calls.length === 2 ? { status: "success", text: "invalid JSON" } : success; },
     waitForRecovery: async () => {},
   });
   const result = await runValidatedTradingModelReview({ modelRegistry: createTradingAnalysisModelProviderRegistry([provider]), providerId: provider.providerId, request, validateResponse });
-  assert.deepEqual(calls.map((c) => [c.modelId, c.reasoningEffort]), [["gpt-5.6-sol", "medium"], ["deepseek-flash", "max"], ["deepseek-flash", "max"]]);
+  assert.deepEqual(calls.map((c) => [c.modelId, c.reasoningEffort]), [["deepseek-flash", "medium"], ["gpt-5.6-sol", "high"], ["gpt-5.6-sol", "high"]]);
   assert.ok(calls.every((c) => c.request.snapshotId === request.snapshotId && c.request.prompt.startsWith(request.prompt)));
-  assert.equal(calls[2].modelProvider, "deepseek");
-  assert.equal(result.reasoningEffort, "max");
-  assert.deepEqual(result.attempts.map((a) => a.effort), ["max", "max"]);
+  assert.equal(calls[2].modelProvider, "haolo_ai");
+  assert.equal(result.reasoningEffort, "high");
+  assert.deepEqual(result.attempts.map((a) => a.effort), ["high", "high"]);
 });
 
 test("empty fallback responses cannot reset the recovery budget through validation repair", async () => {
   let calls = 0;
   const provider = createAppServerTradingAnalysisProvider({ invoke: async () => { calls++; return { status: "success", text: "" }; }, waitForRecovery: async () => {} });
-  await assert.rejects(runValidatedTradingModelReview({ modelRegistry: createTradingAnalysisModelProviderRegistry([provider]), providerId: provider.providerId, request, validateResponse }), (error) => error.recovery.exhausted && error.attempts[0].effort === "max");
-  assert.equal(calls, 3);
+  await assert.rejects(runValidatedTradingModelReview({ modelRegistry: createTradingAnalysisModelProviderRegistry([provider]), providerId: provider.providerId, request, validateResponse }), (error) => error.recovery.exhausted && error.attempts[0].effort === "high");
+  assert.equal(calls, 2);
 });
 
 const main = await readFile(new URL("../src/main/main.mjs", import.meta.url), "utf8");
@@ -138,14 +138,14 @@ function recoveryEntry(overrides = {}) {
   return { start: new Function(...Object.keys(deps), `${source}; return startAutomaticTurnRecovery;`)(...Object.values(deps)), calls, released, active, business };
 }
 
-test("production root recovery RPC resumes the same thread and sends fixed max on the wire", async () => {
+test("production root recovery RPC resumes the same thread and sends fixed high on the wire", async () => {
   const harness = recoveryEntry();
   await harness.start({ threadId: "existing-thread", prompt: "continue retained progress" });
   assert.deepEqual(harness.calls.map(([method]) => method), ["thread/resume", "turn/start"]);
-  assert.deepEqual(harness.calls[0][1], { threadId: "existing-thread", model: "deepseek-flash", modelProvider: "deepseek", effort: "max", serviceTier: null });
+  assert.deepEqual(harness.calls[0][1], { threadId: "existing-thread", model: "gpt-5.6-sol", modelProvider: "haolo_ai", effort: "high", serviceTier: null });
   assert.equal(harness.calls[1][1].threadId, "existing-thread");
-  assert.equal(harness.calls[1][1].model, "deepseek-flash");
-  assert.equal(harness.calls[1][1].effort, "max");
+  assert.equal(harness.calls[1][1].model, "gpt-5.6-sol");
+  assert.equal(harness.calls[1][1].effort, "high");
   assert.equal(harness.calls[1][1].input[0].text, "continue retained progress");
   assert.equal(harness.released.length, 1);
   assert.deepEqual(harness.business, [["resume", "existing-thread"], ["input", "existing-thread"]]);
@@ -226,13 +226,13 @@ test("production review wiring completes cleanup before fallback and preserves r
   assert.equal(harness.starts.length, 1);
   finishCleanup({ deleted: true });
   const result = await pending;
-  assert.equal(result.modelId, "deepseek-flash");
+  assert.equal(result.modelId, "gpt-5.6-sol");
   assert.equal(harness.starts.length, 2);
   assert.equal(cleanupCalls, 2);
   assert.ok(harness.starts.every((start) => start.ephemeral && start.sandboxPolicy === "read-only" && start.approvalPolicy === "never"));
   assert.ok(harness.turns.every((turn) => turn.maxAttempts === 1 && turn.initialPrompt === request.prompt));
-  assert.equal(harness.turns[1].model, "deepseek-flash");
-  assert.equal(harness.turns[1].fixedEffort, "max");
+  assert.equal(harness.turns[1].model, "gpt-5.6-sol");
+  assert.equal(harness.turns[1].fixedEffort, "high");
 });
 
 test("production review cannot replay a side effect or overlap an unconfirmed old turn", async () => {

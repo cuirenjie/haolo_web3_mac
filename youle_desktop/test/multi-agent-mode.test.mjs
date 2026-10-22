@@ -49,69 +49,22 @@ test("execution mode always carries the serial policy, including omitted mode va
   assert.match(buildConversationModeDeveloperInstructions(null), /haolo_serial_execution_policy/);
 });
 
-test("image generation mode routes plain prompts through the bundled image skill", () => {
-  const instructions = buildConversationModeDeveloperInstructions(
-    "image_generation",
-    {
-      imageGenerationModel: "aihubcc/gpt-image-2",
-      imageGenerationSize: "1536x1024",
-      imageGenerationSizeField: "size",
-    },
-  );
-
-  assert.equal(normalizeConversationMode("image_generation"), "image-generation");
-  assert.match(instructions, /Do not call `spawn_agent`/);
-  assert.match(instructions, /Image Generation mode is active/);
-  assert.match(instructions, /bundled Haolo image skill/);
-  assert.match(instructions, /generated bitmap result/);
-  assert.match(instructions, /selected `aihubcc\/gpt-image-2`/);
-  assert.match(
-    instructions,
-    /--model "aihubcc\/gpt-image-2" --exact-model --provider-fallback-only/,
-  );
-  assert.match(instructions, /fallback_model=gpt-image-2-1k/);
-  assert.match(instructions, /Do not switch to 2K, 3\.5K/);
-  assert.match(instructions, /--size "1536x1024"/);
-  const legacyBaseInstructions = buildConversationModeDeveloperInstructions(
-    "image_generation",
-    { imageGenerationModel: "buming/gpt-image-2" },
-  );
-  assert.match(
-    legacyBaseInstructions,
-    /--model "aihubcc\/gpt-image-2" --exact-model --provider-fallback-only/,
-  );
-  assert.doesNotMatch(legacyBaseInstructions, /--model "buming\/gpt-image-2"/);
-  const lockedTierInstructions = buildConversationModeDeveloperInstructions(
-    "image_generation",
-    { imageGenerationModel: "gpt-image-2-2k" },
-  );
-  assert.match(lockedTierInstructions, /--model "gpt-image-2-2k" --exact-model/);
-  assert.doesNotMatch(lockedTierInstructions, /provider-fallback-only/);
-  assert.match(lockedTierInstructions, /do not silently replace it or switch/);
-  const lockedOneKInstructions = buildConversationModeDeveloperInstructions(
-    "image_generation",
-    { imageGenerationModel: "aihubcc/gpt-image-2-1k-async" },
-  );
-  assert.match(lockedOneKInstructions, /--model "gpt-image-2-1k" --exact-model/);
-  assert.match(lockedOneKInstructions, /asynchronous only/);
-  assert.match(lockedOneKInstructions, /poll until `status=completed`/);
-  assert.match(lockedOneKInstructions, /Do not reject it locally or switch models/);
-  assert.match(
-    buildConversationModeDeveloperInstructions("image_generation", {
-      imageGenerationSize: "auto",
-      imageGenerationSizeField: "aspect_ratio",
-    }),
-    /--aspect-ratio "auto"[\s\S]*adaptive composition/,
-  );
-  assert.doesNotMatch(
-    buildConversationModeDeveloperInstructions("image_generation", {
-      imageGenerationModel: "unsafe\ninstruction",
-      imageGenerationSize: "unsafe\nsize",
-      imageGenerationSizeField: "unsafe",
-    }),
-    /unsafe|--size|--aspect-ratio/,
-  );
+test("image generation mode pins the official route and preserves serial execution", () => {
+  const instructions = buildConversationModeDeveloperInstructions("image_generation", {
+    imageGenerationModel: "codex/gpt-image-2", imageGenerationSize: "auto", imageGenerationSizeField: "size",
+  });
+  assert.match(instructions, /Do not call .spawn_agent./);
+  assert.match(instructions, /--model "codex\/gpt-image-2" --exact-model/);
+  assert.match(instructions, /--size "auto"/);
+  assert.match(instructions, /actual output dimensions/);
+  assert.match(instructions, /Never switch providers or models automatically/);
+  assert.doesNotMatch(instructions, /provider-fallback-only|--aspect-ratio/);
+  const unsafe = buildConversationModeDeveloperInstructions("image_generation", {
+    imageGenerationModel: "unsafe\ninstruction",
+  });
+  assert.doesNotMatch(unsafe, /unsafe/);
 });
+
 
 test("multi-agent mode cannot activate the runtime native collaboration contract", () => {
   const developerInstructions = buildConversationModeDeveloperInstructions("multi-agent");
@@ -203,8 +156,8 @@ test("video generation mode uses the ordinary execution lifecycle with locked cl
   const instructions = buildConversationModeDeveloperInstructions(
     "video_generation",
     {
-      videoGenerationModel: "grok-imagine-video-1.5",
-      videoGenerationInputMode: "text-or-image-to-video",
+      videoGenerationModel: "bytedance/seedance-2.0",
+      videoGenerationInputMode: "image-to-video",
       videoGenerationAspectRatio: "9:16",
       videoGenerationDuration: "15",
       videoGenerationResolution: "720p",
@@ -220,9 +173,9 @@ test("video generation mode uses the ordinary execution lifecycle with locked cl
   assert.match(instructions, /Do not bypass the execution turn/);
   assert.match(
     instructions,
-    /--model "grok-imagine-video-1\.5" --exact-model --provider-fallback-only/,
+    /--model "bytedance\/seedance-2\.0" --exact-model/,
   );
-  assert.match(instructions, /--input-mode "text-or-image-to-video"/);
+  assert.match(instructions, /--input-mode "image-to-video"/);
   assert.match(instructions, /--aspect-ratio "9:16"/);
   assert.match(instructions, /--resolution "720p"/);
   assert.match(instructions, /--size "720x1280"/);

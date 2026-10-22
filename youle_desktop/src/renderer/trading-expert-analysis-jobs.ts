@@ -13,6 +13,7 @@ export type TradingAnalysisJobStatus =
   | "cancelled";
 
 export interface TradingAnalysisJobContext {
+  drawingTurnId?: string;
   analysisId: string;
   theory: TradingAnalysisTheory;
   storageSessionId: string;
@@ -39,6 +40,7 @@ export class TradingAnalysisJobController {
   private readonly jobs = new Map<string, TradingAnalysisJobContext>();
 
   start(options: {
+    drawingTurnId?: string;
     analysisId?: string | null;
     theory: TradingAnalysisTheory;
     storageSessionId: string;
@@ -54,6 +56,7 @@ export class TradingAnalysisJobController {
       throw new Error(`交易分析任务 ${analysisId} 已在运行`);
     }
     const job: TradingAnalysisJobContext = {
+      drawingTurnId: options.drawingTurnId || analysisId,
       analysisId,
       theory: options.theory,
       storageSessionId: String(options.storageSessionId || "").trim(),

@@ -5,6 +5,7 @@ import vm from "node:vm";
 import crypto from "node:crypto";
 import ts from "typescript";
 import { resolveCodexChartTarget } from "../src/renderer/codex-chart-target.mjs";
+import * as businessErrors from "../src/shared/business-tool-error.mjs";
 
 const source = fs.readFileSync(new URL("../src/renderer/codex-trading-tools.ts", import.meta.url), "utf8");
 const compiled = ts.transpileModule(source, {
@@ -16,7 +17,7 @@ function harness() {
   let live = { marketId: "BINANCE:FUTURES:BTCUSDT", symbol: "BTCUSDT", interval: "60" };
   let chart = { marketId: live.marketId, candles: [{ time: 1, close: 100 }] };
   const exports = {};
-  vm.runInNewContext(compiled, { exports, crypto, structuredClone, AbortController, require: name => name.includes("codex-chart-target") ? { resolveCodexChartTarget } : ({
+  vm.runInNewContext(compiled, { exports, crypto, structuredClone, AbortController, require: name => name.includes("business-tool-error") ? businessErrors : name.includes("codex-chart-target") ? { resolveCodexChartTarget } : ({
     captureTradingExpertAnalysisTarget: () => live,
     tradingExpertAlertContextSnapshot: () => chart,
     releaseTradingExpertAnalysisTarget: target => released.push(target),
@@ -43,6 +44,76 @@ function harness() {
 const call = (contextId, action, extra = {}) => ({
   requestId: crypto.randomUUID(), contextId, threadId: "origin",
   userText: "按刚才确认的规则创建", arguments: { action, ...extra },
+});
+
+test('multiple analyses share their captured chat turn and the next message starts a fresh drawing group', async () => {
+  const h = harness(), first = h.tools.capture();
+  await h.tools.handle(call(first, 'analyze_only', { strategyId: 'wyckoff', drawingTurnId: 'untrusted' }));
+  await h.tools.handle({ ...call(first, 'analyze_only', { strategyId: 'chan' }), turnId: 'retry-response' });
+  const second = h.tools.capture();
+  await h.tools.handle(call(second, 'analyze_only', { strategyId: 'wave' }));
+  assert.deepEqual(h.calls.filter(c => c[0] === 'analyze').map(c => c[2].drawingTurnId), [first, first, second]);
+});
+
+test('terminal analysis failure is visible before host notification, with error policy intact', async () => {
+  const h = harness(), id = h.tools.capture(), order = [];
+  h.deps.analyze = async () => { throw Object.assign(new Error('云端结果未通过一致性校验'), {
+    code: 'CLOUD_RESULT_CONTEXT_INVALID', retryable: false, diagnosticId: 'H-incident',
+  }); };
+  h.deps.analysisFailed = async (thread, error, turn) => {
+    assert.equal(thread, 'origin'); assert.equal(turn, 'failed-turn');
+    assert.equal(error.code, 'CLOUD_RESULT_CONTEXT_INVALID');
+    assert.equal(h.tools.isToolTurn(thread), false);
+    order.push('visible');
+  };
+  h.deps.api.resolveBusinessTool = value => { order.push('host'); h.resolved.push(value); };
+  await h.tools.handle({...call(id, 'analyze_only'), turnId: 'failed-turn'});
+  assert.deepEqual(order, ['visible', 'host']);
+  assert.equal(h.resolved[0].errorDetails.retryable, false);
+  assert.equal(h.resolved[0].errorDetails.nextAction, 'stop');
+  assert.equal(h.resolved[0].errorDetails.diagnosticId, 'H-incident');
+  h.deps.analysisFailed = async () => { throw new Error('history unavailable'); };
+  await h.tools.handle(call(id, 'analyze_only'));
+  assert.equal(h.resolved.at(-1).errorDetails.code, 'CLOUD_RESULT_CONTEXT_INVALID');
+});
+
+test('retryable analysis failures and user cancellation do not force a terminal report', async () => {
+  for (const fields of [{code:'REQUEST_TIMEOUT',retryable:true}, {code:'TRADING_ANALYSIS_CANCELLED',retryable:false}]) {
+    const h=harness(),id=h.tools.capture();let shown=0;
+    h.deps.analyze=async()=>{throw Object.assign(new Error('failure'),fields);};
+    h.deps.analysisFailed=async()=>{shown++;};
+    await h.tools.handle(call(id,'analyze_only'));
+    assert.equal(shown,0);
+    assert.equal(h.resolved[0].errorDetails.retryable,fields.retryable);
+  }
+});
+
+test('legacy plain cancellation messages remain cancellation instead of becoming fatal analysis errors',async()=>{
+  for(const message of ['交易分析已由用户停止','Drawing cancelled.']){
+    const h=harness(),id=h.tools.capture();let shown=0;
+    h.deps.analyze=async()=>{throw Error(message);};h.deps.analysisFailed=async()=>{shown++;};
+    await h.tools.handle(call(id,'analyze_only',{strategyId:'chan'}));
+    assert.equal(shown,0);assert.equal(h.resolved.at(-1).errorDetails.code,'TRADING_ANALYSIS_CANCELLED');
+    assert.equal(h.resolved.at(-1).errorDetails.terminal,undefined);
+  }
+});
+
+test('failure presentation belongs to the captured response and cannot affect newer or released input', async () => {
+  for (const mode of ['current', 'new-response', 'released']) {
+    const h = harness(), id = h.tools.capture(), shown = [];
+    let responseId = 'provider-response', fail;
+    h.deps.responseId = () => responseId;
+    h.deps.analysisFailed = async (...args) => shown.push(args);
+    h.deps.analyze = () => new Promise((_resolve, reject) => { fail = reject; });
+    const pending = h.tools.handle({...call(id, 'analyze_only'), turnId: 'native-turn'});
+    if (mode === 'new-response') responseId = 'next-response';
+    if (mode === 'released') h.tools.release(id);
+    fail(Object.assign(new Error('invalid result'), {code:'CLOUD_RESULT_CONTEXT_INVALID',retryable:false}));
+    await pending;
+    assert.equal(shown.length, mode === 'current' ? 1 : 0, mode);
+    if (shown.length) assert.equal(shown[0][2], 'provider-response');
+    assert.equal(h.resolved.at(-1).errorDetails.retryable, false, 'host policy survives stale presentation');
+  }
 });
 
 test("chart, simulation candles, attachments and actual confirmation stay with the originating message", async () => {
@@ -101,7 +172,8 @@ test("catalog includes personal strategies and missing chart never borrows the a
   assert.deepEqual(Array.from(h.resolved.at(-1).result.strategies, s => s.id), ["chan", "personal-example"]);
   await h.tools.handle(call(id, "analyze"));
   assert.match(h.resolved.at(-1).error, /No chart/);
-  await h.tools.handle(call(id, "analyze", { marketId: "BINANCE:SPOT:ETHUSDT", symbol: "ETHUSDT" }));
+  const fresh = h.tools.capture([], null);
+  await h.tools.handle(call(fresh, "analyze", { marketId: "BINANCE:SPOT:ETHUSDT", symbol: "ETHUSDT" }));
   assert.equal(h.calls.at(-1)[3], null);
   assert.equal(h.calls.at(-1)[2].marketId, "BINANCE:SPOT:ETHUSDT");
 });
@@ -179,9 +251,10 @@ test("separate drawing reuses frozen pane patches, rejects foreign conversation 
     commitTradingIndicatorAnalysisDrawingPatch:async(job,patch,pane)=>calls.push({job,patch,pane}),
     rememberTradingAnalysisJobContext(){}};
   vm.runInNewContext(`${code}\nthis.run=applyDeferredTradingDrawings;`,ctx);
-  const artifacts=[{job:{storageSessionId:"origin",marketId:"BTC"},paneIndex:0,drawingPatch:{price:123}},
+  const artifacts=[{job:{storageSessionId:"origin",marketId:"BTC",drawingTurnId:"original-message"},paneIndex:0,drawingPatch:{price:123}},
     {job:{storageSessionId:"origin",marketId:"BTC"},paneIndex:2,indicatorDrawingPatch:{price:456}}];
   await ctx.run(artifacts,"origin","draw-1");
+  assert.equal(calls[0].job.drawingTurnId,"original-message");
   assert.equal(calls[1].pane,2);assert.equal(calls[0].patch.price,123);assert.equal(completed,true);
   await assert.rejects(ctx.run(artifacts,"foreign","draw-2"),/another conversation/);
   active=false;completed=false;
@@ -308,13 +381,67 @@ test("failed/mismatched/cancelled chart opening never starts analysis or replace
     if (mode !== "release") {
       enableChartOpening(h);
       await h.tools.handle(call(id, "analyze_only"));
-      assert.match(h.resolved.at(-1).error, /Retry haolo_chart_open/, "cannot silently analyze BTC after ETH opening failed");
+      assert.equal(h.resolved.at(-1).errorDetails.terminal, true, "failed chart must stop, not ask the model to reopen it");
       await h.tools.handle(call(id, "chart_open", { symbol: "ETH", interval: "4h" }));
-      await h.tools.handle(call(id, "analyze_only"));
+      assert.equal(h.resolved.at(-1).errorDetails.terminal, true);
+      const fresh = h.tools.capture();
+      await h.tools.handle(call(fresh, "chart_open", { symbol: "ETH", interval: "4h" }));
+      await h.tools.handle(call(fresh, "analyze_only"));
       assert.equal(h.calls.at(-1)[0], "analyze");
       assert.equal(h.calls.at(-1)[3].symbol, "ETHUSDT");
     }
   }
+});
+
+test('Wyckoff success then Chan preflight failure preserves success and reports the failed strategy once',async()=>{
+  const h=harness(),id=h.tools.capture(),shown=[];enableChartOpening(h);
+  h.deps.analysisFailed=async(_thread,error)=>shown.push(error);
+  h.deps.analyze=async(_thread,args)=>({report:args.strategyId+' verified report'});
+  await h.tools.handle(call(id,'analyze_only',{strategyId:'wyckoff'}));
+  const successful=h.resolved.at(-1).result;
+  let attempts=0;
+  h.deps.openChart=async()=>{attempts++;throw Error('old chart no longer active');};
+  await h.tools.handle(call(id,'analyze_only',{strategyId:'chan'}));
+  for(const action of ['chart_open','analyze_only','chart_open','analyze'])await h.tools.handle(call(id,action,{strategyId:'chan'}));
+  assert.equal(attempts,1);assert.equal(shown.length,1);
+  assert.equal(shown[0].strategyId,'chan');assert.deepEqual([...shown[0].completedStrategyIds],['wyckoff']);
+  assert.equal(shown[0].nextAction,'stop');assert.equal(successful.result.report,'wyckoff verified report');
+});
+
+test('explicit chart open failure is terminal and visible without requiring an analysis call',async()=>{
+  const h=harness(),id=h.tools.capture(),shown=[];
+  h.deps.analysisFailed=async(_thread,error)=>shown.push(error);
+  h.deps.openChart=async()=>{throw Object.assign(Error('network failed'),{code:'REQUEST_TIMEOUT',retryable:true});};
+  await h.tools.handle(call(id,'chart_open'));
+  assert.equal(shown.length,1);assert.equal(shown[0].terminal,true);assert.equal(shown[0].retryable,false);
+});
+
+test('host preflight failure uses the visible response, deduplicates and ignores superseded contexts',async()=>{
+  for(const mode of ['current','new-response','released']){
+    const h=harness(),id=h.tools.capture(),shown=[];let response='provider-response';
+    h.deps.responseId=()=>response;h.deps.analysisFailed=async(...args)=>shown.push(args);
+    await h.tools.handle({...call(id,'context'),turnId:'native-turn'});
+    if(mode==='new-response')response='new-response';
+    if(mode==='released')h.tools.release(id);
+    const message={requestId:'notification',threadId:'origin',contextId:id,turnId:'native-turn',
+      analysisFailure:{message:'unavailable',code:'ACCOUNT_CONTEXT_UNAVAILABLE',retryable:false,strategyId:'chan'}};
+    await h.tools.handle(message);await h.tools.handle(message);
+    assert.equal(shown.length,mode==='current'?1:0);
+    if(shown.length)assert.equal(shown[0][2],'provider-response');
+    assert.equal(h.resolved.at(-1).result,true);
+  }
+});
+
+test('host failure notification acknowledges even when presentation fails and still blocks repeat analysis',async()=>{
+  const h=harness(),id=h.tools.capture();let presentations=0;
+  h.deps.analysisFailed=async()=>{presentations++;throw Error('presentation unavailable');};
+  await h.tools.handle({requestId:'notification',threadId:'origin',contextId:id,
+    analysisFailure:{message:'unavailable',code:'ACCOUNT_CONTEXT_UNAVAILABLE',retryable:false,strategyId:'chan'}});
+  assert.equal(h.resolved.at(-1).result,true);
+  await h.tools.handle(call(id,'analyze_only',{strategyId:'chan'}));
+  assert.equal(h.resolved.at(-1).errorDetails.code,'ACCOUNT_CONTEXT_UNAVAILABLE');
+  assert.equal(h.resolved.at(-1).errorDetails.terminal,true);
+  assert.equal(presentations,1);assert.equal(h.calls.some(c=>c[0]==='analyze'),false);
 });
 
 test("personal strategy uses real captured candles or fetches the explicit market, never empty synthetic prices", async () => {

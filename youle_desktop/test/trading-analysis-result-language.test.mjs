@@ -89,13 +89,14 @@ test("English main/auxiliary charts preserve Han symbols, custom names, narrativ
   }
 });
 
-test("a no-plan indicator result remains meaningful even when its narrative contains Han text", async () => {
+test("a VPVR result preserves original evidence alongside its configured plan even with Han text", async () => {
   applyAppLanguage("en");
   const legacy = resultFixture();
   legacy.analysisPlan.report = "VPVR: POC 100.25; VAH 102; VAL 98. No entry setup. 成交分布。";
   const actualRegistry = createTradingStrategyRegistry({ adapters: BUILTIN_TRADING_STRATEGY_ADAPTERS.map((adapter) => ({ ...adapter, run: async () => legacy })) });
   const coordinator = new TradingStrategyCoordinator({ registry: actualRegistry, modelRegistry: { async analyze() {} } });
   const result = await coordinator.run("vpvr-analysis", { language: "en" });
-  assert.equal(combineTradingAnalysisReports("VPVR", result.analysisPlan.report, emptySplit), legacy.analysisPlan.report);
-  assert.equal(result.analysisPlan.narrative, legacy.analysisPlan.narrative);
+  assert.ok(combineTradingAnalysisReports("VPVR", result.analysisPlan.report, emptySplit).includes(legacy.analysisPlan.report));
+  assert.ok(result.analysisPlan.narrative.endsWith(legacy.analysisPlan.narrative));
+  assert.ok(executionPlanTextPartitions(result.analysisPlan.report)?.candidates.length);
 });

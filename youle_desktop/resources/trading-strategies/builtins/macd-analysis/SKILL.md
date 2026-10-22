@@ -31,3 +31,7 @@ Run deterministic MACD analysis on the current chart. Read `references/rules.md`
 ## Output Contract
 
 Return the shared strategy envelope with indicator state, classic patterns, divergence evidence, coverage, isolated drawings, and a standard conditional execution plan.
+
+## Shared Price Action strategy composition
+
+These rules describe the native indicator component. The host also evaluates the existing OHLC-only Price Action strategy (swings, key zones, named candle patterns and valid setups) from the same frozen snapshot, adds its annotations to the K-line canvas, and retains this component's main-chart or sub-pane annotations. Present the host's combined conditional plan or wait outcome. A directional plan must cite both sources and pass the existing risk policy; do not publish a second indicator-only plan or move indicator values onto the price scale.

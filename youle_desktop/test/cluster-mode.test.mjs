@@ -25,6 +25,7 @@ const businessModelPoolsSource = readFile(
 const stylesSource = readFile(new URL("../src/renderer/styles.css", import.meta.url), "utf8");
 
 function sourceBlock(source, startMarker, endMarker) {
+  source = source.replace(/\r\n/g, "\n");
   const start = source.indexOf(startMarker);
   assert.ok(start >= 0, `missing start marker: ${startMarker}`);
   const end = source.indexOf(endMarker, start + startMarker.length);
@@ -639,7 +640,7 @@ test("completed cluster turns fold planning prompts and every workflow bubble wi
       messages.indexOf("withCollapsedTurnResults(threadId, messagesWithWorkflowRelay)"),
     "workflow relay bubbles must join the turn before its process range is collapsed",
   );
-  assert.match(folding, /const collapsedIndexes = turnResultProcessIndexes\(messages, finalIndex\)/);
+  assert.match(folding, /const collapsedIndexes = group\.pureAnalysis \? group\.pureAnalysis\.processIndexes : turnResultProcessIndexes\(messages, finalIndex\)/);
   assert.match(folding, /if \(!collapsedIndexes\.length && headerIndex === finalIndex\) continue/);
   assert.match(
     folding,

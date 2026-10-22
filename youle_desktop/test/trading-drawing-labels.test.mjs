@@ -13,7 +13,7 @@ test('center add-text placeholders use the authored label gap on the drawing geo
   for(const tool of ['trend-line','ray','horizontal-line','vertical-line','multi-point-path']){
     const drawing={...model,tool,text:''},html=render(drawing);
     assert.match(html,/class="trading-drawing-add-text-mask"/);
-    assert.match(html,/<g class="trading-drawing-geometry" mask="url\(#[^)]+\)"><path id="stroke"\/><\/g><path id="hit"\/>/);
+    assert.match(html,/<g class="trading-drawing-geometry" data-drawing-placeholder-mask="true" style="--trading-drawing-placeholder-mask:url\(#[^)]+\)"><path id="stroke"\/><\/g><path id="hit"\/>/);
     const center=tradingDrawingLabelGeometry({...drawing,text:'＋ 添加文字',fontSize:12,textAlign:'center',textVerticalAlign:'middle'},points,bounds,{width:84,height:22});
     assert.ok(html.includes(`transform="rotate(${center.angle} ${center.x} ${center.y})"`));
     assert.ok(html.includes(`x="${center.left-4}" y="${center.top-2}" width="92" height="26"`));

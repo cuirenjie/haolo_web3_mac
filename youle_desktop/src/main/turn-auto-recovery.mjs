@@ -4,7 +4,7 @@ import { errorSignals } from "./error-signals.mjs";
 export const AUTOMATIC_TURN_RECOVERY_MARKER = "<haolo_automatic_turn_recovery>";
 
 const DEFAULT_NO_PROGRESS_FAILURE_LIMIT = 3;
-const DEFAULT_RECOVERY_DELAYS_MS = [1_500, 4_000, 8_000, 15_000];
+const DEFAULT_RECOVERY_DELAYS_MS = [0];
 
 export function isRecoverableAutomaticTurnFailure({
   errorClass,
@@ -51,7 +51,7 @@ export class TurnAutoRecoveryCoordinator {
     clearTimer = clearTimeout,
     recoveryDelaysMs = DEFAULT_RECOVERY_DELAYS_MS,
     noProgressFailureLimit = DEFAULT_NO_PROGRESS_FAILURE_LIMIT,
-    maxRecoveryAttempts = 3,
+    maxRecoveryAttempts = 1,
   } = {}) {
     if (typeof startRecovery !== "function") {
       throw new Error("TurnAutoRecoveryCoordinator requires startRecovery");
@@ -63,7 +63,7 @@ export class TurnAutoRecoveryCoordinator {
     this.recoveryDelaysMs = normalizedRecoveryDelays(recoveryDelaysMs);
     this.noProgressFailureLimit = Math.max(2, Number(noProgressFailureLimit) || DEFAULT_NO_PROGRESS_FAILURE_LIMIT);
     this.states = new Map();
-    this.maxRecoveryAttempts = Math.max(1, Math.floor(Number(maxRecoveryAttempts) || 3));
+    this.maxRecoveryAttempts = Math.max(1, Math.floor(Number(maxRecoveryAttempts) || 1));
     this.parentThreadIdsByChild = new Map();
     this.childThreadIdsByParent = new Map();
     this.childStatuses = new Map();
@@ -270,9 +270,7 @@ export class TurnAutoRecoveryCoordinator {
     if (noProgressFailures >= this.noProgressFailureLimit) return 60_000;
     const index = Math.min(Math.max(0, noProgressFailures - 1), this.recoveryDelaysMs.length - 1);
     const base = this.recoveryDelaysMs[index];
-    return ["rate_limit", "concurrency_limit"].includes(String(errorClass || "").toLowerCase())
-      ? Math.max(8_000, base)
-      : base;
+    return base;
   }
 
   publicDecision(state, values) {

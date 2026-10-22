@@ -53,26 +53,26 @@ for (const transport of ["urllib", "curl"]) {
 import importlib.util, os
 from pathlib import Path
 root = Path('resources/default-haolo-ai/skills/.system')
-for name, script in [('image', 'imagegen/scripts/generate_openai_image.py'), ('video', 'videogen/scripts/generate_seedance_video.py')]:
+def load(name, script):
     spec = importlib.util.spec_from_file_location(name, root / script)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    base = 'https://haolo.pro/v1'
-    assert module.http_json(base + '/' + name + '/submit', 'sk-test', {'prompt': 'test'})['id'] == 'test-job'
-    assert module.http_json(base + '/media/status?task_id=' + name, 'sk-test')['status'] == 'completed'
-    url = base + '/' + name + '/content?signature=fixture'
-    if name == 'image':
-        result = module.download_result(url, 'sk-test', base, os.environ['TEST_OUTPUT'], 'image', 'png', 'test', 0)
-    else:
-        result = module.download_video(url, 'sk-test', base, os.environ['TEST_OUTPUT'], 'video')
-    assert Path(result).read_bytes() == b'test-media-bytes'
-    assert module.model_transport_url('https://cdn.example/content') == 'https://cdn.example/content'
-    assert module.model_transport_url('https://haolo.pro.evil.example/v1') == 'https://haolo.pro.evil.example/v1'
+    return module
+image = load('image', 'imagegen/scripts/generate_openai_image.py')
+video = load('video', 'videogen/scripts/generate_seedance_video.py')
+base = 'https://haolo.pro/v1'
+assert image.post_json(base + '/images/generations', 'sk-test', {'model':'codex/gpt-image-2','prompt':'test'}, 'image-test', 30)['id'] == 'test-job'
+assert video.transport.post_json(base + '/videos', 'sk-test', {'model':'omni_flash-10s','prompt':'test'}, 'video-test', 30, capability='video_generation')['id'] == 'test-job'
+assert video.get_json(base + '/videos/test-job', 'sk-test')['status'] == 'completed'
+result = video.download_video(base + '/video/content?signature=fixture', 'sk-test', base, Path(os.environ['TEST_OUTPUT']) / 'video.mp4')
+assert Path(result).read_bytes() == b'test-media-bytes'
+for transport_module in (image, video.transport):
+    assert transport_module.model_transport_url('https://cdn.example/content') == 'https://cdn.example/content'
+    assert transport_module.model_transport_url('https://haolo.pro.evil.example/v1') == 'https://haolo.pro.evil.example/v1'
 `, env);
     });
     assert.deepEqual(calls.map(({ url, method }) => `${method} ${new URL(url).pathname}${new URL(url).search}`), [
-      "POST /v1/image/submit", "GET /v1/media/status?task_id=image", "GET /v1/image/content?signature=fixture",
-      "POST /v1/video/submit", "GET /v1/media/status?task_id=video", "GET /v1/video/content?signature=fixture",
+      "POST /v1/images/generations", "POST /v1/videos", "GET /v1/videos/test-job", "GET /v1/video/content?signature=fixture",
     ]);
     await assert.rejects(fetch(`${relayBase}/models`));
   });

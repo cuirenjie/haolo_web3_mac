@@ -181,7 +181,7 @@ test("cancel during channel recovery cannot launch a delayed continuation", asyn
 });
 
 test("isolated recovery is bounded and never retries account/permission failures", async t => {
-  for (const [message, expectedRecoveries] of [["HTTP 503 service unavailable", 2], ["authentication failed HTTP 401", 0]]) {
+  for (const [message, expectedRecoveries] of [["HTTP 503 service unavailable", 1], ["authentication failed HTTP 401", 0]]) {
     const f = fixture(t, { complete: false });
     let recoveries = 0, cleanup;
     f.runner.configure = async () => ({ cwd: f.dir, model: "selected", effort: "max" });

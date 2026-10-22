@@ -27,10 +27,10 @@ export class AnalysisModelRecoveryStore {
     // Backup failures and ordinary backup traffic must not postpone the next
     // primary attempt. A new primary failure after expiry starts a new window.
     const model = String(failedModelId || "").toLowerCase();
-    if (!model.startsWith("gpt-") || model === ANALYSIS_RECOVERY_MODEL) return false;
+    if (!["deepseek-flash", "deepseek-v4-flash"].includes(model)) return false;
     const now = this.now();
     if (this.state && now < this.state.fallbackUntil) return false;
-    this.state = { version: 1, activatedAt: now, fallbackUntil: now + ANALYSIS_RECOVERY_WINDOW_MS };
+    this.state = { version: 2, activatedAt: now, fallbackUntil: now + ANALYSIS_RECOVERY_WINDOW_MS };
     this.persistState();
     try { this.onChange(this.snapshot()); } catch { /* Observers cannot break recovery. */ }
     return true;

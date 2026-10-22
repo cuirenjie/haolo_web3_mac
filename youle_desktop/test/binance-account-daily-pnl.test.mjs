@@ -5,7 +5,7 @@ import ts from "typescript";
 import { YouleApiClient } from "../src/main/youle-api-client.mjs";
 import { sharedSnapshotPosition, sharedSnapshotTime } from "../src/main/binance-account/shared-snapshot.mjs";
 import { createBinanceAccountUiState, renderBinanceAccountPage } from "../src/renderer/binance-account-ui.ts";
-import { binanceCredentialErrorResult } from "../src/shared/binance-account-errors.mjs";
+import { binanceCredentialErrorResult, binanceAccountReadErrorResult } from "../src/shared/binance-account-errors.mjs";
 
 const source = ts.createSourceFile("main.mjs", readFileSync(new URL("../src/main/main.mjs", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true);
 const normalizer = source.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === "normalizeSharedBinanceSnapshot");
@@ -51,7 +51,8 @@ test("shared binding flows through the API client, actual IPC and account cards"
     requireBinanceAccountOwner: async () => ({ ownerId: "owner" }),
     readBinanceAccountStatusWithSharedBinding: async () => ({ serverCredentialsBound: true, serverConnectionId: "shared-a" }),
     getYouleApiClient: () => client,
-    normalizeSharedBinanceSnapshot: normalize, binanceCredentialErrorResult,
+    normalizeSharedBinanceSnapshot: normalize, binanceCredentialErrorResult, binanceAccountReadErrorResult,
+    sameBinanceBindingOwner: (a,b) => a.ownerId === b.ownerId,
     console: { info() {} },
   };
   const handle = new Function(...Object.keys(deps), `return (${snapshotHandler.getText(source)});`)(...Object.values(deps));
@@ -91,7 +92,7 @@ test("zero, negative, unavailable and hidden balances retain honest card output"
     const unavailable = normalize({ ...serverSnapshot(), ...patch });
     assert.equal(unavailable.realizedPnlToday, null);
     assert.equal(unavailable.todayPnl, null);
-    assert.match(render(unavailable), /今日盈亏 <strong class="muted">暂不可用<\/strong>/);
+    assert.match(render(unavailable), /今日盈亏 <strong class="muted">—<\/strong>/);
     assert.match(render(unavailable), /今日已实现盈亏 <strong class="binance-account-realized-value neutral">—<\/strong>/);
     assert.equal(unavailable.estimatedTotalAssets, 68.83561522);
   }

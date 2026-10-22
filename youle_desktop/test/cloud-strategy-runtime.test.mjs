@@ -20,7 +20,7 @@ test('account selection consumes server effective consent and excludes missing o
 const configHash='a'.repeat(64);
 const account={ownerId:'account@service',accountId:'account',baseUrl:'https://haolo.example'};
 const params={analysisJobId:'job-1',marketId:'BINANCE:FUTURES:BTCUSDT',interval:'60',preferencesRevision:3,preferencesHash:configHash};
-function setup(handler) {
+function setup(handler, overrides={}) {
   const records=new Map(),calls=[];
   let current=account;
   const journal={async get(owner,key){return structuredClone(records.get(`${owner}:${key}`)??null);},async put(owner,key,value){records.set(`${owner}:${key}`,structuredClone(value));},async list(owner){return [...records].filter(([key])=>key.startsWith(`${owner}:`)).map(([,v])=>v);}};
@@ -29,7 +29,7 @@ function setup(handler) {
     calls.push({operation,payload:structuredClone(payload),options});
     const custom=await handler?.({operation,payload,options,get run(){return run;},set run(value){run=value;}});
     if(custom!==undefined)return custom;
-    if(operation==='capabilities')return {windowsWorkerReady:true,entryV2WorkerReady:true,windowsContract:'windows-v1',strategies:[{id:'moving-average-analysis',legacyWindows:true,entryModes:['left','right','auto']}]};
+    if(operation==='capabilities')return {windowsWorkerReady:true,entryV2WorkerReady:true,windowsContract:'windows-v1',strategies:[{id:'moving-average-analysis',legacyWindows:true,entryModes:['left','right']}]};
     if(operation==='marketSnapshot')return {marketKey:'binance:usdm:BTCUSDT',interval:'1h',snapshotId:'00000000-0000-0000-0000-000000000001'};
     if(operation==='createRun') {
       run={...payload,id:payload.clientRunId,state:'running'};
@@ -38,7 +38,7 @@ function setup(handler) {
     if(operation==='cancelRun'){if(run)run.state='cancelled';return {id:payload.runId,state:'cancelled'};}
     if(operation==='run'){
       const plan={schemaVersion:2,planId:'00000000-0000-0000-0000-000000000002',revision:1,policyVersion:'entry-v2.1',
-        context:run.context,appliedPreferences:{revision:3,configHash},requestedMode:'auto',selectedMode:null,scenarios:[],
+        context:run.context,appliedPreferences:{revision:3,configHash},requestedMode:'right',selectedMode:null,scenarios:[],
         outcome:{capability:'supported',candidateStatus:'none',evaluationStatus:'completed',action:'wait',reason:'NO_CANDIDATE'}};
       return {...run,state:'succeeded',desktopResult:{ok:true,clientContract:'windows-v1',strategy:{id:'moving-average-analysis'},
         snapshot:{marketId:params.marketId,interval:params.interval},executionPlan:plan,
@@ -49,9 +49,78 @@ function setup(handler) {
     }
     throw Error(operation);
   }};
-  const runtime=createCloudStrategyRuntime({owner:async()=>current,api:()=>api,journal,wait:async()=>{},pollMs:0});
-  return {runtime,journal,calls,records,setOwner(value){current=value;}};
+  const runtime=createCloudStrategyRuntime({owner:async()=>current,api:()=>api,journal,wait:async()=>{},pollMs:0,...overrides});
+  return {runtime,journal,calls,records,api,setOwner(value){current=value;}};
 }
+
+test('pure analysis wakes on events then validates the full result; normal and resumed runs retain polling',async()=>{
+  for(const pure of [true,false]) {
+    let reads=0,streams=0,waits=0;
+    const s=setup(({operation,run})=>operation==='run'&&++reads===1?run:undefined,{wait:async()=>{waits++;}});
+    s.api.waitForTradingCloudRunEvent=async(_id,options)=>{streams++;assert.equal(options.expectedAccountId,account.accountId);return {cursor:4,completed:true};};
+    const result=await s.runtime.run('moving-average-analysis',{...params,pureReferenceAnalysis:pure});
+    assert.equal(result.analysisPlan.report,'云端报告');assert.equal(reads,2);
+    assert.equal(streams,pure?1:0);assert.equal(waits,1);
+    assert.equal(s.calls.filter(c=>c.operation==='createRun').length,1);
+    assert.equal(s.calls.find(c=>c.operation==='createRun').payload.pureReferenceAnalysis,undefined);
+    await s.runtime.resume(params.analysisJobId);assert.equal(streams,pure?1:0);
+  }
+});
+
+test('missing, broken or prematurely ended streams immediately read status and then resume existing polling',async()=>{
+  for(const failure of [404,503,'eof','malformed']) {
+    let reads=0,streams=0,waits=0;
+    const s=setup(({operation,run})=>operation==='run'&&++reads<=2?run:undefined,{wait:async()=>{waits++;}});
+    s.api.waitForTradingCloudRunEvent=async()=>{streams++;if(failure==='eof')return {cursor:0,completed:false};throw Object.assign(Error('stream'),{status:failure});};
+    assert.equal((await s.runtime.run('moving-average-analysis',{...params,pureReferenceAnalysis:true})).ok,true);
+    assert.equal(streams,1);assert.equal(waits,2);assert.equal(reads,3);assert.equal(s.calls.filter(c=>c.operation==='createRun').length,1);
+  }
+});
+
+test('healthy bounded streams reconnect from their cursor, not from the beginning',async()=>{
+  let reads=0;const cursors=[];
+  const s=setup(({operation,run})=>operation==='run'&&++reads<3?run:undefined);
+  s.api.waitForTradingCloudRunEvent=async(_id,options)=>{cursors.push(options.after);return {cursor:7,expired:cursors.length===1,completed:cursors.length===2};};
+  await s.runtime.run('moving-average-analysis',{...params,pureReferenceAnalysis:true});assert.deepEqual(cursors,[0,7]);
+});
+
+test('a buffering stream cannot delay canonical polling and closes when the canonical result arrives',async()=>{
+  let reads=0,streams=0,ticks=0,closed=false;
+  const s=setup(({operation,run})=>operation==='run'&&++reads<3?run:undefined,{wait:async(ms)=>{assert.equal(ms,0);ticks++;}});
+  s.api.waitForTradingCloudRunEvent=(_id,{signal})=>{streams++;return new Promise(resolve=>signal.addEventListener('abort',()=>{closed=true;resolve({cursor:0});},{once:true}));};
+  await s.runtime.run('moving-average-analysis',{...params,pureReferenceAnalysis:true});
+  assert.equal(reads,3);assert.equal(ticks,2);assert.equal(streams,1);assert.equal(closed,true);
+});
+
+test('event completion never bypasses run identity validation',async()=>{
+  let reads=0;
+  const s=setup(({operation,run})=>operation==='run'?(++reads===1?run:{...run,id:'wrong',state:'succeeded'}):undefined);
+  s.api.waitForTradingCloudRunEvent=async()=>({cursor:1,completed:true});
+  await assert.rejects(s.runtime.run('moving-average-analysis',{...params,pureReferenceAnalysis:true}),e=>e.code==='CLOUD_RESULT_CONTEXT_INVALID');
+});
+
+test('stop and account changes during an event wait cannot resume polling or replay admission',async()=>{
+  for(const change of ['stop','owner']) {
+    const controller=new AbortController();const s=setup(({operation,run})=>operation==='run'?run:undefined);
+    s.api.waitForTradingCloudRunEvent=async()=>{if(change==='stop')controller.abort();else s.setOwner({...account,ownerId:'other'});throw Error('disconnected');};
+    await assert.rejects(s.runtime.run('moving-average-analysis',{...params,pureReferenceAnalysis:true},{signal:controller.signal}),
+      e=>e.code===(change==='stop'?'TRADING_ANALYSIS_CANCELLED':'TRADING_PREFERENCE_OWNER_CHANGED'));
+    assert.equal(s.calls.filter(c=>c.operation==='createRun').length,1);assert.equal(s.calls.filter(c=>c.operation==='run').length,1);
+  }
+});
+
+test('only pure analysis overlaps snapshot and account reads, and never admits until both complete',async()=>{
+  for(const pure of [true,false]) {
+    let release,readStarted=false,accountStarted=false;
+    const gate=new Promise(r=>release=r);
+    const s=setup(async({operation})=>{if(operation==='marketSnapshot'){readStarted=true;await gate;}},
+      {connection:async()=>{accountStarted=true;return {id:'bound-account'};}});
+    const pending=s.runtime.run('moving-average-analysis',{...params,pureReferenceAnalysis:pure});
+    await new Promise(r=>setImmediate(r));assert.equal(readStarted,true);assert.equal(accountStarted,pure);
+    assert.equal(s.calls.some(c=>c.operation==='createRun'),false);release();await pending;
+    assert.equal(s.calls.find(c=>c.operation==='createRun').payload.connectionId,'bound-account');
+  }
+});
 
 test('official analysis sends identities and preferences, never local core inputs or credentials',async()=>{
   const {runtime,calls}=setup();
@@ -72,7 +141,7 @@ test('host repairs undersized viewport hints before admission without changing f
   for(const strategyId of ['order-flow','dow-theory']) {
     let first=true;
     const {runtime,calls}=setup(({operation,run})=>{
-      if(operation==='capabilities')return {windowsWorkerReady:true,entryV2WorkerReady:true,windowsContract:'windows-v1',strategies:[{id:strategyId,legacyWindows:true,entryModes:['auto']}]};
+      if(operation==='capabilities')return {windowsWorkerReady:true,entryV2WorkerReady:true,windowsContract:'windows-v1',strategies:[{id:strategyId,legacyWindows:true,entryModes:['right']}]};
       if(operation==='createRun'&&first){first=false;throw Object.assign(Error('unknown admission'),{status:503});}
       if(operation==='run')return {...run,state:'cancelled'};
     });
@@ -90,7 +159,7 @@ test('host repairs undersized viewport hints before admission without changing f
 
 test('explicit time ranges stay exact and insufficient history does not trigger another admission',async()=>{
   const {runtime,calls}=setup(({operation})=>{
-    if(operation==='capabilities')return {windowsWorkerReady:true,entryV2WorkerReady:true,windowsContract:'windows-v1',strategies:[{id:'order-flow',legacyWindows:true,entryModes:['auto']}]};
+    if(operation==='capabilities')return {windowsWorkerReady:true,entryV2WorkerReady:true,windowsContract:'windows-v1',strategies:[{id:'order-flow',legacyWindows:true,entryModes:['right']}]};
     if(operation==='createRun')throw Object.assign(Error('history'),{code:'MARKET_HISTORY_INSUFFICIENT',status:409});
   });
   await assert.rejects(runtime.run('order-flow',{...params,analysisWindowCount:100,lookbackMs:86400000}),e=>e.code==='MARKET_HISTORY_INSUFFICIENT');
@@ -106,7 +175,7 @@ test('new snapshots follow published server history and reject incompatible meta
     {minimumCandles:90,minimumClosedCandles:90,windowCount:'91'},
   ]) {
     const {runtime,calls}=setup(({operation})=>{
-      if(operation==='capabilities')return {windowsWorkerReady:true,entryV2WorkerReady:true,windowsContract:'windows-v1',strategies:[{id:'moving-average-analysis',legacyWindows:true,entryModes:['auto'],history}]};
+      if(operation==='capabilities')return {windowsWorkerReady:true,entryV2WorkerReady:true,windowsContract:'windows-v1',strategies:[{id:'moving-average-analysis',legacyWindows:true,entryModes:['right'],history}]};
     });
     if(history.windowCount===150&&history.minimumClosedCandles===149){
       await runtime.run('moving-average-analysis',{...params,analysisWindowCount:100});
@@ -134,7 +203,7 @@ test('failed runs preserve bounded server error codes in string and object forms
 });
 
 test('new runs require entry-mode and worker acceptance; legacy availability does not bypass either gate',async()=>{
-  for(const [entryV2WorkerReady,entryModes,code] of [[false,['auto'],'ENTRY_WORKER_UNAVAILABLE'],[true,[],'ENTRY_POLICY_UNAVAILABLE']]) {
+  for(const [entryV2WorkerReady,entryModes,code] of [[false,['right'],'ENTRY_WORKER_UNAVAILABLE'],[true,[],'ENTRY_POLICY_UNAVAILABLE']]) {
     const {runtime,calls}=setup(({operation})=>operation==='capabilities'?{windowsContract:'windows-v1',windowsWorkerReady:true,entryV2WorkerReady,
       strategies:[{id:'moving-average-analysis',legacyWindows:true,entryModes}]}:undefined);
     await assert.rejects(runtime.run('moving-average-analysis',params),e=>e.code===code);
@@ -142,13 +211,19 @@ test('new runs require entry-mode and worker acceptance; legacy availability doe
   }
 });
 
-test('right compatibility requires its own worker and strategy gates without Entry V2 fallback',async()=>{
-  for(const [rightLegacyWorkerReady,rightLegacy,code] of [[false,true,'ENTRY_WORKER_UNAVAILABLE'],[true,false,'ENTRY_POLICY_UNAVAILABLE']]) {
+test('new right-side requests use Entry V2 regardless of retired legacy readiness',async()=>{
+  for(const [rightLegacyWorkerReady,rightLegacy] of [[false,true],[true,false]]) {
     const {runtime,calls}=setup(({operation})=>operation==='capabilities'?{windowsContract:'windows-v1',windowsWorkerReady:true,entryV2WorkerReady:true,rightLegacyWorkerReady,
       strategies:[{id:'moving-average-analysis',legacyWindows:true,rightLegacy,entryModes:['right']}]}:undefined);
-    await assert.rejects(runtime.run('moving-average-analysis',{...params,entryMode:'right'}),e=>e.code===code);
-    assert.equal(calls.some(c=>c.operation==='marketSnapshot'||c.operation==='createRun'),false);
+    await runtime.run('moving-average-analysis',{...params,entryMode:'right'});
+    assert.equal(calls.find(c=>c.operation==='createRun').payload.executionPolicy,'entry-v2');
   }
+});
+
+test('automatic mode cannot start a new analysis',async()=>{
+  const {runtime,calls}=setup();
+  await assert.rejects(runtime.run('moving-average-analysis',{...params,entryMode:'auto'}),e=>e.code==='ENTRY_MODE_INVALID');
+  assert.equal(calls.length,0);
 });
 
 test('original thread and pane identities survive recovery without being accepted as server input',async()=>{
@@ -186,18 +261,18 @@ test('an uncertain admission is explicitly retried with identical body/key, with
   assert.equal(calls.filter(c=>c.operation==='marketSnapshot').length,1);
 });
 
-test('a pre-upgrade right Entry V2 admission retries the same paid job without capability negotiation',async()=>{
+for(const policy of ['entry-v2','right-legacy-v1'])test(`a pre-upgrade ${policy} right admission retries its paid job without capability negotiation`,async()=>{
   let first=true;
   const {runtime,journal,calls}=setup(({operation,run})=>{
     if(operation==='createRun'&&first){first=false;throw Error('uncertain original admission');}
     if(operation==='run')return {...run,state:'cancelled'};
   });
   const input={windowCount:null,lookbackMs:null,strategyId:'moving-average-analysis',marketKey:'binance:usdm:BTCUSDT',interval:'1h',instruction:'分析当前行情',
-    executionPolicy:'entry-v2',requestedEntryMode:'right',origin:{sourceThreadId:'',storageSessionId:'',analysisJobId:params.analysisJobId},
+    executionPolicy:policy,requestedEntryMode:'right',origin:{sourceThreadId:'',storageSessionId:'',analysisJobId:params.analysisJobId},
     visibleRange:null,analysisKind:'strategy',positionManagementRequested:false,analysisContext:null,locale:'zh-CN',modelId:null,
     explicitModelSelection:false,preferencesRevision:3,preferencesHash:configHash,responseMode:'combined'};
   const runId='00000000-0000-0000-0000-000000000009';
-  const body={clientContract:'windows-v1',clientRunId:runId,executionPolicy:'entry-v2',context:{taskId:'old-task'},strategy:'moving-average-analysis',locale:'zh-CN',preferencesRevision:3};
+  const body={clientContract:'windows-v1',clientRunId:runId,executionPolicy:policy,context:{taskId:'old-task'},strategy:'moving-average-analysis',locale:'zh-CN',preferencesRevision:3};
   await journal.put(account.ownerId,params.analysisJobId,{key:params.analysisJobId,runId,state:'prepared',body,requestedEntryMode:'right',
     inputHash:createHash('sha256').update(JSON.stringify(input)).digest('hex'),preferencesHash:configHash,marketId:params.marketId,interval:params.interval});
   await assert.rejects(runtime.run('moving-average-analysis',{...params,entryMode:'right'}),/uncertain original admission/);

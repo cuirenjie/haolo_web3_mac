@@ -83,9 +83,14 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
     await journal.put(captured.ownerId, record.key, record);
     return response.state;
   }
-  async function poll(captured, record, {signal,onProgress,timeoutMs:pollTimeout=timeoutMs}={}) {
+  async function poll(captured, record, {signal,onProgress,timeoutMs:pollTimeout=timeoutMs,pureReferenceAnalysis=false}={}) {
     const started = Date.now();
     let lastProgress = '';
+    let useEvents = pureReferenceAnalysis && typeof api().waitForTradingCloudRunEvent === 'function';
+    let eventCursor = 0;
+    let eventWait = null;
+    const eventController = new AbortController();
+    const eventSignal = signal ? AbortSignal.any([signal,eventController.signal]) : eventController.signal;
     try {
       while (true) {
         signal?.throwIfAborted();
@@ -113,6 +118,39 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
           onProgress?.({stage:progress.stage,status:'running'});
         }
         if (Date.now()-started >= pollTimeout) throw fail('CLOUD_RUN_PENDING', {runId:record.runId,retryable:true});
+        if (useEvents) {
+          try {
+            await assertOwner(captured);
+            eventWait ||= api().waitForTradingCloudRunEvent(record.runId, {
+              signal:eventSignal, after:eventCursor, expectedAccountId:captured.accountId, expectedBaseUrl:captured.baseUrl,
+              timeoutMs:Math.min(15000, Math.max(1, pollTimeout - (Date.now()-started))),
+            }).then(event=>({event}),error=>({error}));
+            // Keep the existing polling cadence as a watchdog. A proxy that
+            // buffers SSE must never make result delivery slower than before.
+            const tickController = new AbortController();
+            const tickSignal = signal ? AbortSignal.any([signal,tickController.signal]) : tickController.signal;
+            let wake;
+            try {
+              wake = await Promise.race([eventWait,wait(pollMs,undefined,{signal:tickSignal}).then(()=>null)]);
+            } finally { tickController.abort(); }
+            if (!wake) continue;
+            eventWait = null;
+            if (wake.error) throw wake.error;
+            const event = wake.event;
+            await assertOwner(captured);
+            signal?.throwIfAborted();
+            eventCursor = event.cursor;
+            // Reconnect a healthy bounded stream from its cursor. EOF or a
+            // broken stream uses only the original polling path afterwards.
+            useEvents = event.expired === true;
+          } catch (error) {
+            signal?.throwIfAborted();
+            await assertOwner(captured);
+            if (error.code === 'TRADING_PREFERENCE_OWNER_CHANGED') throw error;
+            useEvents = false;
+          }
+          continue;
+        }
         await wait(pollMs,undefined,{signal});
       }
     } catch(error) {
@@ -122,7 +160,7 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
         throw fail('TRADING_ANALYSIS_CANCELLED');
       }
       throw error;
-    }
+    } finally { eventController.abort(); }
   }
   async function run(strategyId, params, options={}) {
     const captured = await owner();
@@ -149,7 +187,7 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
       const lookbackMs=Number(params.lookbackMs)>0?Number(params.lookbackMs):null;
       if(lookbackMs!==null&&(!Number.isSafeInteger(lookbackMs)||lookbackMs>315360000000))throw fail('ANALYSIS_WINDOW_INVALID');
       const input = {windowCount:requestedCount,lookbackMs,strategyId,...target,instruction:String(params.instruction || '分析当前行情').slice(0,8000),
-        executionPolicy:params.entryMode==='right'?'right-legacy-v1':'entry-v2',requestedEntryMode:params.entryMode || 'auto',
+        executionPolicy:'entry-v2',requestedEntryMode:params.entryMode || 'right',
         origin:{sourceThreadId:String(params.sourceThreadId || '').slice(0,300),
           storageSessionId:String(params.storageSessionId || '').slice(0,300),analysisJobId:key},
         visibleRange,analysisKind:params.analysisKind === 'general' ? 'general' : 'strategy',
@@ -161,34 +199,35 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
         preferencesRevision:params.preferencesRevision, preferencesHash:params.preferencesHash,
         responseMode:params.responseMode === 'direct' ? 'direct' : 'combined'};
       if (!Number.isSafeInteger(input.preferencesRevision) || !/^[a-f0-9]{64}$/.test(input.preferencesHash || '')) throw fail('PREFERENCE_REVISION_REQUIRED');
-      if (!['left','right','auto'].includes(input.requestedEntryMode)) throw fail('ENTRY_MODE_INVALID');
+      if (!['left','right'].includes(input.requestedEntryMode)) throw fail('ENTRY_MODE_INVALID');
       record = await journal.get(captured.ownerId,key);
-      // An interrupted pre-upgrade job retains its frozen V2 protocol. Never
-      // replay it as a new compatibility run or charge for the same job twice.
+      // An interrupted pre-upgrade job retains its frozen protocol. Never
+      // replay a legacy admission as a new V2 run or charge for the same job twice.
       if (record && record.inputHash !== fingerprint(input)
-        && !(input.requestedEntryMode==='right' && record.body.executionPolicy==='entry-v2'
-          && record.inputHash===fingerprint({...input,executionPolicy:'entry-v2'}))) throw fail('CLOUD_RUN_ID_REUSED');
+        && !(input.requestedEntryMode==='right' && record.body.executionPolicy==='right-legacy-v1'
+          && record.inputHash===fingerprint({...input,executionPolicy:'right-legacy-v1'}))) throw fail('CLOUD_RUN_ID_REUSED');
       options.signal?.throwIfAborted();
       if (record?.cancelRequested && record.state !== 'succeeded') { await cancelRecord(captured,record); if(record.state!=='succeeded')throw fail('TRADING_ANALYSIS_CANCELLED'); }
       if (!record) {
         const capabilities = await request(captured,'capabilities',{}, {signal:options.signal});
         if (capabilities.windowsContract !== 'windows-v1' || !capabilities.windowsWorkerReady) throw fail('WINDOWS_WORKER_UNAVAILABLE');
         if (!capabilities.strategies?.some(s => s.id === strategyId && s.legacyWindows)) throw fail('WINDOWS_STRATEGY_UNSUPPORTED');
-        if(input.executionPolicy==='right-legacy-v1') {
-          if(!capabilities.rightLegacyWorkerReady)throw fail('ENTRY_WORKER_UNAVAILABLE');
-          if(!capabilities.strategies?.some(s=>s.id===strategyId&&s.rightLegacy))throw fail('ENTRY_POLICY_UNAVAILABLE');
-        } else {
-          if (!capabilities.entryV2WorkerReady) throw fail('ENTRY_WORKER_UNAVAILABLE');
-          if (!capabilities.strategies?.some(s => s.id === strategyId && s.entryModes?.includes(input.requestedEntryMode))) throw fail('ENTRY_POLICY_UNAVAILABLE');
-        }
+        if (!capabilities.entryV2WorkerReady) throw fail('ENTRY_WORKER_UNAVAILABLE');
+        if (!capabilities.strategies?.some(s => s.id === strategyId && s.entryModes?.includes(input.requestedEntryMode))) throw fail('ENTRY_POLICY_UNAVAILABLE');
         // A renderer count is a viewport hint, not permission to underfill the
         // server's history requirement. Normalize only new snapshots: journaled
         // admissions keep their frozen body/key, and explicit time ranges remain exact.
         const minimumHistory = cloudStrategyMinimumHistory(strategyId,capabilities.strategies.find(s=>s.id===strategyId)?.history);
         const windowCount = requestedCount === null ? null : Math.max(requestedCount,minimumHistory);
-        const snapshot = await request(captured,'marketSnapshot',{market:target.marketKey,interval:target.interval,limit:600,...(visibleRange||{...(windowCount?{windowCount}:{}),...(lookbackMs?{lookbackMs}:{})})},{signal:options.signal});
+        const readSnapshot = () => request(captured,'marketSnapshot',{market:target.marketKey,interval:target.interval,limit:600,...(visibleRange||{...(windowCount?{windowCount}:{}),...(lookbackMs?{lookbackMs}:{})})},{signal:options.signal});
+        // Independent fresh reads can overlap after capability/history checks.
+        // No cached market result or account consent replaces either read.
+        const fast = params.pureReferenceAnalysis === true;
+        const [snapshot, parallelAccount] = fast
+          ? await Promise.all([readSnapshot(), connection?.(captured,target)])
+          : [await readSnapshot(), undefined];
         if (snapshot.marketKey !== target.marketKey || snapshot.interval !== target.interval || !snapshot.snapshotId) throw fail('CLOUD_MARKET_CONTEXT_INVALID');
-        const account = await connection?.(captured,target);
+        const account = fast ? parallelAccount : await connection?.(captured,target);
         await assertOwner(captured);
         const runId = randomUUID();
         record = {key,runId,inputHash:fingerprint(input),preferencesHash:input.preferencesHash,
@@ -211,7 +250,7 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
         record.state = admitted.state;
         await journal.put(captured.ownerId,key,record);
       }
-      return await poll(captured,record,options);
+      return await poll(captured,record,{...options,pureReferenceAnalysis:params.pureReferenceAnalysis === true});
     } catch(error) {
       if (options.signal?.aborted && record && !record.cancelRequested) {
         try { if (await cancelRecord(captured,record) === 'succeeded') throw fail('CLOUD_RUN_PENDING'); }

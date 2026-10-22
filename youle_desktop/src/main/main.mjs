@@ -2,13 +2,17 @@ import { CodexProviderConversations } from "./codex-provider-conversation.mjs";
 import { channelCodexInput, CHANNEL_CODEX_INSTRUCTIONS } from "./channel-codex-input.mjs";
 import { CodexBusinessTools, CODEX_BUSINESS_TOOLS, CODEX_TRADING_INSTRUCTIONS } from "./codex-business-tools.mjs";
 import { CodexTradingArtifacts } from "./codex-trading-artifacts.mjs";
+import { withBusinessPresentationHistory } from "./business-presentation-history.mjs";
 import { cloudReportFromResponse } from "./cloud-plan-contract.mjs";
+import { savePlanShareImage } from './execution-plan-share.mjs';
 import { workflowCodexIntakeHooks } from "./codex-workflow-intake.mjs";
 import { withModelToolNetwork } from "./model-tool-network.mjs";
 import { errorSignals } from "./error-signals.mjs";
 import { sharedSnapshotPosition, sharedSnapshotTime } from "./binance-account/shared-snapshot.mjs";
+import { normalizeSharedAccountDetails } from "./binance-account/shared-details.mjs";
 import { registerManualDrawingSync } from "./manual-drawing-sync.mjs";
 import { captureTradingChart } from './trading-chart-capture.mjs';
+import { saveExternalTradingPlanImage } from './external-trading-plan-image.mjs';
 import { getTradingXPost } from './trading-x-post.mjs';
 import { registerClientSettingsSync } from "./client-settings-sync.mjs";
 import { HAOLO_GATEWAY_BASE_URL, HAOLO_GATEWAY_HOST } from "./haolo-gateway.mjs";
@@ -55,6 +59,7 @@ import { PersonalMemoryStore } from "./personal-context/memory-store.mjs";
 import { createCloudTradingPreferences, cloudTradingPreferenceFailure } from "./personal-context/cloud-trading-preferences.mjs";
 import { createCloudStrategyRuntime, cloudAccountConnection } from "./trading-strategy-runtime/cloud-runtime.mjs";
 import {createCloudPlans} from './trading-strategy-runtime/cloud-plans.mjs';
+import {createCloudPriceAlerts, isCloudPriceAlert} from './trading-alerts/cloud-price-alerts.mjs';
 import {createCloudAlertFeed} from './trading-strategy-runtime/cloud-alert-feed.mjs';
 import {cloudAlertNotification} from './cloud-alert-view.mjs';
 import { CloudRunJournal } from "./trading-strategy-runtime/cloud-run-journal.mjs";
@@ -230,7 +235,7 @@ import { ExternalModelCredentialStore } from "./external-agent/credential-store.
 import { ExternalModelService } from "./external-agent/service.mjs";
 import { BinanceCredentialStore } from "./binance-account/credential-store.mjs";
 import { BinanceAccountError, BinanceAccountService } from "./binance-account/service.mjs";
-import { binanceCredentialErrorResult } from "../shared/binance-account-errors.mjs";
+import { binanceCredentialErrorResult, binanceAccountReadErrorResult } from "../shared/binance-account-errors.mjs";
 import { BinancePrivateProxyTransport } from "./binance-account/private-proxy-fetch.mjs";
 import { BinanceRequestGovernor, BINANCE_REQUEST_PRIORITIES } from "./binance-request-governor.mjs";
 import { BinancePublicMarketService } from "./binance-public-market-service.mjs";
@@ -427,12 +432,32 @@ let githubMcpBridge = null;
 let personalContextMcpBridge = null;
 let businessMcpBridge = null;
 const activeChannelCodexRequests = new Map();
+const codexTradingArtifacts = new CodexTradingArtifacts({ directory: () => path.join(app.getPath("userData"), "trading-skill-results") });
 const codexBusinessTools = new CodexBusinessTools({
-  artifacts: new CodexTradingArtifacts({ directory: () => path.join(app.getPath("userData"), "trading-skill-results") }),
+  artifacts: codexTradingArtifacts,
   accountRead: args => getPersonalContextService().invoke({ tool: "read_binance_account_context", arguments: args }),
   preferencesRead: async () => (await tradingStrategyParamsWithPersonalRisk()).userRiskProfile,
   owner: () => String(getYouleApiClient().sessionSummary()?.profile?.id || "anonymous"),
   dispatch: (sender, payload) => { if (sender && !sender.isDestroyed()) sender.send("codex:businessTool", payload); },
+  onAnalysisFailure: async ({ context, threadId, turnId, isCurrent }) => {
+    // Renderer has shown the failure and queued persistence. Headless
+    // callers retain the terminal tool result so their channel can report it.
+    if (!isCurrent() || context.executeTrading || !context.sender || context.sender.isDestroyed()) return;
+    turnAutoRecoveryCoordinator.cancel(threadId, "analysis_nonretryable");
+    interruptedCodexThreadIds.add(threadId);
+    interruptedCodexTurnIds.add(turnId);
+    try {
+      // Target only the failed turn; never retry an active-turn mismatch and
+      // accidentally interrupt a newer user request.
+      await requestAppServer(context.client, "turn/interrupt", { threadId, turnId }, 10000);
+    } catch (error) {
+      if (!isTurnInterruptAcknowledgementTimeout(error)) {
+        interruptedCodexThreadIds.delete(threadId);
+        interruptedCodexTurnIds.delete(turnId);
+      }
+      throw error;
+    }
+  },
 });
 ipcMain.handle("codex:businessToolResult", (event, payload) => codexBusinessTools.resolve(event.sender, payload));
 let chromeNativeBroker = null;
@@ -580,19 +605,7 @@ const LEGACY_OFFICE_PREVIEW_CACHE_DIR_NAME = "office-preview-cache";
 const LOCAL_ARTIFACT_OUTPUT_DIR_NAME = "outputs";
 const VIDEO_GENERATION_POLL_INTERVAL_SECONDS = 5;
 const VIDEO_GENERATION_TIMEOUT_MS = 15 * 60_000;
-const AIHUBCC_GROK_VIDEO_MODEL = "grok-imagine-video-1.5";
-const BUMING_GROK_VIDEO_MODEL = "aihubcc/grok-video-3.5";
-const LEGACY_AIHUBCC_GROK_VIDEO_MODELS = new Set([
-  "grok-imagine-video-1.5-preview",
-  "aihubcc/grok-imagine-video-1.5-preview",
-]);
 
-function canonicalAIHubCCGrokVideoModel(value) {
-  const model = firstString(value);
-  return LEGACY_AIHUBCC_GROK_VIDEO_MODELS.has(model)
-    ? AIHUBCC_GROK_VIDEO_MODEL
-    : model;
-}
 const HAOLO_HOME_URL = "https://haolo.com";
 const CHANNEL_APIS_ENABLED = false;
 const WINDOWS_UPDATE_BASE_URL = normalizeBaseUrl(process.env.HAOLO_APP_UPDATE_BASE_URL || HAOLO_HOME_URL);
@@ -726,17 +739,17 @@ const TURN_GROUP_MEMORY_END = "</haolo_internal_turn_group_memory>";
 const HAOLO_MEDIA_SKILLS = [
   {
     name: "imagegen",
-    modelMarker: "- Model: `aihubcc/gpt-image-2`",
+    modelMarker: "- Model: `codex/gpt-image-2`",
     script: path.join("scripts", "generate_openai_image.py"),
     fallbackDescription:
-      "Generate or edit raster images through the authenticated Haolo relay. Before every live submit, run the bundled local resolve_prompt_preset.py gate, merge the matched preset or record preset_id=none, then submit via Director. The canonical base model is aihubcc/gpt-image-2; legacy buming/gpt-image-2 and bare gpt-image-2 inputs must normalize to it. The public gpt-image-2-1k selection always uses the relay's asynchronous 1K task route (upstream gpt-image-2-1k-async). For ordinary chat with no explicit model selection, follow Director's guarded fallback metadata through aihubcc/gpt-image-2, gpt-image-2-1k, gpt-image-2-2k, then Buming image2. A structured retryable route-exhaustion rejection may advance; never switch while a task is pending or acceptance is ambiguous. Never use built-in image_gen or code-composed PIL/HTML/SVG/canvas substitutes unless the user explicitly asks for code or vector output.",
+      "Generate or edit raster images through the Haolo official Codex image route. Run the local prompt-preset gate before each live submission. Use only codex/gpt-image-2 with auto size, and report actual output dimensions. Resume saved delivery after interruption; never automatically resubmit an ambiguous request.",
   },
   {
     name: "videogen",
-    modelMarker: "grok-imagine-video-1.5",
+    modelMarker: "bytedance/seedance-2.0",
     script: path.join("scripts", "generate_seedance_video.py"),
     fallbackDescription:
-      "Generate short text-to-video, image-to-video, or video-to-video clips through the Haolo subapi asynchronous video API. Use AIHubCC grok-imagine-video-1.5 for both text-to-video and image-to-video. For an image request only, the guarded compatibility chain may continue through Buming aihubcc/grok-video-3.5 and AIHubCC omni-fast-no-water after a safe terminal failure. If submission returns no task ID, immediately use the configured fallback when authorized; once a task ID exists, do not switch while that task is queued, pending, processing, or only timed out during polling. Never call an upstream provider directly or substitute code-composed animations unless the user explicitly asks for code-based animation.",
+      "Generate image-to-video clips through the Haolo gateway using the explicitly selected live catalog model. Retain accepted task IDs and resume polling after interruption. Never switch providers or submit a new task automatically.",
   },
 ];
 let cachedSofficeExecutablePath;
@@ -4448,17 +4461,25 @@ async function resolveDeepSeekExecutionProviderRuntime() {
   const apiClient = getYouleApiClient();
   const pools = await apiClient.listBusinessModelPools({ force: true });
   if (!pools?.configured) return { deepSeek: null };
-  const credential = apiClient.businessModelCredential(
+  let credential = apiClient.businessModelCredential(
     "execution",
     "root_execution",
     DEEPSEEK_EXECUTION_MODEL,
     DEEPSEEK_EXECUTION_PROVIDER_ID,
   );
   if (!credential?.apiKey) return { deepSeek: null };
+  let billing = apiClient.businessModelCredential("execution", "root_execution", "gpt-5.6-sol", "codex");
+  if (!billing?.apiKeyId) {
+    await apiClient.refreshProfile();
+    credential = apiClient.businessModelCredential("execution", "root_execution", DEEPSEEK_EXECUTION_MODEL, DEEPSEEK_EXECUTION_PROVIDER_ID);
+    billing = apiClient.businessModelCredential("execution", "root_execution", "gpt-5.6-sol", "codex");
+  }
+  if (!credential?.apiKey) return { deepSeek: null };
   return {
     deepSeek: {
       apiKey: credential.apiKey,
       baseUrl: credential.baseUrl,
+      billingKeyId: billing?.apiKeyId || null,
       routeGroupId:
         credential.groupId ?? credential.model?.routeGroupId ?? null,
     },
@@ -10338,25 +10359,20 @@ function buildTurnMediaRoutingReminder(userText, cwd, mediaContext = {}) {
   ];
   if (routeImage) {
     lines.push(
-      `- Image route: read ${byName.get("imagegen").path.replace(/\\/g, "/")} and run its scripts/generate_openai_image.py Director path with canonical model aihubcc/gpt-image-2. Never submit legacy buming/gpt-image-2; Director normalizes that and bare gpt-image-2 to the canonical ID.`,
-      `- On every image Director command include --conversation-id ${JSON.stringify(String(mediaContext.threadId || ""))}. This correlation is required so the image model's fixed charge (gpt-image-2 starts at 1 point per generation) is merged into the current visible consumption record; do not invent or substitute a separate interaction ID.`,
-      "- Before freeform prompt rewriting, run scripts/resolve_prompt_preset.py with the user's literal request. Use its matched preset or explicit preset_id=none check file; Director must reject any AIHubCC POST without that validated local gate.",
-      "- If the request modifies an existing image and requires all unspecified content to remain unchanged, every Director invocation must include --strict-edit and the source --image-url. Try base aihubcc/gpt-image-2 first through multipart /v1/images/edits with a pixel-fidelity contract. In ordinary execution only, each safely authorized asynchronous fallback keeps the same source and --strict-edit; 1K/2K/3.5K are best-effort reference-guided edits and cannot promise identical unaffected pixels.",
-      "- Unless the client or user explicitly selected an image model, use exactly this ordinary-execution order: aihubcc/gpt-image-2, gpt-image-2-1k, gpt-image-2-2k, gpt-image-2-3.5k. Only when Director returns pending=false, state=failed, safe_to_resubmit=true, and fallback_allowed=true, create a fresh preset check and advance exactly one step to its reported fallback_model. Director may authorize this after an explicit terminal timeout, a machine-readable UPSTREAM_TEMPORARILY_UNAVAILABLE rejection with retryable=true and route_exhausted=true, or a repeated pre-provider SERVICE_TEMPORARILY_UNAVAILABLE rejection with retryable=true and upstream_status=0 after its one same-model retry without optional routing hints. Preserve the prompt, references, strict-edit intent, and conversation correlation. The asynchronous tiers use aspect-ratio flags and poll GET /v1/videos/{task_id} until status=completed. Never use Buming image2 in this automatic chain.",
-      "- Preserve an explicit image model selection exactly except that known legacy Image2 aliases normalize to aihubcc/gpt-image-2. In Haolo Image Generation mode, selected base aihubcc/gpt-image-2 uses --exact-model --provider-fallback-only and may retry only gpt-image-2-1k asynchronously after safe pre-acceptance fallback metadata; it must not visit 2K/3.5K/Buming image2. Every other selected model remains exact with no fallback. Never switch while a task is pending, reconciling, active elsewhere, still processing, or has only a client/gateway read timeout.",
-      "- Do not use built-in image_gen/imagegen tools, official OpenAI image generation, or hand-composed PIL/HTML/CSS/SVG/canvas output for image deliverables unless the user explicitly asks for code or vector output.",
+      `- Image route: read ${byName.get("imagegen").path.replace(/\\/g, "/")} and run its scripts/generate_openai_image.py Director path with model codex/gpt-image-2. This route uses the existing Haolo login and official server-side ChatGPT OAuth accounts only.`,
+      `- On every image Director command include --conversation-id ${JSON.stringify(String(mediaContext.threadId || ""))}. This correlation associates official image usage with the current visible consumption record; do not invent a separate interaction ID.`,
+      "- Before freeform prompt rewriting, run scripts/resolve_prompt_preset.py with the user's literal request. Use its matched preset or explicit preset_id=none check file; Director must reject any official image submission without that validated local gate.",
+      "- For edits, include --strict-edit and --image for a local reference or --image-url for a public reference. Use /v1/images/edits; preserve unspecified content as closely as possible without promising identical pixels.",
+      "- The only image model is codex/gpt-image-2. Do not use asynchronous media tasks or substitute another model.",
+      "- After a timeout, interruption, pending or unknown state, do not create a new request or retry automatically. Reuse the original command to inspect its journal and recover an already received result.",
+      "- Do not use built-in image_gen/imagegen tools, direct credential-based image calls outside the Haolo Director, or hand-composed PIL/HTML/CSS/SVG/canvas output for image deliverables unless the user explicitly asks for code or vector output.",
     );
   }
   if (routeVideo) {
     const videoSkill = byName.get("videogen");
     const jobDir = path.resolve(cwd || desktopWorkspace(), ".media-jobs", "videogen");
     const selection = normalizeVideoGenerationOptions(mediaContext);
-    const exactModelFlags =
-      selection.model === "grok-imagine-video-1.5"
-        ? `--model ${JSON.stringify(selection.model)} --exact-model --provider-fallback-only`
-        : selection.model
-          ? `--model ${JSON.stringify(selection.model)} --exact-model`
-          : "";
+    const exactModelFlags = selection.model ? "--model " + JSON.stringify(selection.model) + " --exact-model" : "";
     const lockedArguments = [
       exactModelFlags,
       selection.inputMode ? `--input-mode ${JSON.stringify(selection.inputMode)}` : "",
@@ -10369,7 +10385,7 @@ function buildTurnMediaRoutingReminder(userText, cwd, mediaContext = {}) {
       lines.push(
         `- Video recovery route: read ${videoSkill.path.replace(/\\/g, "/")} and run scripts/generate_seedance_video.py with --resume-latest, --conversation-id ${JSON.stringify(String(mediaContext.threadId || ""))}, and --job-dir ${JSON.stringify(jobDir)}.`,
         "- This is reconciliation, not a new generation request. Do not pass a prompt, do not POST a replacement task, and do not switch models or invoke a fallback. The recovery command must list/poll the existing authenticated task and download its cached result.",
-        "- Return the recovered video artifact with its original task_id. If the 24-hour cache has expired, report that explicitly instead of submitting and charging again.",
+        "- Return the recovered video artifact with its original task_id. If the original task result is no longer available, report that explicitly instead of submitting and charging again.",
       );
     } else {
       lines.push(
@@ -10379,12 +10395,12 @@ function buildTurnMediaRoutingReminder(userText, cwd, mediaContext = {}) {
           ? `- Media Creation already fixed the video parameters. Add these exact Director arguments: ${lockedArguments}. They override automatic model routing; do not infer, replace, omit, or silently change them.`
           : forcedVideo
             ? "- Media Creation did not provide a complete video selection. Fail closed and ask the user to reselect an available model instead of guessing generation parameters."
-            : "- Unless the client or user explicitly selected a model, start with AIHubCC grok-imagine-video-1.5 for both text-to-video and image-to-video. After a safe terminal failure, image-to-video may continue through Buming aihubcc/grok-video-3.5 and AIHubCC omni-fast-no-water; text-only must skip the image-only Buming route. Do not automatically select Seedance.",
+            : "- Select an available model from the live video catalog before submission. Preserve its input contract and never switch providers automatically.",
         forcedVideo
           ? "- Prompt rewriting is conditional. If the user's literal creative request already contains a concrete subject and action plus at least two useful production dimensions (setting, camera/composition, lighting/color, style, timing, or constraints), pass it to Director exactly unchanged: do not translate, reorder, polish, shorten, or rewrite it. Only optimize a very brief or underspecified request, preserving the user's intent and adding only useful generation details."
-          : "- Preserve the prompt and public reference URL across fallback attempts, apply Director's fallback_adjustments, and use a fresh --request-id for each next model while keeping the same --conversation-id. Preserve an explicit model selection with --exact-model.",
-        "- Preserve the chosen Director prompt and all public reference URLs across every Director-authorized retry or provider fallback.",
-        "- If a video submission returns no task ID, immediately advance to the configured fallback when the Director returns fallback_allowed=true. This includes plain 429/5xx, disconnects, malformed replies, and ambiguous acceptance; accept the possible duplicate-generation and billing risk. Once a task ID exists, never switch while that task is queued, pending, processing, or only timed out during polling.",
+          : "- Preserve the selected model with --exact-model. Keep the original request ID and conversation ID when continuing an accepted task. Never resubmit an ambiguous submission automatically.",
+        "- Preserve the original request ID, prompt and reference URLs when continuing delivery.",
+        "- If a video submission returns no task ID, acceptance is unknown: stop and report it without a new submission. Once a task ID exists, poll only that task until it completes or fails.",
         "- Reuse the attachment's public URL directly. Do not call view_image on a full-resolution reference merely to inspect composition or aspect ratio; read lightweight image metadata when dimensions are needed, or inspect a bounded thumbnail only when visual analysis is essential.",
         "- Do not answer with only a prompt or substitute a code-composed animation. Return the generated video artifact; the renderer may also offer the user a Video Expert follow-up button.",
       );
@@ -10617,20 +10633,20 @@ function buildHaoloMediaDeveloperInstructions(cwd) {
   ];
   if (byName.has("imagegen")) {
     lines.push(
-      `- Image generation/editing requests must use ${byName.get("imagegen").path.replace(/\\/g, "/")} and its scripts/generate_openai_image.py Director path with canonical model aihubcc/gpt-image-2. Never submit legacy buming/gpt-image-2; Director normalizes that and bare gpt-image-2 to the canonical ID.`,
-      "- For image requests, first run scripts/resolve_prompt_preset.py with the user's literal request. Merge its matched local preset or carry its explicit preset_id=none check file; Director must fail closed before AIHubCC POST if the check does not validate.",
-      "- Existing-image local edits that must preserve all unspecified content require --strict-edit plus the source --image-url on every Director command. Try the base model first through multipart /v1/images/edits with a source hash audit. In ordinary execution, safely authorized 1K/2K/3.5K fallbacks keep the same source and --strict-edit; they are best-effort reference-guided edits rather than pixel-identical local edits.",
-      "- Automatic ordinary-chat image priority is exactly aihubcc/gpt-image-2, gpt-image-2-1k, gpt-image-2-2k, then gpt-image-2-3.5k. Advance exactly one step with a fresh preset check only when Director returns pending=false, state=failed, safe_to_resubmit=true, and fallback_allowed=true. Director may authorize this after an explicit terminal timeout, a machine-readable UPSTREAM_TEMPORARILY_UNAVAILABLE rejection with retryable=true and route_exhausted=true, or a repeated pre-provider SERVICE_TEMPORARILY_UNAVAILABLE rejection with retryable=true and upstream_status=0 after its one same-model retry without optional routing hints. Preserve the prompt, references, strict-edit intent, and conversation correlation. The asynchronous tiers use aspect-ratio flags and poll GET /v1/videos/{task_id} until status=completed. Never use Buming image2 in this automatic chain.",
-      "- Preserve a client- or user-selected image model exactly except that known legacy Image2 aliases normalize to aihubcc/gpt-image-2. In Haolo Image Generation mode, selected base aihubcc/gpt-image-2 uses --exact-model --provider-fallback-only and may retry only gpt-image-2-1k asynchronously after safe pre-acceptance fallback metadata; it must not visit 2K/3.5K/Buming image2. Every other selected model remains exact with no fallback. Never switch while a task is pending, reconciling, active elsewhere, still processing, or has only a client/gateway read timeout.",
-      "- Do not call built-in image_gen/imagegen tools, official OpenAI image generation, or replace image deliverables with PIL/HTML/CSS/SVG/canvas compositions unless the user explicitly asks for code, HTML, SVG, or vector output.",
+      `- Image generation/editing requests must use ${byName.get("imagegen").path.replace(/\\/g, "/")} and its scripts/generate_openai_image.py Director path with model codex/gpt-image-2. This route uses the existing Haolo login and official server-side ChatGPT OAuth accounts only.`,
+      "- For image requests, first run scripts/resolve_prompt_preset.py with the user's literal request. Merge its matched local preset or carry its explicit preset_id=none check file; Director must fail closed before official image submission if the check does not validate.",
+      "- For edits, include --strict-edit and --image for a local reference or --image-url for a public reference. Use /v1/images/edits; preserve unspecified content as closely as possible without promising identical pixels.",
+      "- The only image model is codex/gpt-image-2. Do not use asynchronous media tasks or substitute another model.",
+      "- After a timeout, interruption, pending or unknown state, do not create a new request or retry automatically. Reuse the original command to inspect its journal and recover an already received result.",
+      "- Do not call built-in image_gen/imagegen tools, direct credential-based image calls outside the Haolo Director, or replace image deliverables with PIL/HTML/CSS/SVG/canvas compositions unless the user explicitly asks for code, HTML, SVG, or vector output.",
     );
   }
   if (byName.has("videogen")) {
     lines.push(
       `- Video generation requests must use ${byName.get("videogen").path.replace(/\\/g, "/")} and its scripts/generate_seedance_video.py path through the authenticated Haolo subapi relay.`,
-      "- Start ordinary text-to-video and image-to-video with AIHubCC grok-imagine-video-1.5. Advance only when the video Director returns pending=false, state=failed, and fallback_allowed=true. Image-to-video may continue through Buming aihubcc/grok-video-3.5 and AIHubCC omni-fast-no-water; text-only must skip the image-only Buming route. Do not automatically select Seedance.",
-      "- Preserve the prompt and public references, apply fallback_adjustments, use a fresh --request-id for each next model, and keep the same --conversation-id. Preserve a client- or user-selected model with --exact-model.",
-      "- If a video submission returns no task ID, immediately advance to the configured fallback when the Director returns fallback_allowed=true. Plain 429/5xx, disconnects, malformed replies, and ambiguous acceptance all qualify; accept the possible duplicate-generation and billing risk. Once a task ID exists, never switch while that task is queued, pending, processing, or only timed out during polling.",
+      "- Use only the selected model from the live video catalog. If no model is available, report that video generation is unavailable; do not invent a route.",
+      "- Preserve the prompt, references, selected parameters and --conversation-id. Use --exact-model and never switch video providers automatically.",
+      "- After a video submission without a task ID or with ambiguous acceptance, stop and report it. Never issue another POST automatically. Once a task ID exists, resume polling the original task.",
       "- Reuse public reference-media URLs directly. Never call view_image on a full-resolution attachment just to infer composition or aspect ratio; use lightweight metadata for dimensions, and only inspect a bounded thumbnail when visual analysis is genuinely required.",
       "- Return the generated video artifact in the ordinary chat answer. Do not stop at a prompt and do not replace it with HTML/CSS/JS, canvas, or an ffmpeg slideshow.",
     );
@@ -13011,6 +13027,14 @@ ipcMain.handle("executionPlanSticky:create", async (_event, params = {}) => {
   return createExecutionPlanStickyWindow({ ...params, theme: appTheme(), language: appLanguage() });
 });
 
+ipcMain.handle('executionPlanShare:invitation', async (_event, params = {}) => getYouleApiClient().verifyPlanShareInvitation(params));
+ipcMain.handle('executionPlanShare:save', async (event, params = {}) => {
+  const client = getYouleApiClient(), revision = client.authRevision;
+  client.requireAuth();
+  return savePlanShareImage({dataUrl: params.dataUrl, window: BrowserWindow.fromWebContents(event.sender), dialog, language: appLanguage(),
+    valid: () => revision === client.authRevision});
+});
+
 ipcMain.handle("app:setTheme", async (_event, params = {}) => {
   return setAppTheme(params.theme);
 });
@@ -13223,7 +13247,12 @@ ipcMain.handle("automation:unregisterLoginTask", async (_event, params = {}) => 
   return unregisterLoginTask({ taskName: params.taskName || "\\youle_desktop\\AutomationWorker" });
 });
 
-ipcMain.handle("tradingAlerts:snapshot", async (event) => tradingAlertIpcCall(event, "snapshot"));
+ipcMain.handle("tradingAlerts:snapshot", async (event) => {
+  assertExternalModelsIpcSender(event);
+  try { return {ok:true,data:await tradingAlertsCombinedSnapshot()}; }
+  catch (error) { return {ok:false,error:cloudStrategyFailure(error,{language:appLanguage()})}; }
+});
+ipcMain.handle("tradingAlerts:createCloudPriceAlert", async (event, params = {}) => tradingAlertIpcCall(event, "createPriceAlert", params));
 ipcMain.handle("tradingAlerts:getSimulation", async (event, params = {}) => tradingAlertIpcCall(event, "getSimulation", params));
 ipcMain.handle("tradingAlerts:compile", async (event, params = {}) => tradingAlertIpcCall(event, "compile", params));
 ipcMain.handle("tradingAlerts:resumeDraft", async (event, params = {}) => tradingAlertIpcCall(event, "resumeDraft", params.draftId));
@@ -13231,9 +13260,9 @@ ipcMain.handle("tradingAlerts:simulate", async (event, params = {}) => tradingAl
 ipcMain.handle("tradingAlerts:confirm", async (event, params = {}) => tradingAlertIpcCall(event, "confirm", params));
 ipcMain.handle("tradingAlerts:syncExecutionPlan", async (event, params = {}) => tradingAlertIpcCall(event, "syncExecutionPlan", params));
 ipcMain.handle("tradingAlerts:revise", async (event, params = {}) => tradingAlertIpcCall(event, "revise", params));
-ipcMain.handle("tradingAlerts:pause", async (event, params = {}) => tradingAlertIpcCall(event, "pause", params.alertId));
-ipcMain.handle("tradingAlerts:resume", async (event, params = {}) => tradingAlertIpcCall(event, "resume", params.alertId));
-ipcMain.handle("tradingAlerts:delete", async (event, params = {}) => tradingAlertIpcCall(event, "delete", params.alertId));
+ipcMain.handle("tradingAlerts:pause", async (event, params = {}) => tradingAlertIpcCall(event, "pause", isCloudPriceAlert(params.alertId) ? params : params.alertId));
+ipcMain.handle("tradingAlerts:resume", async (event, params = {}) => tradingAlertIpcCall(event, "resume", isCloudPriceAlert(params.alertId) ? params : params.alertId));
+ipcMain.handle("tradingAlerts:delete", async (event, params = {}) => tradingAlertIpcCall(event, "delete", isCloudPriceAlert(params.alertId) ? params : params.alertId));
 ipcMain.handle("tradingAlerts:lifecycle", async (event, params = {}) => tradingAlertIpcCall(event, "lifecycle", params));
 ipcMain.handle("tradingAlerts:syncDrawings", async (event, params = {}) => tradingAlertIpcCall(event, "syncDrawings", params));
 ipcMain.handle("tradingAlerts:marketSubscribe", async (event, params = {}) => {
@@ -13529,7 +13558,8 @@ ipcMain.handle("hyperliquidMarket:candles", async (event, params = {}) => {
 ipcMain.handle("binanceAccount:getStatus", async (event) => {
   assertExternalModelsIpcSender(event);
   const owner = await requireBinanceAccountOwner();
-  return readBinanceAccountStatusWithSharedBinding(owner);
+  try { return await readBinanceAccountStatusWithSharedBinding(owner); }
+  catch (error) { return binanceAccountReadErrorResult(error); }
 });
 
 ipcMain.handle("binanceAccount:sendOtp", async (event) => {
@@ -13613,23 +13643,11 @@ ipcMain.handle("binanceAccount:getSnapshot", async (event, params = {}) => {
           await getYouleApiClient().getAccountConnectionSnapshot(status.serverConnectionId, { includeTodayPnl: true }),
         )
       : await getBinanceAccountService().snapshot(owner.ownerId, requestOptions);
+    if (!sameBinanceBindingOwner(owner, await requireBinanceAccountOwner())) throw new Error("Haolo 账号已切换，请重新读取账户数据。");
     return { ok: true, snapshot };
   } catch (error) {
     outcome = String(error?.code || "error");
-    const credentialFailure = binanceCredentialErrorResult(error);
-    if (credentialFailure) return credentialFailure;
-    if (error?.code !== "BINANCE_RATE_LIMITED") throw error;
-    return {
-      ok: false,
-      error: {
-        code: "BINANCE_RATE_LIMITED",
-        message: String(error?.message || "Binance 请求频率受限，客户端正在自动降频，请稍后再试。"),
-        retryable: true,
-        retryAfterMs: Number.isFinite(error?.retryAfterMs)
-          ? Math.max(1_000, Number(error.retryAfterMs))
-          : 60_000,
-      },
-    };
+    return binanceAccountReadErrorResult(error);
   } finally {
     console.info("[binance-account] snapshot", {
       mode: requestOptions.summary ? "summary" : requestOptions.live ? "live" : "full",
@@ -13637,6 +13655,25 @@ ipcMain.handle("binanceAccount:getSnapshot", async (event, params = {}) => {
       elapsedMs: Date.now() - startedAt,
       outcome,
     });
+  }
+});
+
+ipcMain.handle("binanceAccount:getDetails", async (event, params = {}) => {
+  assertExternalModelsIpcSender(event);
+  const owner = await requireBinanceAccountOwner();
+  if (!["openOrders", "positionHistory"].includes(params?.section)) throw new Error("Invalid account detail section");
+  try {
+    const status = await readBinanceAccountStatusWithSharedBinding(owner);
+    if (!status.serverCredentialsBound || !status.serverConnectionId) throw new Error("账户绑定已变化，请刷新账户页面。");
+    const details = normalizeSharedAccountDetails(
+      await getYouleApiClient().getAccountConnectionDetails(status.serverConnectionId, {
+        section: params.section, cursor: params.cursor,
+      }), params.section,
+    );
+    if (!sameBinanceBindingOwner(owner, await requireBinanceAccountOwner())) throw new Error("Haolo 账号已切换，请重新读取账户数据。");
+    return { ok: true, details };
+  } catch (error) {
+    return binanceAccountReadErrorResult(error);
   }
 });
 
@@ -13650,27 +13687,18 @@ ipcMain.handle("binanceAccount:getProfitCalendar", async (event, params = {}) =>
   const startedAt = Date.now();
   let outcome = "ok";
   try {
-    const calendar = await getBinanceAccountService().profitCalendar(owner.ownerId, {
-      month: params?.month,
-      force,
-    });
+    const status = await readBinanceAccountStatusWithSharedBinding(owner);
+    const calendar = status.serverCredentialsBound && status.serverConnectionId
+      ? await getYouleApiClient().getAccountConnectionProfitCalendar(status.serverConnectionId, { month: params?.month })
+      : await getBinanceAccountService().profitCalendar(owner.ownerId, {
+          month: params?.month,
+          force,
+        });
+    if (!sameBinanceBindingOwner(owner, await requireBinanceAccountOwner())) throw new Error("Haolo 账号已切换，请重新读取账户数据。");
     return { ok: true, calendar };
   } catch (error) {
     outcome = String(error?.code || "error");
-    const credentialFailure = binanceCredentialErrorResult(error);
-    if (credentialFailure) return credentialFailure;
-    if (error?.code !== "BINANCE_RATE_LIMITED") throw error;
-    return {
-      ok: false,
-      error: {
-        code: "BINANCE_RATE_LIMITED",
-        message: String(error?.message || "Binance 请求频率受限，客户端正在自动降频，请稍后再试。"),
-        retryable: true,
-        retryAfterMs: Number.isFinite(error?.retryAfterMs)
-          ? Math.max(1_000, Number(error.retryAfterMs))
-          : 60_000,
-      },
-    };
+    return binanceAccountReadErrorResult(error);
   } finally {
     console.info("[binance-account] profit calendar", {
       month: requestedMonth,
@@ -14220,7 +14248,7 @@ function getCodexProviderConversations() {
       rootThreadId, item, ["workflow-intake", "channel-codex"].includes(params.provider),
     ),
     recoverTurn: async ({ client, threadId, params, signal }) => {
-      await waitForModelTransportRecovery(8_000, signal);
+      if (signal?.aborted) throw signal.reason || new DOMException("Cancelled", "AbortError");
       const cwd = params.cwd || currentSkillsCwd || desktopWorkspace();
       await resumeThreadForRequestedProvider({
         serverClient: client, threadId, cwd,
@@ -15186,7 +15214,7 @@ async function getTradingAlertService() {
 
 async function tradingAlertIpcCall(event, method, params = {}) {
   assertExternalModelsIpcSender(event);
-  if (["compile", "resumeDraft", "simulate", "confirm", "revise"].includes(method)) {
+  if (["compile", "resumeDraft", "simulate", "confirm", "revise", "createPriceAlert"].includes(method)) {
     try {
       await requireFreshTradingPremiumAccess();
     } catch (error) {
@@ -15199,6 +15227,13 @@ async function tradingAlertIpcCall(event, method, params = {}) {
         },
       };
     }
+  }
+  if (method === 'createPriceAlert' || ['pause','resume','delete'].includes(method) && isCloudPriceAlert(params?.alertId)) {
+    try {
+      const data = method === 'createPriceAlert' ? await cloudPriceAlerts.create(params) : await cloudPriceAlerts.mutate(method, params);
+      sendToRenderer('tradingAlerts:changed', await tradingAlertsCombinedSnapshot());
+      return {ok:true,data};
+    } catch (error) { return {ok:false,error:cloudStrategyFailure(error,{language:appLanguage()})}; }
   }
   const service = await getTradingAlertService();
   const threadId = method === "compile" ? String(params?.threadId || "").trim() : "";
@@ -15965,6 +16000,14 @@ ipcMain.handle("tradingCloud:recovery", async (event, params = {}) => {
 });
 
 const cloudPlans = createCloudPlans({owner:requireHaoloAccountOwner,api:getYouleApiClient});
+const cloudPriceAlerts = createCloudPriceAlerts({owner:requireHaoloAccountOwner,api:getYouleApiClient});
+async function tradingAlertsCombinedSnapshot() {
+  const local = await (await getTradingAlertService()).snapshot();
+  const session = await getYouleApiClient().getSession();
+  if (!session?.authenticated) return {...local,cloudLoaded:true};
+  const remote = await cloudPriceAlerts.snapshot();
+  return {...local,cloudLoaded:true,alerts:[...remote.alerts,...local.alerts]};
+}
 let cloudAlertFeed;
 function getCloudAlertFeed() {
   return cloudAlertFeed ||= createCloudAlertFeed({owner:requireHaoloAccountOwner,api:getYouleApiClient,
@@ -16621,44 +16664,8 @@ async function generateVideoFromFirstFrame(params = {}) {
     conversationId,
     signal: params.signal,
     exactModel: true,
-    providerFallbackOnly: model === AIHUBCC_GROK_VIDEO_MODEL,
   };
-  let result;
-  try {
-    result = await runVideoGenerationSkill(scriptPath, initialAttempt);
-  } catch (error) {
-    throwIfOperationAborted(params.signal, "视频生成");
-    const failure = error?.videoGenerationPayload;
-    if (!isSafeMediaCreationGrokProviderFallback(model, failure)) throw error;
-    const adjustments =
-      failure?.fallback_adjustments && typeof failure.fallback_adjustments === "object"
-        ? failure.fallback_adjustments
-        : {};
-    const fallbackInteractionId = `video-expert:${crypto.randomUUID()}`;
-    const fallbackResult = await runVideoGenerationSkill(scriptPath, {
-      ...initialAttempt,
-      model: BUMING_GROK_VIDEO_MODEL,
-      inputMode: firstString(adjustments.input_mode, "image-to-video"),
-      aspectRatio: firstString(adjustments.aspect_ratio, aspectRatio),
-      duration: firstString(adjustments.duration, duration),
-      resolution: firstString(adjustments.resolution, resolution),
-      size: firstString(adjustments.size),
-      interactionId: fallbackInteractionId,
-      signal: params.signal,
-      exactModel: true,
-      providerFallbackOnly: false,
-    });
-    result = {
-      ...fallbackResult,
-      provider_fallback: {
-        from_model: model,
-        to_model: BUMING_GROK_VIDEO_MODEL,
-        reason: firstString(failure.fallback_reason),
-        request_id: fallbackInteractionId,
-        adjustments,
-      },
-    };
-  }
+  const result = await runVideoGenerationSkill(scriptPath, initialAttempt);
   throwIfOperationAborted(params.signal, "视频生成");
   const normalized = normalizeVideoGenerationSkillResult(result, { duration, model });
   const billing = isGatewayBilledVideoGenerationModel(normalized.model)
@@ -16683,18 +16690,6 @@ async function generateVideoFromFirstFrame(params = {}) {
     billing_session: billing.session,
     balance_refresh: billing.refresh,
   };
-}
-
-function isSafeMediaCreationGrokProviderFallback(selectedModel, failure) {
-  return Boolean(
-    selectedModel === AIHUBCC_GROK_VIDEO_MODEL &&
-      failure &&
-      failure.pending === false &&
-      failure.state === "failed" &&
-      failure.safe_to_resubmit === true &&
-      failure.fallback_allowed === true &&
-      failure.fallback_model === BUMING_GROK_VIDEO_MODEL,
-  );
 }
 
 function isGatewayBilledVideoGenerationModel(model) {
@@ -16773,9 +16768,7 @@ async function resolveVideoGenerationSelection(params = {}) {
   );
   if (!catalog.models.length) throw new Error("暂无可用的视频生成模型");
 
-  const requestedModel = canonicalAIHubCCGrokVideoModel(
-    firstString(params.model, params.model_id, catalog.defaultModel),
-  );
+  const requestedModel = firstString(params.model, params.model_id, catalog.defaultModel);
   const model = catalog.models.find((item) => item.id === requestedModel) || catalog.models[0];
   if (requestedModel && model.id !== requestedModel) {
     throw new Error("所选视频模型当前不可用，请重新选择");
@@ -17124,7 +17117,6 @@ function runVideoGenerationSkill(
     conversationId,
     signal,
     exactModel = true,
-    providerFallbackOnly = false,
   },
 ) {
   const args = [
@@ -17159,9 +17151,6 @@ function runVideoGenerationSkill(
   if (exactModel) {
     args.splice(5, 0, "--exact-model");
   }
-  if (providerFallbackOnly) {
-    args.splice(exactModel ? 6 : 5, 0, "--provider-fallback-only");
-  }
   for (const imageUrl of imageUrls || []) {
     args.push("--image-url", imageUrl);
   }
@@ -17187,10 +17176,7 @@ function runVideoGenerationSkill(
 }
 
 function videoGenerationSkillEnv({ interactionId, conversationId, model } = {}) {
-  const credentialModel =
-    model === BUMING_GROK_VIDEO_MODEL
-      ? AIHUBCC_GROK_VIDEO_MODEL
-      : canonicalAIHubCCGrokVideoModel(model);
+  const credentialModel = String(model || "").trim();
   const mediaCredential = getYouleApiClient().businessModelCredential(
     "media_creation",
     "video_generation",
@@ -18578,6 +18564,20 @@ ipcMain.handle("codex:prepareThreadReferences", async (_event, params = {}) => {
     : inspectThreadReferencesForSend(params);
 });
 
+async function restoreBusinessPresentationHistory(result) {
+  const currentOwner = () => String(getYouleApiClient().sessionSummary()?.profile?.id || "anonymous");
+  try {
+    return await withBusinessPresentationHistory(result, {
+      artifacts: codexTradingArtifacts, owner: currentOwner(), currentOwner,
+    });
+  } catch (error) {
+    // HAOLO-TURN-DIAGNOSTICS-BEGIN history presentation failure
+    recordTradingTranscriptDiagnostic("history.presentation_failed", { threadId: result?.thread?.id, error });
+    // HAOLO-TURN-DIAGNOSTICS-END history presentation failure
+    return result;
+  }
+}
+
 async function compactActiveThreadReadResultWithContextUsage(result, cwd = "") {
   let hydrated = result;
   try {
@@ -18596,6 +18596,7 @@ async function compactActiveThreadReadResultWithContextUsage(result, cwd = "") {
       error: safeLogToken(error?.message || error),
     });
   }
+  hydrated = await restoreBusinessPresentationHistory(hydrated);
   const compacted = compactActiveThreadReadResult(hydrated);
   const contextUsage = await readLatestThreadContextUsage(hydrated?.thread);
   return contextUsage ? { ...compacted, contextUsage } : compacted;
@@ -18635,6 +18636,7 @@ ipcMain.handle("codex:readThreadForBackgroundHydration", async (_event, params =
       error: safeLogToken(error?.message || error),
     });
   }
+  hydrated = await restoreBusinessPresentationHistory(hydrated);
   const compacted = compactBackgroundThreadReadResult(hydrated);
   const contextUsage = await readLatestThreadContextUsage(hydrated?.thread);
   return contextUsage ? { ...compacted, contextUsage } : compacted;
@@ -19128,7 +19130,7 @@ ipcMain.handle("codex:sendMessage", async (_event, params = {}) => {
       rootRecoveryModelsByThread.set(String(threadId), executionSelection.model || ANALYSIS_PRIMARY_MODEL);
       turnAutoRecoveryCoordinator.setRecoverySelection(threadId,
         [IMAGE_GENERATION_CONVERSATION_MODE, VIDEO_GENERATION_CONVERSATION_MODE].includes(conversationMode)
-          ? { modelId: executionSelection.model || ANALYSIS_PRIMARY_MODEL, modelProvider: executionSelection.modelProvider || "haolo_ai", reasoningEffort: turnReasoningEffort }
+          ? { modelId: executionSelection.model || "gpt-5.6-sol", modelProvider: executionSelection.modelProvider || "haolo_ai", reasoningEffort: turnReasoningEffort, conversationMode }
           : null);
       try {
         const turnResult = await requestAppServer(serverClient, "turn/start", {
@@ -19418,6 +19420,11 @@ ipcMain.handle("window:control", async (event, action) => {
 
 ipcMain.handle("trading:captureChart", async (event, params = {}) => {
   return captureTradingChart(BrowserWindow.fromWebContents(event.sender), params, { app, clipboard });
+});
+
+ipcMain.handle("trading:saveExternalPlanImage", async (event, params = {}) => {
+  assertExternalModelsIpcSender(event);
+  return saveExternalTradingPlanImage(params, { app, nativeImage });
 });
 
 ipcMain.handle("window:resize", async (event, params) => {

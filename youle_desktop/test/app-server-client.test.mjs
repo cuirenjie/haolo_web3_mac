@@ -207,7 +207,7 @@ function withBuiltinPluginFixture(run) {
 test("bundled runtime config uses per-model context defaults and pins remote plugin behavior", () => {
   const config = fs.readFileSync(new URL("../resources/default-haolo-ai/config.toml", import.meta.url), "utf8");
 
-  assert.match(config, /^model\s*=\s*"gpt-5\.6-sol"\s*$/m);
+  assert.match(config, /^model\s*=\s*"deepseek-flash"\s*$/m);
   assert.match(config, /^model_reasoning_effort\s*=\s*"high"\s*$/m);
   assert.doesNotMatch(config, /^disable_response_storage\s*=/m);
   assertManagedTopLevelContextPinsAbsent(config);
@@ -229,7 +229,8 @@ test("bundled runtime config uses per-model context defaults and pins remote plu
 test("runtime provider overrides always send the bundled Codex version without forcing Responses Lite", () => {
   const args = defaultCodexConfigArgs({ providerBaseUrl: "https://relay.example.test/v1" });
 
-  assert.ok(args.includes('model="gpt-5.6-sol"'));
+  assert.ok(args.includes('model="deepseek-flash"'));
+  assert.ok(args.includes('model_provider="deepseek"'));
   assert.ok(args.includes('model_reasoning_effort="high"'));
   assert.equal(args.includes('windows.sandbox="unelevated"'), process.platform === "win32");
   assert.ok(args.includes("features.network_proxy.enabled=false"));
@@ -1031,15 +1032,20 @@ test("default resource sync overlays Haolo bundled skills into latest Codex home
       "utf8",
     );
 
+    const retiredScript = path.join(path.dirname(officialImagegenSkill), "scripts", "generate_chat_image.py");
+    fs.mkdirSync(path.dirname(retiredScript), { recursive: true });
+    fs.writeFileSync(retiredScript, "# retired bundled implementation\n", "utf8");
+
     const result = syncDefaultCodexResources(codexHome, { skipPlugins: true });
     assert.equal(result.action, "synced");
     assert.deepEqual(result.codexHomes, [codexHome, runtimeDotCodex]);
+    assert.equal(fs.existsSync(retiredScript), false);
 
     for (const home of result.codexHomes) {
       const imageSkill = fs.readFileSync(path.join(home, "skills", ".system", "imagegen", "SKILL.md"), "utf8");
-      assert.match(imageSkill, /aihubcc\/gpt-image-2/);
-      assert.match(imageSkill, /prompt-presets/);
-      assert.match(imageSkill, /Fast preset gate/);
+      assert.match(imageSkill, /codex\/gpt-image-2/);
+      assert.match(imageSkill, /prompt-preset/);
+      assert.match(imageSkill, /Workflow/);
       assert.doesNotMatch(imageSkill, /Default built-in tool mode/);
       assert.equal(
         fs.existsSync(path.join(home, "skills", ".system", "imagegen", "scripts", "generate_openai_image.py")),
@@ -1051,10 +1057,10 @@ test("default resource sync overlays Haolo bundled skills into latest Codex home
       );
 
       const videoSkill = fs.readFileSync(path.join(home, "skills", ".system", "videogen", "SKILL.md"), "utf8");
-      assert.match(videoSkill, /grok-imagine-video-1\.5/);
-      assert.match(videoSkill, /Video Expert capability API/);
-      assert.match(videoSkill, /--model "grok-imagine-video-1\.5"/);
-      assert.match(videoSkill, /never calls a provider directly/);
+      assert.match(videoSkill, /bytedance\/seedance-2\.0/);
+      assert.match(videoSkill, /live catalog/);
+      assert.match(videoSkill, /--model "SELECTED MODEL"/);
+      assert.match(videoSkill, /existing Haolo model credential/);
       assert.equal(
         fs.existsSync(path.join(home, "skills", ".system", "videogen", "scripts", "generate_seedance_video.py")),
         true,
@@ -1072,7 +1078,7 @@ test("default resource sync overlays Haolo bundled skills into latest Codex home
   }
 });
 
-test("default auth env exposes AIHubCC media credentials to app-server children", () => {
+test("default auth env exposes Haolo media credentials to app-server children", () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "haolo-default-auth-"));
   const previousResourceDir = process.env.HAOLO_DESKTOP_RUNTIME_RESOURCE_DIR;
   try {

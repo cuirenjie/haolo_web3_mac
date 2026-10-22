@@ -395,7 +395,8 @@ export const OFFICIAL_TRADING_CATALOG = Object.freeze([
     "capabilities": [
       "conversation",
       "chart-analysis",
-      "drawing"
+      "drawing",
+      "execution-plan"
     ],
     "chartIndicator": {
       "id": "vpvr",

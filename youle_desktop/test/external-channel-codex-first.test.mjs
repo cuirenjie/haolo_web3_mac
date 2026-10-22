@@ -1,3 +1,4 @@
+import { tradingResolutionFromAlertInterval } from "../src/renderer/trading-expert-market.ts";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
@@ -263,7 +264,7 @@ test("capture rejects another market, interval and changes during rendering or I
     if (changeAt === "before-market") chart = { ...chart, marketId: "BTC" };
     if (changeAt === "before-interval") chart = { ...chart, interval: "15" };
     const { captureExternalTradingChartAttachment } = load(["captureExternalTradingChartAttachment"], {
-      state, isExternalTradingWorkspaceThreadId: () => true,
+      state, tradingResolutionFromAlertInterval, isExternalTradingWorkspaceThreadId: () => true, wechatDebugLog() {},
       hasTradingExpertCurrentAnalysis: () => changeAt !== "indicator-only",
       tradingExpertAlertContextSnapshot: () => chart,
       root: { querySelector: () => ({ getBoundingClientRect: () => ({ x: 0, y: 0, left: 0, top: 0, width: 100, height: 80 }) }) },
@@ -271,7 +272,7 @@ test("capture rejects another market, interval and changes during rendering or I
         requestAnimationFrame: callback => { if (changeAt === "frame") chart = { ...chart, interval: "15" }; callback(); },
         codexDesktop: { captureTradingChart: async () => { captures++; if (changeAt === "capture") state.currentThreadId = "other"; return { path: "chart.png" }; } },
       },
-      prepareTradingExpertMarketForExternalCapture() {}, waitMs: async () => {},
+      prepareTradingExpertMarketForExternalCapture: () => true, waitMs: async () => {},
       externalTradingChartCaptureAttachment: result => result,
     });
     const result = await captureExternalTradingChartAttachment("channel", false, expected);

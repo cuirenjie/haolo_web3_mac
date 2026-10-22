@@ -546,10 +546,16 @@ test("reselecting a trading history always refreshes the durable transcript surf
   assert.match(rendererSource, /payload\?\.status === "completed" && \(stage === "model" \|\| stage === "analysis_pipeline"\)\) return/);
 });
 
-test("root turn owns strategy dispatch and durable native report cards", () => {
+test("only the guarded pure reference bypasses root dispatch; native report cards stay durable", () => {
   const dispatch = sourceBlock(rendererSource, "async function sendCurrentMessage", "async function sendCurrentProviderMessage");
-  assert.match(dispatch, /await sendAgentText/);
-  assert.doesNotMatch(dispatch, /await runTradingStrategyChartRequest|await runTradingGeneralChartRequest/);
+  const pure = sourceBlock(dispatch, "if (pureAnalysis && pendingSend)", "const channelId = channelIdFromThreadId(threadId);");
+  assert.match(pure, /await runTradingStrategyChartRequest\(threadId, pureAnalysis\.strategy, request, userItem\)/);
+  assert.match(pure, /return;\s*}\s*$/);
+  assert.equal((dispatch.match(/await runTradingStrategyChartRequest/g) || []).length, 1);
+  assert.doesNotMatch(dispatch, /await runTradingGeneralChartRequest/);
+  const ordinary = dispatch.slice(dispatch.indexOf("const channelId = channelIdFromThreadId(threadId);"));
+  assert.match(ordinary, /await sendAgentText/);
+  assert.doesNotMatch(ordinary, /await runTradingStrategyChartRequest/);
   assert.match(rendererSource, /codexTradingTools.collect\(threadId, items\)/);
   assert.match(rendererSource, /businessPresentationItems\(item\)/);
   assert.match(rendererSource, /payload\.slice\(index \* 32, index \* 32 \+ 32\)/);
@@ -561,10 +567,17 @@ test("strategy and general chart-analysis runners persist completed, unavailable
     "async function runTradingGeneralChartRequest",
     "function hasUploadingAttachments",
   );
-  assert.equal((runnerSection.match(/const transcriptItems: CodexItem\[\] = \[\];/g) || []).length, 2);
+  const generalRunner = sourceBlock(runnerSection, "async function runTradingGeneralChartRequest", "async function runTradingStrategyChartRequest");
+  assert.match(generalRunner, /const transcriptItems: CodexItem\[\] = \[\];/);
+  assert.equal((generalRunner.match(/const reportItem = appendTradingExpertReport/g) || []).length, 2);
   assert.ok((runnerSection.match(/await persistCompletedTradingExpertTranscript/g) || []).length >= 6);
-  assert.ok((runnerSection.match(/const reportItem = appendTradingExpertReport/g) || []).length >= 4);
   const strategyRunner = sourceBlock(rendererSource, "async function runTradingStrategyChartRequest", "function hasUploadingAttachments");
+  assert.match(strategyRunner, /const transcriptItems: CodexItem\[\] = standaloneUserItem \? \[standaloneUserItem\] : \[\];/);
+  assert.match(strategyRunner, /const reportItem = earlyReportItem && earlyReportItem\.text === result\.report \? earlyReportItem : appendTradingExpertReport/);
+  assert.match(strategyRunner, /earlyReportItem\?\.id/);
+  assert.match(strategyRunner, /persistCompletedTradingExpertTranscript\(targetThreadId\(\), \[\.\.\.transcriptItems\.filter\(item => item\.id !== reportItem\.id\), reportItem\]\)/);
+  assert.match(strategyRunner, /const reportItem = appendTradingExpertReport\(targetThreadId\(\), report, undefined, undefined, "plain"\)/);
+  assert.match(strategyRunner, /await persistCompletedTradingExpertTranscript\(targetThreadId\(\), \[\.\.\.transcriptItems, reportItem\]\)/);
   assert.match(strategyRunner, /buildTradingStrategyFailureReport\(strategy, error/);
   assert.doesNotMatch(strategyRunner, /runTradingExpertGeneralConversation|自动切换到通用价格结构/);
 });

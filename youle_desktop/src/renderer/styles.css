@@ -1,6 +1,7 @@
 @import "./trading-drawing-toolbar.css";
 @import "./color-picker.css";
 @import "./trading-fibonacci-settings.css";
+@import "./trading-price-alert.css";
 :root {
   color-scheme: light;
   /* Shared neutral states; brand and chart data colors stay independent. */
@@ -33999,7 +34000,7 @@ html[data-theme="dark"]
   --trading-market-ohlc-label: #000000;
   --trading-market-ohlc-positive: #078c53;
   --trading-market-ohlc-negative: #d63857;
-  --trading-market-crosshair-label: #7d838c;
+  --trading-market-crosshair-label: #131313;
   --trading-market-crosshair-label-text: #ffffff;
   --trading-drawing-axis-marker: #d7dade;
   --trading-drawing-axis-marker-text: #4a515b;
@@ -37444,7 +37445,7 @@ html[data-theme="dark"] .trading-alert-simulation-point > span {
   min-width: 132px;
   width: calc(var(--trading-crosshair-half-width) * 2);
   height: 22px;
-  border-radius: 1px;
+  border-radius: 2px;
   background: var(--trading-market-crosshair-label);
   color: var(--trading-market-crosshair-label-text);
   padding: 2px 9px;
@@ -37487,6 +37488,9 @@ html[data-theme="dark"] .trading-alert-simulation-point > span {
 .trading-market-focus-price.crosshair {
   z-index: 7;
   background: var(--trading-market-crosshair-label);
+  border-radius: 0 2px 2px 0;
+  pointer-events: auto;
+  font-weight: 600;
 }
 
 .trading-market-focus-price.current {
@@ -39432,7 +39436,7 @@ html[data-theme="dark"] .trading-expert-market {
   --trading-market-ohlc-label: #f5f7fa;
   --trading-market-ohlc-positive: #52dc88;
   --trading-market-ohlc-negative: #ff718e;
-  --trading-market-crosshair-label: #626b77;
+  --trading-market-crosshair-label: #131313;
   --trading-market-crosshair-label-text: #ffffff;
   --trading-drawing-axis-marker: #858f9b;
   --trading-drawing-axis-marker-text: #151a21;
@@ -41214,6 +41218,16 @@ html[data-theme] .desktop-body:has(> :is(
   border-top-left-radius: 16px;
 }
 
+.binance-account-data-status {
+  color: var(--binance-text-muted);
+  font-size: calc(12px + var(--app-font-size-offset));
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  margin: 12px 0;
+}
+.binance-account-quiet-button:disabled { opacity: .55; cursor: wait; }
+.binance-account-quiet-button:focus-visible { outline: 2px solid var(--binance-text); outline-offset: 3px; }
+
 .binance-account-quiet-button,
 .binance-account-bind-button,
 .binance-account-tutorial-button,
@@ -41439,7 +41453,7 @@ html[data-theme] .desktop-body:has(> :is(
 .binance-account-profit-day {
   display: grid;
   min-width: 0;
-  min-height: 52px;
+  min-height: 62px;
   align-content: center;
   justify-items: center;
   gap: 2px;
@@ -41457,7 +41471,7 @@ html[data-theme] .desktop-body:has(> :is(
 .binance-account-profit-day.loss > span { color: var(--binance-calendar-loss-text); }
 .binance-account-profit-day.concealed { background: var(--binance-calendar-neutral-bg); color: var(--binance-text-muted); }
 .binance-account-profit-calendar-loading { margin-top: 6px; }
-.binance-account-profit-calendar-skeleton { min-height: 52px; border-radius: 11px; }
+.binance-account-profit-calendar-skeleton { min-height: 62px; border-radius: 11px; }
 .binance-account-profit-calendar-error { display: grid; min-height: 230px; place-items: center; align-content: center; gap: 12px; color: var(--binance-text-muted); font-size: calc(12px + var(--app-font-size-offset)); text-align: center; }
 .binance-account-profit-calendar-error .binance-account-quiet-button { min-width: 72px; }
 
@@ -41669,7 +41683,7 @@ html[data-theme="dark"] .binance-account-dialog button:focus-visible { outline-c
   .binance-account-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .binance-account-skeleton-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .binance-account-profit-day,
-  .binance-account-profit-calendar-skeleton { min-height: 76px; }
+  .binance-account-profit-calendar-skeleton { min-height: 86px; }
   .binance-account-position-list { grid-template-columns: minmax(0, 1fr); }
   .binance-account-open-order-list { grid-template-columns: minmax(0, 1fr); }
   .binance-account-history-card > header { flex-direction: column; gap: 10px; }
@@ -41690,7 +41704,7 @@ html[data-theme="dark"] .binance-account-dialog button:focus-visible { outline-c
   .binance-account-profit-grid,
   .binance-account-profit-calendar-loading { gap: 6px; }
   .binance-account-profit-day,
-  .binance-account-profit-calendar-skeleton { min-height: 66px; border-radius: 9px; }
+  .binance-account-profit-calendar-skeleton { min-height: 76px; border-radius: 9px; }
   .binance-account-profit-day { gap: 3px; }
   .binance-account-profit-day > strong { font-size: calc(12px + var(--app-font-size-offset)); }
   .binance-account-profit-day > span { font-size: calc(10px + var(--app-font-size-offset)); }

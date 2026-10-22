@@ -57,10 +57,13 @@ html[data-theme="dark"] { --trading-note-background: #242832; --trading-note-tex
 .trading-drawing-layer .trading-x-post-link:focus-visible { outline: 1px solid #2962ff; }
 
 .trading-drawing-selection-action[data-horizontal-line-settings][hidden] { display: none; }
-.trading-ai-text-size-toolbar > button[data-ai-text-size-action="toggle-visibility"] > svg {
+.trading-ai-text-size-toolbar > button:is([data-ai-text-size-action="toggle-visibility"], [data-ai-text-size-action="next-drawing"]) > svg {
   width: 20px; height: 20px; fill: none; stroke: currentColor;
   stroke-width: 1.25; stroke-linecap: round; stroke-linejoin: round;
 }
+.trading-ai-text-size-toolbar > button[hidden] { display: none !important; }
+.trading-ai-text-size-toolbar > button[data-ai-text-size-action="next-drawing"] { display: flex; align-items: center; justify-content: center; width: auto; gap: 4px; padding-inline: 6px; }
+.trading-ai-text-size-toolbar > button [data-ai-drawing-set-position] { font-size: 11px; font-variant-numeric: tabular-nums; }
 .trading-ai-text-size-toolbar > button[aria-pressed="true"],
 .trading-drawing-selection-action[data-drawing-selection-action="toggle-visibility"][aria-pressed="true"] {
   color: var(--trading-market-accent); background: var(--trading-market-accent-soft);
@@ -96,7 +99,9 @@ html[data-theme="dark"] .trading-range-card > rect { fill: #2a2e39; }
    underneath transparent, and restore the full line in idle/capture states. */
 .trading-drawing-add-text-mask { opacity: 0; }
 .trading-drawing-layer:not(.drawing-active):not(.dragging-drawing) [data-drawing-id]:is(:hover, [data-selected="true"], :has(> .trading-horizontal-line-add-text[data-drawing-text-position="center"]:is([data-line-hover="true"], :focus-within))) .trading-drawing-add-text-mask { opacity: 1; }
+.trading-drawing-layer:not(.drawing-active):not(.dragging-drawing) [data-drawing-id]:is(:hover, [data-selected="true"], :has(> .trading-horizontal-line-add-text[data-drawing-text-position="center"]:is([data-line-hover="true"], :focus-within))) > [data-drawing-placeholder-mask] { mask: var(--trading-drawing-placeholder-mask); }
 .trading-chart-capturing .trading-drawing-add-text-mask { opacity: 0 !important; }
+.trading-chart-capturing [data-drawing-placeholder-mask] { mask: none !important; }
 .trading-drawing-layer:not(.drawing-active):not(.dragging-drawing) [data-drawing-source="manual"] > .trading-drawing-geometry :is(line,polyline,polygon,rect,circle,ellipse,path)[stroke]:not([stroke="none"]) { pointer-events: stroke; cursor: move; }
 .trading-drawing-layer:not(.drawing-active):not(.dragging-drawing) [data-drawing-source="manual"][data-locked="true"] > .trading-drawing-geometry :is(line,polyline,polygon,rect,circle,ellipse,path)[stroke]:not([stroke="none"]) { cursor: not-allowed; }
 .trading-horizontal-line-add-text:is(:hover, :focus-visible) text { opacity: 1; }

@@ -318,16 +318,25 @@ export class DesktopDrawingSync {
                 return;
             }
             if (!owner) {
-                this.release();
-                this.owner = '';
-                this.initial = [];
-                this.initialEdited = false;
-                this.surface.apply([], this.surface.symbol(), false);
+                // Clear an old account on logout once. Polling while signed out
+                // must not repeatedly delete local drawings or an active draft.
+                if (this.owner) {
+                    this.release();
+                    this.owner = '';
+                    this.initial = [];
+                    this.initialEdited = false;
+                    this.surface.apply([], this.surface.symbol(), false);
+                }
                 return;
             }
             const localSession = this.surface.session(), market = canonicalDrawingMarket(this.surface.symbol());
             const context = JSON.stringify([owner, localSession, market]);
             if (context !== this.context || !this.ready) {
+                // Account lookup can finish after the user has started typing.
+                // Defer initialization just like ordinary remote projections;
+                // an actual account change must still clear the previous owner.
+                if (this.surface.busy() && (!this.owner || this.owner === owner))
+                    return;
                 this.release();
                 this.owner = owner;
                 this.session = localSession;
@@ -342,7 +351,7 @@ export class DesktopDrawingSync {
                 const saved = localStorage.getItem(this.storageKey);
                 this.replica = saved ? new DrawingReplica(saved) : cachedWorkspace(owner, market, localStorage);
                 const claimKey = 'haolo.manual-legacy-owner:' + localSession, claim = localStorage.getItem(claimKey);
-                if (!saved && (!claim || claim === owner)) {
+                if ((!saved || this.initialEdited) && (!claim || claim === owner)) {
                     localStorage.setItem(claimKey, owner);
                     const initial = this.initial.filter(d => { try {
                         return canonicalDrawingMarket(d.symbol) === market && (d.drawingScope || 'main') === this.surface.scope && !this.replica.entries[d.id];

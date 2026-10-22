@@ -39,7 +39,7 @@ test("production AppServerClient migrates a legacy task to max and makes exactly
   await new Promise(r => server.listen(0, "127.0.0.1", r));
   const baseUrl = `http://127.0.0.1:${server.address().port}/v1`;
   fs.writeFileSync(authPath, JSON.stringify({ OPENAI_API_KEY: "sk-local-test", LLMHUB_BASE_URL: baseUrl }));
-  client = new AppServerClient({ cwd, codexHome, authPath, codexCommand: runtime, providerRuntimeResolver: async () => ({ deepSeek: { apiKey: "sk-local-deepseek-test", baseUrl, routeGroupId: 15 } }) });
+  client = new AppServerClient({ cwd, codexHome, authPath, codexCommand: runtime, providerRuntimeResolver: async () => ({ deepSeek: { apiKey: "sk-local-deepseek-test", baseUrl, routeGroupId: 15, billingKeyId: 123 } }) });
   client.on("notification", event => events.push(event));
   client.on("server-request", message => client.respondError(message.id, -32601, "No tools in denial test"));
   const terminal = async turnId => {
@@ -52,7 +52,7 @@ test("production AppServerClient migrates a legacy task to max and makes exactly
     }
   };
   await client.start();
-  const provider = createAppServerTradingAnalysisProvider({ modelId: "deepseek-v4-flash", waitForRecovery: async () => assert.fail("403 must not retry"), invoke: async selection => {
+  const provider = createAppServerTradingAnalysisProvider({ modelId: "deepseek-v4-flash", fixedReasoningEffort: "max", waitForRecovery: async () => assert.fail("403 must not retry"), invoke: async selection => {
     assert.equal(selection.modelId, "deepseek-flash");
     assert.equal(selection.reasoningEffort, "max");
     // Deliberately inject persisted legacy metadata at the RPC boundary.
@@ -65,7 +65,7 @@ test("production AppServerClient migrates a legacy task to max and makes exactly
     assert.equal(isRecoverableAnalysisModelFailure(failure, { allowUnknownTerminal: true }), false);
     return { status: "failed", error: failure.detail, httpStatus: failure.httpStatus, retryable: false };
   } });
-  await assert.rejects(provider.analyze({ task: "price-action-theory-review", requestId: "synthetic" }));
+  await assert.rejects(provider.analyze({ task: "price-action-theory-review", requestId: "synthetic" }), /PERMISSION_DENIED|not enabled/i);
   assert.equal(calls.length, 1, "native retries and host fallback must both stop on 403");
   assert.equal(calls[0].body.model, "deepseek-flash");
   assert.equal(calls[0].body.reasoning.effort, "max");

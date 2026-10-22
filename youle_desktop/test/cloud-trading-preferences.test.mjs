@@ -166,14 +166,16 @@ test('saving the entry mode patches only the edited field and preserves default 
   assert.equal(fixture.writes.length, 0);
 });
 
-test('an explicitly saved automatic mode remains user-saved and invalid cloud modes fail closed', async () => {
+test('retired automatic mode displays right without changing source history; new auto saves fail', async () => {
   const saved = config(5);
   saved.fields.entryMode.choice.selected = ['auto'];
   saved.fields.entryMode.source = 'user_saved';
   const fixture = setup(() => saved);
   const loaded = await fixture.adapter.load();
-  assert.equal(loaded.profile.preferenceForm.entryMode, 'auto');
+  assert.equal(loaded.profile.preferenceForm.entryMode, 'right');
+  assert.deepEqual(saved.fields.entryMode.choice.selected,['auto']);
   assert.equal(loaded.profile.fieldSources.entryMode, 'user_saved');
+  await assert.rejects(fixture.adapter.save({...loaded.profile.preferenceForm,entryMode:'auto'}),{code:'ENTRY_MODE_INVALID'});
   saved.fields.entryMode.choice.selected = ['unknown'];
   await assert.rejects(fixture.adapter.effective(), error => error.code === 'TRADING_PREFERENCE_CLOUD_INVALID');
 });

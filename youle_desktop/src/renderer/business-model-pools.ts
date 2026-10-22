@@ -190,8 +190,8 @@ export function defaultExecutionChatModelOption(
   options: readonly ChatModelOption[],
 ): ChatModelOption | null {
   return (
-    options.find((option) => option.isDefault) ||
     options.find((option) => option.value === DEFAULT_CHAT_MODEL_VALUE) ||
+    options.find((option) => option.isDefault) ||
     options[0] ||
     null
   );

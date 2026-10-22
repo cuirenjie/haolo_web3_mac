@@ -112,7 +112,7 @@ test('actual drawing commit persists a closed or changed split to its original n
   const code=ts.transpileModule(node.getText(ast),{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
   for(const visible of [false,true]) {
     const saved=[],applied=[];
-    const job={analysisId:'job',storageSessionId:'original',status:'running',marketId:'BTC',interval:'15',language:'en'};
+    const job={analysisId:'job',drawingTurnId:'chat-turn',storageSessionId:'original',status:'running',marketId:'BTC',interval:'15',language:'en'};
     const patch={marketId:'ETH',interval:'240',operations:[]};
     const deps={tradingAnalysisJobs:{get:()=>job},localizeTradingAiDrawingPatch:x=>x,translateAppText:x=>x,
       activeWorkspace:{drawingStorageSessionMatches:x=>x==='original',analysisDrawingTargetMatches:()=>visible,
@@ -120,7 +120,7 @@ test('actual drawing commit persists a closed or changed split to its original n
       tradingSplitPaneDrawingStorageSessionId:(id,pane)=>`${id}::split-pane:${pane}`,persistTradingAiDrawingPatch:(id,p)=>saved.push({id,p})};
     const commit=Function(...Object.keys(deps),code+';return commitTradingAnalysisDrawingPatch;')(...Object.values(deps));
     await commit(job,patch,2);
-    assert.deepEqual(saved,[{id:'original::split-pane:2',p:patch}]);assert.deepEqual(applied,visible?[2]:[]);
+    assert.deepEqual(saved,[{id:'original::split-pane:2',p:{...patch,drawingTurnId:'chat-turn'}}]);assert.deepEqual(applied,visible?[2]:[]);
   }
 });
 

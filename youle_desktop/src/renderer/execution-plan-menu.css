@@ -1,0 +1,28 @@
+.message-execution-plan [data-plan-menu-trigger] { cursor: pointer; border-radius: inherit; }
+.message-execution-plan [data-plan-menu-trigger]:focus-visible { outline: 2px solid var(--accent, #3178ef); outline-offset: 4px; }
+.message-execution-plan [data-plan-menu-trigger] .execution-plan-heading { position: relative; padding-right: 24px; }
+.message-execution-plan [data-plan-menu-trigger] .execution-plan-heading::after {
+  content: ''; position: absolute; right: 3px; top: 50%; width: 6px; height: 10px;
+  background: var(--text-muted, #8b8e97); opacity: .65; transform: translateY(-50%);
+  clip-path: polygon(0 0, 35% 0, 100% 50%, 35% 100%, 0 100%, 65% 50%);
+}
+.message-execution-plan [data-plan-menu-trigger]:hover .execution-plan-heading::after { opacity: 1; }
+.execution-plan-dialog {
+  border: 1px solid var(--line, #ddd); border-radius: 26px; padding: 18px;
+  color: var(--text-primary, #202124); background: var(--surface-primary, #fff);
+  box-shadow: 0 18px 64px #0003; max-width: min(620px, calc(100vw - 48px)); max-height: calc(100vh - 48px);
+}
+.execution-plan-dialog::backdrop { background: #0008; }
+.execution-plan-option-menu { width: 284px; }
+.execution-plan-dialog button { font: inherit; color: inherit; cursor: pointer; border: 0; background: transparent; border-radius: 12px; }
+.execution-plan-option-menu button { display: block; width: 100%; text-align: left; padding: 15px 18px; font-size: 17px; }
+.execution-plan-dialog button:hover { background: var(--hover, #8882); }
+.execution-plan-dialog button:focus-visible { outline: 2px solid var(--accent, #3178ef); outline-offset: -2px; }
+.execution-plan-dialog button:disabled { opacity: .4; cursor: default; }
+.execution-plan-dialog h2 { font-size: 18px; margin: 0 0 16px; }
+.execution-plan-dialog footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.execution-plan-dialog footer button { padding: 10px 16px; }
+.execution-plan-share-preview { display: block; max-width: 100%; max-height: 65vh; margin: auto; border-radius: 16px; }
+.execution-plan-dialog [hidden] { display: none !important; }
+.execution-plan-dialog [role=status] { white-space: pre-wrap; max-width: 460px; }
+[data-theme=dark] .execution-plan-dialog { background: var(--surface-primary, #252629); color: var(--text-primary, #f2f2f4); border-color: var(--line, #45464c); }

@@ -28,7 +28,7 @@ test("theory review bounds each model attempt while allowing provider failover",
   assert.deepEqual(tradingAnalysisTurnPolicy("trading_theory_review"), {
     kind: "theory_review",
     reasoningEffort: "medium",
-    timeoutMs: 120_000,
+    timeoutMs: 90_000,
     resetTimeoutOnActivity: false,
     timeoutRetryable: true,
     maxAttempts: 1,

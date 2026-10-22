@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Resolve the local Haolo image prompt preset before any AIHubCC submission.
+"""Resolve the local Haolo image prompt preset before any official image submission.
 
 This helper is intentionally local-only. It parses the bundled preset index,
 writes a small hash-validated check record, and returns the selected preset text

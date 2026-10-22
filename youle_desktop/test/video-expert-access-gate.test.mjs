@@ -129,11 +129,11 @@ test("video model capabilities are exposed through authenticated IPC", async () 
     filterBlock,
     /provider: configured\.provider \|\| capability\.provider/,
   );
-  assert.match(filterBlock, /documentedVideoModelCapability\(configuredID\)/);
+  assert.doesNotMatch(filterBlock, /documentedVideoModelCapability/);
   assert.match(filterBlock, /videoModelCatalogMatchID\(configuredID\)/);
   assert.match(
     filterBlock,
-    /\.\.\.\(documented \|\| \{\}\)[\s\S]*?\.\.\.\(compatibleCatalog \|\| \{\}\)[\s\S]*?\.\.\.\(exactCatalog \|\| \{\}\)/,
+    /\.\.\.\(compatibleCatalog \|\| \{\}\)[\s\S]*?\.\.\.\(exactCatalog \|\| \{\}\)/,
   );
 });
 

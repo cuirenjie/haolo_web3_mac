@@ -30,6 +30,7 @@ async function submit() {
   let tradingAnalysisTargetAtSend = {};
   let tradingStrategyRequestAtSend = null, tradingGeneralRequestAtSend = null;
   const tradingStrategyRequestsAtSend = [];
+  const pureAnalysis = null;
   ${pipeline}
 ${["updateTradingExpertThinkingState", "clearTradingExpertThinkingState", "tradingExpertThinkingStage", "withThinkingMessage"].map(functionSource).join("\n")}
 `, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
@@ -61,6 +62,7 @@ function harness({ general = false, mode = "chart-analysis", access = "available
   }
   const strategy = { id: "price-action", ui: { classificationMessage: "正在识别裸K分析请求", preparingMessage: "正在准备裸K分析" } };
   const deps = {
+    isPureTradingAnalysisThread: () => false,
     businessModelPoolsState: { configured: false },
     hasThreadCodexWork: () => false, threadsAwaitingAgentReply: new Set(), setCodexThreadBusy: noop,
     beginCodexSend: () => "send", prepareThreadReferencesForSend: async () => ({ ok: true }),

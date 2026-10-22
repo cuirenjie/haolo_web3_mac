@@ -96,6 +96,7 @@ export class PersonalContextMcpBridge {
           category: String(error?.category || "execution"),
           retryable: Boolean(error?.retryable),
           retry_after_ms: Number.isFinite(error?.retryAfterMs) ? Number(error.retryAfterMs) : null,
+          ...(error?.terminal === true ? { terminal: true, nextAction: "stop" } : {}),
         },
       });
     }

@@ -70,13 +70,13 @@ for (const [name, failure, options] of [
 ]) test(`Mac bounded review hands ${name} to the recovery provider after cleanup`, async () => {
   const h = harness(failure, options);
   const result = await h.provider.analyze(request, { reasoningEffort: "medium" });
-  assert.equal(result.modelId, "deepseek-flash");
-  assert.deepEqual(h.starts.map((entry) => entry.model), ["gpt-5.6-sol", "deepseek-flash"]);
-  assert.equal(h.starts[1].modelProvider, "deepseek");
-  assert.equal(h.turns[1].fixedEffort, "max");
+  assert.equal(result.modelId, "gpt-5.6-sol");
+  assert.deepEqual(h.starts.map((entry) => entry.model), ["deepseek-flash", "gpt-5.6-sol"]);
+  assert.equal(h.starts[1].modelProvider, "haolo_ai");
+  assert.equal(h.turns[1].fixedEffort, "high");
   assert.equal(h.turns.length, 2);
   assert.ok(h.turns.every((entry) => entry.input[0].text === request.prompt && entry.sandboxPolicy === "read-only"));
-  assert.deepEqual(h.captures.map((entry) => entry.timeoutMs), [120_000, 45_000]);
+  assert.deepEqual(h.captures.map((entry) => entry.timeoutMs), [90_000, 90_000]);
   assert.ok(h.captures.every((entry) => entry.resetTimeoutOnActivity === false));
   assert.deepEqual(h.events, ["start:review-1", "clean:review-1", "start:review-2", "clean:review-2"]);
 });
@@ -84,9 +84,9 @@ for (const [name, failure, options] of [
 test("Mac review keeps the total fallback finite even when every transport fails", async () => {
   const h = harness({ status: "failed", error: "stream disconnected", errorCode: "stream_disconnected", retryable: true }, { alwaysFail: true });
   await assert.rejects(h.provider.analyze(request), (error) => error.recovery?.exhausted === true);
-  assert.deepEqual(h.starts.map((entry) => entry.model), ["gpt-5.6-sol", "deepseek-flash", "deepseek-flash"]);
-  assert.equal(h.cleaned.length, 3);
-  assert.equal(h.waits.length, 2);
+  assert.deepEqual(h.starts.map((entry) => entry.model), ["deepseek-flash", "gpt-5.6-sol"]);
+  assert.equal(h.cleaned.length, 2);
+  assert.equal(h.waits.length, 0);
 });
 
 for (const [name, result] of [

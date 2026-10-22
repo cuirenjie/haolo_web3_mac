@@ -1,4 +1,7 @@
 import {chartTickLabel} from "./trading-chart-time.ts";
+import { TradingChartClock } from "./trading-chart-clock.ts";
+import { TradingPriceAlertControl } from './trading-price-alert.ts';
+import { deferInteractionRender } from "./interaction-render-guard.ts";
 import type { VolumeHistoryRequest, VolumeHistoryResult } from './trading-volume-history.ts';
 import {normalizeTradingIndicatorAiDrawingPatch,storeCloudIndicatorPatch,loadCloudIndicatorPatch,migrateCloudIndicatorPatches,clearIndicatorAnalysisRuntime,renderIndicatorAnalysisPatch,type IndicatorAnalysisRuntime} from './cloud-indicator-drawings.ts';
 import {
@@ -383,6 +386,8 @@ export class TradingExpertSplitPane {
   private readonly mainIndicators: readonly TradingSplitPaneMainIndicatorDefinition[];
   private chartElement: HTMLElement;
   private viewportElement: HTMLElement;
+  private crosshairPriceElement: HTMLElement;
+  private priceAlertControl: TradingPriceAlertControl;
   private ohlcElement: HTMLElement;
   private ohlcTimeElement: HTMLTimeElement;
   private ohlcValueElements: readonly HTMLElement[];
@@ -400,6 +405,7 @@ export class TradingExpertSplitPane {
   private periodTrigger: HTMLButtonElement;
   private periodMenu: HTMLElement;
   private chart: ReturnType<typeof createChart> | null = null;
+  private chartClock: TradingChartClock | null = null;
   private chartNavigation: TradingChartNavigation | null = null;
   private series: any = null;
   private extremaOverlay: TradingChartExtremaOverlay | null = null;
@@ -464,6 +470,11 @@ export class TradingExpertSplitPane {
     this.host.innerHTML = this.render();
     this.chartElement = this.requireElement("[data-split-chart]");
     this.viewportElement = this.requireElement("[data-split-viewport]");
+    this.crosshairPriceElement = this.requireElement('[data-split-crosshair-price]');
+    this.priceAlertControl = new TradingPriceAlertControl(this.crosshairPriceElement, () =>
+      this.loadedMarketId === this.market.id && this.loadedInterval === this.interval
+        ? { marketId: this.market.id, interval: this.interval, referencePrice: this.candles.at(-1)?.close || 0 }
+        : null);
     this.ohlcElement = this.requireElement("[data-split-ohlc]");
     this.ohlcTimeElement = this.requireElement<HTMLTimeElement>("[data-split-ohlc-time]");
     this.ohlcValueElements = Array.from(this.ohlcElement.querySelectorAll<HTMLElement>("[data-split-ohlc-value]"));
@@ -641,6 +652,7 @@ export class TradingExpertSplitPane {
         </header>
         <div class="trading-market-split-viewport" data-split-viewport>
           <div class="trading-market-split-chart" data-split-chart></div>
+          <div class="trading-market-focus-price crosshair" data-split-crosshair-price hidden></div>
           <svg
             class="trading-market-volume-profile-layer"
             data-split-volume-profile-layer
@@ -789,6 +801,8 @@ export class TradingExpertSplitPane {
   };
 
   private readonly handleViewportLeave = () => {
+    if (this.priceAlertControl.interacting) return;
+    this.crosshairPriceElement.hidden = true;
     this.crosshairFrame.cancel();
     this.hoveredOhlcSourceTime = null;
     this.renderLatestOhlc();
@@ -831,6 +845,7 @@ export class TradingExpertSplitPane {
   private readonly symbolPriceFlash = new TradingPriceFlash();
 
   private renderSymbolResults() {
+    if (deferInteractionRender(this.symbolList, () => this.renderSymbolResults())) return;
     const markets = tradingSplitPaneMarketSearchResults(
       this.markets,
       this.symbolSearch.value,
@@ -971,8 +986,8 @@ export class TradingExpertSplitPane {
       },
       crosshair: {
         mode: CrosshairMode.Normal,
-        vertLine: { color: theme.crosshairColor, style: LineStyle.Dashed, labelBackgroundColor: theme.crosshairColor },
-        horzLine: { color: theme.crosshairColor, style: LineStyle.Dashed, labelBackgroundColor: theme.crosshairColor },
+        vertLine: { color: theme.crosshairColor, style: LineStyle.Dashed, labelBackgroundColor: '#131313' },
+        horzLine: { color: theme.crosshairColor, style: LineStyle.Dashed, labelBackgroundColor: '#131313', labelVisible: false },
       },
       rightPriceScale: {
         mode: priceScaleMode(this.settings),
@@ -994,6 +1009,7 @@ export class TradingExpertSplitPane {
       },
       ...TRADING_CHART_NAVIGATION_OPTIONS,
     });
+    this.chartClock = new TradingChartClock(this.chartElement, this.chart);
     this.addSeries();
     this.extremaOverlay?.destroy();
     this.extremaOverlay = new TradingChartExtremaOverlay({
@@ -1266,6 +1282,19 @@ export class TradingExpertSplitPane {
 
   private paintCrosshair(parameter: any) {
     if (this.destroyed) return;
+    if (this.priceAlertControl.interacting) return;
+    const y = parameter?.point?.y;
+    const price = typeof y === 'number' ? this.series?.coordinateToPrice(y) : null;
+    if (this.chart && Number.isFinite(price) && (parameter.paneIndex ?? 0) === 0) {
+      const digits = Math.abs(price) >= 1 ? Math.floor(Math.log10(Math.abs(price))) + 1 : 1;
+      this.priceAlertControl.update(price, Math.max(2, 6 - digits));
+      const halfHeight = 12 * this.chart.options().layout.fontSize / 11;
+      const height = this.chart.panes()[0]?.getHeight() ?? 0;
+      this.crosshairPriceElement.style.left = `${this.chart.timeScale().width()}px`;
+      this.crosshairPriceElement.style.width = `${this.chart.priceScale('right', 0).width()}px`;
+      this.crosshairPriceElement.style.top = `${Math.min(Math.max(y, halfHeight), Math.max(halfHeight, height - halfHeight))}px`;
+      this.crosshairPriceElement.hidden = false;
+    } else this.crosshairPriceElement.hidden = true;
     if (typeof parameter?.time === "number" && Number.isFinite(parameter.time)) {
       const rawTime = parameter.time - CHINA_TIME_OFFSET_SECONDS;
       const candle = this.candles[tradingChartCandleIndex(this.candles, rawTime)];
@@ -1574,8 +1603,8 @@ export class TradingExpertSplitPane {
         horzLines: { visible: theme.horizontalGridVisible, color: theme.horizontalGridColor },
       },
       crosshair: {
-        vertLine: { color: theme.crosshairColor, labelBackgroundColor: theme.crosshairColor },
-        horzLine: { color: theme.crosshairColor, labelBackgroundColor: theme.crosshairColor },
+        vertLine: { color: theme.crosshairColor, labelBackgroundColor: '#131313' },
+        horzLine: { color: theme.crosshairColor, labelBackgroundColor: '#131313', labelVisible: false },
       },
       rightPriceScale: {
         borderColor: themeName === "dark" ? "#1a2437" : "#e3e8ef",
@@ -1587,6 +1616,7 @@ export class TradingExpertSplitPane {
         rightBarStaysOnScroll: settings.scaleAnchor === "right",
       },
     });
+    this.chartClock?.update();
     this.chart?.priceScale("right", 0).applyOptions({
       ...(scaleModeChanged ? { mode: priceScaleMode(settings), autoScale: true } : {}),
       scaleMargins: {
@@ -1754,7 +1784,7 @@ export class TradingExpertSplitPane {
 
   async playAiDrawingPatch(
     patch: TradingAiDrawingPatch,
-    options: { onPhase?: (phase: TradingAiPlaybackPhase) => void } = {},
+    options: { onPhase?: (phase: TradingAiPlaybackPhase) => void; shouldContinue?: () => boolean; speedMultiplier?: number } = {},
   ) {
     await (this.drawingController?.playAiDrawingPatch(patch, {
       ...options,
@@ -1821,6 +1851,7 @@ export class TradingExpertSplitPane {
   }
 
   private async reload(resetViewport: boolean): Promise<boolean> {
+    if (resetViewport) this.crosshairPriceElement.hidden = true;
     if (resetViewport) this.restoreCloudIndicatorSelection();
     if (resetViewport) this.chartNavigation?.cancelGesture();
     if (resetViewport) this.invalidateVolumeProfileSnapshot();
@@ -1937,6 +1968,7 @@ export class TradingExpertSplitPane {
 
   destroy() {
     if (this.destroyed) return;
+    this.priceAlertControl.destroy();
     this.symbolPriceFlash.clear();
     this.destroyed = true;
     this.crosshairFrame.cancel();
@@ -1956,6 +1988,8 @@ export class TradingExpertSplitPane {
     this.extremaOverlay = null;
     this.chartNavigation?.destroy();
     this.chartNavigation = null;
+    this.chartClock?.destroy();
+    this.chartClock = null;
     this.chart?.remove();
     this.chart = null;
     this.host.replaceChildren();

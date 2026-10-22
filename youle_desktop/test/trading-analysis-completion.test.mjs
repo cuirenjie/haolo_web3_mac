@@ -6,6 +6,7 @@ import ts from "typescript";
 import { businessPresentationItems, businessPresentationResult } from "../src/shared/codex-business-presentation.mjs";
 import { completedTradingAnalysisReport, isCompletedTradingAnalysisReport, tradingAnalysisDeliveryItems } from "../src/renderer/trading-analysis-completion.ts";
 import { turnResultFoldTargets } from "../src/renderer/turn-result-fold.ts";
+import { pureAnalysisPresentationGroups } from "../src/renderer/pure-analysis-presentation.ts";
 import { rememberTradingPlanDrawingHistory } from "../src/renderer/trading-plan-drawing-history.ts";
 import { activeThinkingResponseId, isFinalAnswerForThinkingResponse } from "../src/renderer/thinking-indicator.ts";
 import { compactActiveThreadReadResult, compactBackgroundThreadReadResult } from "../src/main/background-thread-hydration.mjs";
@@ -18,7 +19,7 @@ const functions = [
   "shouldPreserveExistingThreadItem", "shouldPreserveLocalHistoryAheadItem", "latestSortTime", "itemStableId",
   "upsertItem", "appendTradingExpertReport", "isThreadBusy", "isProviderThreadBusy",
   "activeWorkflowRunForThread", "completedTradingAnalysisForTurn", "hasActiveCompletedTradingAnalysis",
-  "isConversationThreadWorking", "isComposerThreadBusy", "isTradingExpertConversationCollapseLocked",
+  "isConversationThreadWorking", "isComposerThreadBusy", "isPureTradingAnalysisThread", "isTradingExpertConversationCollapseLocked",
   "hasActiveFinalAnswerMessage", "isFinalAnswerAgentItem", "withThinkingMessage",
   "isTurnResultGroupComplete", "turnResultDisplayStatus", "turnResultElapsedLabel",
   "turnIdFromResultKey", "normalizedTurnResultStatus", "minFinite", "maxFinite",
@@ -51,7 +52,7 @@ function harness() {
   const noop = () => {};
   const context = {
     state, businessPresentationItems, businessPresentationResult, rememberTradingPlanDrawingHistory,
-    completedTradingAnalysisReport, isCompletedTradingAnalysisReport, tradingAnalysisDeliveryItems, turnResultFoldTargets,
+    completedTradingAnalysisReport, isCompletedTradingAnalysisReport, tradingAnalysisDeliveryItems, turnResultFoldTargets, pureAnalysisPresentationGroups,
     activeThinkingResponseId, isFinalAnswerForThinkingResponse,
     activeTurnIdForThread: () => turnId,
     activeCodexThreadIds: new Set(["origin"]),
@@ -59,6 +60,8 @@ function harness() {
     workflowRunsByThreadId: new Map(),
     localGroupChatBusyThreadIds: new Set(),
     submittingComposerThreadIds: new Set(),
+    pureTradingAnalysisThreads: new Set(),
+    resolveTradingExpertAnalysisThreadId: id => id,
     tradingExpertThinkingStateByThreadId: new Map(),
     localHistoryAheadThreadIds: new Set(),
     liveConversationSupplementIds: new Set(),
@@ -190,6 +193,20 @@ test("visible native plan is an artifact; working state remains until the root a
   c.upsertItem("origin", { id: "answer", type: "agentMessage", phase: "final_answer", turnId: "turn-1",
     text: "结论：等待确认。用户要求的说明和非交易问题也已在这份回答中覆盖。" });
   assert.equal(c.hasActiveFinalAnswerMessage("origin"), true);
+});
+
+test("pure report reveal hides the thinking bubble only after the current request starts displaying text", () => {
+  const h=harness(),c=h.context;
+  c.pureTradingAnalysisThreads.add('origin');
+  c.tradingExpertThinkingStateByThreadId.set('origin',{phase:'drawing',message:'Drawing'});
+  c.tradingExpertThinkingStage=()=>({label:'Drawing'});
+  const user={id:'user',kind:'user_text',text:'@策略:裸K'};
+  assert.equal(c.withThinkingMessage('origin',[user]).at(-1).id,'thinking-origin');
+  const report={id:'pure-trading-price-action-progress-1792584000000-abc-report',kind:'agent_text',text:'正在增长的报告正文'};
+  assert.deepEqual(Array.from(c.withThinkingMessage('origin',[user,report]),m=>m.id),['user',report.id]);
+  assert.equal(c.withThinkingMessage('origin',[user,report,{...user,id:'next-user'}]).at(-1).id,'thinking-origin');
+  c.pureTradingAnalysisThreads.clear();
+  assert.equal(c.withThinkingMessage('origin',[user,report]).at(-1).id,'thinking-origin');
 });
 
 test("streamed final answers survive native presentation, terminal events and history replay", async () => {

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { nativeIndicatorPipelines } from "./helpers/native-indicator-pipelines.mjs";
 import { BUILTIN_TRADING_STRATEGY_ADAPTERS } from "../src/main/trading-strategy-runtime/builtins/index.mjs";
 import { TradingStrategyCoordinator } from "../src/main/trading-strategy-runtime/coordinator.mjs";
 import { createTradingStrategyRegistry } from "../src/main/trading-strategy-runtime/registry.mjs";
@@ -57,12 +58,17 @@ for (const strategy of registry.list()) {
 
 for (const strategyId of localStrategies) {
  for (const language of ["zh-CN", "en", "zh-TW"]) {
-  test(`${strategyId}/${language}: real analysis completes while model service is unavailable`, async () => {
+  test(`${strategyId}/${language}: model unavailability preserves the strategy's review requirement`, async () => {
     applyAppLanguage(language);
     let modelCalls = 0;
     const coordinator = new TradingStrategyCoordinator({ registry, providerId: "unavailable", modelRegistry: {
       async analyze() { modelCalls += 1; throw new Error("Model service unavailable"); },
     } });
+    if (nativeIndicatorPipelines[strategyId]) {
+      await assert.rejects(coordinator.run(strategyId, { ...marketParams(), language }), /Model service unavailable/);
+      assert.equal(modelCalls, 1, "Combined analysis must not pretend an unavailable model review succeeded");
+      return;
+    }
     const result = await coordinator.run(strategyId, { ...marketParams(), language });
     assert.equal(result.ok, true);
     assert.equal(result.strategy.id, strategyId);

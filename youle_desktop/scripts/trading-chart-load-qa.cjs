@@ -5,6 +5,7 @@ const fs = require('node:fs'), path = require('node:path'), assert = require('no
 const root = path.resolve(__dirname, '..'), label = process.argv[2] || 'after';
 const output = path.resolve(root, process.env.CHART_QA_OUTPUT || '.cache/chart-load-20261018');
 const cpuRate = Number(process.env.CHART_QA_CPU_RATE || 1);
+if (process.env.CHART_QA_DISABLE_GPU === '1') app.disableHardwareAcceleration();
 fs.mkdirSync(output, { recursive: true });
 app.setPath('userData', path.join(output, 'profile-' + label));
 const pause = ms => new Promise(r => setTimeout(r, ms));
@@ -35,7 +36,7 @@ const pause = ms => new Promise(r => setTimeout(r, ms));
     if(process.env.CHART_QA_BASELINE_DIR){
       const transformedLibrary=await(await fetch(library)).text();
       const canvas='http://127.0.0.1:5183'+transformedLibrary.match(/from ["']([^"']*fancy-canvas[^"']*)["']/)[1];
-      const original=fs.readFileSync(path.join(path.dirname(require.resolve('lightweight-charts/package.json')),'dist/lightweight-charts.development.mjs'),'utf8');
+      const original=fs.readFileSync(process.env.CHART_QA_BASELINE_LIBRARY || path.join(path.dirname(require.resolve('lightweight-charts/package.json')),'dist/lightweight-charts.development.mjs'),'utf8');
       sources.set('lightweight-charts.development.mjs',original.replace("from 'fancy-canvas'",'from '+JSON.stringify(canvas)));
     }
     debug.on('message', async (_event, method, params) => {

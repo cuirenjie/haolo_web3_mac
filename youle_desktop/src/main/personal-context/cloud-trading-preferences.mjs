@@ -39,16 +39,17 @@ function validateConfig(config) {
 
 function result(config) {
   const profile = tradingRiskProfileFromEntries(config.entries);
+  const entryMode = config.fields.entryMode.choice.selected[0] === 'left' ? 'left' : 'right';
   // Entry-mode-only saves do not compile memory entries. Field provenance is
   // authoritative even when the retired questionnaire completion flag is absent.
   const completed = profile.onboardingCompleted
     || Object.values(config.fields).some(field => field.source === 'user_saved')
     || config.extraNotes?.source === 'user_saved';
   return { ok: true, completed,
-    profile: { ...profile, onboardingCompleted: completed, entryMode: config.fields.entryMode.choice.selected[0],
+    profile: { ...profile, onboardingCompleted: completed, entryMode,
       fieldSources: Object.fromEntries(Object.entries(config.fields).map(([id, field]) => [id, field.source])),
       preferenceForm: {
-      entryMode: config.fields.entryMode.choice.selected[0],
+      entryMode,
       choices: Object.fromEntries(choiceFields.filter(id => id !== 'entryMode').map(id => [id, structuredClone(config.fields[id].choice)])),
       extraNotes: config.extraNotes?.value || '',
     } }, revision: config.revision, configHash: config.configHash,
@@ -103,6 +104,10 @@ export function createCloudTradingPreferences({ owner, api }) {
         throw failure('TRADING_PREFERENCE_INVALID');
       }
       const choices = { ...params.choices, ...(params.entryMode !== undefined ? { entryMode: { selected: [params.entryMode], custom: '' } } : {}) };
+      if (choices.entryMode && (choices.entryMode.selected?.length !== 1
+        || !['left', 'right'].includes(choices.entryMode.selected[0]) || choices.entryMode.custom)) {
+        throw failure('ENTRY_MODE_INVALID');
+      }
       const edited = Array.isArray(params.changedFields) ? params.changedFields : null;
       if (edited && (new Set(edited).size !== edited.length || edited.some(id => ![...choiceFields, 'extraNotes'].includes(id)))) {
         throw failure('TRADING_PREFERENCE_INVALID');

@@ -284,7 +284,7 @@ export class AppServerClient extends EventEmitter {
       // The Haolo network relay preserves Responses WebSocket frames as well as
       // HTTP/SSE. Custom GPT origins retain their existing direct transport.
       default: { baseUrl: requestedProviderBaseUrl, relay: false },
-      deepSeek: { baseUrl: requestedDeepSeekBaseUrl, relay: true },
+      deepSeek: { baseUrl: requestedDeepSeekBaseUrl, relay: true, deepSeekBilling: { keyId: providerRuntime.deepSeek?.billingKeyId } },
       mediaTools: { baseUrl: HAOLO_GATEWAY_BASE_URL, relay: false },
     });
     if (modelRoutes.mediaTools.relay) {
@@ -581,12 +581,12 @@ export class AppServerClient extends EventEmitter {
         ? requestedRoute
         : { baseUrl: requestedRoute, relay: true };
       const baseUrl = normalizeProviderBaseUrl(route.baseUrl);
-      const routingRequired = Boolean(baseUrl && this.modelRelayFetch && haoloRoute(baseUrl));
+      const routingRequired = route.deepSeekBilling !== undefined || Boolean(baseUrl && this.modelRelayFetch && haoloRoute(baseUrl));
       if (!baseUrl || (!routingRequired && (!enabled || route.relay === false))) {
         result[name] = { baseUrl, relay: false };
         continue;
       }
-      const key = baseUrl.toLowerCase();
+      const key = `${baseUrl.toLowerCase()}:${route.deepSeekBilling !== undefined ? "product-billing" : "standard"}`;
       let relay = relaysByUpstream.get(key);
       if (!relay) {
         try {
@@ -595,6 +595,7 @@ export class AppServerClient extends EventEmitter {
             fetch: this.modelRelayFetch || undefined,
             WebSocketImpl: this.modelRelayWebSocketImpl,
             resolveHistoryModel: (threadId) => this.historyModelSelections.get(threadId),
+            deepSeekBilling: route.deepSeekBilling,
           });
           relay.on("request-metrics", (metrics) => this.emitModelRelayMetrics(metrics));
           relay.on("request-error", (error) => {
@@ -855,6 +856,15 @@ function syncDefaultCodexResourcesInto(codexHome, options = {}) {
           continue;
         }
         safeCopyDirectoryChanged(source, target, copied, relativeTarget, errors);
+        if (entry.name === "imagegen") {
+          // This retired bundled entry point must not survive an overlay upgrade.
+          const retiredScript = path.join(target, "scripts", "generate_chat_image.py");
+          try {
+            if (fs.existsSync(retiredScript)) fs.unlinkSync(retiredScript);
+          } catch (error) {
+            errors.push(resourceSyncError(retiredScript, error));
+          }
+        }
       }
     }
 
@@ -2621,7 +2631,7 @@ export function defaultCodexConfigArgs(options = {}) {
   );
   const args = [
     "-c",
-    `model_provider="${DEFAULT_PROVIDER_ID}"`,
+    `model_provider="${DEEPSEEK_EXECUTION_PROVIDER_ID}"`,
     "-c",
     `model="${DEFAULT_MODEL}"`,
     "-c",
@@ -2713,6 +2723,7 @@ async function resolveExecutionProviderRuntime(resolver) {
     }
     const deepSeek = {
       baseUrl,
+      billingKeyId: Number.isSafeInteger(value?.deepSeek?.billingKeyId) && value.deepSeek.billingKeyId > 0 ? value.deepSeek.billingKeyId : null,
       routeGroupId:
         Number.isSafeInteger(routeGroupId) && routeGroupId > 0
           ? routeGroupId

@@ -58,8 +58,12 @@ test("restored sessions and fresh logins share the same model-cache startup gate
     "async function logoutFromYoule",
   );
 
-  assert.match(boot, /bootAuthenticatedWorkspaceWithModelPreload\(seq\)/);
+  assert.match(boot, /bootAuthenticatedWorkspaceWithModelPreload\(seq,/);
   assert.match(login, /bootAuthenticatedWorkspaceWithModelPreload\(seq,/);
+  for (const block of [boot, login]) {
+    assert.match(block, /onInteractiveReady: \(\) => \{/);
+    assert.match(block, /authenticatedWorkspaceInteractive = true/);
+  }
   assert.doesNotMatch(boot, /refreshProfileFromApi/);
   assert.doesNotMatch(login, /refreshProfileFromApi/);
 });

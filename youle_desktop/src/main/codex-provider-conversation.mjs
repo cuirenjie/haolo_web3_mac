@@ -109,7 +109,7 @@ export class CodexProviderConversations {
             if (turn.id) terminalTurnIds.add(turn.id);
             if (turn.error || ["failed", "interrupted"].includes(turn.status)) {
               const error = Object.assign(new Error(turn.error?.message || `Codex turn ${turn.status}`), turn.error || {}, { status: turn.status });
-              if (isolated && this.recoverTurn && recoveryAttempts < 2 && !recovering &&
+              if (isolated && this.recoverTurn && recoveryAttempts < 1 && !recovering &&
                   !signal?.aborted && isRecoverableAnalysisModelFailure(error)) {
                 recovering = true;
                 recoveryAttempts++;

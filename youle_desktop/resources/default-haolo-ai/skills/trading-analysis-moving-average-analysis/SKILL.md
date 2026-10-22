@@ -16,3 +16,5 @@ For existing-position health/adjustment, read summary, positions and open_orders
 Tool success, drawings and cards are evidence/artifacts; they never complete the user's whole request. Always answer the actual questions in final text, including requested comparisons and non-trading work. Do not just say the answer was displayed or repeat the scan notification. Avoid copying a complete price table already visible in a plan card.
 
 For a concept-only question explain the theory without running live analysis. For multiple explicitly selected strategies run each separately and summarize their agreements/conflicts; do not blend their prices into a new executable plan. Reuse existing analysis for display-only follow-ups. This skill never creates orders.
+
+The cloud result includes the existing OHLC-only Price Action strategy and this indicator's own main-chart or subpane annotations. Draw both patches from the same analysisRef, then present its combined trading plan or wait outcome. Do not start a separate Price Action run or synthesize a second plan.

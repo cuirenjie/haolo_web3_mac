@@ -122,10 +122,10 @@ test("unchanged preferences preserve review-cache identity; changes invalidate i
   assert.notEqual(withTradingPreferenceContext(registry, { ...profile, maxLossPerTradePercent: 1 }), first);
 });
 
-test("preference compile uses a bounded read-only provider call without recovery or default substitution", async () => {
+test("preference compile retains its bound and uses at most one current-model fallback", async () => {
   assert.deepEqual(tradingAnalysisTurnPolicy(TRADING_PREFERENCE_COMPILE_TASK), { kind: "preference_compile", reasoningEffort: "medium", timeoutMs: 90000, resetTimeoutOnActivity: false, timeoutRetryable: false });
   let calls = 0;
-  const provider = createAppServerTradingAnalysisProvider({ selectModel() { assert.fail("no silent recovery selection"); }, invoke: async () => { calls++; return { status: "failed", code: "UPSTREAM_UNAVAILABLE", error: "offline" }; } });
+  const provider = createAppServerTradingAnalysisProvider({ selectModel() { return {modelId: "deepseek-flash", fallback: false}; }, invoke: async () => { calls++; return { status: "failed", code: "UPSTREAM_UNAVAILABLE", error: "offline" }; } });
   await assert.rejects(provider.analyze({ task: TRADING_PREFERENCE_COMPILE_TASK, requestId: "test" }));
-  assert.equal(calls, 1);
+  assert.equal(calls, 2);
 });

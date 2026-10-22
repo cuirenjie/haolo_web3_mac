@@ -1,5 +1,6 @@
 import {createHash} from 'node:crypto';
 import {isDeepStrictEqual as equal} from 'node:util';
+import {validConditionalWatch} from '../conditional-watch-card.mjs';
 
 const hash = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
@@ -35,6 +36,7 @@ export function validateCloudEntryResult(result, record) {
   if (outcome.action!=='plan') {
     require(plan.scenarios.length===0 && plan.entryCondition==null && plan.selectedMode===null);
     require(!result.analysisPlan.drawingPatch?.entryConditionRef);
+    if(plan.conditionalWatch!==undefined) require(validConditionalWatch(plan.conditionalWatch,plan,result.strategy.id));
     return;
   }
   require(outcome.candidateStatus==='qualified' && plan.scenarios.length===1);

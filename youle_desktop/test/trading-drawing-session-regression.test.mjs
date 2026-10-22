@@ -1,3 +1,4 @@
+import { TradingAiDrawingSets } from "../src/renderer/trading-ai-drawing-sets.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { TradingDrawingController, tradingDrawingSessionStorageKey } from "../src/renderer/trading-expert-drawing.ts";
@@ -21,6 +22,7 @@ function setup(t, records = []) {
     // and input boundaries are replaced; the shared store is not mocked.
     const instance = Object.assign(Object.create(TradingDrawingController.prototype), {
       storageSessionId: sessionId, drawingScope: scope, pendingTextDrawingId: null,
+      aiDrawingSets: new TradingAiDrawingSets(globalThis.window.localStorage, sessionId, values => Array.isArray(values) ? values : []),
       aiDrawings: [], redoStack: [], selectedDrawingId: null,
       imageDialog: { close: noop }, xPostDialog: { close: noop }, finishHorizontalLineTextEdit: noop,
       drawingVisibility: { setLayers: noop, switchSession: noop }, horizontalLineSettings: { close: noop }, aiPlayback: { cancel: noop }, overlay: { classList: { remove: noop } },

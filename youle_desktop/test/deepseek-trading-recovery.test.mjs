@@ -11,7 +11,7 @@ const candles = Array.from({ length: 100 }, (_, index) => {
 });
 const params = { marketId: "BINANCE:FUTURES:ETHUSDT", interval: "60", snapshotTime: 1_800_000_000_000, candles, instruction: "分析当前结构，并绘制真实支撑压力，不执行交易" };
 
-test("primary overload -> DeepSeek max -> schema repair -> grounded price analysis and renderer-valid K-line drawings", async () => {
+test("DeepSeek overload -> GPT high -> schema repair -> grounded price analysis and renderer-valid K-line drawings", async () => {
   const calls = [];
   const provider = createAppServerTradingAnalysisProvider({
     waitForRecovery: async () => {},
@@ -24,11 +24,11 @@ test("primary overload -> DeepSeek max -> schema repair -> grounded price analys
   });
   const result = await runTradingPriceActionAnalysisPipeline(params, { modelRegistry: createTradingAnalysisModelProviderRegistry([provider]), providerId: provider.providerId });
   assert.equal(result.ok, true);
-  assert.equal(result.model.modelId, "deepseek-flash");
-  assert.equal(result.model.reasoningEffort, "max");
-  assert.equal(calls[1].modelProvider, "deepseek");
-  assert.equal(calls[2].modelProvider, "deepseek");
-  assert.deepEqual(calls.map((c) => [c.modelId, c.reasoningEffort]), [["gpt-5.6-sol", "medium"], ["deepseek-flash", "max"], ["deepseek-flash", "max"]]);
+  assert.equal(result.model.modelId, "gpt-5.6-sol");
+  assert.equal(result.model.reasoningEffort, "high");
+  assert.equal(calls[1].modelProvider, "haolo_ai");
+  assert.equal(calls[2].modelProvider, "haolo_ai");
+  assert.deepEqual(calls.map((c) => [c.modelId, c.reasoningEffort]), [["deepseek-flash", "medium"], ["gpt-5.6-sol", "high"], ["gpt-5.6-sol", "high"]]);
   assert.ok(calls.every((c) => c.request.snapshotId === result.snapshot.snapshotId));
   assert.ok(calls.every((c) => c.request.prompt.startsWith(calls[0].request.prompt)));
   const patch = result.analysisPlan.drawingPatch;
@@ -44,7 +44,7 @@ test("primary overload -> DeepSeek max -> schema repair -> grounded price analys
 
 test("an explicitly selected DeepSeek trading provider starts at max on the correct provider", async () => {
   let request;
-  const provider = createAppServerTradingAnalysisProvider({ modelId: "deepseek-flash", invoke: async (args) => { request = args; return { status: "success", text: '{"valid":true}' }; } });
+  const provider = createAppServerTradingAnalysisProvider({ modelId: "deepseek-flash", fixedReasoningEffort: "max", invoke: async (args) => { request = args; return { status: "success", text: '{"valid":true}' }; } });
   await provider.analyze({ task: "wave-theory-review", requestId: "review", snapshotId: "candles", prompt: "frozen candles" }, { reasoningEffort: "medium" });
   assert.equal(request.modelProvider, "deepseek");
   assert.equal(request.reasoningEffort, "max");

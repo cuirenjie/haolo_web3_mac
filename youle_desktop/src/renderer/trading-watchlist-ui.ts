@@ -1,4 +1,5 @@
 import { tradingMarketAvailable } from "../shared/trading-market-availability.mjs";
+import { deferInteractionRender } from "./interaction-render-guard.ts";
 import type {
   TradingMarket,
   TradingFavoriteMarketRecord,
@@ -158,6 +159,7 @@ export class TradingWatchlistPanel {
   }
 
   refresh() {
+    if (deferInteractionRender(this.host, () => this.refresh()) || deferInteractionRender(this.toggle, () => this.refresh())) return;
     const { store } = this.options;
     const showingIndices = store.activeGroupId === "indices";
     this.indices.setActive(Boolean(this.host && ((store.expanded && showingIndices) || this.options.hasIndexFavorites?.())));

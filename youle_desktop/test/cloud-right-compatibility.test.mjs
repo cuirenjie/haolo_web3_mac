@@ -31,6 +31,53 @@ function fixture(n=1) {
   return {record,result,run:{...record.body,id:record.runId,desktopResult:result},report:cloudReportFromResponse(result)[0]};
 }
 
+function ladderFixture() {
+  const f = fixture(), native = f.result;
+  const levels = [74.28, 73, 71.5];
+  native.executionPlan.scenarios = [{ side: 'short', trigger: {price: 75.12}, stop: {price: 75.68},
+    targets: levels.map(price => ({price})) }];
+  native.cloud.planRecords[0].scenario.targets = levels;
+  const {cloud, ...signed} = native;
+  cloud.nativeReceipt.canonicalJson = JSON.stringify(signed);
+  cloud.nativeReceipt.hash = createHash('sha256').update(cloud.nativeReceipt.canonicalJson).digest('hex');
+  return f;
+}
+
+test('complete native targets survive validation and history while the monitor retains TP1', () => {
+  const {run, record} = ladderFixture(), before = structuredClone(run);
+  const result = validateCloudResult(run, record);
+  const report = cloudReportFromResponse(result)[0];
+  assert.deepEqual(report.planRecords[0].scenario.targets, [74.28, 73, 71.5]);
+  assert.deepEqual(report.planRecords[0].alertPreview.targets, [74.28]);
+  assert.deepEqual(run, before, 'validation must not truncate or rewrite signed results');
+  assert.equal(validateCloudResult(fixture().run, fixture().record).ok, true, 'old single-target receipts stay valid');
+});
+
+test('additional targets must belong to one frozen native scenario, with valid direction and order', () => {
+  for (const mutate of [
+    r => r.cloud.planRecords[0].scenario.targets[1] = 72,
+    r => r.cloud.planRecords[0].scenario.targets.reverse(),
+    r => r.cloud.planRecords[0].scenario.targets.push(70),
+    r => r.cloud.planRecords[0].scenario.targets[1] = NaN,
+    r => r.cloud.planRecords[0].scenario.targets[1] = -1,
+    r => r.cloud.planRecords[0].scenario.targets[1] = 74.28,
+    r => r.executionPlan.scenarios.push(structuredClone(r.executionPlan.scenarios[0])),
+    r => r.executionPlan.scenarios[0].side = 'long',
+    r => r.executionPlan.scenarios[0].trigger.price = 75.11,
+    r => r.executionPlan.scenarios[0].stop.price = 75.69,
+    r => r.executionPlan.scenarios[0].targets = [{price: 74.28}, {price: 72}],
+    r => r.cloud.planRecords[0].alertPreview.targets = [74.28, 73, 71.5],
+  ]) {
+    const {run, record} = ladderFixture();
+    mutate(run.desktopResult);
+    // Re-sign native edits to exercise semantic checks, not just receipt hashes.
+    const {cloud, ...native} = run.desktopResult;
+    cloud.nativeReceipt.canonicalJson = JSON.stringify(native);
+    cloud.nativeReceipt.hash = createHash('sha256').update(cloud.nativeReceipt.canonicalJson).digest('hex');
+    assert.throws(() => validateCloudResult(run, record), e => e.code === 'CLOUD_RESULT_CONTEXT_INVALID');
+  }
+});
+
 test('identical cards in separate panes retain independent run and plan identities',()=>{
   const reports=[fixture(1).report,fixture(2).report],candidate=legacyReportCandidates(text)[0],used=new Set();
   const first=bindLegacyCloudCandidate(reports,candidate,used),second=bindLegacyCloudCandidate(reports,candidate,used);

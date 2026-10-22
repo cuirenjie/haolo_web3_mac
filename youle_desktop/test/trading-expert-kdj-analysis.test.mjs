@@ -130,7 +130,12 @@ test("KDJ mention runs through Registry and Coordinator into a standard executio
   const registry = createTradingStrategyRegistry({ adapters: BUILTIN_TRADING_STRATEGY_ADAPTERS });
   const coordinator = new TradingStrategyCoordinator({
     registry,
-    modelRegistry: { async analyze() { throw new Error("exact KDJ mention must stay deterministic"); } },
+    modelRegistry: { async analyze(_provider, request) {
+      assert.match(request.prompt, /indicatorEvidenceIds/);
+      return {requestId: request.requestId, text: JSON.stringify({schemaVersion: 1,
+        verdict: 'approve', summary: '裸 K 结构与 KDJ 确认尚未一致，继续等待。',
+        rationale: '结合支撑压力与 KDJ 动量观察。', planSide: 'wait', evidenceIds: []})};
+    } },
     providerId: "unused",
   });
   const classified = await coordinator.classify("kdj-analysis", { text: "@指标:KDJ" });
@@ -139,6 +144,7 @@ test("KDJ mention runs through Registry and Coordinator into a standard executio
   assert.equal(result.ok, true);
   assert.equal(result.strategy.id, "kdj-analysis");
   assert.equal(result.analysisPlan.indicatorDrawingPatch.indicatorId, "kdj");
+  assert.ok(result.analysisPlan.drawingPatch.operations.some(o => o.drawing.id.includes('-price-action-')));
   assert.equal(result.executionPlan.action, "wait");
   assert.match(result.analysisPlan.report, /^## BTC\/USDT 币安永续 1H/m);
 });

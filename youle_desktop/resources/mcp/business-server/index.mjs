@@ -11,7 +11,7 @@ async function host(route, body = {}) {
     body: JSON.stringify(body),
   });
   const value = await response.json();
-  if (!response.ok) throw new Error(value?.error?.message || "Business tool failed.");
+  if (!response.ok) throw Object.assign(new Error(value?.error?.message || "Business tool failed."), value?.error || {});
   return value;
 }
 async function handle(message) {
@@ -29,7 +29,10 @@ async function handle(message) {
         const value = await host("call", { tool: message.params?.name, arguments: message.params?.arguments || {} });
         result = { content: [{ type: "text", text: JSON.stringify(value) }] };
       } catch (error) {
-        result = { isError: true, content: [{ type: "text", text: error.message }] };
+        const failure = { message: error.message, ...(error.code ? { code: error.code } : {}),
+          ...(typeof error.retryable === "boolean" ? { retryable: error.retryable } : {}),
+          ...(error.terminal === true ? { terminal: true, nextAction: "stop" } : {}) };
+        result = { isError: true, content: [{ type: "text", text: JSON.stringify({ error: failure }) }] };
       }
     } else {
       process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: message.id, error: { code: -32601, message: "Unknown method" } })}\n`);

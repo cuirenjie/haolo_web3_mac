@@ -55,6 +55,8 @@ function harness(theme = "light", language = "zh-CN") {
   const candidates = new Map();
   const deps = {
     ...plans, ...planView, executionPlanStickyLayout, root: { querySelector: () => null }, tradingPreferenceSettings:{bind(){}}, state, executionPlanCandidatesBySource: candidates,
+    // Menu interaction uses a real DOM in execution-plan-menu-qa; this harness isolates sticky/zoom controls.
+    getMessagePlanMenu: () => ({bind() {}}),
     executionPlanDeleteBusyIds: new Set(), executionPlanAlertSyncBusyIds: new Set(),
     escapeHtml, escapeAttr: escapeHtml, formatMessageText: escapeHtml,
     tradingLastAnalysisLabelForThread: () => runtime.latest,

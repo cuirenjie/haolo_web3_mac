@@ -12,7 +12,7 @@ import { translateAppText } from "../src/renderer/app-language.mjs";
 const main = fs.readFileSync(new URL("../src/main/main.mjs", import.meta.url), "utf8");
 const renderer = fs.readFileSync(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
 const now = Date.now();
-const recovery = { version: 1, activatedAt: now, fallbackUntil: now + ANALYSIS_RECOVERY_WINDOW_MS };
+const recovery = { version: 2, activatedAt: now, fallbackUntil: now + ANALYSIS_RECOVERY_WINDOW_MS };
 const modes = [IMAGE_GENERATION_CONVERSATION_MODE, VIDEO_GENERATION_CONVERSATION_MODE];
 const firstString = (...values) => values.find(value => typeof value === "string" && value.trim()) || "";
 function functions(source, names) {
@@ -43,7 +43,7 @@ test("media policy repairs stale fallback settings, retaining valid GPT choices 
       assert.equal(stale.effort, "max", "does not mutate remembered settings");
     }
   }
-  assert.equal(withAnalysisModelRecoveryPolicy({ model: "gpt-5.6-sol", conversationMode: "execution" }, recovery, now).model, "deepseek-flash");
+  assert.equal(withAnalysisModelRecoveryPolicy({ model: "gpt-5.6-sol", conversationMode: "execution" }, recovery, now).model, "gpt-5.6-sol");
 });
 
 test("production host startThread keeps media on GPT during the fallback window", async () => {
@@ -79,7 +79,7 @@ test("production host send policy and media guard agree, including legacy mode a
     assert.equal(selection.model, "gpt-5.6-sol");
     assert.equal(selection.isDeepSeek, false);
   }
-  assert.equal(select({ model: "gpt-5.6-sol", conversationMode: "execution" }).isDeepSeek, true);
+  assert.equal(select({ model: "gpt-5.6-sol", conversationMode: "execution" }).isDeepSeek, false);
 });
 
 test("production turn start registers media recovery selection on the actual target thread", () => {
@@ -91,8 +91,8 @@ test("production turn start registers media recovery selection on the actual tar
     const threadId = `replacement-${index}`;
     register(threadId, mode, { model: "gpt-5.6-sol", modelProvider: "haolo_ai" }, "high");
     const decision = coordinator.handleTerminalFailure({ threadId, failedTurnId: "original", status: "failed", errorClass: "stream_disconnected" });
-    assert.equal(decision.modelId, mode === "execution" ? "deepseek-flash" : "gpt-5.6-sol");
-    assert.equal(decision.reasoningEffort, mode === "execution" ? "max" : "high");
+    assert.equal(decision.modelId, "gpt-5.6-sol");
+    assert.equal(decision.reasoningEffort, "high");
     coordinator.cancel(threadId, "user_cancel");
     register(threadId, mode, { model: "gpt-5.6-sol", modelProvider: "haolo_ai" }, "high");
     assert.equal(coordinator.handleTerminalFailure({ threadId, failedTurnId: "late", status: "failed", errorClass: "stream_disconnected" }).status, "ignored");
@@ -103,7 +103,7 @@ test("actual media recovery notices describe the GPT continuation and translate 
   const notices = [];
   const deps = { firstString, automaticTurnRecoveryNoticeKeys: new Set(), appendAgentNotice: (_id, text) => notices.push(text), isContextWindowExhaustedError: () => false };
   const announce = new Function(...Object.keys(deps), `${functions(renderer, ["formatTurnFailureMessage", "announceAutomaticTurnRecovery"])}; return announceAutomaticTurnRecovery;`)(...Object.values(deps));
-  for (const status of ["scheduled", "starting", "cooling_down", "exhausted"]) announce("media", { chainId: "media", status, modelId: "gpt-5.6-sol" });
+  for (const status of ["scheduled", "starting", "cooling_down", "exhausted"]) announce("media", { chainId: "media", status, modelId: "gpt-5.6-sol", conversationMode: "image-generation" });
   assert.equal(notices.length, 3, "deduplicates scheduled/starting for the same recovery");
   for (const text of notices) {
     assert.match(text, /媒体任务/);
@@ -111,6 +111,6 @@ test("actual media recovery notices describe the GPT continuation and translate 
     assert.doesNotMatch(translateAppText(text, "en"), /\p{Script=Han}/u);
     assert.notEqual(translateAppText(text, "zh-TW"), text);
   }
-  announce("text", { chainId: "text", status: "scheduled", modelId: "deepseek-flash" });
-  assert.match(notices.at(-1), /Astra.*1 小时/);
+  announce("text", { chainId: "text", status: "scheduled", modelId: "gpt-5.6-sol" });
+  assert.match(notices.at(-1), /备用模型/);
 });

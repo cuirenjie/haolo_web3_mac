@@ -40,6 +40,7 @@ async function invokeBinanceAccountSnapshot(params) {
     error.name = "BinanceAccountError";
     error.code = String(result.error.code || "BINANCE_REQUEST_FAILED");
     error.retryable = result.error.retryable === true;
+    error.status = Number(result.error.status) || 0;
     const retryAfterMs = Number(result.error.retryAfterMs);
     if (Number.isFinite(retryAfterMs) && retryAfterMs > 0) error.retryAfterMs = retryAfterMs;
     throw error;
@@ -56,6 +57,7 @@ async function invokeBinanceAccountProfitCalendar(params) {
     error.name = "BinanceAccountError";
     error.code = String(result.error.code || "BINANCE_REQUEST_FAILED");
     error.retryable = result.error.retryable === true;
+    error.status = Number(result.error.status) || 0;
     const retryAfterMs = Number(result.error.retryAfterMs);
     if (Number.isFinite(retryAfterMs) && retryAfterMs > 0) error.retryAfterMs = retryAfterMs;
     throw error;
@@ -133,10 +135,19 @@ contextBridge.exposeInMainWorld("codexDesktop", {
   subscribeBinanceMarketStreams: (params, callback) => subscribeBinanceMarketStreams(params, callback),
   unsubscribeBinanceMarketStreams: (params) => unsubscribeBinanceMarketStreams(params),
   getHyperliquidPublicCandles: (params) => ipcRenderer.invoke("hyperliquidMarket:candles", params),
-  getBinanceAccountStatus: () => ipcRenderer.invoke("binanceAccount:getStatus"),
+  getBinanceAccountStatus: async () => {
+    const result = await ipcRenderer.invoke("binanceAccount:getStatus");
+    if (result?.ok === false && result.error) throw Object.assign(new Error(result.error.message), result.error);
+    return result;
+  },
   sendBinanceAccountOtp: () => ipcRenderer.invoke("binanceAccount:sendOtp"),
   bindBinanceAccount: (params) => ipcRenderer.invoke("binanceAccount:bind", params),
   getBinanceAccountSnapshot: (params) => invokeBinanceAccountSnapshot(params),
+  getBinanceAccountDetails: async (params) => {
+    const result = await ipcRenderer.invoke("binanceAccount:getDetails", params);
+    if (result?.ok === true) return result.details;
+    throw Object.assign(new Error(result?.error?.message || "账户明细读取失败，请重试。"), result?.error);
+  },
   getBinanceAccountProfitCalendar: (params) => invokeBinanceAccountProfitCalendar(params),
   removeBinanceAccount: (params) => ipcRenderer.invoke("binanceAccount:remove", params),
   completeRegistration: (params) => ipcRenderer.invoke("youle:completeRegistration", params),
@@ -288,6 +299,8 @@ contextBridge.exposeInMainWorld("codexDesktop", {
   previewFile: (params) => ipcRenderer.invoke("youle:previewFile", params),
   previewImageFile: (params) => ipcRenderer.invoke("youle:previewImageFile", params),
   copyAttachmentToClipboard: (params) => ipcRenderer.invoke("youle:copyAttachmentToClipboard", params),
+  verifyPlanShareInvitation: (params) => ipcRenderer.invoke('executionPlanShare:invitation', params),
+  savePlanShareImage: (params) => ipcRenderer.invoke('executionPlanShare:save', params),
   localFileInfo: (params) => ipcRenderer.invoke("youle:localFileInfo", params),
   localPathInfo: (params) => ipcRenderer.invoke("youle:localPathInfo", params),
   openLocalFile: (params) => ipcRenderer.invoke("youle:openLocalFile", params),
@@ -360,6 +373,7 @@ contextBridge.exposeInMainWorld("codexDesktop", {
   automationRegisterLoginTask: (params) => ipcRenderer.invoke("automation:registerLoginTask", params),
   automationUnregisterLoginTask: (params) => ipcRenderer.invoke("automation:unregisterLoginTask", params),
   tradingAlertsSnapshot: () => ipcRenderer.invoke("tradingAlerts:snapshot"),
+  tradingAlertsCreateCloudPriceAlert: (params) => ipcRenderer.invoke("tradingAlerts:createCloudPriceAlert", params),
   tradingAlertsGetSimulation: (params) => ipcRenderer.invoke("tradingAlerts:getSimulation", params),
   tradingAlertsCompile: (params) => ipcRenderer.invoke("tradingAlerts:compile", params),
   tradingAlertsResumeDraft: (params) => ipcRenderer.invoke("tradingAlerts:resumeDraft", params),
@@ -378,6 +392,7 @@ contextBridge.exposeInMainWorld("codexDesktop", {
   openBlockchainTransaction: (params) => ipcRenderer.invoke("youle:openBlockchainTransaction", params),
   debugLog: (params) => ipcRenderer.invoke("youle:debugLog", params),
   captureTradingChart: (params) => ipcRenderer.invoke("trading:captureChart", params),
+  saveExternalTradingPlanImage: (params) => ipcRenderer.invoke("trading:saveExternalPlanImage", params),
   windowControl: (action) => ipcRenderer.invoke("window:control", action),
   windowMove: (params) => ipcRenderer.invoke("window:move", params),
   windowMoveLive: (params) => ipcRenderer.send("window:move-live", params),

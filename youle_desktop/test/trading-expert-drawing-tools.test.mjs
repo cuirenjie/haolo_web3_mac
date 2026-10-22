@@ -787,7 +787,7 @@ test("selected drawing endpoints expose price and date-time axis markers", async
   assert.match(styles, /\.trading-drawing-axis-marker\s*\{[^}]*background: var\(--trading-drawing-axis-marker\);[^}]*color: var\(--trading-drawing-axis-marker-text\);/s);
   assert.match(styles, /\.trading-drawing-axis-marker\.price\s*\{[^}]*transform: translateY\(-50%\);/s);
   assert.match(styles, /\.trading-drawing-axis-marker\.time\s*\{[^}]*bottom: 4px;[^}]*transform: translateX\(-50%\);/s);
-  assert.match(styles, /--trading-market-crosshair-label: #7d838c;[\s\S]*html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*--trading-market-crosshair-label: #626b77;/s);
+  assert.match(styles, /--trading-market-crosshair-label: #131313;[\s\S]*html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*--trading-market-crosshair-label: #131313;/s);
   assert.match(styles, /--trading-drawing-axis-marker: #d7dade;[\s\S]*--trading-drawing-axis-marker-text: #4a515b;[\s\S]*html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*--trading-drawing-axis-marker: #858f9b;[\s\S]*--trading-drawing-axis-marker-text: #151a21;/s);
 });
 

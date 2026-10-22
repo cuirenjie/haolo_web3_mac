@@ -1851,20 +1851,19 @@ export class WechatExternalChannelServer {
 
   async sendWechatFileAttachment(context, attachment) {
     const uploaded = await this.uploadWechatFileAttachment(context.replyToUserId, attachment);
+    const media = {
+      encrypt_query_param: uploaded.downloadEncryptedQueryParam,
+      aes_key: Buffer.from(uploaded.aesKeyHex, "ascii").toString("base64"),
+      encrypt_type: 1,
+    };
+    // iLink image uploads and messages have distinct types from ordinary files.
+    // mid_size is the encrypted byte count, as in Tencent's image sender.
+    const item = uploaded.isImage
+      ? { type: 2, image_item: { media, mid_size: uploaded.ciphertextSize } }
+      : { type: 4, file_item: { media, file_name: uploaded.fileName, len: String(uploaded.fileSize) } };
     const response = await this.sendWechatReplyItem(
       context,
-      {
-        type: 4,
-        file_item: {
-          media: {
-            encrypt_query_param: uploaded.downloadEncryptedQueryParam,
-            aes_key: Buffer.from(uploaded.aesKeyHex, "ascii").toString("base64"),
-            encrypt_type: 1,
-          },
-          file_name: uploaded.fileName,
-          len: String(uploaded.fileSize),
-        },
-      },
+      item,
       { timeoutMs: WECHAT_FILE_SEND_TIMEOUT_MS },
     );
     const ret = firstNumber(response?.ret, response?.errcode, response?.error_code);
@@ -1895,13 +1894,14 @@ export class WechatExternalChannelServer {
     if (stat.size > WECHAT_MAX_ATTACHMENT_BYTES) throw new Error(`attachment file is too large: ${stat.size} bytes`);
     const fileName = wechatAttachmentFileName(attachment, filePath);
     const plaintext = await fs.readFile(filePath);
+    const isImage = wechatAttachmentIsImage(plaintext);
     const aesKey = crypto.randomBytes(16);
     const aesKeyHex = aesKey.toString("hex");
     const ciphertext = encryptAes128Ecb(plaintext, aesKey);
     const filekey = crypto.randomBytes(16).toString("hex");
     const payload = {
       filekey,
-      media_type: 3,
+      media_type: isImage ? 1 : 3,
       to_user_id: peerId,
       rawsize: plaintext.length,
       rawfilemd5: crypto.createHash("md5").update(plaintext).digest("hex"),
@@ -1931,6 +1931,7 @@ export class WechatExternalChannelServer {
       filePath,
       fileName,
       fileSize: plaintext.length,
+      isImage,
       ciphertextSize: ciphertext.length,
       downloadEncryptedQueryParam,
       aesKeyHex,
@@ -3967,6 +3968,13 @@ function feishuAttachmentShouldSendAsImage(mime, name) {
 
 function wechatAttachmentDisplayName(attachment) {
   return firstString(attachment?.name, attachment?.file_name, attachment?.fileName) || "attachment";
+}
+
+function wechatAttachmentIsImage(bytes) {
+  // Detect the actual PNG/JPEG bytes so renamed ordinary files still use the
+  // file route. Both chart captures and generated plan cards are PNGs.
+  return bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+    || (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff);
 }
 
 function wechatAttachmentLocalPath(attachment) {

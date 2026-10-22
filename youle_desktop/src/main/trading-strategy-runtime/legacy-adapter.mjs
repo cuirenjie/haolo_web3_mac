@@ -1,5 +1,6 @@
 import { personalRiskModelRegistry, personalRiskUnavailable, withPersonalRiskNotice } from "../trading-analysis/personal-risk-context.mjs";
 import { buildExecutionPlanV1 } from "./execution-plan-builder.mjs";
+import {combineIndicatorPriceActionAnalysis} from '../trading-analysis/indicator-price-action-analysis.mjs';
 
 export function createLegacyStrategyAdapter(config) {
   const id = String(config?.id || "").trim();
@@ -29,10 +30,12 @@ export function createLegacyStrategyAdapter(config) {
       routingReplacementMessage: String(config.routingReplacementMessage || "A newer strategy request classification replaced this request"),
     }),
     async run(params, options = {}) {
-      const result = await config.runPipeline(params, {
+      const runOptions = {
         ...options,
         modelRegistry: personalRiskModelRegistry(options.modelRegistry, params),
-      });
+      };
+      const native = await config.runPipeline(params, runOptions);
+      const result = native?.ok === false ? native : await combineIndicatorPriceActionAnalysis(id, params, native, runOptions);
       if (!personalRiskUnavailable(params) || result?.ok === false || options.executionPlanManaged) return result;
       // The legacy rollback route bypasses the coordinator, but must retain
       // the same explicit execution gate as the normal route.

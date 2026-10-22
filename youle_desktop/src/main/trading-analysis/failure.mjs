@@ -4,6 +4,10 @@ import { modelFailureFacts } from "../model-failure-policy.mjs";
 import { isMembershipFailure, isQuotaFailure } from "../error-signals.mjs";
 
 const LABELS = {
+  chart_context: ["原会话图表暂不可用", "The originating conversation chart is unavailable", "原會話圖表暫不可用"],
+  chart_open: ["图表或行情未能加载完成", "The chart or its market data could not finish loading", "圖表或行情未能載入完成"],
+  account_context: ["账户信息刷新失败", "Account information could not be refreshed", "帳戶資訊重新整理失敗"],
+  cloud_result: ["云端结果未通过一致性校验，未应用该结果", "The cloud result failed consistency checks and was not applied", "雲端結果未通過一致性檢查，未套用該結果"],
   model_unknown: ["模型响应未能确认完成，本次分析已停止，原任务记录已保留", "The model response could not be confirmed as complete. Analysis stopped and the original task record was retained", "模型回應未能確認完成，本次分析已停止，原任務記錄已保留"],
   preferences_review: ["交易偏好尚未完成迁移，请到“设置 → 交易偏好”核对原设置", "Trading preferences need migration review. Open Settings → Trading preferences to review your saved settings", "交易偏好尚未完成遷移，請到「設定 → 交易偏好」核對原設定"],
   preferences_changed: ["交易偏好已在其他设备更新，请重新加载后再分析", "Trading preferences changed on another device. Reload them before running the analysis", "交易偏好已在其他裝置更新，請重新載入後再分析"],
@@ -45,7 +49,11 @@ export function describeTradingAnalysisFailure(error, { stage = "analysis", lang
   const message = facts.detail;
   const status = facts.httpStatus;
   let category = "analysis";
-  if (["PREFERENCE_IMPORT_RESOLUTION_REQUIRED", "PREFERENCE_IMPORT_REVIEW_REQUIRED", "PREFERENCE_IMPORT_CONFLICT"].includes(code)) category = "preferences_review";
+  if (code === "CHART_CONTEXT_UNAVAILABLE") category = "chart_context";
+  else if (code === "ACCOUNT_CONTEXT_UNAVAILABLE") category = "account_context";
+  else if (["CHART_OPEN_FAILED", "CHART_DATA_UNAVAILABLE"].includes(code)) category = "chart_open";
+  else if (code === "CLOUD_RESULT_CONTEXT_INVALID") category = "cloud_result";
+  else if (["PREFERENCE_IMPORT_RESOLUTION_REQUIRED", "PREFERENCE_IMPORT_REVIEW_REQUIRED", "PREFERENCE_IMPORT_CONFLICT"].includes(code)) category = "preferences_review";
   else if (code === "PREFERENCE_VERSION_CONFLICT") category = "preferences_changed";
   else if (["PREFERENCE_SAVE_PENDING", "TRADING_PREFERENCE_SAVE_PENDING"].includes(code)) category = "preferences_pending";
   else if (code === "CLOUD_CANCEL_PENDING") category = "cancellation_pending";
@@ -97,6 +105,14 @@ export function tradingAnalysisSnapshotUnavailable(reason) {
   return error;
 }
 
+
+export function tradingAnalysisStoppedMessage(error, {language = 'zh-CN', strategyName = '', completedStrategyNames = []} = {}) {
+  const reason = describeTradingAnalysisFailure(error, {language}).summary;
+  const completed = completedStrategyNames.filter(Boolean).join('、');
+  if (language === 'en' || language === 'en-US') return `${strategyName ? `${strategyName} analysis did not complete; no conclusion was generated. ` : ''}${reason}. This analysis has stopped and will not retry automatically.${completed ? ` Completed results (${completed}) are retained.` : ''}`;
+  if (['zh-Hant', 'zh-TW'].includes(language)) return `${strategyName ? `${strategyName}分析未完成，未產生該策略的結論。` : ''}${reason}。本輪分析已停止，不會自動重試。${completed ? `已完成的${completed}結果仍保留。` : ''}`;
+  return `${strategyName ? `${strategyName}分析未完成，未生成该策略的结论。` : ''}${reason}。本轮分析已停止，不会自动重试。${completed ? `已完成的${completed}结果仍保留。` : ''}`;
+}
 
 // An explicitly selected strategy owns the report, drawings and execution
 // plan for the whole request. Failure is not permission to run another engine.

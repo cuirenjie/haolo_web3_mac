@@ -5,7 +5,7 @@ import test from "node:test";
 const rendererSource = readFile(
   new URL("../src/renderer/main.ts", import.meta.url),
   "utf8",
-);
+).then(source => source.replace(/\r\n/g, "\n"));
 
 function sourceBlock(source, startMarker, endMarker) {
   const start = source.indexOf(startMarker);
