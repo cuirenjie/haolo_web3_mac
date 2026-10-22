@@ -10922,7 +10922,7 @@ async function executeTradingAutomationAnalysis({ job, run, prompt, abortControl
   const toolRunId = toolArgs ? crypto.randomUUID() : null;
   const baseParams = {
     marketId:route.marketId,symbol:route.symbol,interval:route.interval,
-    analysisWindowCount:600,instruction:String(prompt||'').trim(),
+    instruction:String(prompt||'').trim(),
     drawingRequested:toolArgs?.drawingRequested !== false,executionPlanRequested:true,language:appLanguage(),
     ...(toolArgs && !toolArgs.strategyId ? { analysisKind: "general" } : {}),
     positionManagementRequested: toolArgs?.positionManagementRequested === true,

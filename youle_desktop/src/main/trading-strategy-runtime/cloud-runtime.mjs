@@ -239,7 +239,7 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
         if (!Number.isSafeInteger(visibleRange.visibleFrom) || !Number.isSafeInteger(visibleRange.visibleTo)
           || visibleRange.visibleFrom <= 0 || visibleRange.visibleFrom >= visibleRange.visibleTo) throw fail('VPVR_VISIBLE_RANGE_REQUIRED');
       }
-      const requestedCount=params.analysisWindowCount??(Array.isArray(params.candles)&&params.candles.length>=20?Math.min(600,params.candles.length):null);
+      const requestedCount=params.analysisWindowCount??null;
       if(requestedCount!==null&&(!Number.isSafeInteger(requestedCount)||requestedCount<20||requestedCount>600))throw fail('ANALYSIS_WINDOW_INVALID');
       const lookbackMs=Number(params.lookbackMs)>0?Number(params.lookbackMs):null;
       if(lookbackMs!==null&&(!Number.isSafeInteger(lookbackMs)||lookbackMs>315360000000))throw fail('ANALYSIS_WINDOW_INVALID');
@@ -271,21 +271,14 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
         if (!capabilities.strategies?.some(s => s.id === strategyId && s.legacyWindows)) throw fail('WINDOWS_STRATEGY_UNSUPPORTED');
         if (!capabilities.entryV2WorkerReady) throw fail('ENTRY_WORKER_UNAVAILABLE');
         if (!capabilities.strategies?.some(s => s.id === strategyId && s.entryModes?.includes(input.requestedEntryMode))) throw fail('ENTRY_POLICY_UNAVAILABLE');
-        // A renderer count is a viewport hint, not permission to underfill the
-        // server's history requirement. Normalize only new snapshots: journaled
-        // admissions keep their frozen body/key, and explicit time ranges remain exact.
+        // Defaults are selected by the server. Explicit counts still satisfy
+        // admission minima; journaled admissions retain their frozen body/key.
         const minimumHistory = cloudStrategyMinimumHistory(strategyId,capabilities.strategies.find(s=>s.id===strategyId)?.history);
         const windowCount = requestedCount === null ? null : Math.max(requestedCount,minimumHistory);
-        // Wyckoff needs formation context before the current breakout. This is
-        // an advisory horizon: the server can use shorter available history,
-        // and an explicit time/visible window remains authoritative.
-        const preferredWindowCount = !lookbackMs && !visibleRange
-          ? strategyId === 'chart-patterns' ? 600 : strategyId === 'wyckoff' ? 240 : null
-          : null;
         const snapshotController = new AbortController();
         const snapshotSignal = options.signal ? AbortSignal.any([options.signal,snapshotController.signal]) : snapshotController.signal;
         const readSnapshot = () => readMarketWhenAvailable({
-          read:() => request(captured,'marketSnapshot',{market:target.marketKey,interval:target.interval,limit:600,purpose:'analysis',...(visibleRange||{...(windowCount?{windowCount}:{}),...(lookbackMs?{lookbackMs}:{}),...(preferredWindowCount?{preferredWindowCount}:{})})},{signal:snapshotSignal}),
+          read:() => request(captured,'marketSnapshot',{market:target.marketKey,interval:target.interval,limit:600,purpose:'analysis',analysisStrategy:strategyId,...(visibleRange||{...(windowCount?{windowCount}:{}),...(lookbackMs?{lookbackMs}:{})})},{signal:snapshotSignal}),
           assertOwner:() => assertOwner(captured),signal:snapshotSignal,wait,random,onProgress:options.onProgress,
         });
         // Independent fresh reads can overlap after capability/history checks.

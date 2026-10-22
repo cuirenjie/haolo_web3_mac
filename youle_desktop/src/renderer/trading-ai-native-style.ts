@@ -18,10 +18,18 @@ export function nativeAiDrawingDefaults(drawing: AiStyleIdentity & { tool: Tradi
 }
 
 // Presentation-only copy: retain IDs, tool, points, text, semantic tokens and
-// dashed/dotted status. Never persist this over the accepted DrawingPatch.
+// dashed/dotted status except for chart-pattern boundaries. Never persist this
+// over the accepted DrawingPatch.
 export function nativeAiDrawingDisplayModel(drawing: TradingDrawingModel): TradingDrawingModel {
   // Text annotations keep their original semantic colors and leader appearance.
   if (!usesNativeAiDrawingStyle(drawing) || drawing.tool === 'text' || drawing.tool === 'note') return drawing;
+  // Only the main outline boundaries get a bold blue solid stroke. Interior
+  // swing paths and historical structures retain their native thin/dashed style.
+  if (drawing.strategyId === 'chart-patterns' && !drawing.planLevel
+    && /-(?:boundary-(?:upper|lower|neckline|expandUpper|expandLower)|cup-breakout)$/.test(drawing.id)
+    && ['path', 'trend-line', 'multi-point-polyline'].includes(drawing.tool)) {
+    return { ...drawing, color: '#2962ff', lineWidth: 3, lineStyle: 'solid' };
+  }
   const defaults = nativeAiDrawingDefaults(drawing);
   return { ...drawing, color: defaults.color, lineWidth: defaults.lineWidth };
 }

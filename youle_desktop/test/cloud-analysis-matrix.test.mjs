@@ -37,7 +37,7 @@ for(const [index,{id}] of OFFICIAL_TRADING_CATALOG.entries())for(const [interval
       assert.equal(call.marketId,pane===0?captured.marketId:captured.splitPanes.snapshots[pane-1].market.id);
       assert.equal(call.interval,pane===0?interval:captured.splitPanes.snapshots[pane-1].interval);
       assert.equal(call.sourceThreadId,'sent-chat');assert.equal(call.storageSessionId,'original-thread');
-      assert.ok(call.analysisWindowCount>=(['order-flow','dow-theory'].includes(id)?120:100));
+      assert.equal(call.analysisWindowCount,id==='vpvr-analysis'?100:undefined);
       assert.equal(call.candles,undefined);
       if(id==='vpvr-analysis')assert.equal(call.visibleRange.visibleFrom,1700000000000);
       assert.ok(s.drawings.some(d=>d.pane===pane&&d.patch.marketId===call.marketId&&d.patch.interval===call.interval));

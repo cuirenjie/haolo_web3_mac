@@ -234,7 +234,7 @@ test('official analysis sends identities and preferences, never local core input
   assert.equal((await runtime.pending()).length,0);
 });
 
-test('Wyckoff requests formation history as a preference, preserving explicit lookbacks and frozen retries',async()=>{
+test('Wyckoff delegates default history, preserving explicit lookbacks and frozen retries',async()=>{
   for(const lookbackMs of [undefined,86400000]) {
     let first=true;
     const {runtime,calls}=setup(({operation,run})=>{
@@ -248,12 +248,13 @@ test('Wyckoff requests formation history as a preference, preserving explicit lo
     const requests=calls.filter(c=>c.operation==='marketSnapshot');
     assert.equal(requests.length,1);
     assert.equal(requests[0].payload.windowCount,100);
-    assert.equal(requests[0].payload.preferredWindowCount,lookbackMs?undefined:240);
+    assert.equal(requests[0].payload.preferredWindowCount,undefined);
+    assert.equal(requests[0].payload.analysisStrategy,'wyckoff');
     if(lookbackMs)assert.equal(requests[0].payload.lookbackMs,lookbackMs);
   }
 });
 
-test('Chart patterns requests formation history as a preference, preserving explicit lookbacks and frozen retries',async()=>{
+test('Chart patterns delegates default history, preserving explicit lookbacks and frozen retries',async()=>{
   for(const lookbackMs of [undefined,86400000]) {
     let first=true;
     const {runtime,calls}=setup(({operation,run})=>{
@@ -267,12 +268,27 @@ test('Chart patterns requests formation history as a preference, preserving expl
     const requests=calls.filter(c=>c.operation==='marketSnapshot');
     assert.equal(requests.length,1);
     assert.equal(requests[0].payload.windowCount,100);
-    assert.equal(requests[0].payload.preferredWindowCount,lookbackMs?undefined:600);
+    assert.equal(requests[0].payload.preferredWindowCount,undefined);
+    assert.equal(requests[0].payload.analysisStrategy,'chart-patterns');
     if(lookbackMs)assert.equal(requests[0].payload.lookbackMs,lookbackMs);
   }
 });
 
-test('host repairs undersized viewport hints before admission without changing frozen retries',async()=>{
+test('zoom changes cannot replace the frozen body after an unknown default-window admission',async()=>{
+  let first=true;
+  const {runtime,calls}=setup(({operation})=>{
+    if(operation==='createRun'&&first){first=false;throw Error('unknown admission');}
+  });
+  await assert.rejects(runtime.run('moving-average-analysis',{...params,candles:Array(100).fill({time:1})}),/unknown admission/);
+  await runtime.run('moving-average-analysis',{...params,candles:Array(600).fill({time:2})});
+  const snapshots=calls.filter(c=>c.operation==='marketSnapshot');
+  assert.equal(snapshots.length,1);assert.equal(snapshots[0].payload.windowCount,undefined);
+  const admissions=calls.filter(c=>c.operation==='createRun');
+  assert.deepEqual(admissions[0].payload,admissions[1].payload);
+  assert.equal(admissions[0].options.idempotencyKey,admissions[1].options.idempotencyKey);
+});
+
+test('host repairs undersized explicit counts before admission without changing frozen retries',async()=>{
   for(const strategyId of ['order-flow','dow-theory']) {
     let first=true;
     const {runtime,calls}=setup(({operation,run})=>{

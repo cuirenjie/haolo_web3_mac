@@ -3391,7 +3391,7 @@ export class YouleApiClient {
       payload = {};
     }
     if (operation === "marketSnapshot") {
-      const allowed = new Set(["market", "interval", "limit", "visibleFrom", "visibleTo", "windowCount", "preferredWindowCount", "lookbackMs", "purpose"]);
+      const allowed = new Set(["market", "interval", "limit", "visibleFrom", "visibleTo", "windowCount", "preferredWindowCount", "lookbackMs", "purpose", "analysisStrategy"]);
       if(payload.purpose != null && payload.purpose !== "analysis") throw new TypeError("Invalid snapshot purpose");
       if (Object.keys(payload).some(key => !allowed.has(key))) throw new TypeError("Invalid snapshot query");
       const query = new URLSearchParams(Object.entries(payload).map(([key, value]) => [key, String(value)]));

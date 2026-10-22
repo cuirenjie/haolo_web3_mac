@@ -83,24 +83,24 @@ test('nonretryable split-pane errors stop immediately and prevent queued panes o
   const transient=await s.workspace.runSplitPaneAnalyses({...options,analyze:async()=>({ok:false,error:{code:'REQUEST_TIMEOUT',retryable:true,message:'timeout'}})});
   assert.equal(transient.failed,4,'retryable pane failures retain partial-result behavior');
 });
-test('VPVR requires a bounded real viewport while ordinary analysis only sends a count',()=>{
-  assert.deepEqual(cloudAnalysisWindow('wave',[]),{analysisWindowCount:100});
+test('VPVR requires a bounded real viewport while ordinary analysis delegates history',()=>{
+  assert.deepEqual(cloudAnalysisWindow('wave',[]),{});
   assert.throws(()=>cloudAnalysisWindow('vpvr-analysis',[]),/VPVR_VISIBLE_RANGE_REQUIRED/);
   const bars=Array.from({length:20},(_,i)=>({time:1700000000+i*60,close:999}));
   assert.deepEqual(cloudAnalysisWindow('vpvr-analysis',bars),{analysisWindowCount:20,visibleRange:{visibleFrom:1700000000000,visibleTo:1700001140000}});
 });
 
-test('bare strategy selection supplies enough server history for order flow and Dow on every pane',async()=>{
+test('bare strategy selection delegates history for order flow and Dow on every pane',async()=>{
   for(const strategyId of ['order-flow','dow-theory']) {
     const s=setup();
     s.workspace.candles=Array.from({length:100},(_,i)=>({time:1700000000+i*3600}));
     await s.workspace.runGeneralConversation({instruction:'analyze'},strategyId);
     assert.equal(s.calls.length,2);
-    for(const call of s.calls)assert.equal(call.analysisWindowCount,120,`${strategyId}/${call.marketId}`);
+    for(const call of s.calls)assert.equal(call.analysisWindowCount,undefined,`${strategyId}/${call.marketId}`);
   }
 });
 
-test('all official strategy windows cover admission history including one forming bar',async()=>{
+test('all ordinary strategy windows are independent of viewport and loaded candle count',async()=>{
   const {OFFICIAL_TRADING_CATALOG}=await import('../src/shared/official-trading-catalog.mjs');
   // Independent API contract: [minimum total, minimum closed].
   const admission={chan:[30,30],wave:[30,30],wyckoff:[60,60],'order-flow':[120,119],
@@ -109,24 +109,22 @@ test('all official strategy windows cover admission history including one formin
     'moving-average-analysis':[90,90],'macd-analysis':[80,80],'bollinger-bands-analysis':[80,80],
     'rsi-analysis':[80,80],'kdj-analysis':[80,80]};
   assert.deepEqual(OFFICIAL_TRADING_CATALOG.map(s=>s.id).filter(id=>id!=='vpvr-analysis').sort(),Object.keys(admission).sort());
-  for(const [id,[total,closed]] of Object.entries(admission)) {
+  for(const id of Object.keys(admission)) {
     for(const size of [0,20,80,100,119,120,300,650]) {
       const candles=Array.from({length:size},(_,i)=>({time:1700000000+i*3600}));
-      const {analysisWindowCount:count}=cloudAnalysisWindow(id,candles,20);
-      assert.ok(count>=total && count-1>=closed,`${id}: ${count} does not meet admission`);
-      assert.ok(count>=Math.min(size,600)&&count<=600);
+      assert.deepEqual(cloudAnalysisWindow(id,candles),{},`${id}/${size}`);
     }
   }
 });
 
-test('captured order flow targets request sufficient history without changing chart identity',async()=>{
+test('captured order flow targets delegate history without changing chart identity',async()=>{
   const s=setup();
   await s.workspace.runOrderFlowConversation({instruction:'analyze',analysisTarget:{
     market:s.workspace.selectedMarketMeta,symbol:'BTCUSDT',interval:'60',storageSessionId:'captured-pane',
     visibleCandles:Array.from({length:100},(_,i)=>({time:1700000000+i*3600})),
   }});
   assert.equal(s.calls.length,1);
-  assert.equal(s.calls[0].analysisWindowCount,120);
+  assert.equal(s.calls[0].analysisWindowCount,undefined);
   assert.equal(s.calls[0].storageSessionId,'captured-pane');
   assert.equal(s.calls[0].marketId,'BINANCE:FUTURES:BTCUSDT');
 });

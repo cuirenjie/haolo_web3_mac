@@ -11022,7 +11022,7 @@ class TradingExpertMarketWorkspace {
       ? [...capturedTarget!.visibleCandles]
       : targetMarket.id===this.loadedMarketId && targetInterval===this.loadedInterval
         ? visibleCandlesInLogicalRange(this.candles,visibleRange) : [];
-    const windowHint = cloudAnalysisWindow(strategyId,analysisCandles,preferredCandles);
+    const windowHint = cloudAnalysisWindow(strategyId,analysisCandles);
     const analysisSnapshotTime = Date.now();
     const splitSnapshotsPromise = useCapturedTarget
       ? Promise.resolve(capturedTarget!.splitPanes || {snapshots:[] as TradingSplitPaneAnalysisSnapshot[],snapshotFailures:[] as TradingSplitPaneAnalysisFailure[]})
@@ -11150,7 +11150,7 @@ class TradingExpertMarketWorkspace {
             responseMode: directResponseRequested ? "direct" : "full",
             lookbackMs: requestedLookbackMs,
             ...(strategyId?.startsWith("personal-") ? { candles: snapshot.candles } : {}),
-            ...cloudAnalysisWindow(strategyId,snapshot.candles,preferredCandles),
+            ...cloudAnalysisWindow(strategyId,snapshot.candles),
           }) as Promise<TradingGeneralAnalysisResponse>;
         },
       });
@@ -14612,7 +14612,7 @@ export async function runTradingExpertDetachedConversation(
       analysisJobId: job.analysisId, sourceThreadId: request.sourceThreadId, storageSessionId: job.storageSessionId,
       marketId: job.marketId, interval: job.interval, language: job.language,
       snapshotTime: Date.now(), reasoningEffort: "max", onProgress: undefined,
-      ...cloudAnalysisWindow(strategyId, [], request.preferredCandles || 100),
+      ...cloudAnalysisWindow(strategyId, []),
       responseMode: request.drawingRequested === false || request.positionManagementRequested ? "direct" : "full",
     } as any) as TradingGeneralAnalysisResponse;
     if (!tradingAnalysisJobs.isActive(job.analysisId)) throw new Error("盘面分析已由用户停止");
