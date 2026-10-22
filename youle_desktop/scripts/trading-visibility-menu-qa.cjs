@@ -32,6 +32,7 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
   const arrow = '[data-drawing-action="toggle-tool-menu"][data-drawing-group-id="visibility"]';
   const menu = '[data-drawing-tool-menu="visibility"]';
   const aiEye = '[data-ai-text-size-action="toggle-visibility"]';
+  const primaryEye = '[data-drawing-action="toggle-visibility"]';
   const toggle = key => click(`[data-drawing-visibility-layer="${key}"]`);
   const open = async () => {
     if (await js(`document.querySelector('${menu}').hidden`)) await click(arrow);
@@ -85,6 +86,7 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
       assert.equal(visible.manual, expected.manualHidden ? 0 : 1, `manual mask ${mask}`);
       assert.equal(visible.ai > 0, !expected.aiHidden, `AI mask ${mask}`);
       assert.equal(await js(`document.querySelector('${aiEye}').getAttribute('aria-pressed')`), String(expected.aiHidden), `floating eye mask ${mask}`);
+      assert.equal(await js(`document.querySelector('${primaryEye}').getAttribute('aria-pressed')`), String(expected.aiHidden && expected.plansHidden), `primary eye mask ${mask}`);
       assert.equal(visible.plan, expected.plansHidden ? 0 : 5, `plan mask ${mask}`);
       assert.equal(visible.orders, expected.ordersHidden ? 0 : 5, `orders mask ${mask}`);
       assert.equal(visible.data, !expected.dataHidden, `data mask ${mask}`);
@@ -96,11 +98,33 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
     await keypress('Escape');
     assert.equal(await js(`document.querySelector('${menu}').hidden`), true);
     assert.equal(await js(`document.activeElement===document.querySelector('${arrow}')`), true);
-    await click('[data-drawing-action="toggle-visibility"]');
-    assert.deepEqual(await state(), defaults);
-    await click('[data-drawing-action="toggle-visibility"]');
+    // The primary eye changes AI and plans together, preserving the other layers.
+    await click(primaryEye);
+    assert.deepEqual(await state(), { ...Object.fromEntries(keys.map(key => [key, true])), aiHidden: false, plansHidden: false });
+    assert.deepEqual(await counts(), { manual: 0, ai: (await counts()).ai, plan: 5, orders: 0, data: false });
+    assert.ok((await counts()).ai > 0);
+    await click(primaryEye);
     assert.ok(Object.values(await state()).every(Boolean));
-    await click('[data-drawing-action="toggle-visibility"]');
+    await js('d.drawingVisibility.setAll(false)');
+    await click(primaryEye);
+    assert.deepEqual(await state(), { ...defaults, aiHidden: true, plansHidden: true });
+    assert.deepEqual(await counts(), { manual: 1, ai: 0, plan: 0, orders: 5, data: true });
+    await click(primaryEye);
+    assert.deepEqual(await state(), defaults);
+    assert.ok((await counts()).ai > 0);
+    assert.equal((await counts()).plan, 5);
+    // If the menu left one of the pair visible, the next click hides both.
+    for (const layer of ['aiHidden', 'plansHidden']) {
+      await open(); await toggle(layer); await keypress('Escape');
+      await click(primaryEye);
+      assert.deepEqual(await state(), { ...defaults, aiHidden: true, plansHidden: true });
+      assert.deepEqual(await counts(), { manual: 1, ai: 0, plan: 0, orders: 5, data: true });
+      await click(primaryEye);
+      assert.deepEqual(await state(), defaults);
+      assert.equal((await counts()).plan, 5);
+      assert.ok((await counts()).ai > 0);
+    }
+    assert.equal(await snapshot(), original, 'primary eye preserves geometry, prices and undo');
     // Floating eye -> menu/settings, and setting/menu -> floating eye.
     for (const hidden of [true, false]) {
       await click(aiEye);
@@ -194,11 +218,21 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
     await click('[data-market-action="close-chart-settings"]');
     // Theme/language screenshots, selected and focused menu state, viewport bounds.
     await js(`document.documentElement.dataset.theme='${theme}';workspace.applyChartTheme();
-      d.drawingVisibility.setLayers({aiHidden:true,ordersHidden:true});
+      d.drawingVisibility.setLayers({aiHidden:true,plansHidden:true,ordersHidden:true});
       (async()=>{const m=await import('/app-language.mjs');m.observeAppLanguage(document.body)})()`);
     for (const language of ['zh-CN', 'zh-TW', 'en']) {
       await js(`(async()=>{const m=await import('/app-language.mjs');
         m.applyAppLanguage('${language}',{root:document.body});m.localizeAppTree(document.body,'${language}')})()`);
+      for (const hidden of [false, true]) {
+        await click(primaryEye);
+        assert.equal((await state()).aiHidden, hidden);
+        assert.equal((await state()).plansHidden, hidden);
+        const label = language === 'en' ? (hidden ? 'Show AI drawings and plan lines' : 'Hide AI drawings and plan lines')
+          : language === 'zh-TW' ? (hidden ? '顯示AI繪圖和計劃線' : '隱藏AI繪圖和計劃線')
+          : (hidden ? '显示AI绘图和计划线' : '隐藏AI绘图和计划线');
+        assert.equal(await js(`document.querySelector('${primaryEye}').title`), label);
+        assert.equal(await js(`document.querySelector('${primaryEye}').getAttribute('aria-label')`), label);
+      }
       await open(); await keypress('Home'); await settle();
       const layout = await js(`(()=>{const m=document.querySelector('${menu}'),r=m.getBoundingClientRect();
         return {text:m.innerText,width:m.clientWidth,scroll:m.scrollWidth,x:r.x,y:r.y,bottom:r.bottom,right:r.right,

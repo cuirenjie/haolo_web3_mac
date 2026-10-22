@@ -11,10 +11,13 @@ import {
   projectedActionLevels,
   rankAndDeduplicateCandidates,
   resolvePatternLifecycle,
+  patternBreakoutWindow,
+  patternFormationAtr,
+  boundaryContainment,
 } from "./chart-pattern-common.mjs";
 
 export const CHART_PATTERN_CONTINUATION_SUBENGINE_ID = "chart-pattern-continuation";
-export const CHART_PATTERN_CONTINUATION_SUBENGINE_VERSION = "1.1.0";
+export const CHART_PATTERN_CONTINUATION_SUBENGINE_VERSION = "2.1.0";
 export const CHART_PATTERN_CONTINUATION_IDS = Object.freeze([
   "bull-flag",
   "bear-flag",
@@ -32,7 +35,7 @@ const NAMES = Object.freeze({
 });
 
 function breakoutWindow(duration) {
-  return Math.max(4, Math.min(12, Math.round(Math.max(1, duration) * 0.35)));
+  return patternBreakoutWindow(duration);
 }
 
 function continuationCandidate(snapshot, {
@@ -57,12 +60,13 @@ function continuationCandidate(snapshot, {
     direction,
     lastStructureIndex,
     structureDuration,
-    maxDevelopingAgeBars: ageLimitBars,
-    maxConfirmedAgeBars: ageLimitBars,
+    maxDevelopingAgeBars: Number.isFinite(metrics?.apexIndex)
+      ? Math.max(0, Math.min(ageLimitBars, Math.floor(metrics.apexIndex - lastStructureIndex))) : ageLimitBars,
+    maxConfirmedAgeBars: Math.max(4, Math.min(12, Math.round(structureDuration * 0.35))),
   });
   const { lifecycle, tradeState } = lifecycleState;
   const records = pointRecords(points, labels);
-  const id = chartPatternId("chart-pattern", snapshot.snapshotId, patternId, records.map((point) => point.index).join("-"));
+  const id = chartPatternId("chart-pattern", snapshot.marketId, snapshot.interval, patternId, records.map(point => `${point.time}:${point.price}`).join("-"));
   return Object.freeze({
     id,
     patternId,
@@ -114,7 +118,10 @@ export function evaluateFlagOrPennant(snapshot, poleStart, consolidationPoints, 
   const startIndex = consolidationPoints[0].index;
   const endIndex = consolidationPoints.at(-1).index;
   const duration = endIndex - startIndex;
-  if (duration < 4 || duration > 35) return null;
+  // Intraday consolidations can span several sessions. Keep the impulse,
+  // retracement and containment tests while scaling time with the pole.
+  const maximumDuration = Math.min(240, Math.max(60, (poleEnd.index - poleStart.index) * 16));
+  if (duration < 4 || duration > maximumDuration) return null;
   const adverse = bullish
     ? poleEnd.price - Math.min(...consolidationPoints.map((point) => point.price))
     : Math.max(...consolidationPoints.map((point) => point.price)) - poleEnd.price;
@@ -132,14 +139,18 @@ export function evaluateFlagOrPennant(snapshot, poleStart, consolidationPoints, 
   const converging = endGap <= startGap * 0.72 && upper.slope < lower.slope;
   const patternKind = parallel && againstPole ? "flag" : converging ? "pennant" : null;
   if (!patternKind) return null;
+  if (boundaryContainment(snapshot, startIndex, endIndex, upper, lower, atr) < 0.85) return null;
   const patternId = `${bullish ? "bull" : "bear"}-${patternKind}`;
+  const apexIndex = patternKind === "pennant" ? (lower.intercept - upper.intercept) / (upper.slope - lower.slope) : null;
+  const searchBars = Number.isFinite(apexIndex)
+    ? Math.max(0, Math.min(breakoutWindow(duration), Math.floor(apexIndex - endIndex))) : breakoutWindow(duration);
   const breakout = findClosedBreakout(
     snapshot,
     endIndex,
     (index) => linePrice(upper, index),
     (index) => linePrice(lower, index),
     atr,
-    { allowedDirection: bullish ? "up" : "down", maxSearchBars: breakoutWindow(duration) },
+    { allowedDirection: bullish ? "up" : "down", maxSearchBars: searchBars },
   );
   const triggerIndex = breakout.index || endIndex + 1;
   const trigger = bullish ? linePrice(upper, triggerIndex) : linePrice(lower, triggerIndex);
@@ -172,6 +183,9 @@ export function evaluateFlagOrPennant(snapshot, poleStart, consolidationPoints, 
     lastStructureIndex: endIndex,
     structureDuration: duration,
     metrics: {
+      apexIndex,
+      consolidationBars: duration,
+      maximumConsolidationBars: maximumDuration,
       poleLengthAtr: chartPatternRound(poleLength / atr),
       retracement: chartPatternRound(adverse / poleLength),
       convergence: chartPatternRound(convergence),
@@ -187,7 +201,8 @@ export function evaluateCupAndHandle(snapshot, inputPoints, { atr, profileId = "
   if (!trend.matches) return null;
   const lip = (leftLip.price + rightLip.price) / 2;
   const depth = lip - bottom.price;
-  if (depth < atr * 3 || rightLip.index - leftLip.index < 14 || rightLip.index - leftLip.index > 180) return null;
+  if (depth < atr * 3 || rightLip.index - leftLip.index < 20 || rightLip.index - leftLip.index > 240) return null;
+  if (handleLow.index - rightLip.index > rightLip.index - leftLip.index) return null;
   if (Math.abs(leftLip.price - rightLip.price) > Math.max(atr, depth * 0.16)) return null;
   const handleDepth = rightLip.price - handleLow.price;
   if (handleDepth <= atr * 0.35 || handleDepth > depth * 0.5 || handleLow.price <= bottom.price + depth * 0.5) return null;
@@ -251,7 +266,7 @@ export function runContinuationPatternSubengine(snapshot, scanContext) {
     for (let length = 4; length <= 7; length += 1) {
       for (let index = 1; index <= swings.length - length; index += 1) {
         const candidate = evaluateFlagOrPennant(snapshot, swings[index - 1], swings.slice(index, index + length), {
-          atr: scanContext.atr,
+          atr: patternFormationAtr(snapshot, swings.slice(index, index + length)),
           profileId: profile.id,
         });
         if (candidate) candidates.push(candidate);
@@ -259,7 +274,7 @@ export function runContinuationPatternSubengine(snapshot, scanContext) {
     }
     for (let index = 0; index <= swings.length - 4; index += 1) {
       const candidate = evaluateCupAndHandle(snapshot, swings.slice(index, index + 4), {
-        atr: scanContext.atr,
+        atr: patternFormationAtr(snapshot, swings.slice(index, index + 4)),
         profileId: profile.id,
       });
       if (candidate) candidates.push(candidate);

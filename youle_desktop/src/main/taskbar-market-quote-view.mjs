@@ -1,5 +1,5 @@
-export const TASKBAR_QUOTE_WIDTH = 176;
-export const TASKBAR_QUOTE_MIN_WIDTH = 132;
+export const TASKBAR_QUOTE_WIDTH = 151;
+export const TASKBAR_QUOTE_MIN_WIDTH = 122;
 export const TASKBAR_QUOTE_HEIGHT = 40;
 
 export function normalizeTaskbarMarketQuote(value) {
@@ -26,6 +26,7 @@ export function taskbarMarketQuoteBounds(layout) {
   const height = Math.min(TASKBAR_QUOTE_HEIGHT, bar.height - 4);
   if (height < 28) return null;
   const gap = 6;
+  const endGap = gap + 10; // Keep the quote 10 DIP shorter even when space is constrained.
   const occupied = [anchor, ...(layout.occupied || [])].filter(valid)
     .filter((rect) => rect.y < bar.y + bar.height && rect.y + rect.height > bar.y)
     .sort((a, b) => a.x - b.x);
@@ -33,14 +34,14 @@ export function taskbarMarketQuoteBounds(layout) {
   let width = TASKBAR_QUOTE_WIDTH;
   for (const rect of occupied) {
     if (rect.x + rect.width + gap <= x) continue;
-    const available = rect.x - gap - x;
+    const available = rect.x - endGap - x;
     if (available >= TASKBAR_QUOTE_MIN_WIDTH) {
       width = Math.min(width, available);
       break;
     }
     x = rect.x + rect.width + gap;
   }
-  width = Math.min(width, bar.x + bar.width - gap - x);
+  width = Math.min(width, bar.x + bar.width - endGap - x);
   if (width < TASKBAR_QUOTE_MIN_WIDTH) return null;
   return { x: Math.round(x), y: Math.round(bar.y + (bar.height - height) / 2), width: Math.floor(width), height: Math.round(height) };
 }

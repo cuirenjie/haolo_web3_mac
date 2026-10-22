@@ -61,7 +61,7 @@ test('report reveal emits exact growing Unicode prefixes, yields between updates
   await revealPureAnalysisReport(text,{isActive:()=>active,onText:value=>chunks.push(value),wait:async ms=>ticks.push(ms)});
   assert.ok(chunks.length>10);assert.equal(chunks.length,ticks.length);assert.ok(chunks.every((value,index)=>text.startsWith(value)&&value.length<text.length&&(!index||value.length>chunks[index-1].length)));
   assert.ok(chunks.every(value=>!/[\uD800-\uDBFF]$/.test(value)));
-  assert.ok(ticks.every(ms=>ms===80), 'use half the previous reveal speed without changing the chunks');
+  assert.ok(ticks.every(ms=>ms===100), '80ms / 0.8 = 100ms: reveal at 80 percent of the previous speed with unchanged chunks');
   const stopped=[];await revealPureAnalysisReport(text,{isActive:()=>active,onText:value=>{stopped.push(value);active=false;},wait:async()=>{}});
   assert.equal(stopped.length,1);
 });

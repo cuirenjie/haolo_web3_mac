@@ -72,7 +72,7 @@ function instrument(report,newThreadScenario) {
   const server=await createServer({configFile:path.join(root,'vite.config.mjs'),server:{port:0,strictPort:false,hmr:false},plugins:[{
     name:'pure-analysis-isolated-test-hooks',transform(code,id){
       if(id.replaceAll('\\','/').split('?')[0]===path.join(root,'src/renderer/trading-expert-ai-playback.ts').replaceAll('\\','/'))return code
-        .replace('this.options = options;', 'this.options = {...options,setDraft:drawing=>{if(drawing)window.qa.draftFrames++;options.setDraft(drawing);}};')
+        .replace('this.options = options;', 'this.options = {...options,setDraft:(drawing,opacity)=>{if(drawing)window.qa.draftFrames++;options.setDraft(drawing,opacity);}};')
         .replace('options.onPhase?.("completed");','window.qa.playing=false;options.onPhase?.("completed");')
         .replace('const generation = ++this.generation;', `window.qa.playing=true;window.qa.playbacks.push({speedMultiplier:options.speedMultiplier,revealing:window.pureQa.snapshot().revealing,busy:window.pureQa.snapshot().pure.length>0,sidebarWorking:Boolean(document.querySelector('[data-thread-row="'+window.pureQa.snapshot().threadId+'"] .conversation-row-spinner')),startedAt:performance.now()});\nconst generation = ++this.generation;`);
       if(id.replaceAll('\\','/').split('?')[0]!==path.join(root,'src/renderer/main.ts').replaceAll('\\','/'))return;
@@ -131,7 +131,7 @@ function instrument(report,newThreadScenario) {
     }
     const evidence=await js('({calls:qa.calls,saved:qa.saved,errors:qa.errors,playbacks:qa.playbacks,draftFrames:qa.draftFrames,revealFrames:qa.revealFrames,visibleFrames:qa.visibleFrames,beforeReport:qa.beforeReport,final:pureQa.snapshot()})');
     assert.equal(evidence.playbacks.length,2);
-    evidence.playbacks.forEach(playback=>{assert.equal(playback.speedMultiplier,1.3);assert.equal(playback.revealing,1);assert.equal(playback.busy,true);assert.equal(playback.sidebarWorking,true);});
+    evidence.playbacks.forEach(playback=>{assert.equal(playback.speedMultiplier,1.5);assert.equal(playback.revealing,1);assert.equal(playback.busy,true);assert.equal(playback.sidebarWorking,true);});
     assert.ok(evidence.revealFrames.filter(frame=>frame.playing).length>2,'text streams while the original drawing is playing');
     assert.ok(evidence.revealFrames.every(frame=>frame.text.length<report.report.length),'partial frames precede the full report');
     assert.equal(evidence.final.revealing,0);

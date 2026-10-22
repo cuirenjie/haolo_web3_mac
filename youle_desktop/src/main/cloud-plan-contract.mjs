@@ -5,8 +5,8 @@ import {executionPlanCandidatesFromText,executionPlanCandidateWithSourceText,exe
   executionPlanHasStructuredTradingFields,executionPlanHasConcreteTradingPlan} from './legacy-execution-plan-presentation.mjs';
 import {executionPlanCardHeading,executionPlanCardBody,executionPlanStructuredCardBody,executionPlanCardAction} from './execution-plan-card-view.mjs';
 import {cloudPlanAccountView,cloudPlanEntryBasisMismatch} from './cloud-plan-account-view.mjs';
-import {validLeftObservation,leftWatchView,leftRouteView} from './price-action-left-card.mjs';
-import {validConditionalWatch,conditionalWatchCard} from './conditional-watch-card.mjs';
+import {validLeftObservation,leftRouteView} from './price-action-left-card.mjs';
+import {validConditionalWatch} from './conditional-watch-card.mjs';
 const uuid = value => typeof value==='string' && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
 const hash = value => typeof value==='string' && /^[a-f0-9]{64}$/.test(value);
 const positive=value=>typeof value==='number'&&Number.isFinite(value)&&value>0;
@@ -143,8 +143,10 @@ export function cloudPlanCard(report, { hideExpiry = false, separateAction = fal
   const index=report.locale==='en'?1:report.locale==='zh-Hant'?2:0,t=key=>words[key]?.[index]||key;
   const plan=report.executionPlan,condition=plan.entryCondition,scenario=plan.scenarios[0];
   const language=displayLanguage||(report.locale==='zh-Hant'?'zh-TW':report.locale);
-  const watch=leftWatchView(report,language),route=leftRouteView(plan,language);
-  if(plan.outcome?.action!=='plan'||!condition||!scenario) return conditionalWatchCard(report,language) || watch;
+  // Historical observation payloads remain readable, but never become cards.
+  // Only a server-priced plan uses the original structured plan presentation.
+  if(plan.outcome?.action!=='plan'||!condition||!scenario) return null;
+  const route=leftRouteView(plan,language);
   const predicate=p=>p ? `${t(p.operator)} ${p.operator==='in_zone'?`[${p.lower}, ${p.upper}]`:p.lower}` : '';
   const details=[t(condition.confirmation),predicate(condition.trigger)];
   if(condition.confirmation==='breakout_retest') details.push(condition.breakoutConfirmation==='bar_close'?t('bar_close'):t('touch'),predicate(condition.retest));
@@ -176,6 +178,6 @@ export function cloudPlanCard(report, { hideExpiry = false, separateAction = fal
   const body=executionPlanStructuredCardBody({entry,entryMode:plan.selectedMode,stop:scenario.stop,targets:scenario.targets,direction:condition.direction,
     expiresAt:hideExpiry?undefined:condition.expiresAt,riskReward,account,entryBasisMismatch,
     action,hideAction:separateAction},language);
-  return {title,content:[title,...fields.map(([label,value])=>`${label}: ${value}`),t('notice'),...(route?[route.content]:[]),...(watch?[watch.content]:[])].join('\n'),
+  return {title,content:[title,...fields.map(([label,value])=>`${label}: ${value}`),t('notice'),...(route?[route.content]:[])].join('\n'),
     html:heading+body,...(separateAction?{actionHtml:executionPlanCardAction(action,language)}:{})};
 }

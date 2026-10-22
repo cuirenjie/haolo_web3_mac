@@ -1101,7 +1101,7 @@ test("price-action candlestick labels avoid one another, candles, and strategy d
   }), false);
 
   const drawing = await drawingSource;
-  assert.match(drawing, /const aiTextLayoutRequests = \[\.\.\.aiCandlestickLabelRequests, \.\.\.aiNoteRequests\]/);
+  assert.match(drawing, /const aiTextLayoutRequests = \[\.\.\.aiCandlestickLabelRequests, \.\.\.aiNoteRequests, \.\.\.aiInlineRequests\]/);
   assert.match(drawing, /avoidBoxInteriors: true,[\s\S]*?maxLeaderDistance: 180/);
   assert.match(drawing, /visiblePriceActionDrawingObstacles\(aiDrawings, bounds\)/);
   assert.match(drawing, /resolvedTextGeometry\.boxLeft \+ resolvedTextGeometry\.boxWidth \/ 2/);
@@ -1305,7 +1305,7 @@ test("anchored text, note, and price note complete creation, editing, and render
   assert.doesNotMatch(noteVisualRenderer, /<rect\b/);
   assert.doesNotMatch(noteRenderer, /geometry\.tailX|geometry\.tailEdgeY/);
   assert.match(drawing, /layoutTradingAiNoteBoxes\([\s\S]*?this\.visibleCandleObstacles\(bounds\)/);
-  assert.match(drawing, /if \(drawing\.tool === "note" && !textLayout\) return ""/);
+  assert.match(drawing, /if \(\(drawing\.tool === "note" \|\| layoutRequestedIds\.has\(drawing\.id\)\) && !textLayout\) return ""/);
   assert.match(drawing, /const nearHorizontalPenalty = Math\.max\(0, diagonalThreshold - verticalSeparation\) \* 5_000/);
   assert.match(textRenderer, /private renderTextHitTargets\([\s\S]*?points: ScreenPoint\[],[\s\S]*?drawing: TradingDrawingModel,[\s\S]*?bounds: \{ width: number; height: number \}/);
   assert.match(drawing, /const AI_NOTE_FONT_SIZE = 10/);
@@ -1387,7 +1387,7 @@ test("AI text annotations initially place resize controls beside the topmost lab
   assert.match(drawing, /aiTextSizeToolbarVisibility\.dismiss\(\)/);
   assert.match(drawing, /button\?\.dataset\.aiTextSizeAction[\s\S]*?action === "dismiss"[\s\S]*?dismissAiTextSizeToolbar/);
 
-  assert.match(styles, /\.trading-ai-text-size-trigger\s*\{[^}]*pointer-events: all;/s);
+  assert.match(styles, /\.trading-ai-text-size-trigger\s*\{[^}]*pointer-events: none;/s);
   assert.match(styles, /\.trading-ai-text-size-toolbar\s*\{[^}]*background: var\(--trading-market-panel\);/s);
   assert.match(styles, /\.trading-ai-text-size-toolbar > button:hover,[\s\S]*?background: var\(--trading-market-control\);[\s\S]*?color: var\(--trading-market-text\);/);
   assert.match(styles, /\.trading-ai-text-size-toolbar > button:active\s*\{[^}]*background: var\(--trading-market-accent-soft\);[^}]*color: var\(--trading-market-accent\);/s);

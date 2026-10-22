@@ -36,17 +36,22 @@ test('invalid and offscreen obstacles are ignored, and narrow labels remain with
   assert.ok(left >= 8 && left + badge.width <= 296);
 });
 
-test('close plan levels remain separated and price strokes retain exact coordinates while badges avoid drawings', () => {
+test('plan names stay at the axis seam and prices keep exact heights despite nearby levels and drawings', () => {
   const market = 'BINANCE:FUTURES:BTCUSDT';
   const lines = ['plan-entry', 'stop-loss', 'take-profit'].map((kind, i) => ({
     id: `level-${i}`, marketId: market, price: 300 + i * 2, kind,
     shortLabel: ['入场', '止损', '第1止盈'][i], label: String(300 + i * 2), labelMode: 'price',
   }));
-  const svg = renderTradingOrderLineSvg(lines, market, bounds, p => p, [], [{ x: 400, y: 270, width: 600, height: 100 }]);
+  const svg = renderTradingOrderLineSvg(lines, market, { ...bounds, priceScaleWidth: 72 }, p => p, [], [{ x: 400, y: 270, width: 600, height: 100 }]);
   const labels = [...svg.matchAll(/class="trading-order-line-label-bg" x="([^"]+)" y="([^"]+)" width="([^"]+)"/g)]
     .map(m => ({ x: +m[1], y: +m[2], width: +m[3] }));
   assert.equal(labels.length, 3);
-  for (const label of labels) assert.ok(label.x + label.width <= 396);
-  assert.ok(labels[1].y - labels[0].y >= 22 && labels[2].y - labels[1].y >= 22);
+  labels.forEach((label, i) => {
+    assert.equal(label.x + label.width, bounds.width + 72, 'price badge fills the right axis');
+    assert.equal(label.y + 6.5, lines[i].price, 'never shift away from the price to avoid collisions');
+  });
+  const keys = [...svg.matchAll(/class="trading-order-line-label-key" x="([^"]+)"[^>]+width="([^"]+)"/g)];
+  for (const key of keys) assert.equal(+key[1] + +key[2], bounds.width);
+  assert.doesNotMatch(svg, /trading-order-line-connector/);
   for (const line of lines) assert.ok(svg.includes(`y1="${line.price}" x2="1000" y2="${line.price}"`));
 });

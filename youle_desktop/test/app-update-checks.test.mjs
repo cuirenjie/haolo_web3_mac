@@ -82,11 +82,35 @@ test("login starts one silent check and repeats exactly every four hours", async
   assert.equal(check.mock.callCount(), 4);
 });
 
-test("authentication changes and renderer teardown own the timer lifecycle", () => {
+test("authentication changes and renderer teardown own the timer lifecycle", async (t) => {
   const auth = parsed.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === "applyAuthSession").getText(parsed);
   assert.match(auth, /if \(state\.auth\.authenticated\) \{\s*startAppUpdateChecks\(\)/);
   assert.match(auth, /else \{\s*stopAppUpdateChecks\(\)/);
-  assert.match(source, /window\.addEventListener\("beforeunload", \(\) => \{\s*stopAppUpdateChecks\(\)/);
+  const teardown = parsed.statements.find((node) => ts.isExpressionStatement(node)
+    && ts.isCallExpression(node.expression)
+    && node.expression.expression.getText(parsed) === "window.addEventListener"
+    && node.expression.arguments[0]?.text === "beforeunload");
+  assert.ok(teardown, "renderer must register its unload cleanup");
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const { context, check } = harness(t);
+  const listeners = new Map();
+  context.window.addEventListener = (event, listener) => listeners.set(event, listener);
+  context.refreshCloudExecutionPlans = { reset: t.mock.fn() };
+  context.cancelVoiceInput = t.mock.fn();
+  context.persistSubagentActivityStore = t.mock.fn();
+  runInNewContext(ts.transpileModule(teardown.getText(parsed), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText, context);
+  context.startAppUpdateChecks();
+  await setImmediate();
+  assert.equal(check.mock.callCount(), 1);
+  listeners.get("beforeunload")();
+  t.mock.timers.tick(FOUR_HOURS);
+  await setImmediate();
+  assert.equal(check.mock.callCount(), 1, "unloading stops scheduled update requests");
+  assert.equal(context.refreshCloudExecutionPlans.reset.mock.callCount(), 1);
+  assert.equal(context.cancelVoiceInput.mock.callCount(), 1);
+  assert.equal(context.persistSubagentActivityStore.mock.callCount(), 1);
 });
 
 for (const [label, response] of [

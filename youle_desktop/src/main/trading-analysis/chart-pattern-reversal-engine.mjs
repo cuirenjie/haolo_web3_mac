@@ -11,10 +11,13 @@ import {
   projectedActionLevels,
   rankAndDeduplicateCandidates,
   resolvePatternLifecycle,
+  patternBreakoutWindow,
+  patternFormationAtr,
+  boundaryContainment,
 } from "./chart-pattern-common.mjs";
 
 export const CHART_PATTERN_REVERSAL_SUBENGINE_ID = "chart-pattern-reversal";
-export const CHART_PATTERN_REVERSAL_SUBENGINE_VERSION = "1.1.0";
+export const CHART_PATTERN_REVERSAL_SUBENGINE_VERSION = "2.0.0";
 export const CHART_PATTERN_REVERSAL_IDS = Object.freeze([
   "head-and-shoulders-top",
   "inverse-head-and-shoulders",
@@ -43,7 +46,7 @@ function recency(snapshot, index) {
 
 function breakoutWindow(points) {
   const duration = Math.max(1, points.at(-1).index - points[0].index);
-  return Math.max(4, Math.min(12, Math.round(duration * 0.35)));
+  return patternBreakoutWindow(duration);
 }
 
 function reversalCandidate(snapshot, {
@@ -60,8 +63,9 @@ function reversalCandidate(snapshot, {
   profileId,
   boundaries = null,
   metrics = {},
+  category = "reversal",
 }) {
-  const trigger = breakout.state === "confirmed" ? breakout.boundary : neckline;
+  const trigger = Number.isFinite(breakout.boundary) ? breakout.boundary : neckline;
   const actionLevels = projectedActionLevels({ direction, trigger, oppositeBoundary, height, atr });
   const duration = Math.max(1, points.at(-1).index - points[0].index);
   const ageLimitBars = breakoutWindow(points);
@@ -71,17 +75,18 @@ function reversalCandidate(snapshot, {
     direction,
     lastStructureIndex: points.at(-1).index,
     structureDuration: duration,
-    maxDevelopingAgeBars: ageLimitBars,
-    maxConfirmedAgeBars: ageLimitBars,
+    maxDevelopingAgeBars: Number.isFinite(metrics.apexIndex)
+      ? Math.max(0, Math.min(ageLimitBars, Math.floor(metrics.apexIndex - points.at(-1).index))) : ageLimitBars,
+    maxConfirmedAgeBars: Math.max(4, Math.min(12, Math.round(duration * 0.35))),
   });
   const { lifecycle, tradeState } = lifecycleState;
   const records = pointRecords(points, labels);
-  const id = chartPatternId("chart-pattern", snapshot.snapshotId, patternId, records.map((point) => point.index).join("-"));
+  const id = chartPatternId("chart-pattern", snapshot.marketId, snapshot.interval, patternId, records.map(point => `${point.time}:${point.price}`).join("-"));
   return Object.freeze({
     id,
     patternId,
     patternName: NAMES[patternId],
-    category: "reversal",
+    category,
     direction,
     lifecycle,
     status: lifecycle === "confirmed" ? "confirmed" : "tentative",
@@ -161,7 +166,7 @@ export function evaluateFivePointReversal(snapshot, inputPoints, { atr, profileI
   const bottom = points.every((point, index) => point.type === (index % 2 === 0 ? "low" : "high"));
   if (!top && !bottom) return Object.freeze([]);
   const trend = priorTrend(snapshot, points[0].index, top ? "up" : "down", atr);
-  if (!trend.matches) return Object.freeze([]);
+  if (trend.direction === "neutral") return Object.freeze([]);
   const extrema = [points[0], points[2], points[4]];
   const reactions = [points[1], points[3]];
   const averageExtreme = extrema.reduce((sum, point) => sum + point.price, 0) / 3;
@@ -181,7 +186,7 @@ export function evaluateFivePointReversal(snapshot, inputPoints, { atr, profileI
   const tolerance = Math.max(atr, height * 0.18);
   const results = [];
   const allEqual = Math.max(...extrema.map((point) => point.price)) - Math.min(...extrema.map((point) => point.price)) <= tolerance;
-  if (allEqual) {
+  if (allEqual && trend.matches) {
     const symmetry = clamp(1 - (Math.max(...extrema.map((point) => point.price)) - Math.min(...extrema.map((point) => point.price))) / tolerance, 0, 1);
     results.push(reversalCandidate(snapshot, {
       patternId: top ? "triple-top" : "triple-bottom",
@@ -208,6 +213,7 @@ export function evaluateFivePointReversal(snapshot, inputPoints, { atr, profileI
     const headHeight = Math.abs(points[2].price - linePrice(necklineLine, points[2].index));
     results.push(reversalCandidate(snapshot, {
       patternId: top ? "head-and-shoulders-top" : "inverse-head-and-shoulders",
+      category: trend.matches ? "reversal" : "continuation",
       direction: top ? "bearish" : "bullish",
       points,
       labels: ["LS", "N1", "H", "N2", "RS"],
@@ -243,20 +249,24 @@ export function evaluateWedgeReversal(snapshot, inputPoints, { atr, profileId = 
   const falling = upper.slope < 0 && lower.slope < 0 && upper.slope < lower.slope;
   if (!rising && !falling) return null;
   const trend = priorTrend(snapshot, startIndex, rising ? "up" : "down", atr);
-  if (!trend.matches) return null;
+  if (trend.direction === "neutral") return null;
+  if (endIndex - startIndex < 8 || endIndex - startIndex > 240) return null;
+  if (boundaryContainment(snapshot, startIndex, endIndex, upper, lower, atr) < 0.85) return null;
+  const apexIndex = (lower.intercept - upper.intercept) / (upper.slope - lower.slope);
   const breakout = findClosedBreakout(
     snapshot,
     endIndex,
     (index) => linePrice(upper, index),
     (index) => linePrice(lower, index),
     atr,
-    { allowedDirection: rising ? "down" : "up", maxSearchBars: breakoutWindow(inputPoints) },
+    { allowedDirection: "both", maxSearchBars: Math.min(breakoutWindow(inputPoints), Math.max(0, Math.floor(apexIndex - endIndex))) },
   );
-  const direction = rising ? "bearish" : "bullish";
-  const trigger = rising ? linePrice(lower, endIndex + 1) : linePrice(upper, endIndex + 1);
-  const opposite = rising ? linePrice(upper, endIndex + 1) : linePrice(lower, endIndex + 1);
+  const direction = breakout.direction === "up" ? "bullish" : breakout.direction === "down" ? "bearish" : rising ? "bearish" : "bullish";
+  const triggerIndex = breakout.index ?? endIndex + 1;
+  const trigger = direction === "bearish" ? linePrice(lower, triggerIndex) : linePrice(upper, triggerIndex);
+  const opposite = direction === "bearish" ? linePrice(upper, triggerIndex) : linePrice(lower, triggerIndex);
   const convergence = clamp(1 - endGap / startGap, 0, 1);
-  return reversalCandidate(snapshot, {
+  const candidate = reversalCandidate(snapshot, {
     patternId: rising ? "rising-wedge" : "falling-wedge",
     direction,
     points: inputPoints,
@@ -269,8 +279,9 @@ export function evaluateWedgeReversal(snapshot, inputPoints, { atr, profileId = 
     score: geometryScore({ symmetry: convergence, touches: inputPoints.length, fit: (upper.r2 + lower.r2) / 2, recency: recency(snapshot, endIndex), confirmed: breakout.state === "confirmed" }),
     profileId,
     boundaries: Object.freeze({ upper, lower }),
-    metrics: { priorTrend: trend, convergence: chartPatternRound(convergence) },
+    metrics: { priorTrend: trend, convergence: chartPatternRound(convergence), apexIndex },
   });
+  return Object.freeze({ ...candidate, category: (trend.direction === "up") === (direction === "bullish") ? "continuation" : "reversal" });
 }
 
 export function runReversalPatternSubengine(snapshot, scanContext) {
@@ -278,15 +289,18 @@ export function runReversalPatternSubengine(snapshot, scanContext) {
   for (const profile of scanContext.profiles) {
     const { swings } = profile;
     for (let index = 0; index <= swings.length - 3; index += 1) {
-      const candidate = evaluateDoubleReversal(snapshot, swings.slice(index, index + 3), { atr: scanContext.atr, profileId: profile.id });
+      const points = swings.slice(index, index + 3);
+      const candidate = evaluateDoubleReversal(snapshot, points, { atr: patternFormationAtr(snapshot, points), profileId: profile.id });
       if (candidate) candidates.push(candidate);
     }
     for (let index = 0; index <= swings.length - 5; index += 1) {
-      candidates.push(...evaluateFivePointReversal(snapshot, swings.slice(index, index + 5), { atr: scanContext.atr, profileId: profile.id }));
+      const points = swings.slice(index, index + 5);
+      candidates.push(...evaluateFivePointReversal(snapshot, points, { atr: patternFormationAtr(snapshot, points), profileId: profile.id }));
     }
     for (let length = 5; length <= 8; length += 1) {
       for (let index = 0; index <= swings.length - length; index += 1) {
-        const candidate = evaluateWedgeReversal(snapshot, swings.slice(index, index + length), { atr: scanContext.atr, profileId: profile.id });
+        const points = swings.slice(index, index + length);
+        const candidate = evaluateWedgeReversal(snapshot, points, { atr: patternFormationAtr(snapshot, points), profileId: profile.id });
         if (candidate) candidates.push(candidate);
       }
     }

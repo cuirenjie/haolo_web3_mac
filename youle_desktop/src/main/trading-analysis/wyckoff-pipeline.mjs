@@ -87,14 +87,32 @@ function plainEventLabel(event) {
 function deterministicEventSelection(candidate) {
   return [...candidate.events]
     .sort((first, second) => {
+      const state = event => event.status === "invalidated" ? 1 : 0;
       const firstPriority = IMPORTANT_EVENT_ORDER.indexOf(first.code);
       const secondPriority = IMPORTANT_EVENT_ORDER.indexOf(second.code);
       const normalizedFirst = firstPriority < 0 ? IMPORTANT_EVENT_ORDER.length : firstPriority;
       const normalizedSecond = secondPriority < 0 ? IMPORTANT_EVENT_ORDER.length : secondPriority;
-      return normalizedFirst - normalizedSecond || second.strength - first.strength || first.candleIndex - second.candleIndex;
+      return state(first) - state(second) || normalizedFirst - normalizedSecond
+        || second.candleIndex - first.candleIndex || second.strength - first.strength;
     })
     .slice(0, 8)
     .sort((first, second) => first.candleIndex - second.candleIndex);
+}
+
+function lifecycleSelection(candidate, selectedIds) {
+  const breakoutCode = candidate.direction === "bullish" ? "SOS" : "SOW";
+  const retestCode = candidate.direction === "bullish" ? "LPS" : "LPSY";
+  const breakout = candidate.events.findLast(event => event.code === breakoutCode);
+  const retests = breakout ? candidate.events.filter(event => event.code === retestCode
+    && event.evidence.breakoutTime === breakout.time).slice(-2) : [];
+  // Model review may choose fewer annotations; observable lifecycle facts must
+  // still be shown, including a pending last candle or an invalidated episode.
+  return [...new Set([breakout?.id, ...retests.map(event => event.id), ...selectedIds].filter(Boolean))].slice(0, 8);
+}
+
+function eventStateLabel(event) {
+  return event.status === "invalidated" ? tradingReportText("已失效")
+    : event.status === "tentative" ? tradingReportText("仍待后续确认") : "";
 }
 
 export function buildWyckoffActionPlan(snapshot, candidate) {
@@ -204,6 +222,7 @@ export function normalizeWyckoffModelReview(text, theoryResult) {
     ? [...new Set(parsed.selectedEventIds.map(String))].filter((id) => eventsById.has(id)).slice(0, 8)
     : [];
   if (!selectedEventIds.length) selectedEventIds = deterministicEventSelection(primary).map((event) => event.id);
+  selectedEventIds = lifecycleSelection(primary, selectedEventIds);
   return Object.freeze({
     schemaVersion: TRADING_ANALYSIS_SCHEMA_VERSION,
     verdict: parsed.verdict,
@@ -260,7 +279,7 @@ export function buildWyckoffAnalysisReport(snapshot, theoryResult, review, conte
     tradingReportText("### 图上结构怎么理解（可跳过）"),
     tradingReportText("主情景：{0}，目前处于约 Phase {1}，{2}。区间下沿约 {3}，上沿约 {4}。", patternLabel(primary.pattern), phaseLabel(primary), primary.status === "confirmed" ? tradingReportText("关键方向事件已有确认") : tradingReportText("仍是暂定结构"), formatPrice(primary.range.support), formatPrice(primary.range.resistance)),
     events.length
-      ? events.map((event) => tradingReportText("- {0}（{1}）约 {2}：量能相对基准 {3} 倍，价差约 {4} ATR，{5}。", event.code, plainEventLabel(event), formatPrice(event.price), event.evidence.relativeVolume.toFixed(2), event.evidence.spreadInAtr.toFixed(2), event.status === "confirmed" ? tradingReportText("证据已满足") : tradingReportText("仍待后续确认"))).join("\n")
+      ? events.map((event) => tradingReportText("- {0}（{1}）约 {2}：量能相对基准 {3} 倍，价差约 {4} ATR，{5}。", event.code, plainEventLabel(event), formatPrice(event.price), event.evidence.relativeVolume.toFixed(2), event.evidence.spreadInAtr.toFixed(2), event.status === "confirmed" ? tradingReportText("证据已满足") : eventStateLabel(event))).join("\n")
       : tradingReportText("当前没有足够证据标注 Spring、UTAD、SOS 或 SOW 等关键事件，因此只保留交易区间。"),
     "",
     tradingReportText("### 如果主情景不成立"),
@@ -278,9 +297,17 @@ export function buildWyckoffAnalysisReport(snapshot, theoryResult, review, conte
 }
 
 function eventColorToken(event) {
+  if (event.status === "invalidated") return "wyckoff-note";
   if (event.direction === "bullish") return "wyckoff-event-bull";
   if (event.direction === "bearish") return "wyckoff-event-bear";
   return "wyckoff-phase";
+}
+
+function eventDrawingStatus(event) {
+  // Drawing v1 exposes confirmed/tentative only. Invalidated facts remain in
+  // theory/report, with an explicit invalidation label and tentative styling;
+  // passing "invalidated" through v1 would normalize it back to confirmed.
+  return event.status === "confirmed" ? "confirmed" : "tentative";
 }
 
 function eventTool(event) {
@@ -315,7 +342,7 @@ export function buildWyckoffDrawingPatch(snapshot, theoryResult, review) {
         tool: "rectangle",
         points: [
           { time: range.startTime, price: range.resistance },
-          { time: rangeEnd, price: range.support },
+          { time: range.frozen ? range.baseEndTime : rangeEnd, price: range.support },
         ],
         colorToken: "wyckoff-range",
         status: "confirmed",
@@ -411,7 +438,7 @@ export function buildWyckoffDrawingPatch(snapshot, theoryResult, review) {
       },
     });
   }
-  const selectedEvents = review.selectedEventIds
+  const selectedEvents = lifecycleSelection(primary, review.selectedEventIds)
     .map((id) => primary.events.find((event) => event.id === id))
     .filter(Boolean)
     .sort((a, b) => a.candleIndex - b.candleIndex)
@@ -426,7 +453,7 @@ export function buildWyckoffDrawingPatch(snapshot, theoryResult, review) {
         tool: eventTool(event),
         points: [{ time: event.time, price: event.price }],
         colorToken: token,
-        status: event.status,
+        status: eventDrawingStatus(event),
         evidenceIds: [event.id],
       },
     }, {
@@ -436,13 +463,32 @@ export function buildWyckoffDrawingPatch(snapshot, theoryResult, review) {
         theory: "wyckoff",
         tool: "note",
         points: [{ time: event.time, price: event.price }],
-        text: `${event.code} · ${plainEventLabel(event)}`,
+        text: `${event.code} · ${plainEventLabel(event)}${eventStateLabel(event) ? ` · ${eventStateLabel(event)}` : ""}`,
         colorToken: token,
-        status: event.status,
+        status: eventDrawingStatus(event),
         evidenceIds: [event.id],
       },
     });
   }
+  const breakout = selectedEvents.findLast(event => ["SOS", "SOW"].includes(event.code));
+  const retests = breakout ? selectedEvents.filter(event => ["LPS", "LPSY"].includes(event.code)
+    && event.evidence.breakoutTime === breakout.time) : [];
+  const retest = retests.findLast(event => event.status === "confirmed") || retests.at(-1);
+  if (breakout && retest) operations.push({
+    op: "upsert",
+    drawing: {
+      id: `${analysisId}-${range.id}-breakout-retest`, theory: "wyckoff", tool: "path",
+      points: [
+        {time: range.baseEndTime, price: primary.direction === "bullish" ? range.resistance : range.support},
+        {time: breakout.time, price: breakout.price},
+        ...(retest.evidence.excursionTime > breakout.time && retest.evidence.excursionTime < retest.time
+          ? [{time: retest.evidence.excursionTime, price: retest.evidence.excursionPrice}] : []),
+        {time: retest.time, price: retest.price},
+      ],
+      colorToken: eventColorToken(retest), status: eventDrawingStatus(retest),
+      evidenceIds: [range.evidenceId, breakout.id, retest.id],
+    },
+  });
   const action = buildWyckoffActionPlan(snapshot, primary);
   if (review.showProjectionZone) {
     const targetPrice = primary.direction === "bullish" ? action.longTarget : action.shortTarget;

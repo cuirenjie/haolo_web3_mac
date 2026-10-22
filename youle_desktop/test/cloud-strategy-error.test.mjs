@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {cloudStrategyFailure} from '../src/main/trading-strategy-runtime/cloud-error.mjs';
 import {describeTradingAnalysisFailure} from '../src/main/trading-analysis/failure.mjs';
-import {buildTradingStrategyFailureReport} from '../src/main/trading-analysis/failure.mjs';
+import {buildTradingStrategyFailureReport,tradingAnalysisStoppedMessage} from '../src/main/trading-analysis/failure.mjs';
 import {tradingAnalysisFailureDiagnostic} from '../src/main/trading-analysis/diagnostics.mjs';
 
 test('dual-left rollout and budget failures retain specific three-language explanations',()=>{
@@ -55,6 +55,21 @@ test('an ambiguous model completion retains a specific safe explanation in three
     assert.doesNotMatch(report,/private|分析流程未能完成|The analysis could not complete/);
     assert.match(report,language==='en'?/original task record was retained/:language==='zh-Hant'?/原任務記錄已保留/:/原任务记录已保留/);
     assert.doesNotMatch(report,/without an automatic repeat|未自動重複請求|未自动重复请求/);
+  }
+});
+
+test('unconfirmed cloud results never claim analysis failed or ask for another model submission',()=>{
+  for(const language of ['zh-CN','en','zh-Hant']) {
+    const error=cloudStrategyFailure({code:'CLOUD_RUN_PENDING',runId:'original-run',retryable:true},{language});
+    assert.equal(error.runId,'original-run');
+    assert.equal(describeTradingAnalysisFailure(error,{language}).category,'pending');
+    for(const report of [buildTradingStrategyFailureReport({id:'chan',display:{name:'Chan'}},error,{language}),
+      tradingAnalysisStoppedMessage(error,{language,strategyName:'Chan'})]) {
+      assert.doesNotMatch(report,/未完成|未生成|未產生|did not complete|no new execution plan|重新运行|重新執行|Retry the selected/);
+      assert.match(report,language==='en'?/original task/:language==='zh-Hant'?/原任務/:/原任务/);
+    }
+    assert.match(tradingAnalysisStoppedMessage(error,{language,strategyName:'Chan',completedStrategyNames:['MACD']}),
+      language==='en'?/Completed results \(MACD\) are retained/:language==='zh-Hant'?/已完成的MACD結果仍保留/:/已完成的MACD结果仍保留/);
   }
 });
 

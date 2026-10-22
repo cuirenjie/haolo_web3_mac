@@ -1,0 +1,142 @@
+{
+  "task": "xau-refresh-20261022",
+  "ownerThread": "01a16401-e764-7663-8019-7339b3166cf7",
+  "recordedAtUnix": 1792682477.5046544,
+  "userInstruction": "暂不切换生产",
+  "phase": "validated_not_deployed",
+  "codeCommit": "ef8e8dbd640b60a05a0f98c20d0087ddc55fbee9",
+  "candidateCommit": "fb7a3258501c2c79c0b75da7431cacca45bf31fd",
+  "candidateImage": "sha256:608517bec6f006084507de9c1fca40750df5288b8f03a64da545ed5f0248800d",
+  "tests": {
+    "passed": true,
+    "tests": 104,
+    "pass": 104,
+    "fail": 0,
+    "skipped": 0,
+    "image": "sha256:608517bec6f006084507de9c1fca40750df5288b8f03a64da545ed5f0248800d"
+  },
+  "candidateBusiness": {
+    "at": "2026-10-22T15:17:24.610Z",
+    "checks": [
+      {
+        "check": "reported XAU request and controls",
+        "symbol": "XAUUSDT",
+        "interval": "15m",
+        "limit": 501,
+        "rows": 501,
+        "status": 200,
+        "cache": "MISS",
+        "elapsedMs": 282,
+        "closedRowsEqualUpstream": 500
+      },
+      {
+        "check": "reported XAU request and controls",
+        "symbol": "XAUUSDT",
+        "interval": "15m",
+        "limit": 501,
+        "rows": 501,
+        "status": 200,
+        "cache": "HIT",
+        "elapsedMs": 16,
+        "closedRowsEqualUpstream": 500
+      },
+      {
+        "check": "reported XAU request and controls",
+        "symbol": "XAUUSDT",
+        "interval": "5m",
+        "limit": 501,
+        "rows": 501,
+        "status": 200,
+        "cache": "MISS",
+        "elapsedMs": 82
+      },
+      {
+        "check": "reported XAU request and controls",
+        "symbol": "XAUUSDT",
+        "interval": "1h",
+        "limit": 501,
+        "rows": 501,
+        "status": 200,
+        "cache": "MISS",
+        "elapsedMs": 77
+      },
+      {
+        "check": "reported XAU request and controls",
+        "symbol": "BTCUSDT",
+        "interval": "15m",
+        "limit": 501,
+        "rows": 501,
+        "status": 200,
+        "cache": "MISS",
+        "elapsedMs": 75
+      },
+      {
+        "check": "authenticated current REST",
+        "market": "futures",
+        "status": 200,
+        "cache": "MISS",
+        "rows": 20
+      },
+      {
+        "check": "authenticated current REST",
+        "market": "spot",
+        "status": 200,
+        "cache": "MISS",
+        "rows": 20
+      },
+      {
+        "check": "authenticated WebSocket event",
+        "eventLagMs": 36
+      },
+      {
+        "check": "authorized private CONNECT and verified Binance TLS",
+        "serverTime": 1792682246270
+      }
+    ],
+    "passed": true
+  },
+  "disposition": {
+    "at": 1792682429.8662694,
+    "phase": "validated_not_deployed",
+    "image": "sha256:608517bec6f006084507de9c1fca40750df5288b8f03a64da545ed5f0248800d",
+    "commit": "fb7a3258501c2c79c0b75da7431cacca45bf31fd",
+    "source": {
+      "checked": 21,
+      "mismatches": []
+    },
+    "candidateExitCode": 0,
+    "zeroConnectionSnapshots": [
+      {
+        "at": 1792682427.1194787,
+        "established": 0
+      },
+      {
+        "at": 1792682428.1334934,
+        "established": 0
+      }
+    ],
+    "activeAndHaproxyUnchanged": true,
+    "candidateAndTestRedisStopped": true,
+    "forcedLegacyRetirement": false,
+    "freshPreparationRequiredBeforeSwitch": true
+  },
+  "production": {
+    "container": "haolo-binance-gateway-efficiency-1fe4546",
+    "image": "sha256:35a7ed199ca6e84fbf9895a8ca029eb88031e67021037e234416eb5164f114a7",
+    "running": "running",
+    "restartCount": 0,
+    "activeAndHaproxyUnchanged": true
+  },
+  "legacy": {
+    "container": "haolo-binance-gateway-53badfa",
+    "state": "running",
+    "normalStopAttempt": "docker stop --time -1; client wait timed out after 45 seconds; no SIGKILL scheduled",
+    "forced": false
+  },
+  "environmentUnchanged": true,
+  "redisBackupSha256": "a3fedf0bc950a8cf493bf737adaa347e2906d5aff539b8655b7cb835581b582f",
+  "sourceManifestSha256": "700c80d5fcd252bf387be404e6cd01ebfba7835f27c74fc5e9d467901ea94113",
+  "serverEvidenceDirectory": "/opt/haolo/releases/xau-refresh-20261022",
+  "productionSwitch": false,
+  "automaticSwitchScheduled": false
+}

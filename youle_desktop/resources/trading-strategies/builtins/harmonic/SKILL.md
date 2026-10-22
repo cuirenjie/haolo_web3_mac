@@ -23,7 +23,7 @@ Read [references/rules.md](references/rules.md) before explaining ratios or revi
 
 ## Boundaries
 
-- v3 supports Gartley, Bat, Butterfly, Crab, Deep Crab, Shark, and Cypher through three independently versioned subengines and a bounded multi-scale scanner.
+- v4 supports Gartley, Bat, Butterfly, Crab, Deep Crab, Shark, and Cypher through three independently versioned subengines and a bounded multi-scale scanner. Reject invalidated geometry, use Shark's BC/0B completion band, and bind every plan to the selected drawn candidate. Never substitute a generic range plan or reprice native stops/targets to meet risk ratios.
 - Shark must remain `0-X-A-B-C`; never relabel its C terminal as a classic D. Cypher is measured against XC at completion and must not inherit a classic XA completion rule.
 - 5-0, standalone AB=CD, Three Drives, alternate/anti patterns, and unlisted variants remain unsupported until they receive their own frozen rules and tests.
 - AB=CD is a convergence requirement or supporting measurement here, not a standalone entry strategy.

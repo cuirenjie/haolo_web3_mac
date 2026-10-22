@@ -244,12 +244,12 @@ function inferredPreferredSide(actionPlan, theoryResult) {
   return score > 0.2 ? "long" : score < -0.2 ? "short" : "neutral";
 }
 
-function scenario(side, actionPlan, status, evidenceIds, tickSize = null, currentPrice = null) {
+function scenario(side, actionPlan, status, evidenceIds, tickSize = null, currentPrice = null, preserveGeometry = false) {
   const long = side === "long";
   const triggerLabel = long ? "多头触发价" : "空头触发价";
   const rawTrigger = long ? actionPlan?.longTrigger : actionPlan?.shortTrigger;
-  const normalizedTrigger = triggerPriceWithinCurrentRange(rawTrigger, currentPrice, tickSize);
-  const triggerCapped = triggerWasCapped(rawTrigger, currentPrice, tickSize);
+  const normalizedTrigger = preserveGeometry ? rawTrigger : triggerPriceWithinCurrentRange(rawTrigger, currentPrice, tickSize);
+  const triggerCapped = !preserveGeometry && triggerWasCapped(rawTrigger, currentPrice, tickSize);
   const configuredTrigger = level(
     normalizedTrigger,
     triggerCapped ? `${triggerLabel}（距现价不超过 ±${MAX_TRIGGER_DISTANCE_PERCENT}%）` : triggerLabel,
@@ -282,7 +282,7 @@ function scenario(side, actionPlan, status, evidenceIds, tickSize = null, curren
   }).slice(0, 8);
   if (!configuredTrigger || !stop || !targets.length) return null;
   const normalizedCurrentPrice = roundedPrice(currentPrice, tickSize);
-  const currentPriceTriggered = status === "preferred"
+  const currentPriceTriggered = !preserveGeometry && status === "preferred"
     && normalizedCurrentPrice !== null
     && (long ? normalizedCurrentPrice >= configuredTrigger.price : normalizedCurrentPrice <= configuredTrigger.price);
   const trigger = currentPriceTriggered
@@ -297,7 +297,7 @@ function scenario(side, actionPlan, status, evidenceIds, tickSize = null, curren
     targets,
     conditions: [condition(
       `${side}-price-touch`,
-      currentPriceTriggered
+      preserveGeometry ? String(actionPlan.confirmation) : currentPriceTriggered
         ? `现价 ${trigger.price} 已满足条件，直接${long ? "做多" : "做空"}`
         : `价格触达 ${trigger.price} 即${long ? "做多" : "做空"}`,
       evidenceIds,
@@ -1029,11 +1029,32 @@ function planHash(value) {
   return crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 24);
 }
 
+function harmonicPlanMatches(actionPlan, snapshot, theory) {
+  const binding = actionPlan.harmonicBinding;
+  const candidate = (theory.structures?.candidates || [theory.structures?.primaryCandidate])
+    .find((item) => item?.id === binding?.candidateId);
+  if (!candidate || binding?.version !== "strict-harmonic-v1"
+    || binding.snapshotId !== snapshot.snapshotId || candidate.stage !== "completed-pattern"
+    || !["awaiting-confirmation", "active"].includes(candidate.tradeState)) return false;
+  const side = candidate.direction === "bullish" ? "long" : "short";
+  const opposite = side === "long" ? "short" : "long";
+  return binding.direction === candidate.direction && actionPlan.primaryBias === candidate.direction
+    && JSON.stringify(binding.actionLevels) === JSON.stringify(candidate.actionLevels)
+    && actionPlan[`${side}Trigger`] === candidate.actionLevels.trigger
+    && actionPlan[`${side}Invalidation`] === candidate.actionLevels.stop
+    && JSON.stringify(actionPlan[`${side}Targets`]) === JSON.stringify(candidate.actionLevels.targets)
+    && !actionPlan[`${opposite}Trigger`];
+}
+
 export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
   const snapshot = legacyResult?.snapshot || {};
   const analysisPlan = legacyResult?.analysisPlan || {};
   const theoryResult = legacyResult?.theoryResult || {};
-  const actionPlan = analysisPlan.actionPlan || {};
+  const strictHarmonic = manifest.id === "harmonic";
+  const nativeActionPlan = analysisPlan.actionPlan || {};
+  const actionPlan = strictHarmonic && !harmonicPlanMatches(nativeActionPlan, snapshot, theoryResult)
+    ? { disposition: "wait", confirmation: nativeActionPlan.confirmation }
+    : nativeActionPlan;
   const riskPolicy = normalizeUserRiskProfile(params.userRiskProfile);
   const riskProfileUnavailable = personalRiskUnavailable(params);
   // Lower explicit user values may relax the product default. Higher values
@@ -1072,18 +1093,20 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
     actionPlan,
     preferredSide === "long" ? "preferred" : "conditional",
     evidenceIds,
-    tickSize,
+    strictHarmonic ? null : tickSize,
     currentPrice,
+    strictHarmonic,
   );
   const rawShortScenario = scenario(
     "short",
     actionPlan,
     preferredSide === "short" ? "preferred" : "conditional",
     evidenceIds,
-    tickSize,
+    strictHarmonic ? null : tickSize,
     currentPrice,
+    strictHarmonic,
   );
-  const longScenario = scenarioWithThreeTakeProfitTargets(
+  const longScenario = strictHarmonic ? rawLongScenario : scenarioWithThreeTakeProfitTargets(
     scenarioWithTakeProfitCap(
       scenarioWithValidRiskRewardTargets(
         scenarioWithTakeProfitCap(rawLongScenario, riskPolicy.maxTakeProfitPercent, tickSize),
@@ -1100,7 +1123,7 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
     executionTargetMinimumRiskReward,
     params.candles || snapshot.candles || [],
   );
-  const shortScenario = scenarioWithThreeTakeProfitTargets(
+  const shortScenario = strictHarmonic ? rawShortScenario : scenarioWithThreeTakeProfitTargets(
     scenarioWithTakeProfitCap(
       scenarioWithValidRiskRewardTargets(
         scenarioWithTakeProfitCap(rawShortScenario, riskPolicy.maxTakeProfitPercent, tickSize),
@@ -1146,7 +1169,7 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
     )
     : null;
   const preferredThirdTargetUnavailable = Boolean(
-    preferredScenario
+    !strictHarmonic && preferredScenario
     && (
       preferredTargetRiskRewards.length < 3
       || preferredFinalTargetRawRatio === null
@@ -1160,7 +1183,10 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
   const minimumRiskRewardBlocked = Boolean(
     riskPolicy.minimumRiskRewardRatio !== null
     && preferredTargetRiskRewards.length > 0
-    && preferredTargetRiskRewards.at(-1).ratio < riskPolicy.minimumRiskRewardRatio,
+    && (strictHarmonic
+      ? preferredScenario.targets.some(target => (rawRiskReward(preferredScenario.trigger, preferredScenario.stop,
+        target, preferredScenario.side, estimatedRoundTripCostRate) ?? 0) < riskPolicy.minimumRiskRewardRatio)
+      : preferredTargetRiskRewards.at(-1).ratio < riskPolicy.minimumRiskRewardRatio),
   );
   const preferredStopDistancePercent = preferredScenario
     ? Math.abs(preferredScenario.trigger.price - preferredScenario.stop.price) / preferredScenario.trigger.price * 100
@@ -1170,6 +1196,10 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
     && preferredStopDistancePercent !== null
     && preferredStopDistancePercent > riskPolicy.maxStopDistancePercent + Number.EPSILON
   );
+  const harmonicTargetLimitBlocked = Boolean(strictHarmonic && preferredScenario
+    && riskPolicy.maxTakeProfitPercent !== null && preferredScenario.targets.some(target => (
+      Math.abs(target.price-preferredScenario.trigger.price)/preferredScenario.trigger.price*100 > riskPolicy.maxTakeProfitPercent
+    )));
   const riskClarificationBlocked = riskPolicy.riskClarificationRequired;
   const personalRiskPreconditions = [
     condition(
@@ -1257,7 +1287,7 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
   const observationWait = !hasScenarios && actionPlan?.disposition === "wait";
   const coverage = theoryResult?.coverage || snapshot?.orderFlowCoverage || {};
   const preferredTriggerReached = Boolean(
-    preferredScenario
+    !strictHarmonic && preferredScenario
     && currentPrice !== null
     && (preferredSide === "long"
       ? currentPrice >= preferredScenario.trigger.price
@@ -1298,10 +1328,14 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
       ? "止损百分比口径存在未澄清冲突，禁止生成账户仓位"
       : maxStopDistanceBlocked
         ? `策略有效止损距离 ${preferredStopDistancePercent.toFixed(2)}% 超过用户硬上限 ${riskPolicy.maxStopDistancePercent}%`
-        : null,
+        : strictHarmonic && minimumRiskRewardBlocked
+          ? `净盈亏比低于用户硬下限 1:${riskPolicy.minimumRiskRewardRatio}`
+          : harmonicTargetLimitBlocked
+            ? `谐波原生目标超过用户止盈距离硬上限 ${riskPolicy.maxTakeProfitPercent}%，取消计划，不改写目标`
+            : null,
     now,
   });
-  const executionBlocked = minimumRiskRewardBlocked || maxStopDistanceBlocked || riskClarificationBlocked;
+  const executionBlocked = minimumRiskRewardBlocked || maxStopDistanceBlocked || riskClarificationBlocked || harmonicTargetLimitBlocked;
   // Bilateral cards are alternative conditions. Size each from this same
   // frozen account snapshot and its own levels; never borrow a preferred side.
   const scenariosWithSizing = preferredSide !== "neutral" ? scenarios : scenarios.map((scenario) => {
@@ -1365,6 +1399,10 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
         ? `${reachedDirectionalAction ? `当前${reachedDirectionalAction === "short" ? "空头" : "多头"}条件已满足，但` : ""}策略有效止损距离约 ${preferredStopDistancePercent.toFixed(2)}%，超过用户设定的价格止损距离硬上限 ${riskPolicy.maxStopDistancePercent}%；本方案暂不可执行，且不生成账户仓位。`
         : minimumRiskRewardBlocked
           ? `${reachedDirectionalAction ? `当前${reachedDirectionalAction === "short" ? "空头" : "多头"}条件已满足，但` : ""}当前候选场景最终止盈目标扣除预估手续费和滑点后的净盈亏比低于用户设定的最低 1:${riskPolicy.minimumRiskRewardRatio}；本方案暂不可执行，但保留完整候选测算供用户决策。`
+      : harmonicTargetLimitBlocked
+        ? `谐波原生目标超过用户止盈距离硬上限 ${riskPolicy.maxTakeProfitPercent}%，取消计划，不改写目标`
+      : hasScenarios && strictHarmonic
+        ? actionPlan.confirmation
       : hasScenarios
       ? preferredSide === "long"
         ? preferredTriggerReached

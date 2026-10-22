@@ -33,7 +33,9 @@ export class TradingAiDrawingSets<T extends Drawing> {
         const sets = g.sets.slice(-MAX_SETS).flatMap((s: any) => {
           if (typeof s?.id !== 'string' || !Array.isArray(s.drawings)) return [];
           const drawings = this.normalize(s.drawings).filter(d => inContext(d, g));
-          return drawings.length ? [{ id: s.id, revision: Number(s.revision) || 0, drawings }] : [];
+          // An empty saved slot can be the user's deletion of its last label.
+          // Keep its revision so an identical receipt cannot restore it.
+          return [{ id: s.id, revision: Number(s.revision) || 0, drawings }];
         });
         if (!sets.length) return [];
         return [{ marketId: g.marketId, interval: g.interval, turnId: g.turnId, sets,
@@ -72,13 +74,13 @@ export class TradingAiDrawingSets<T extends Drawing> {
       group.sets.push({ id, revision, drawings: structuredClone(drawings) });
       group.selectedId = id;
     }
-    group.sets = group.sets.filter(s => s.drawings.length).slice(-MAX_SETS);
+    group.sets = group.sets.slice(-MAX_SETS);
     if (!group.sets.some(s => s.id === group.selectedId)) group.selectedId = group.sets[0]?.id || '';
     this.groups = this.groups.filter(g => g.sets.length).slice(-MAX_CONTEXTS);
     this.save();
   }
 
-  // Preserve the user's label sizing when leaving and revisiting a drawing.
+  // Preserve label sizing and deletions when leaving and revisiting a drawing.
   updateSelected(drawings: readonly T[]) {
     for (const group of this.groups) {
       const selected = group.sets.find(s => s.id === group.selectedId);

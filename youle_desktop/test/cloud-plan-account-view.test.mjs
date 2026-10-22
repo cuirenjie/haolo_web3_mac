@@ -126,18 +126,22 @@ test('missing or invalid net outcomes stay absent, and explicit exits retain cum
   assert.doesNotMatch(cloudPlanCard(report).html,/预计盈利|全仓净盈亏/);
 });
 
-test('retest cards display the actual entry zone and bind sizing to its conservative endpoint',()=>{
+test('retest cards display one favorable endpoint and bind sizing to the same price',()=>{
   for(const direction of ['long','short']){
     const report=cloudAccountPlanCardFixture('zh-CN',direction),plan=report.executionPlan,scenario=plan.scenarios[0];
     const condition=plan.entryCondition;
     Object.assign(condition,{confirmation:'breakout_retest',breakoutConfirmation:'bar_close',
       trigger:{operator:direction==='long'?'cross_up':'cross_down',lower:82000},
-      retest:{operator:'in_zone',lower:direction==='long'?82280:scenario.entry,upper:direction==='long'?scenario.entry:82300}});
+      retest:{operator:'in_zone',lower:direction==='long'?scenario.entry:82280,upper:direction==='long'?82300:scenario.entry}});
     scenario.confirmation=condition.confirmation;scenario.entryCondition=structuredClone(condition);syncReceipt(report);
     const html=cloudPlanCard(report).html;
-    assert.ok(html.includes(direction==='long'?'82280.00 – 82292.21':'82292.21 – 82300.00'));
+    assert.ok(html.includes(`execution-plan-price ${direction==='long'?'bullish':'bearish'}">82292.21<`));
+    assert.doesNotMatch(html,/82280.00 –|– 82300.00/);
     assert.ok(html.includes('146.61'));
     scenario.entry++;syncReceipt(report);assert.equal(view(report),undefined);
+    const stale=cloudPlanCard(report).html;
+    assert.match(stale,/旧入场口径/);
+    assert.doesNotMatch(stale,/建议开仓|预计止损|预计盈利|1:1\.50/);
   }
 });
 

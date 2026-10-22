@@ -88,6 +88,34 @@ test('clearing a strategy, context or session removes alternatives durably', () 
   assert.deepEqual(create().selectedDrawings([]), []);
 });
 
+test('deleting a label survives cycling, reload and duplicate receipts without changing other sets', () => {
+  const { create } = environment(), sets = create();
+  sets.upsert(btc, 'turn', 'a', [line('a'), line('note')]);
+  sets.upsert(btc, 'turn', 'b', [line('b')]);
+  sets.next(btc);
+  sets.updateSelected([line('a')]);
+  sets.next(btc);
+  assert.deepEqual(sets.selectedDrawings([]), [line('b')]);
+  const restored = create();
+  restored.next(btc);
+  restored.upsert(btc, 'turn', 'a', [line('a'), line('note')]);
+  assert.deepEqual(restored.selectedDrawings([]), [line('a')]);
+});
+
+test('deleting the last annotation preserves an empty slot and its revision after reload', () => {
+  const { create } = environment(), sets = create();
+  sets.upsert(btc, 'turn', 'a', [line('only-note')]);
+  sets.updateSelected([]);
+  const restored = create();
+  restored.upsert(btc, 'turn', 'a', [line('only-note')]);
+  assert.deepEqual(restored.selectedDrawings([line('legacy')]), []);
+  restored.upsert(btc, 'turn', 'b', [line('b')]);
+  restored.next(btc);
+  assert.deepEqual(restored.selectedDrawings([]), []);
+  restored.upsert(btc, 'turn', 'a', [line('new-note')], 1);
+  assert.deepEqual(restored.selectedDrawings([]), [line('new-note')]);
+});
+
 test('legacy drawings survive until a new successful group; corrupt storage fails closed and quota failure stays usable', () => {
   const { create, storage } = environment(), sets = create();
   assert.deepEqual(sets.selectedDrawings([line('legacy')]), [line('legacy')]);

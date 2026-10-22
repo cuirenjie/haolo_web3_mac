@@ -4,6 +4,7 @@ import {isDeepStrictEqual} from 'node:util';
 import {validateCloudEntryResult} from './cloud-entry-result.mjs';
 import {validateCloudRightResult} from './cloud-right-result.mjs';
 import {cloudStrategyMinimumHistory} from '../../shared/cloud-strategy-history.mjs';
+import {marketRecoveryPolicy,readMarketWhenAvailable} from './market-recovery.mjs';
 
 const intervals = {'1':'1m','3':'3m','5':'5m','15':'15m','30':'30m','60':'1h','120':'2h','240':'4h','360':'6h','480':'8h','720':'12h','1D':'1d','1W':'1w'};
 const fail = (code, detail={}) => Object.assign(new Error(code), {code,...detail});
@@ -59,7 +60,7 @@ export function validateCloudResult(run, record) {
   return {...result,cloud:{...result.cloud,...(record.origin ? {origin:record.origin} : {})}};
 }
 
-export function createCloudStrategyRuntime({owner, api, journal, connection, wait=delay, pollMs=1000, timeoutMs=600000}) {
+export function createCloudStrategyRuntime({owner, api, journal, connection, wait=delay, pollMs=1000, timeoutMs=600000, now=Date.now, random=Math.random}) {
   const active = new Set();
   const assertOwner = async captured => {
     const current = await owner();
@@ -83,9 +84,45 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
     await journal.put(captured.ownerId, record.key, record);
     return response.state;
   }
-  async function poll(captured, record, {signal,onProgress,timeoutMs:pollTimeout=timeoutMs,pureReferenceAnalysis=false}={}) {
-    const started = Date.now();
+  async function readRun(captured, record, {signal,deadline}) {
+    let retries = 0;
+    while (true) {
+      signal?.throwIfAborted();
+      await assertOwner(captured);
+      if (now() >= deadline) throw fail('CLOUD_RUN_PENDING', {runId:record.runId,retryable:true});
+      try {
+        return await request(captured,'run',{runId:record.runId},{signal});
+      } catch (error) {
+        signal?.throwIfAborted();
+        await assertOwner(captured);
+        // Only retry the read of an already journaled run. A busy status
+        // endpoint says nothing about the Worker outcome and must never replay
+        // admission, cancel the run, or overwrite its durable state as failed.
+        const readPolicy = marketRecoveryPolicy(error);
+        if (!readPolicy) throw error;
+        const remaining = deadline - now();
+        if (remaining <= 0) throw fail('CLOUD_RUN_PENDING', {runId:record.runId,retryable:true});
+        const backoff = Math.min(15000, Math.max(1000,pollMs) * 2 ** Math.min(retries++,4));
+        const jittered = Math.ceil(backoff * (1 + random() * 0.25));
+        const retryAfter = Number(readPolicy.retryAfterMs);
+        const retryMs = Math.max(jittered, Number.isFinite(retryAfter) && retryAfter >= 0 ? retryAfter : 0);
+        if (Number.isFinite(deadline)) await wait(Math.min(retryMs,remaining),undefined,{signal});
+        else {
+          for (let pending=retryMs;pending>0;) {
+            const slice=Math.min(5000,pending);
+            await wait(slice,undefined,{signal});
+            signal?.throwIfAborted();
+            await assertOwner(captured);
+            pending-=slice;
+          }
+        }
+      }
+    }
+  }
+  async function poll(captured, record, {signal,onProgress,timeoutMs:pollTimeout=timeoutMs,pureReferenceAnalysis=false,deadline=now()+pollTimeout}={}) {
     let lastProgress = '';
+    let marketWaiting = false;
+    let observedAt = now();
     let useEvents = pureReferenceAnalysis && typeof api().waitForTradingCloudRunEvent === 'function';
     let eventCursor = 0;
     let eventWait = null;
@@ -94,8 +131,18 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
     try {
       while (true) {
         signal?.throwIfAborted();
-        const run = await request(captured,'run',{runId:record.runId},{signal});
+        const run = await readRun(captured,record,{signal,deadline:marketWaiting ? Infinity : deadline});
         if (run.id !== record.runId) throw fail('CLOUD_RESULT_CONTEXT_INVALID');
+        const observedNow = now();
+        // Only an explicit, authenticated server queue state pauses the local
+        // execution clock. Progress text alone never extends a task's budget.
+        if (marketWaiting) deadline += Math.max(0,observedNow - observedAt);
+        observedAt = observedNow;
+        const wasMarketWaiting = marketWaiting;
+        const recovery = run.marketRecovery;
+        marketWaiting = run.state === 'queued' && recovery?.state === 'waiting'
+          && Number.isSafeInteger(recovery.retryAt) && recovery.retryAt > 0
+          && Number.isSafeInteger(recovery.attempt) && recovery.attempt > 0;
         if (run.state === 'succeeded') {
           const result = validateCloudResult(run,record);
           signal?.throwIfAborted();
@@ -112,18 +159,28 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
             ? errorCode : 'CLOUD_ANALYSIS_FAILED';
           throw fail(run.state === 'cancelled' ? 'TRADING_ANALYSIS_CANCELLED' : code, {runId:record.runId});
         }
-        const progress = run.progress?.at(-1);
+        const serverProgress = run.progress?.at(-1);
+        const progress = marketWaiting ? {stage:'market_waiting'}
+          : wasMarketWaiting || serverProgress?.stage === 'market_waiting'
+            ? {stage:'market_resuming'} : serverProgress;
         if (progress && fingerprint(progress) !== lastProgress) {
           lastProgress = fingerprint(progress);
           onProgress?.({stage:progress.stage,status:'running'});
         }
-        if (Date.now()-started >= pollTimeout) throw fail('CLOUD_RUN_PENDING', {runId:record.runId,retryable:true});
+        if (marketWaiting) {
+          // This is only a status read; the Worker owns retryAt and upstream
+          // admission. Keep checks short even when server/client clocks differ.
+          const pause = Math.min(5000,Math.max(1000,recovery.retryAt - now()));
+          await wait(pause,undefined,{signal});
+          continue;
+        }
+        if (now() >= deadline) throw fail('CLOUD_RUN_PENDING', {runId:record.runId,retryable:true});
         if (useEvents) {
           try {
             await assertOwner(captured);
             eventWait ||= api().waitForTradingCloudRunEvent(record.runId, {
               signal:eventSignal, after:eventCursor, expectedAccountId:captured.accountId, expectedBaseUrl:captured.baseUrl,
-              timeoutMs:Math.min(15000, Math.max(1, pollTimeout - (Date.now()-started))),
+              timeoutMs:Math.min(15000, Math.max(1, deadline - now())),
             }).then(event=>({event}),error=>({error}));
             // Keep the existing polling cadence as a watchdog. A proxy that
             // buffers SSE must never make result delivery slower than before.
@@ -182,7 +239,7 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
         if (!Number.isSafeInteger(visibleRange.visibleFrom) || !Number.isSafeInteger(visibleRange.visibleTo)
           || visibleRange.visibleFrom <= 0 || visibleRange.visibleFrom >= visibleRange.visibleTo) throw fail('VPVR_VISIBLE_RANGE_REQUIRED');
       }
-      const requestedCount=params.analysisWindowCount??(Array.isArray(params.candles)&&params.candles.length>=20?Math.min(600,params.candles.length):null);
+      const requestedCount=params.analysisWindowCount??null;
       if(requestedCount!==null&&(!Number.isSafeInteger(requestedCount)||requestedCount<20||requestedCount>600))throw fail('ANALYSIS_WINDOW_INVALID');
       const lookbackMs=Number(params.lookbackMs)>0?Number(params.lookbackMs):null;
       if(lookbackMs!==null&&(!Number.isSafeInteger(lookbackMs)||lookbackMs>315360000000))throw fail('ANALYSIS_WINDOW_INVALID');
@@ -214,21 +271,32 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
         if (!capabilities.strategies?.some(s => s.id === strategyId && s.legacyWindows)) throw fail('WINDOWS_STRATEGY_UNSUPPORTED');
         if (!capabilities.entryV2WorkerReady) throw fail('ENTRY_WORKER_UNAVAILABLE');
         if (!capabilities.strategies?.some(s => s.id === strategyId && s.entryModes?.includes(input.requestedEntryMode))) throw fail('ENTRY_POLICY_UNAVAILABLE');
-        // A renderer count is a viewport hint, not permission to underfill the
-        // server's history requirement. Normalize only new snapshots: journaled
-        // admissions keep their frozen body/key, and explicit time ranges remain exact.
+        // Defaults are selected by the server. Explicit counts still satisfy
+        // admission minima; journaled admissions retain their frozen body/key.
         const minimumHistory = cloudStrategyMinimumHistory(strategyId,capabilities.strategies.find(s=>s.id===strategyId)?.history);
         const windowCount = requestedCount === null ? null : Math.max(requestedCount,minimumHistory);
-        const readSnapshot = () => request(captured,'marketSnapshot',{market:target.marketKey,interval:target.interval,limit:600,...(visibleRange||{...(windowCount?{windowCount}:{}),...(lookbackMs?{lookbackMs}:{})})},{signal:options.signal});
+        const snapshotController = new AbortController();
+        const snapshotSignal = options.signal ? AbortSignal.any([options.signal,snapshotController.signal]) : snapshotController.signal;
+        const readSnapshot = () => readMarketWhenAvailable({
+          read:() => request(captured,'marketSnapshot',{market:target.marketKey,interval:target.interval,limit:600,purpose:'analysis',analysisStrategy:strategyId,...(visibleRange||{...(windowCount?{windowCount}:{}),...(lookbackMs?{lookbackMs}:{})})},{signal:snapshotSignal}),
+          assertOwner:() => assertOwner(captured),signal:snapshotSignal,wait,random,onProgress:options.onProgress,
+        });
         // Independent fresh reads can overlap after capability/history checks.
         // No cached market result or account consent replaces either read.
         const fast = params.pureReferenceAnalysis === true;
-        const [snapshot, parallelAccount] = fast
-          ? await Promise.all([readSnapshot(), connection?.(captured,target)])
-          : [await readSnapshot(), undefined];
+        let marketRead, parallelAccount;
+        try {
+          [marketRead,parallelAccount] = fast
+            ? await Promise.all([readSnapshot(), connection?.(captured,target)])
+            : [await readSnapshot(), undefined];
+        } finally { snapshotController.abort(); }
+        const {snapshot,deferred} = marketRead;
         if (snapshot.marketKey !== target.marketKey || snapshot.interval !== target.interval || !snapshot.snapshotId) throw fail('CLOUD_MARKET_CONTEXT_INVALID');
-        const account = fast ? parallelAccount : await connection?.(captured,target);
+        // A long market cooldown must not reuse an account binding captured
+        // before the wait; revocation and rebinding must take effect first.
+        const account = fast && !deferred ? parallelAccount : await connection?.(captured,target);
         await assertOwner(captured);
+        options.signal?.throwIfAborted();
         const runId = randomUUID();
         record = {key,runId,inputHash:fingerprint(input),preferencesHash:input.preferencesHash,
           requestedEntryMode:input.requestedEntryMode,origin:input.origin,
@@ -267,6 +335,7 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
       if(active.has(lock))throw fail('CLOUD_RUN_ALREADY_PENDING');
       active.add(lock);
       let record;
+      const deadline=now()+(options.timeoutMs??timeoutMs);
       try {
         record=await journal.get(captured.ownerId,key);
         if(!record)throw fail('CLOUD_RUN_NOT_FOUND');
@@ -276,7 +345,7 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
         }
         if(record.state==='prepared') {
           // Inspect before an explicit same-key retry, including after app restart.
-          try { await request(captured,'run',{runId:record.runId},{signal:options.signal}); }
+          try { await readRun(captured,record,{signal:options.signal,deadline}); }
           catch(error) {
             if(error.status!==404)throw error;
             options.signal?.throwIfAborted();
@@ -286,7 +355,7 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
             await journal.put(captured.ownerId,key,record);
           }
         }
-        return await poll(captured,record,options);
+        return await poll(captured,record,{...options,deadline});
       } catch(error) {
         if(options.signal?.aborted && record && !record.cancelRequested){
           try {if(await cancelRecord(captured,record)==='succeeded')throw fail('CLOUD_RUN_PENDING');}

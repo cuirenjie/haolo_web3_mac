@@ -58,9 +58,9 @@ test("Windows account binding uses the shared encrypted credential API", async (
       label: "Windows",
       analysisConsent: false,
     });
-    assert.equal(
+    assert.match(
       requests[2].init.headers["Idempotency-Key"],
-      "windows-account-connection:97b8e996-c25a-4a8d-a295-d2d68cf898ba",
+      /^windows-account-connection:97b8e996-c25a-4a8d-a295-d2d68cf898ba:[0-9a-f-]{36}$/,
     );
     assert.match(requests[3].url, /\/api\/mobile\/v1\/account-connections\/connection-windows\/credentials$/);
     assert.deepEqual(JSON.parse(requests[3].init.body), {

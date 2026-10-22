@@ -1,0 +1,1174 @@
+{
+  "verifiedAt": "2026-10-21T12:40:59+08:00",
+  "scope": "Committed market optimization across three canonical repositories; production API/Worker and HK gateway; no client update-channel publication",
+  "sourceCommits": {
+    "gateway": "1fe454602616a45bb46783ddbe3e8c7f9c1065ee",
+    "windowsClient": "f31cc3140588916c69d637eb12cf6f2cd5df061a",
+    "backend": "a36647266184f525adfd7ec4397589f3ad8c6444",
+    "mobileInitial": "314c915e467d11662b9bd4f3a64b918ab77479c3",
+    "mobileClient": "ee9e76f6fa030bdfae55ec0792f35e17049bcad2"
+  },
+  "allCodeCommitsPushedToOriginDev": true,
+  "gateway": {
+    "phase": "accepted_retirement_pending",
+    "candidate": "haolo-binance-gateway-efficiency-1fe4546",
+    "image": "haolo/binance-gateway:20261021-efficiency-1fe4546",
+    "image_id": "sha256:35a7ed199ca6e84fbf9895a8ca029eb88031e67021037e234416eb5164f114a7",
+    "commit": "1fe454602616a45bb46783ddbe3e8c7f9c1065ee",
+    "ports": {
+      "public": 50987,
+      "private": 50988
+    },
+    "old": {
+      "container": "haolo-binance-gateway-dev-5bec9dc",
+      "identity": [
+        "f3ee8926f59e461214836d636afd99c965afa18348ba2cb826a09154d6295a28",
+        "sha256:e8fb1f678739d05b0a3d110d1a6a5cea723adba64e6fb7b2c05125ff90416291",
+        "2026-10-20T14:17:11.060348429Z",
+        0
+      ],
+      "public": 51087,
+      "private": 51088
+    },
+    "candidate_identity": [
+      "77da8530ccc5d51521f64dc413fad745f1522157a71a4b152658d82b048b7733",
+      "sha256:35a7ed199ca6e84fbf9895a8ca029eb88031e67021037e234416eb5164f114a7",
+      "2026-10-21T04:14:39.77453332Z",
+      0
+    ],
+    "redis_identity": [
+      "ac3232b39d00f297a75a256002719ad6b66712116de6209c78ac879c7d446765",
+      "sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf",
+      "2026-09-19T08:22:15.659186904Z",
+      0
+    ],
+    "redis_backup_sha256": "866c090cf7d5d11991d8d69c0a83c31938cdba4fe99e098c7e52e82819c1876e",
+    "environment_sha256": "8ccd5d6fc32225b1c637adc134bdec640f25229e7bcf6b4c71877ea99b58d802",
+    "source_manifest_sha256": "4e98ec09a3d18db81471ff39089bdf7fe44f992534119a31fa58a4352f52f81f",
+    "candidate_environment_sha256": "52f8471b3ee0b408f0bd585934cc2957dddbe7aa0808c5548fd6cf1c06ace0aa",
+    "environment_changes": {
+      "HAOLO_MARKET_COMPACT_ENABLED": "true",
+      "HAOLO_MARKET_COMPACT_PERCENT": "10"
+    },
+    "prior_retirement_pending": true,
+    "prior_retained_container": "haolo-binance-gateway-ticket-bdb7ad5",
+    "checks": {
+      "public": {
+        "/health": true,
+        "/ready": true
+      },
+      "private": {
+        "/health": true,
+        "/ready": true
+      },
+      "unauthenticated_public_status": "401"
+    },
+    "auth_business_checks": "passed_existing_user_public_REST_WS_and_private_CONNECT",
+    "prepared_at": 1792556081.1801171,
+    "switched_at": 1792557178.0867426,
+    "accepted_at": 1792557333.5668266,
+    "old_retained": true,
+    "preparationApprovalNote": "pending explicit approval if prior connections remain; candidate preparation only"
+  },
+  "overlapApproval": {
+    "approved": true,
+    "at": "2026-10-21T04:18:24.789525+00:00",
+    "thread": "01a0fbb7-e7b4-7710-9cc5-6cbc1f7d2bfc",
+    "authorization": "允许切换新连接，旧连接自然排空",
+    "scope": "This release only; hmc1 10%; never force-close old connections or stop old instances before natural zero"
+  },
+  "approvalNote": "The preparation note predates approval; overlap-approval.json is the checked explicit user authorization for this release only.",
+  "sourceAndHealth": {
+    "authRuntime": {
+      "authRequestTimeoutMs": 10000,
+      "authCacheTtlMs": 15000,
+      "marketCompactEnabled": true,
+      "marketCompactPercent": 10
+    },
+    "phase": "accepted_retirement_pending",
+    "image": "sha256:35a7ed199ca6e84fbf9895a8ca029eb88031e67021037e234416eb5164f114a7",
+    "restarts": 0,
+    "source": {
+      "files": 19,
+      "mismatches": [],
+      "manifestSha256": "4e98ec09a3d18db81471ff39089bdf7fe44f992534119a31fa58a4352f52f81f"
+    },
+    "activePointerAndHaproxyExact": true,
+    "bothReady": true
+  },
+  "retirement": {
+    "retirement-status.json": {
+      "phase": "waiting_for_natural_zero",
+      "container": "haolo-binance-gateway-dev-5bec9dc",
+      "snapshots": [
+        {
+          "at": 1792557638.4197743,
+          "established": 300,
+          "websocketClients": 300
+        }
+      ]
+    }
+  },
+  "units": {
+    "haolo-gateway-recover-efficiency-1fe4546.timer": "inactive",
+    "haolo-market-efficiency-1fe4546-drain-watch.service": "active",
+    "haolo-market-metrics-targets.timer": "active"
+  },
+  "resources": {
+    "dockerStats": [
+      {
+        "BlockIO": "0B / 0B",
+        "CPUPerc": "9.05%",
+        "Container": "haolo-binance-gateway-efficiency-1fe4546",
+        "ID": "77da8530ccc5",
+        "MemPerc": "0.65%",
+        "MemUsage": "100.3MiB / 14.96GiB",
+        "Name": "haolo-binance-gateway-efficiency-1fe4546",
+        "NetIO": "167MB / 195MB",
+        "PIDs": "11"
+      },
+      {
+        "BlockIO": "0B / 1.48MB",
+        "CPUPerc": "0.20%",
+        "Container": "haolo-market-prometheus",
+        "ID": "8f443319775e",
+        "MemPerc": "5.31%",
+        "MemUsage": "27.2MiB / 512MiB",
+        "Name": "haolo-market-prometheus",
+        "NetIO": "0B / 0B",
+        "PIDs": "7"
+      }
+    ],
+    "availableMemoryKiB": 12272556
+  },
+  "gatewayAcceptance": {
+    "at": 1792557567.8153963,
+    "candidate": "haolo-binance-gateway-efficiency-1fe4546",
+    "switched_at": 1792557178.0867426,
+    "seconds": 389.7286536693573,
+    "statuses": {
+      "200": 13733,
+      "404": 1334,
+      "201": 109,
+      "101": 51,
+      "202": 31,
+      "304": 1
+    },
+    "new5xx": [],
+    "passed": true
+  },
+  "priorAndLater404Classes": {
+    "before": {
+      "public_gateway_rest (other)": 1506
+    },
+    "after": {
+      "public_gateway_rest (other)": 1729
+    }
+  },
+  "404Note": "404s existed before switching; aggregate statuses are preserved. These route-class summaries do not establish their exact cause or classify all requests as successful.",
+  "monitoringInstallation": {
+    "at": 1792555995.7620578,
+    "image": "sha256:87861b8cf91579109319ebc300f3f1060e6da9c05d6ae8ad15a20c879e84e32e",
+    "repositoryDigests": [
+      "prom/prometheus@sha256:87861b8cf91579109319ebc300f3f1060e6da9c05d6ae8ad15a20c879e84e32e"
+    ],
+    "listen": "127.0.0.1:9090",
+    "retention": "45d",
+    "maximumStorage": "4GB",
+    "targets": 8,
+    "promtoolPassed": true,
+    "configSha256": "35eba4533dc7151a3df86d5a74300cf76a468cd1ede01e4798c55e8f3e99ae4c",
+    "rulesSha256": "6d79a3de194ba34373e1e41bef152aa9fa080511d28d639162118192d7550347"
+  },
+  "monitoringAt1239": {
+    "at": 1792557571.4129775,
+    "targets": [
+      {
+        "labels": {
+          "endpoint": "private",
+          "host": "hk-8.217.125.71",
+          "instance": "127.0.0.1:51388",
+          "job": "haolo-market",
+          "release": "haolo-binance-gateway-ticket-bdb7ad5"
+        },
+        "health": "up",
+        "lastError": ""
+      },
+      {
+        "labels": {
+          "endpoint": "public",
+          "host": "hk-8.217.125.71",
+          "instance": "127.0.0.1:50987",
+          "job": "haolo-market",
+          "release": "haolo-binance-gateway-efficiency-1fe4546"
+        },
+        "health": "up",
+        "lastError": ""
+      },
+      {
+        "labels": {
+          "endpoint": "private",
+          "host": "hk-8.217.125.71",
+          "instance": "127.0.0.1:51288",
+          "job": "haolo-market",
+          "release": "haolo-binance-gateway-ws-9c67921"
+        },
+        "health": "up",
+        "lastError": ""
+      },
+      {
+        "labels": {
+          "endpoint": "public",
+          "host": "hk-8.217.125.71",
+          "instance": "127.0.0.1:50887",
+          "job": "haolo-market",
+          "release": "haolo-binance-gateway-53badfa"
+        },
+        "health": "up",
+        "lastError": ""
+      },
+      {
+        "labels": {
+          "endpoint": "public",
+          "host": "hk-8.217.125.71",
+          "instance": "127.0.0.1:51087",
+          "job": "haolo-market",
+          "release": "haolo-binance-gateway-dev-5bec9dc"
+        },
+        "health": "up",
+        "lastError": ""
+      },
+      {
+        "labels": {
+          "endpoint": "public",
+          "host": "hk-8.217.125.71",
+          "instance": "127.0.0.1:51387",
+          "job": "haolo-market",
+          "release": "haolo-binance-gateway-ticket-bdb7ad5"
+        },
+        "health": "up",
+        "lastError": ""
+      },
+      {
+        "labels": {
+          "endpoint": "private",
+          "host": "hk-8.217.125.71",
+          "instance": "127.0.0.1:50988",
+          "job": "haolo-market",
+          "release": "haolo-binance-gateway-efficiency-1fe4546"
+        },
+        "health": "up",
+        "lastError": ""
+      },
+      {
+        "labels": {
+          "endpoint": "public",
+          "host": "hk-8.217.125.71",
+          "instance": "127.0.0.1:51287",
+          "job": "haolo-market",
+          "release": "haolo-binance-gateway-ws-9c67921"
+        },
+        "health": "up",
+        "lastError": ""
+      },
+      {
+        "labels": {
+          "endpoint": "private",
+          "host": "hk-8.217.125.71",
+          "instance": "127.0.0.1:50888",
+          "job": "haolo-market",
+          "release": "haolo-binance-gateway-53badfa"
+        },
+        "health": "up",
+        "lastError": ""
+      },
+      {
+        "labels": {
+          "endpoint": "private",
+          "host": "hk-8.217.125.71",
+          "instance": "127.0.0.1:51088",
+          "job": "haolo-market",
+          "release": "haolo-binance-gateway-dev-5bec9dc"
+        },
+        "health": "up",
+        "lastError": ""
+      }
+    ],
+    "rules": [
+      {
+        "name": "haolo-market-traffic",
+        "rules": [
+          {
+            "name": "haolo_market:payload_bytes:rate5m",
+            "health": "ok",
+            "lastError": null
+          },
+          {
+            "name": "haolo_market:json_bytes:rate5m",
+            "health": "ok",
+            "lastError": null
+          },
+          {
+            "name": "haolo_market:socket_bytes:rate5m",
+            "health": "ok",
+            "lastError": null
+          },
+          {
+            "name": "haolo_market:payload_bytes:increase1d",
+            "health": "ok",
+            "lastError": null
+          },
+          {
+            "name": "HaoloMarketScrapeMissing",
+            "health": "ok",
+            "lastError": null
+          },
+          {
+            "name": "HaoloMarketAttributionMissing",
+            "health": "ok",
+            "lastError": null
+          }
+        ]
+      }
+    ],
+    "queries": {
+      "payload_bytes_per_second_by_transport_tier": [
+        {
+          "metric": {
+            "tier": "free",
+            "transport": "rest"
+          },
+          "value": [
+            1792557571.413,
+            "108371.65165418517"
+          ]
+        },
+        {
+          "metric": {
+            "tier": "free",
+            "transport": "ws"
+          },
+          "value": [
+            1792557571.413,
+            "955648.3591437394"
+          ]
+        }
+      ],
+      "websocket_payload_bytes_per_second_by_codec": [
+        {
+          "metric": {
+            "codec": "json"
+          },
+          "value": [
+            1792557571.415,
+            "955648.3684413733"
+          ]
+        }
+      ],
+      "new_gateway_hmc1_messages": [],
+      "new_gateway_hmc1_payload_bytes": [],
+      "new_gateway_hmc1_json_equivalent_bytes": [],
+      "socket_bytes_per_second": [
+        {
+          "metric": {
+            "tier": "free",
+            "transport": "ws"
+          },
+          "value": [
+            1792557571.416,
+            "41915.69568562339"
+          ]
+        },
+        {
+          "metric": {
+            "tier": "unknown",
+            "transport": "private_client"
+          },
+          "value": [
+            1792557571.416,
+            "1852.0631578947366"
+          ]
+        },
+        {
+          "metric": {
+            "tier": "unknown",
+            "transport": "private_upstream"
+          },
+          "value": [
+            1792557571.416,
+            "91.04561403508771"
+          ]
+        }
+      ],
+      "websocket_clients_by_release": [
+        {
+          "metric": {
+            "__name__": "haolo_market_gateway_websocketClients",
+            "endpoint": "public",
+            "host": "hk-8.217.125.71",
+            "instance": "127.0.0.1:50887",
+            "job": "haolo-market",
+            "release": "haolo-binance-gateway-53badfa"
+          },
+          "value": [
+            1792557571.417,
+            "4"
+          ]
+        },
+        {
+          "metric": {
+            "__name__": "haolo_market_gateway_websocketClients",
+            "endpoint": "public",
+            "host": "hk-8.217.125.71",
+            "instance": "127.0.0.1:51087",
+            "job": "haolo-market",
+            "release": "haolo-binance-gateway-dev-5bec9dc"
+          },
+          "value": [
+            1792557571.417,
+            "302"
+          ]
+        },
+        {
+          "metric": {
+            "__name__": "haolo_market_gateway_websocketClients",
+            "endpoint": "public",
+            "host": "hk-8.217.125.71",
+            "instance": "127.0.0.1:51287",
+            "job": "haolo-market",
+            "release": "haolo-binance-gateway-ws-9c67921"
+          },
+          "value": [
+            1792557571.417,
+            "1"
+          ]
+        },
+        {
+          "metric": {
+            "__name__": "haolo_market_gateway_websocketClients",
+            "endpoint": "public",
+            "host": "hk-8.217.125.71",
+            "instance": "127.0.0.1:51387",
+            "job": "haolo-market",
+            "release": "haolo-binance-gateway-ticket-bdb7ad5"
+          },
+          "value": [
+            1792557571.417,
+            "3"
+          ]
+        },
+        {
+          "metric": {
+            "__name__": "haolo_market_gateway_websocketClients",
+            "endpoint": "public",
+            "host": "hk-8.217.125.71",
+            "instance": "127.0.0.1:50987",
+            "job": "haolo-market",
+            "release": "haolo-binance-gateway-efficiency-1fe4546"
+          },
+          "value": [
+            1792557571.417,
+            "21"
+          ]
+        }
+      ]
+    }
+  },
+  "liveBeforeSwitch": {
+    "at": "2026-10-21T04:19:05.317Z",
+    "durationMs": 45000,
+    "scope": "Live exchange frames, same-event baseline/candidate comparison and installed-code shadow roundtrip; no trades",
+    "errors": [],
+    "sides": {
+      "baseline": {
+        "messages": 5508,
+        "wireBytes": 1126498,
+        "eventLagMs": {
+          "count": 5508,
+          "p50": 28,
+          "p95": 105,
+          "p99": 108,
+          "max": 2007
+        },
+        "families": {
+          "bookTicker": 5238,
+          "markPrice": 45,
+          "miniTicker": 22,
+          "ticker": 22,
+          "kline_1m": 52,
+          "aggTrade": 129
+        },
+        "outOfOrder": 0,
+        "selectedCodec": "json"
+      },
+      "candidate": {
+        "messages": 5508,
+        "wireBytes": 1126498,
+        "eventLagMs": {
+          "count": 5508,
+          "p50": 61,
+          "p95": 439,
+          "p99": 495,
+          "max": 2002
+        },
+        "families": {
+          "markPrice": 45,
+          "bookTicker": 5238,
+          "miniTicker": 22,
+          "ticker": 22,
+          "kline_1m": 52,
+          "aggTrade": 129
+        },
+        "outOfOrder": 0,
+        "selectedCodec": "json"
+      }
+    },
+    "rest": [
+      {
+        "market": "spot",
+        "closedRowsCompared": 39,
+        "exact": true,
+        "baselineMs": 61.72501299999999,
+        "candidateMs": 104.82378599999998
+      },
+      {
+        "market": "futures",
+        "closedRowsCompared": 39,
+        "exact": true,
+        "baselineMs": 61.463415,
+        "candidateMs": 105.96355500000004
+      }
+    ],
+    "shadow": {
+      "messages": 5508,
+      "jsonBytes": 1126498,
+      "encodedBytes": 1122182,
+      "encodeUs": {
+        "count": 5508,
+        "p50": 3.6000000036437996,
+        "p95": 28.100999999878695,
+        "p99": 44.06100000051083,
+        "max": 718.7750000011874
+      },
+      "decodeUs": {
+        "count": 5508,
+        "p50": 1.710000004095491,
+        "p95": 14.350000004924368,
+        "p99": 24.600999997346662,
+        "max": 434.61499999830266
+      },
+      "families": {
+        "markPrice": {
+          "messages": 45,
+          "hmc1": 0,
+          "jsonBytes": 10035,
+          "encodedBytes": 10035,
+          "fields": [
+            "E",
+            "P",
+            "T",
+            "ap",
+            "e",
+            "i",
+            "p",
+            "r",
+            "s",
+            "st"
+          ]
+        },
+        "bookTicker": {
+          "messages": 5238,
+          "hmc1": 0,
+          "jsonBytes": 1061149,
+          "encodedBytes": 1061149,
+          "fields": [
+            "A",
+            "B",
+            "E",
+            "T",
+            "a",
+            "b",
+            "e",
+            "ps",
+            "s",
+            "st",
+            "u"
+          ]
+        },
+        "miniTicker": {
+          "messages": 22,
+          "hmc1": 0,
+          "jsonBytes": 4686,
+          "encodedBytes": 4686,
+          "fields": [
+            "E",
+            "c",
+            "e",
+            "h",
+            "l",
+            "o",
+            "ps",
+            "q",
+            "s",
+            "st",
+            "v"
+          ]
+        },
+        "ticker": {
+          "messages": 22,
+          "hmc1": 0,
+          "jsonBytes": 7370,
+          "encodedBytes": 7370,
+          "fields": [
+            "C",
+            "E",
+            "F",
+            "L",
+            "O",
+            "P",
+            "Q",
+            "c",
+            "e",
+            "h",
+            "l",
+            "n",
+            "o",
+            "p",
+            "ps",
+            "q",
+            "s",
+            "st",
+            "v",
+            "w"
+          ]
+        },
+        "kline_1m": {
+          "messages": 52,
+          "hmc1": 52,
+          "jsonBytes": 16839,
+          "encodedBytes": 12523,
+          "fields": [
+            "E",
+            "e",
+            "k",
+            "s"
+          ]
+        },
+        "aggTrade": {
+          "messages": 129,
+          "hmc1": 0,
+          "jsonBytes": 26419,
+          "encodedBytes": 26419,
+          "fields": [
+            "E",
+            "T",
+            "a",
+            "e",
+            "f",
+            "l",
+            "m",
+            "nq",
+            "p",
+            "q",
+            "s",
+            "st"
+          ]
+        }
+      },
+      "payloadReductionPercent": 0.38313427986556015
+    },
+    "matched": 5508,
+    "offlineCohort": {
+      "subjects": 10000,
+      "selected": 992,
+      "stable": true,
+      "note": "No synthetic subject used for authentication"
+    },
+    "passed": true
+  },
+  "livePublicAfterSwitch": {
+    "at": "2026-10-21T04:33:17.702Z",
+    "durationMs": 45000,
+    "scope": "Live exchange frames, same-event baseline/candidate comparison and installed-code shadow roundtrip; no trades",
+    "errors": [],
+    "sides": {
+      "baseline": {
+        "messages": 19080,
+        "wireBytes": 3886639,
+        "eventLagMs": {
+          "count": 19080,
+          "p50": 79,
+          "p95": 281,
+          "p99": 340,
+          "max": 789
+        },
+        "families": {
+          "markPrice": 46,
+          "bookTicker": 18531,
+          "miniTicker": 23,
+          "ticker": 23,
+          "kline_1m": 86,
+          "aggTrade": 371
+        },
+        "outOfOrder": 0,
+        "selectedCodec": "json"
+      },
+      "candidate": {
+        "messages": 19080,
+        "wireBytes": 3886619,
+        "eventLagMs": {
+          "count": 19080,
+          "p50": 28,
+          "p95": 61,
+          "p99": 91,
+          "max": 781
+        },
+        "families": {
+          "bookTicker": 18532,
+          "miniTicker": 23,
+          "ticker": 23,
+          "kline_1m": 86,
+          "aggTrade": 371,
+          "markPrice": 45
+        },
+        "outOfOrder": 0,
+        "selectedCodec": "json"
+      }
+    },
+    "rest": [
+      {
+        "market": "spot",
+        "closedRowsCompared": 39,
+        "exact": true,
+        "baselineMs": 226.56669499999998,
+        "candidateMs": 313.196452
+      },
+      {
+        "market": "futures",
+        "closedRowsCompared": 39,
+        "exact": true,
+        "baselineMs": 106.50446399999998,
+        "candidateMs": 62.869523999999956
+      }
+    ],
+    "shadow": {
+      "messages": 19080,
+      "jsonBytes": 3886619,
+      "encodedBytes": 3879481,
+      "encodeUs": {
+        "count": 19080,
+        "p50": 3.749999999854481,
+        "p95": 20.040999999764608,
+        "p99": 44.781999999941036,
+        "max": 2553.2979999998133
+      },
+      "decodeUs": {
+        "count": 19080,
+        "p50": 1.6900000009627547,
+        "p95": 12.360000000626314,
+        "p99": 22.911000000021886,
+        "max": 1166.2599999999657
+      },
+      "families": {
+        "bookTicker": {
+          "messages": 18532,
+          "hmc1": 0,
+          "jsonBytes": 3759958,
+          "encodedBytes": 3759958,
+          "fields": [
+            "A",
+            "B",
+            "E",
+            "T",
+            "a",
+            "b",
+            "e",
+            "ps",
+            "s",
+            "st",
+            "u"
+          ]
+        },
+        "miniTicker": {
+          "messages": 23,
+          "hmc1": 0,
+          "jsonBytes": 4899,
+          "encodedBytes": 4899,
+          "fields": [
+            "E",
+            "c",
+            "e",
+            "h",
+            "l",
+            "o",
+            "ps",
+            "q",
+            "s",
+            "st",
+            "v"
+          ]
+        },
+        "ticker": {
+          "messages": 23,
+          "hmc1": 0,
+          "jsonBytes": 7705,
+          "encodedBytes": 7705,
+          "fields": [
+            "C",
+            "E",
+            "F",
+            "L",
+            "O",
+            "P",
+            "Q",
+            "c",
+            "e",
+            "h",
+            "l",
+            "n",
+            "o",
+            "p",
+            "ps",
+            "q",
+            "s",
+            "st",
+            "v",
+            "w"
+          ]
+        },
+        "kline_1m": {
+          "messages": 86,
+          "hmc1": 86,
+          "jsonBytes": 28298,
+          "encodedBytes": 21160,
+          "fields": [
+            "E",
+            "e",
+            "k",
+            "s"
+          ]
+        },
+        "aggTrade": {
+          "messages": 371,
+          "hmc1": 0,
+          "jsonBytes": 75724,
+          "encodedBytes": 75724,
+          "fields": [
+            "E",
+            "T",
+            "a",
+            "e",
+            "f",
+            "l",
+            "m",
+            "nq",
+            "p",
+            "q",
+            "s",
+            "st"
+          ]
+        },
+        "markPrice": {
+          "messages": 45,
+          "hmc1": 0,
+          "jsonBytes": 10035,
+          "encodedBytes": 10035,
+          "fields": [
+            "E",
+            "P",
+            "T",
+            "ap",
+            "e",
+            "i",
+            "p",
+            "r",
+            "s",
+            "st"
+          ]
+        }
+      },
+      "payloadReductionPercent": 0.18365576867709343
+    },
+    "matched": 19079,
+    "offlineCohort": {
+      "subjects": 10000,
+      "selected": 992,
+      "stable": true,
+      "note": "No synthetic subject used for authentication"
+    },
+    "passed": true
+  },
+  "publicAnalysis": {
+    "at": "2026-10-21T04:33:22.381Z",
+    "sourceCommit": "f31cc3140588916c69d637eb12cf6f2cd5df061a",
+    "scope": "Committed client public data service and indicator functions executed in the gateway network namespace with the server clock. Actual gateway REST data; no desktop IPC or AI call.",
+    "checks": [
+      {
+        "marketType": "futures",
+        "symbol": "BTCUSDT",
+        "interval": "1m",
+        "closedCompared": 119,
+        "ohlcvExact": true,
+        "continuous": true,
+        "currentTail": true,
+        "ma20": 82786.51500000001,
+        "rsi14": 59.69215057949736,
+        "independentNumericCheck": true
+      },
+      {
+        "marketType": "futures",
+        "symbol": "BTCUSDT",
+        "interval": "5m",
+        "closedCompared": 119,
+        "ohlcvExact": true,
+        "continuous": true,
+        "currentTail": true,
+        "ma20": 82761.58499999999,
+        "rsi14": 49.83338330721011,
+        "independentNumericCheck": true
+      },
+      {
+        "marketType": "futures",
+        "symbol": "BTCUSDT",
+        "interval": "1h",
+        "closedCompared": 119,
+        "ohlcvExact": true,
+        "continuous": true,
+        "currentTail": true,
+        "ma20": 82463.56,
+        "rsi14": 54.936213153059455,
+        "independentNumericCheck": true
+      },
+      {
+        "marketType": "futures",
+        "symbol": "ETHUSDT",
+        "interval": "1m",
+        "closedCompared": 119,
+        "ohlcvExact": true,
+        "continuous": true,
+        "currentTail": true,
+        "ma20": 2444.2155000000002,
+        "rsi14": 52.034260704734145,
+        "independentNumericCheck": true
+      },
+      {
+        "marketType": "spot",
+        "symbol": "BTCUSDT",
+        "interval": "1m",
+        "closedCompared": 119,
+        "ohlcvExact": true,
+        "continuous": true,
+        "currentTail": true,
+        "ma20": 82820.95349999999,
+        "rsi14": 59.31468185689708,
+        "independentNumericCheck": true
+      },
+      {
+        "marketType": "spot",
+        "symbol": "BTCUSDT",
+        "interval": "5m",
+        "closedCompared": 119,
+        "ohlcvExact": true,
+        "continuous": true,
+        "currentTail": true,
+        "ma20": 82795.744,
+        "rsi14": 50.11839812748031,
+        "independentNumericCheck": true
+      },
+      {
+        "marketType": "spot",
+        "symbol": "BTCUSDT",
+        "interval": "1h",
+        "closedCompared": 119,
+        "ohlcvExact": true,
+        "continuous": true,
+        "currentTail": true,
+        "ma20": 82501.542,
+        "rsi14": 54.88308802788744,
+        "independentNumericCheck": true
+      },
+      {
+        "marketType": "spot",
+        "symbol": "ETHUSDT",
+        "interval": "1m",
+        "closedCompared": 119,
+        "ohlcvExact": true,
+        "continuous": true,
+        "currentTail": true,
+        "ma20": 2445.3814999999995,
+        "rsi14": 52.43634042668413,
+        "independentNumericCheck": true
+      }
+    ],
+    "conditionalDebug": {
+      "statuses": [
+        200,
+        304
+      ],
+      "conditional": [
+        false,
+        true
+      ],
+      "etags": [
+        "W/\"38e551e6f58cb6c4e5520472f350c1cd490b796c609df5283dd8d2413da9e7af\"",
+        "\"38e551e6f58cb6c4e5520472f350c1cd490b796c609df5283dd8d2413da9e7af\""
+      ],
+      "fetchedAt": 1792557205477
+    },
+    "coalescedReads": {
+      "readers": 100,
+      "initialNetworkRequests": 1,
+      "independentCopies": true,
+      "conditionalStatus": 304,
+      "originTimePreserved": true,
+      "oldSnapshotMarkedStale": false
+    },
+    "passed": true
+  },
+  "externalTransport": {
+    "at": "2026-10-21T04:33:35.006Z",
+    "checks": [
+      {
+        "check": "public HTTPS REST with observed freshness metadata",
+        "elapsed": 1616,
+        "now": 1792557216623,
+        "status": 200,
+        "cache": "MISS",
+        "fetchedAt": 1792557216301,
+        "date": "Wed, 21 Oct 2026 04:33:36 GMT",
+        "tail": 1792557180000
+      },
+      {
+        "check": "public HTTPS REST with observed freshness metadata",
+        "elapsed": 220,
+        "now": 1792557216844,
+        "status": 200,
+        "cache": "HIT",
+        "fetchedAt": 1792557216301,
+        "date": "Wed, 21 Oct 2026 04:33:36 GMT",
+        "tail": 1792557180000
+      },
+      {
+        "check": "public HTTPS REST with observed freshness metadata",
+        "elapsed": 229,
+        "now": 1792557217073,
+        "status": 200,
+        "cache": "HIT",
+        "fetchedAt": 1792557216301,
+        "date": "Wed, 21 Oct 2026 04:33:36 GMT",
+        "tail": 1792557180000
+      },
+      {
+        "check": "external authorized HTTPS CONNECT with verified Binance TLS",
+        "status": 200,
+        "serverTime": 1792557219073
+      }
+    ],
+    "passed": true
+  },
+  "backendIndependent": {
+    "at": "2026-10-21T04:34:34.255872+00:00",
+    "commit": "a36647266184f525adfd7ec4397589f3ad8c6444",
+    "normalization": "Git LF / runtime CRLF; only newline normalization",
+    "containers": {
+      "haolo-backend-api-blue": {
+        "image": "sha256:556d14e1091f1c3f5dddac51f4f746ad8987189695942fb2c826ac78ccd50da2",
+        "healthy": true,
+        "marketFilesMatch": {
+          "app/mobile/api.py": "498163b02d40e2aa0d61fa81d583db32fded77c8207f20518ee42565c572473c",
+          "app/mobile/market_routing.py": "284748d4a1130cddb86023efb12c7f95561c632ba0b3027abca98e24fff05370"
+        },
+        "actualFileHashes": {
+          "app/mobile/api.py": "5f6b28829ca0a2be7bd953ee6b4520302d831befc1edcecf09327eada6776119",
+          "app/mobile/market_routing.py": "7ec5af6c2cacf43464fc6815de1e3f286dd0240eba4df8279196095e031aa5c3"
+        },
+        "release": "a36647266184f525adfd7ec4397589f3ad8c6444"
+      },
+      "haolo-backend-mobile-worker": {
+        "image": "sha256:f91ef9fb0ca0ced33b215ff4fcf91f78ec7fb7e3cdee988b8b1db70a21069189",
+        "healthy": true,
+        "marketFilesMatch": {
+          "app/mobile/api.py": "498163b02d40e2aa0d61fa81d583db32fded77c8207f20518ee42565c572473c",
+          "app/mobile/market_routing.py": "284748d4a1130cddb86023efb12c7f95561c632ba0b3027abca98e24fff05370"
+        },
+        "actualFileHashes": {
+          "app/mobile/api.py": "5f6b28829ca0a2be7bd953ee6b4520302d831befc1edcecf09327eada6776119",
+          "app/mobile/market_routing.py": "7ec5af6c2cacf43464fc6815de1e3f286dd0240eba4df8279196095e031aa5c3"
+        },
+        "release": "a36647266184f525adfd7ec4397589f3ad8c6444"
+      }
+    },
+    "apiPhase": "complete",
+    "workerPhase": "complete"
+  },
+  "mobileLocalInstallation": {
+    "checkedAt": "2026-10-21T12:32:04.4948575+08:00",
+    "apkSha256": "eb9ae3d538343561d1701d42fffd73f8b8d8bbaa03b540587f599155721c648e",
+    "deviceApkSha256": "eb9ae3d538343561d1701d42fffd73f8b8d8bbaa03b540587f599155721c648e",
+    "pid": "7697",
+    "foreground": "topResumedActivity=ActivityRecord{31304036 u0 com.haolo.haolo_mobile/.MainActivity t938}",
+    "sourceStable": true,
+    "fatalLogMatches": []
+  },
+  "validation": {
+    "gatewayRealRedis": {
+      "passed": 95,
+      "failed": 0,
+      "skipped": 0
+    },
+    "retirement": {
+      "passed": 6
+    },
+    "windowsFullPrior": {
+      "passed": 4679,
+      "typecheck": true
+    },
+    "windowsWeakEtagFollowup": {
+      "passed": 30
+    },
+    "mobileWeakEtagFollowup": {
+      "passed": 15,
+      "analysis": true
+    },
+    "mobileFullPrior": {
+      "passed": 3725,
+      "skipped": 5,
+      "failed": 18,
+      "sameFailuresOnBaseline": 18
+    },
+    "mobileMarketPrior": {
+      "passed": 84,
+      "skipped": 1
+    }
+  },
+  "limitations": [
+    "Actual production hmc1 counter series absent in the recorded window; the existing authenticated probe user negotiated JSON. 10% stable cohort policy is enabled, not proof of 10% online traffic.",
+    "Real mixed feed shadow reduction 0.18-0.38%; kline about 25.2%. Unknown new exchange fields intentionally preserve JSON. No CDT invoice saving claimed.",
+    "Event lag is a short HK-host measurement against exchange timestamps; independent upstream connections varied across windows. No blanket WAN latency improvement established.",
+    "Old connections remain on retained releases, some without new socket attribution metrics. Application, socket and CDT bytes are distinct and not additive.",
+    "Prometheus keeps up to 45 days or 4 GB, whichever expires first; new collector cannot reconstruct the previous 15 days.",
+    "Backend batch had three assistant-runs 503 during Worker handover, separate from zero-error stable acceptance.",
+    "Windows and mobile source pushed; no client update-channel publication. Android local install verified; native iOS and full device UI untested."
+  ],
+  "candidateTests": {
+    "passed": true,
+    "testFiles": 23,
+    "nodeExitCode": 0,
+    "retirementExitCode": 0,
+    "image": "sha256:35a7ed199ca6e84fbf9895a8ca029eb88031e67021037e234416eb5164f114a7",
+    "isolatedRedis": true,
+    "productionCandidateStarted": false
+  },
+  "authDependencyBeforeSwitch": {
+    "at": 1792557169.5615013,
+    "baseline_container": "haolo-binance-gateway-dev-5bec9dc",
+    "baseline_image": "sha256:e8fb1f678739d05b0a3d110d1a6a5cea723adba64e6fb7b2c05125ff90416291",
+    "windowSeconds": 300,
+    "completionMarginSeconds": 30,
+    "authSamples": 2586,
+    "maxAuthMs": 1117,
+    "auth5xx": 0,
+    "market5xx": 0,
+    "passed": true
+  }
+}

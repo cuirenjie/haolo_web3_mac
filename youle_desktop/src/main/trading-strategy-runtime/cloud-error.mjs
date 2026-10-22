@@ -15,6 +15,7 @@ const messages = {
   LEFT_DAILY_RISK_BUDGET: ['今天的左侧计划风险预算已用完，取消计划不会恢复预算。','Today’s left-side risk budget is exhausted. Cancelling a plan does not restore it.','今天的左側計畫風險預算已用完，取消計畫不會恢復預算。'],
   LEFT_PLAN_ALREADY_USED: ['此左侧计划已使用，请重新分析，不要重复激活。','This left-side plan has already been used. Reanalyse instead of reactivating it.','此左側計畫已使用，請重新分析，不要重複啟用。'],
   ORDER_FLOW_DATA_UNAVAILABLE: ['订单流成交或盘口数据暂不可用，请稍后重试。','Order flow trades or depth data are unavailable. Please try again later.','訂單流成交或訂單簿資料暫不可用，請稍後重試。'],
+  ORDER_FLOW_DATA_RATE_LIMITED: ['订单流行情请求仍受限，本次分析已停止，请稍后重试。','Order flow market requests are still rate limited. Analysis stopped; please try again later.','訂單流行情請求仍受限，本次分析已停止，請稍後重試。'],
   ORDER_FLOW_MARKET_UNSUPPORTED: ['订单流分析仅支持币安永续市场，请切换市场后重试。','Order flow analysis requires a Binance perpetual market. Switch markets and try again.','訂單流分析僅支援幣安永續市場，請切換市場後重試。'],
   CLOUD_HISTORY_REQUIREMENTS_INVALID: ['云端行情要求与当前客户端不兼容，请更新客户端或稍后重试。','Cloud history requirements are incompatible with this client. Update the client or try again later.','雲端行情要求與目前客戶端不相容，請更新客戶端或稍後重試。'],
   MARKET_HISTORY_INSUFFICIENT: ['云端可用 K 线不足以完成此策略分析，请扩大分析时段或稍后重试。','There are not enough cloud candles for this strategy. Expand the analysis range or try again later.','雲端可用 K 線不足以完成此策略分析，請擴大分析時段或稍後重試。'],

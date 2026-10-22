@@ -1,5 +1,6 @@
 import {LineSeries,LineStyle,createSeriesMarkers,type UTCTimestamp} from 'lightweight-charts';
 import type {TradingAiDrawingColorToken,TradingIndicatorAiDrawingPatch} from './trading-expert-ai-playback.ts';
+import { usesNativeAiDrawingStyle, nativeAiDrawingDefaults } from './trading-ai-native-style.ts';
 const TRADING_INDICATOR_AI_TOOLS = new Set(["path", "note", "text"]);
 const TRADING_INDICATOR_AI_COLOR_TOKENS = new Set([
   "strategy-primary", "strategy-support", "strategy-resistance", "strategy-entry",
@@ -180,9 +181,10 @@ export function renderIndicatorAnalysisPatch(options:{chart:any;runtime:Indicato
   const id=patch.indicatorId;
     const markers: any[] = [];
     patch.operations.forEach(({ drawing }, operationIndex) => {
-      const color = indicatorAnalysisColor(host, dark, drawing.colorToken);
+      const defaults = drawing.tool === 'path' && usesNativeAiDrawingStyle({ ...drawing, source: 'ai' }) ? nativeAiDrawingDefaults(drawing) : null;
+      const color = defaults?.color ?? indicatorAnalysisColor(host, dark, drawing.colorToken);
       if (drawing.tool === "path") {
-        const lineWidth = Math.max(1, Math.min(4, Math.round(Number(drawing.lineWidth) || 1))) as 1 | 2 | 3 | 4;
+        const lineWidth = Math.max(1, Math.min(4, Math.round(defaults?.lineWidth ?? (Number(drawing.lineWidth) || 1)))) as 1 | 2 | 3 | 4;
         const series = runtime.pane.addSeries(LineSeries, {
           color,
           lineWidth,

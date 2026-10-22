@@ -54,6 +54,12 @@ for (const locale of ['zh-CN','zh-Hant','en']) test(`long/short alternatives ret
   const drawings=models(patch).reverse();
   const lines=buildTradingPlanPriceLines(drawings).lines;
   assert.equal(lines.filter(l=>l.kind==='plan-entry').length,2);
+  assert.deepEqual(lines.filter(l=>l.kind==='plan-entry').map(l=>l.shortLabel),
+    locale==='en'?['Entry short','Entry long']:locale==='zh-CN'?['入场做空','入场做多']:['入場做空','入場做多']);
+  // A partially played entry already knows the card direction, before stop renders.
+  const entryOnly = models(patch).filter(d=>d.planLevel?.role==='entry');
+  assert.deepEqual(buildTradingPlanPriceLines(entryOnly).lines.map(l=>l.shortLabel),
+    lines.filter(l=>l.kind==='plan-entry').map(l=>l.shortLabel).reverse());
   assert.deepEqual(lines.filter(l=>l.kind==='take-profit').map(l=>l.shortLabel),
     Array(2).fill(locale==='en'?['TP3','TP2','TP1']:['第3止盈','第2止盈','第1止盈']).flat());
 });

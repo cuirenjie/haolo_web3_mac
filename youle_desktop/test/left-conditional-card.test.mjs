@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {cloudReportFromResponse,cloudPlanCard,normalizeCloudReports} from '../src/main/cloud-plan-contract.mjs';
-import {leftRouteView,leftWatchView} from '../src/main/price-action-left-card.mjs';
+import {leftRouteView} from '../src/main/price-action-left-card.mjs';
 import {renderCurrentReports,renderCurrentSavedPlan} from './support/right-renderer-parity.mjs';
 import {mergeCloudExecutionPlans} from '../src/renderer/cloud-plan-sync.ts';
 import {executionPlanStickyHtml} from '../src/main/execution-plan-sticky-view.mjs';
@@ -14,7 +14,6 @@ for(const [key,receipt] of Object.entries(fixtures))test(`${key}: formal conditi
  try{
   assert.equal(p.outcome.action,'plan');assert.equal(p.outcome.candidateStatus,'qualified');
   assert.equal(p.positionSizing.leftPolicy.version,'left-conditional-fallback-v1');
-  assert.equal(leftWatchView(report,language),null);
   assert.equal(leftRouteView(p,language).action,'wait');
   const card=cloudPlanCard(report),chat=renderCurrentReports([report]);
   assert.ok(!card.readOnly);assert.ok(chat.actions.includes('data-execution-plan-message-id'));

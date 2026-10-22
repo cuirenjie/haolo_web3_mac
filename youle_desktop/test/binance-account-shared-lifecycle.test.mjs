@@ -13,7 +13,6 @@ const functionNames = [
   "sharedBinanceConnectionDeviceId",
   "activeSharedBinanceConnection",
   "readSharedBinanceAccountConnections",
-  "syncSharedBinanceAccountConnection",
   "syncSharedBinanceAccountCredentials",
   "removeSharedBinanceAccountConnection",
 ];
@@ -48,7 +47,7 @@ function harness(initialItems) {
     },
   };
   const getClient = () => api;
-  const run = new Function("getYouleApiClient", `${functions}\nreturn { syncSharedBinanceAccountConnection, syncSharedBinanceAccountCredentials, removeSharedBinanceAccountConnection };`)(getClient);
+  const run = new Function("getYouleApiClient", `${functions}\nreturn { syncSharedBinanceAccountCredentials, removeSharedBinanceAccountConnection };`)(getClient);
   return { calls, run };
 }
 
@@ -57,10 +56,9 @@ const windows = { id: "connection-windows", deviceId: "windows-device", venue: "
 
 test("shared Binance lifecycle keeps credentials and unbind scoped to Windows", async () => {
   const onlyMobile = harness([mobile]);
-  const created = await onlyMobile.run.syncSharedBinanceAccountConnection();
+  const created = await onlyMobile.run.syncSharedBinanceAccountCredentials({ apiKey: "key", apiSecret: "secret" });
   assert.equal(created.id, "windows-created");
   assert.equal(onlyMobile.calls.filter(([kind]) => kind === "create").length, 1);
-  await onlyMobile.run.syncSharedBinanceAccountCredentials({ apiKey: "key", apiSecret: "secret" });
   assert.deepEqual(onlyMobile.calls.at(-1), ["bind", "windows-created", { apiKey: "key", apiSecret: "secret" }]);
 
   const multiDevice = harness([mobile, windows]);

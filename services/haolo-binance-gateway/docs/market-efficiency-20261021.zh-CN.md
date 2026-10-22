@@ -1,5 +1,7 @@
 # 2026-10-21 行情流量优化候选
 
+后续发布状态：源码已分别推送，2026-10-21 12:32:58香港新连接已切至1fe4546并以10%配置accept；API／Worker也已发布。下文“未上线／未部署”为开发阶段历史记录，正式结果与实际混合流量收益见[生产灰度验收](market-efficiency-release-20261021.zh-CN.md)。持久采集器现已部署，旧连接继续自然排空，客户端安装包渠道未发布。
+
 ## 口径与持久采集
 
 公共 REST/WS 的应用正文按 `node / tier / transport / market / family / codec / legacy` 归因；标签是有限集合，不记录用户、币种、URL、票据或凭证。`json_bytes_total` 是同一批响应若用原 JSON 所需的正文，`payload_bytes_total` 是实际发送正文，差值可用于统计编码与 304 节省。REST 分类包括 K 线、ticker、exchangeInfo、持仓量、比例和深度。

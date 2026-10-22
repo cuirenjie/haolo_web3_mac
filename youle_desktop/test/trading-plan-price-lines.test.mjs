@@ -20,7 +20,7 @@ test('five plan levels reuse account-line labels with exact prices and no accoun
   const { lines, drawingIds } = buildTradingPlanPriceLines(drawings);
   assert.deepEqual(drawings, original);
   assert.equal(drawingIds.size, 5);
-  assert.deepEqual(lines.map(line => line.shortLabel), ['入场', '止损', '第1止盈', '第2止盈', '第3止盈']);
+  assert.deepEqual(lines.map(line => line.shortLabel), ['入场做空', '止损', '第1止盈', '第2止盈', '第3止盈']);
   assert.deepEqual(lines.map(line => line.kind), ['plan-entry', 'stop-loss', 'take-profit', 'take-profit', 'take-profit']);
   assert.equal(lines.at(-1).label, '1285.246', 'same decimal formatting as the plan card');
   const bounds = { width: 1000, height: 600 }, project = price => (1500 - price) * 2;
@@ -56,9 +56,9 @@ test('legacy repeated entry boundaries collapse while target order and separate 
 
 test('historical Chinese, Traditional Chinese and English plan labels retain their source language', () => {
   for (const [texts, labels] of [
-    [['入场条件', '止损', '止盈参考'], ['入场', '止损', '第1止盈']],
-    [['入場條件', '止損', '止盈參考'], ['入場', '止損', '第1止盈']],
-    [['Entry condition', 'Stop loss / invalidation', 'Take profit'], ['Entry', 'Stop loss', 'TP1']],
+    [['入场条件', '止损', '止盈参考'], ['入场做空', '止损', '第1止盈']],
+    [['入場條件', '止損', '止盈參考'], ['入場做空', '止損', '第1止盈']],
+    [['Entry condition', 'Stop loss / invalidation', 'Take profit'], ['Entry short', 'Stop loss', 'TP1']],
   ]) {
     const lines = buildTradingPlanPriceLines(['entry', 'stop', 'target'].map((role, i) => drawing(role, 10 + i, i, { text: texts[i] }))).lines;
     assert.deepEqual(lines.map(line => line.shortLabel), labels);
@@ -80,6 +80,8 @@ test('entry zones display one card-matching trigger in either drawing order and 
     assert.equal(entries.length, 2, 'one entry per condition');
     assert.equal(entries.find(line => line.id.includes('long')).price, 1405.85);
     assert.equal(entries.find(line => line.id.includes('short')).price, 1409.49);
+    assert.equal(entries.find(line => line.id.includes('long')).shortLabel, '入场做多');
+    assert.equal(entries.find(line => line.id.includes('short')).shortLabel, '入场做空');
   }
 });
 
@@ -100,6 +102,9 @@ test('saved real cloud patches gain labels without rewriting original prices', (
     assert.equal(entries[0].price, condition.direction === 'long' ? condition.trigger.lower : condition.trigger.upper,
       'the line coordinate keeps the exact frozen trigger price');
     assert.equal(entries[0].label, cardPrice, 'historical zones use the current card trigger and decimal precision');
+    const language = result.cloud.locale;
+    assert.equal(entries[0].shortLabel, language === 'en' ? `Entry ${condition.direction}`
+      : `${language === 'zh-CN' ? '入场' : '入場'}做${condition.direction === 'long' ? '多' : '空'}`);
   }
 });
 

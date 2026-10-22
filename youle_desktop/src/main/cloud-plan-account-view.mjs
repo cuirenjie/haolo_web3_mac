@@ -14,12 +14,11 @@ function valuationEntry(plan) {
   const condition = plan.entryCondition;
   const predicate = condition?.confirmation === 'breakout_retest' ? condition.retest : condition?.trigger;
   if (predicate?.operator !== 'in_zone') return predicate?.lower;
-  const lower = plan.selectedMode === 'left' ? condition.direction === 'long' : condition.direction === 'short';
-  return lower ? predicate.lower : predicate.upper;
+  return condition.direction === 'long' ? predicate.lower : predicate.upper;
 }
 
 export function cloudPlanEntryBasisMismatch(plan) {
-  return plan.selectedMode === 'left' && positive(plan.scenarios?.[0]?.entry)
+  return positive(plan.scenarios?.[0]?.entry)
     && plan.scenarios[0].entry !== valuationEntry(plan);
 }
 

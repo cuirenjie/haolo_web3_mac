@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { harmonicLegsIntact, harmonicProjectedProgress } from "./harmonic-subengine-common.mjs";
 import { TRADING_ANALYSIS_SCHEMA_VERSION } from "./protocol.mjs";
 import {
   HARMONIC_CYPHER_SUBENGINE_ID,
@@ -14,9 +15,9 @@ import {
 } from "./harmonic-shark-engine.mjs";
 
 export const HARMONIC_ENGINE_ID = "harmonic-xabcd";
-export const HARMONIC_ENGINE_VERSION = "3.0.0";
+export const HARMONIC_ENGINE_VERSION = "4.0.0";
 export const HARMONIC_CLASSIC_SUBENGINE_ID = "harmonic-classic-xabcd";
-export const HARMONIC_CLASSIC_SUBENGINE_VERSION = "1.1.0";
+export const HARMONIC_CLASSIC_SUBENGINE_VERSION = "1.2.0";
 
 export const HARMONIC_SCAN_PROFILES = Object.freeze([
   Object.freeze({ id: "fine", radius: 2, thresholdAtr: 0.35, minimumCandles: 40 }),
@@ -265,7 +266,7 @@ function confirmationState(snapshot, points, prz, atr) {
   let invalidated = false;
   for (let index = d.index + 1; index < snapshot.candles.length; index += 1) {
     const candle = snapshot.candles[index];
-    if (bullish ? candle.close < stop : candle.close > stop) {
+    if (bullish ? candle.low <= stop : candle.high >= stop) {
       invalidated = true;
       break;
     }
@@ -343,6 +344,7 @@ export function evaluateHarmonicCandidate(snapshot, inputPoints, specOrId, {
   }));
   const direction = points[0]?.type === "low" ? "bullish" : "bearish";
   if (!geometryMatches(points, direction, spec.completion)) return null;
+  if (!harmonicLegsIntact(snapshot, points)) return null;
   const ratios = calculateRatios(points);
   if (!ratios) return null;
   const hardChecks = [
@@ -562,23 +564,6 @@ function projectedClassicPrz(points, spec, atr) {
   });
 }
 
-function projectedProgress(snapshot, fromPoint, targetPrice) {
-  const direction = Math.sign(targetPrice - fromPoint.price);
-  const distance = Math.abs(targetPrice - fromPoint.price);
-  if (!direction || distance <= Number.EPSILON || fromPoint.index >= snapshot.candles.length - 1) return null;
-  const candles = snapshot.candles.slice(fromPoint.index + 1);
-  const observedPrice = direction > 0
-    ? Math.max(...candles.map((candle) => candle.high))
-    : Math.min(...candles.map((candle) => candle.low));
-  const progress = (observedPrice - fromPoint.price) / (targetPrice - fromPoint.price);
-  if (progress < 0.08 || progress > 1.2) return null;
-  return Object.freeze({
-    ratio: round(progress),
-    observedPrice: round(observedPrice),
-    currentPrice: round(snapshot.candles.at(-1).close),
-  });
-}
-
 export function evaluateClassicDevelopingCandidate(snapshot, inputPoints, specOrId, {
   atr = null,
   scanProfileId = "direct",
@@ -590,6 +575,7 @@ export function evaluateClassicDevelopingCandidate(snapshot, inputPoints, specOr
   if (!spec) throw new TypeError("Unknown harmonic pattern specification");
   if (!Array.isArray(inputPoints) || inputPoints.length !== 4) return null;
   const points = inputPoints.map((point) => ({ ...point }));
+  if (!harmonicLegsIntact(snapshot, points)) return null;
   const direction = points[0]?.type === "low" ? "bullish" : "bearish";
   const expected = expectedTypes(direction).slice(0, 4);
   if (points.some((point, index) => point.type !== expected[index])) return null;
@@ -609,7 +595,7 @@ export function evaluateClassicDevelopingCandidate(snapshot, inputPoints, specOr
   const projectedPrice = (prz.low + prz.high) / 2;
   if (spec.completion === "retracement" && !between(projectedPrice, x.price, a.price)) return null;
   if (spec.completion === "extension" && (direction === "bullish" ? projectedPrice >= x.price : projectedPrice <= x.price)) return null;
-  const progress = projectedProgress(snapshot, c, projectedPrice);
+  const progress = harmonicProjectedProgress(snapshot, c, projectedPrice, prz);
   if (!progress) return null;
   const labelledPoints = Object.freeze(points.map((point, index) => pointRecord(point, "XABC"[index])));
   const ruleIds = Object.freeze([...spec.ruleIds, "HARMONIC-DEVELOPING-PROJECTION"]);

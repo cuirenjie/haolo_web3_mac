@@ -44,6 +44,34 @@ export function harmonicFillColor(drawing: Pick<TradingDrawingModel, 'tool' | 'c
   return drawing.textBackgroundColor ?? `${(drawing.color ?? manualDrawingDefaults(drawing.tool).color).slice(0, 7)}26`;
 }
 
+// Shared visual primitives. AI supplies its own anchors, labels and measurements;
+// using these must never recalculate a pattern or rename its points.
+export function harmonicPatternPolygons(points: readonly ScreenPoint[]) {
+  return [[0, 1, 2], [2, 3, 4]]
+    .filter(indices => indices.every(i => i < points.length))
+    .map(indices => indices.map(i => points[i]));
+}
+
+export function renderPatternLegs(drawing: TradingDrawingModel, points: readonly ScreenPoint[]) {
+  const color = drawing.color ?? manualDrawingDefaults(drawing.tool).color;
+  const dash = drawing.lineStyle === 'dashed' ? '8 5' : drawing.lineStyle === 'dotted' ? '2 4' : '';
+  return points.length > 1 ? `<polyline data-harmonic-legs points="${points.map(p => `${p.x},${p.y}`).join(' ')}" fill="none" stroke="${color}" stroke-width="${drawing.lineWidth ?? 2}"${dash ? ` stroke-dasharray="${dash}"` : ''} stroke-linejoin="round" vector-effect="non-scaling-stroke"/>` : '';
+}
+
+export function patternBadgeGeometry(text: string, center: ScreenPoint, fontSize: number) {
+  const textWidth = Array.from(text).reduce((sum, char) => sum + (/[^\u0000-\u00ff]/.test(char) ? 1 : .59), 0) * fontSize;
+  const width = Math.max(fontSize + 4, textWidth + 10), height = fontSize + 8;
+  return { x: center.x - width / 2, y: center.y - height / 2, width, height };
+}
+
+export function renderPatternBadge(drawing: TradingDrawingModel, text: string, center: ScreenPoint, attribute: string) {
+  const fontSize = drawing.fontSize ?? 14;
+  const color = drawing.color ?? manualDrawingDefaults(drawing.tool).color;
+  const box = patternBadgeGeometry(text, center, fontSize);
+  const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return { box, body: `<g ${attribute} data-i18n-skip><rect x="${box.x}" y="${box.y}" width="${box.width}" height="${box.height}" rx="4" fill="${color}" stroke="none"/><text x="${center.x}" y="${center.y}" text-anchor="middle" dominant-baseline="central" fill="${drawing.textColor ?? '#ffffff'}" font-family="Arial, sans-serif" font-size="${fontSize}" font-weight="${drawing.bold ? 700 : 500}"${drawing.italic ? ' font-style="italic"' : ''}>${escaped}</text></g>` };
+}
+
 export function trianglePatternGeometry(points: readonly ScreenPoint[], width: number) {
   const [a, b, c, d] = points;
   if (!d || Math.abs(c.x - a.x) < 1e-7 || Math.abs(d.x - b.x) < 1e-7) return null;
@@ -123,16 +151,15 @@ export function renderReferencePattern(
   const fontSize = drawing.fontSize ?? 14;
   const height = fontSize + 8;
   const width = drawing.lineWidth ?? 2;
-  const dash = drawing.lineStyle === 'dashed' ? '8 5' : drawing.lineStyle === 'dotted' ? '2 4' : '';
   const attrs = (p: readonly ScreenPoint[]) => p.map(p => `${p.x},${p.y}`).join(' ');
   const neck = headShoulders ? headShouldersGeometry(points, bounds.width) : null;
   const triangleGeometry = triangle ? trianglePatternGeometry(points, bounds.width) : null;
   const polygons = headShoulders ? neck!.polygons : triangle ? (triangleGeometry ? [triangleGeometry.polygon] : []) : abcd || threeDrives ? []
-    : [[0, 1, 2], [2, 3, 4]].filter(indices => indices.every(i => i < points.length)).map(indices => indices.map(i => points[i]));
+    : harmonicPatternPolygons(points);
   const chords = isHarmonicDrawing(drawing.tool) ? harmonicDrawingRatios(drawing.tool, drawing.points.slice(0, points.length).map(p => p.price)) : [];
   const segments = points.slice(1).map((point, i) => [points[i], point]);
   let body = polygons.map((polygon, index) => `<polygon data-harmonic-fill="${headShoulders ? index : index === 0 ? 'XAB' : 'BCD'}" points="${attrs(polygon)}" fill="${fill}" stroke="none"/>`).join('');
-  body += points.length > 1 ? `<polyline data-harmonic-legs points="${attrs(points)}" fill="none" stroke="${color}" stroke-width="${width}"${dash ? ` stroke-dasharray="${dash}"` : ''} stroke-linejoin="round" vector-effect="non-scaling-stroke"/>` : '';
+  body += renderPatternLegs(drawing, points);
   body += chords.map(({ chord, from, to }) => {
     const a = points[from], b = points[to];
     segments.push([a, b]);
@@ -149,11 +176,9 @@ export function renderReferencePattern(
   }).join('');
   const boxes: { x: number; y: number; width: number }[] = [];
   const badge = (text: string, center: ScreenPoint, attribute: string) => {
-    const textWidth = Array.from(text).reduce((sum, char) => sum + (/[^\u0000-\u00ff]/.test(char) ? 1 : .59), 0) * fontSize;
-    const badgeWidth = Math.max(fontSize + 4, textWidth + 10);
-    const box = { x: center.x - badgeWidth / 2, y: center.y - height / 2, width: badgeWidth };
-    boxes.push(box);
-    return `<g ${attribute} data-i18n-skip><rect x="${box.x}" y="${box.y}" width="${box.width}" height="${height}" rx="4" fill="${color}" stroke="none"/><text x="${center.x}" y="${center.y}" text-anchor="middle" dominant-baseline="central" fill="${drawing.textColor ?? '#ffffff'}" font-family="Arial, sans-serif" font-size="${fontSize}" font-weight="${drawing.bold ? 700 : 500}"${drawing.italic ? ' font-style="italic"' : ''}>${text}</text></g>`;
+    const result = renderPatternBadge(drawing, text, center, attribute);
+    boxes.push(result.box);
+    return result.body;
   };
   body += chords.map(({ chord, from, to, value }) => badge(formatHarmonicRatio(value, threeDrives ? 2 : 3), {
     x: (points[from].x + points[to].x) / 2,

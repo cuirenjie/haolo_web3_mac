@@ -1,0 +1,174 @@
+{
+  "status": "source_verified_not_deployed",
+  "desktopTests": 50,
+  "backendTests": 57,
+  "postgresLifecycleTests": 11,
+  "postStyleUiRetest": 21,
+  "typecheck": "passed",
+  "network": {
+    "checkedAt": "2026-10-22T06:51:25.660Z",
+    "physicalIp": "192.168.0.108",
+    "probes": [
+      {
+        "name": "physical_haolo",
+        "status": 200,
+        "curlExit": 0,
+        "localIp": "192.168.0.108",
+        "remoteIp": "8.217.125.71",
+        "elapsedMs": 153
+      },
+      {
+        "name": "physical_binance",
+        "status": 0,
+        "curlExit": 35,
+        "localIp": null,
+        "remoteIp": null,
+        "elapsedMs": 285,
+        "error": "Recv failure: Connection was reset"
+      },
+      {
+        "name": "physical_private_ready",
+        "status": 200,
+        "curlExit": 0,
+        "localIp": "192.168.0.108",
+        "remoteIp": "8.217.125.71",
+        "elapsedMs": 54
+      },
+      {
+        "name": "default_binance",
+        "status": 200,
+        "curlExit": 0,
+        "localIp": "172.18.0.1",
+        "remoteIp": "18.65.0.122",
+        "elapsedMs": 1262
+      },
+      {
+        "name": "physical_private_tunnel",
+        "host": "api.binance.com",
+        "status": 200,
+        "validServerTime": true,
+        "elapsedMs": 627,
+        "localIp": "192.168.0.108",
+        "remoteIp": "8.217.125.71"
+      },
+      {
+        "name": "physical_private_tunnel",
+        "host": "fapi.binance.com",
+        "status": 200,
+        "validServerTime": true,
+        "elapsedMs": 256,
+        "localIp": "192.168.0.108",
+        "remoteIp": "8.217.125.71"
+      }
+    ]
+  },
+  "ui": [
+    {
+      "language": "zh-CN",
+      "theme": "light",
+      "text": "此 Binance 连接已解绑，请关闭窗口后重新绑定。",
+      "foreground": "rgb(198, 40, 66)",
+      "background": "rgb(255, 240, 242)",
+      "width": 536.6666870117188,
+      "height": 36,
+      "clipped": false,
+      "dialogFits": true,
+      "contrast": 5.0215413986848025
+    },
+    {
+      "language": "zh-CN",
+      "theme": "dark",
+      "text": "此 Binance 连接已解绑，请关闭窗口后重新绑定。",
+      "foreground": "rgb(255, 95, 115)",
+      "background": "rgb(54, 28, 34)",
+      "width": 536.6666870117188,
+      "height": 36,
+      "clipped": false,
+      "dialogFits": true,
+      "contrast": 5.301751463024037
+    },
+    {
+      "language": "en",
+      "theme": "light",
+      "text": "This Binance connection was disconnected. Close this dialog and reconnect your account.",
+      "foreground": "rgb(198, 40, 66)",
+      "background": "rgb(255, 240, 242)",
+      "width": 536.6666870117188,
+      "height": 36,
+      "clipped": false,
+      "dialogFits": true,
+      "contrast": 5.0215413986848025
+    },
+    {
+      "language": "en",
+      "theme": "dark",
+      "text": "This Binance connection was disconnected. Close this dialog and reconnect your account.",
+      "foreground": "rgb(255, 95, 115)",
+      "background": "rgb(54, 28, 34)",
+      "width": 536.6666870117188,
+      "height": 36,
+      "clipped": false,
+      "dialogFits": true,
+      "contrast": 5.301751463024037
+    },
+    {
+      "language": "zh-TW",
+      "theme": "light",
+      "text": "此 Binance 連線已解除綁定，請關閉視窗後重新綁定。",
+      "foreground": "rgb(198, 40, 66)",
+      "background": "rgb(255, 240, 242)",
+      "width": 536.6666870117188,
+      "height": 36,
+      "clipped": false,
+      "dialogFits": true,
+      "contrast": 5.0215413986848025
+    },
+    {
+      "language": "zh-TW",
+      "theme": "dark",
+      "text": "此 Binance 連線已解除綁定，請關閉視窗後重新綁定。",
+      "foreground": "rgb(255, 95, 115)",
+      "background": "rgb(54, 28, 34)",
+      "width": 536.6666870117188,
+      "height": 36,
+      "clipped": false,
+      "dialogFits": true,
+      "contrast": 5.301751463024037
+    }
+  ],
+  "sourceHashes": [
+    {
+      "path": "youle_desktop/src/main/main.mjs",
+      "sha256": "cd64914a1539e8bf51046dc6be733b867704b488be4837b6c6f90d2644389867"
+    },
+    {
+      "path": "youle_desktop/src/main/youle-api-client.mjs",
+      "sha256": "e80438f54337a5aa2ce3b5825fbfc6814c1cd491b2e17b44a0500211c623108b"
+    },
+    {
+      "path": "youle_desktop/src/shared/binance-account-errors.mjs",
+      "sha256": "ae00ca7b0ecc2ef052346e9ef1bb9a7652f06a54f7aa0b1d8e3115aac0902b92"
+    },
+    {
+      "path": "youle_desktop/src/renderer/app-language.mjs",
+      "sha256": "c19dc0a03f20b3df15dddb34ee3edf43ad35a2da0a8edd6c7d7198a1dcf175b2"
+    },
+    {
+      "path": "youle_desktop/src/renderer/styles.css",
+      "sha256": "154157f32592b2c1abbef6dec7ec517aae88efe046728b99011f6d003c76837b"
+    },
+    {
+      "path": "D:/haolo_front_web3/youle_mas-dev/backend/app/mobile/api.py",
+      "sha256": "7beef96cb8cb881d84477e0b52cc9760c9775dbf2a7224b6755d989e65b2338c"
+    },
+    {
+      "path": "D:/haolo_front_web3/youle_mas-dev/backend/app/mobile/store.py",
+      "sha256": "e6a20bbb789994dbcc92c8b3532ebd36a72af09c535d497f960f976017dbe389"
+    }
+  ],
+  "limitations": [
+    "Synthetic exchange credentials for lifecycle tests",
+    "No production binding, deployment or installer release",
+    "Other computer actual rebind still requires delivery and acceptance"
+  ]
+}

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import fs from 'node:fs';
 import {cloudReportFromResponse,cloudPlanCard,normalizeCloudReports} from '../src/main/cloud-plan-contract.mjs';
-import {leftRouteView,leftWatchView} from '../src/main/price-action-left-card.mjs';
+import {leftRouteView,validLeftObservation} from '../src/main/price-action-left-card.mjs';
 import {normalizeTradingAiDrawingPatch,persistTradingAiDrawingPatch,tradingDrawingSessionStorageKey} from '../src/renderer/trading-expert-drawing.ts';
 import {mergeCloudExecutionPlans} from '../src/renderer/cloud-plan-sync.ts';
 import {tradingTranscriptInjectionItems,parseTradingTranscriptMarkerText} from '../src/main/trading-expert-transcript.mjs';
@@ -14,6 +14,7 @@ for(const route of ['protect','touch'])for(const locale of ['zh-CN','zh-Hant','e
   const result=fixtures[`${route}-${locale}`],report=cloudReportFromResponse(result)[0],before=structuredClone(report);
   const card=cloudPlanCard(report),language=locale==='zh-Hant'?'zh-TW':locale;
   assert.ok(card&&!card.readOnly);
+  assert.doesNotMatch(card.content,/Watch plans cannot|观察预案不能|觀察預案不能/);
   assert.ok(card.content.includes(route==='protect'?(locale==='en'?'4h reclaim':'4小'):(locale==='en'?'1h zone-touch':'1小')));
   assert.doesNotMatch(card.html,/Setup source|方案来源|方案來源|Maximum holding hours|最长持有|最長持有/);
   const parsed=normalizeTradingAiDrawingPatch(report.drawingPatch);
@@ -44,15 +45,12 @@ for(const route of ['protect','touch'])for(const locale of ['zh-CN','zh-Hant','e
 for(const route of ['protect','touch'])test(`${route}: observation-only cards cannot become executable plans or sticky actions`,()=>{
   const report=cloudReportFromResponse(fixtures[`${route}-watch`])[0];
   const rendered=renderCurrentReports([report]),card=cloudPlanCard(report);
-  assert.equal(card.readOnly,true);
-  assert.ok(rendered.rendered.cards.includes(card.html));
+  assert.equal(card,null);
+  assert.equal(rendered.rendered.cards,'');
   assert.equal(rendered.actions,'');assert.equal(rendered.bindings.length,0);
   assert.doesNotMatch(rendered.rendered.cards,/data-message-execution-plan-action="sticky"|add-to-plan/);
   assert.throws(()=>mergeCloudExecutionPlans([report],[]),/CLOUD_PLAN_LIST_INVALID/);
-  assert.match(card.html,/低位支撑区观察做多/);assert.match(card.html,/高位阻力区观察做空/);
-  const watch=leftWatchView(report,'en',report.executionPlan.leftObservation.expiresAt);
-  assert.match(watch.html,/Expired; reanalyse/);
-  assert.doesNotMatch(watch.html,/[\u4e00-\u9fff]/);
+  assert.ok(validLeftObservation(report.executionPlan.leftObservation));
   for(const mutate of [p=>p.canCreateAlert=true,p=>p.plans[0].zone.lower=-1,p=>p.plans[0].actionable=true,p=>p.version='unknown']){
     const tampered=structuredClone(report);mutate(tampered.executionPlan.leftObservation);
     assert.throws(()=>normalizeCloudReports([tampered]),/CLOUD_REPORT_INVALID/);

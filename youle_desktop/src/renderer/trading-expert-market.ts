@@ -4326,9 +4326,13 @@ export function fixedPriceScaleRange(
   candles: TradingCandle[],
   paddingRatio = 0.02,
   targetSteps = 16,
+  extraRange?: { minValue: number; maxValue: number } | null,
 ) {
   const highs = candles.map((candle) => candle.high).filter(Number.isFinite);
   const lows = candles.map((candle) => candle.low).filter(Number.isFinite);
+  if (extraRange && Number.isFinite(extraRange.minValue) && Number.isFinite(extraRange.maxValue)) {
+    lows.push(extraRange.minValue); highs.push(extraRange.maxValue);
+  }
   if (!highs.length || !lows.length) return null;
   const highest = Math.max(...highs);
   const lowest = Math.min(...lows);
@@ -11143,7 +11147,7 @@ class TradingExpertMarketWorkspace {
       ? [...capturedTarget!.visibleCandles]
       : targetMarket.id===this.loadedMarketId && targetInterval===this.loadedInterval
         ? visibleCandlesInLogicalRange(this.candles,visibleRange) : [];
-    const windowHint = cloudAnalysisWindow(strategyId,analysisCandles,preferredCandles);
+    const windowHint = cloudAnalysisWindow(strategyId,analysisCandles);
     const analysisSnapshotTime = Date.now();
     const splitSnapshotsPromise = useCapturedTarget
       ? Promise.resolve(capturedTarget!.splitPanes || {snapshots:[] as TradingSplitPaneAnalysisSnapshot[],snapshotFailures:[] as TradingSplitPaneAnalysisFailure[]})
@@ -11271,7 +11275,7 @@ class TradingExpertMarketWorkspace {
             responseMode: directResponseRequested ? "direct" : "full",
             lookbackMs: requestedLookbackMs,
             ...(strategyId?.startsWith("personal-") ? { candles: snapshot.candles } : {}),
-            ...cloudAnalysisWindow(strategyId,snapshot.candles,preferredCandles),
+            ...cloudAnalysisWindow(strategyId,snapshot.candles),
           }) as Promise<TradingGeneralAnalysisResponse>;
         },
       });
@@ -11335,7 +11339,7 @@ class TradingExpertMarketWorkspace {
                 commit: async () => {
                   if (!tradingAnalysisJobs.isActive(job.analysisId)) throw new Error("盘面分析已由用户停止");
                   if (artifact.drawingPatch) await commitTradingAnalysisDrawingPatch(job, artifact.drawingPatch, artifact.paneIndex, onPhase,
-                    () => tradingAnalysisJobs.isActive(job.analysisId), 1.3);
+                    () => tradingAnalysisJobs.isActive(job.analysisId), 1.5);
                   else if (artifact.paneIndex === 0 && artifact.indicatorDrawingPatch) this.clearCurrentStrategyAnalysisDrawings(analysisTheory);
                   if (artifact.indicatorDrawingPatch) await commitTradingIndicatorAnalysisDrawingPatch(job, artifact.indicatorDrawingPatch, artifact.paneIndex);
                 },
@@ -12882,6 +12886,8 @@ class TradingExpertMarketWorkspace {
         getLockedPriceRange: (range) => fixedPriceScaleRange(
           visibleCandlesInLogicalRange(this.chartCandles, range),
           this.chartSettings.verticalPaddingPercent / 100,
+          16,
+          this.drawingController?.aiPlanPriceRange(),
         ),
         onAutoScaleChange: (enabled) => {
           if (this.chartSettings.autoScale === enabled) return;
@@ -14758,7 +14764,7 @@ export async function runTradingExpertDetachedConversation(
       analysisJobId: job.analysisId, sourceThreadId: request.sourceThreadId, storageSessionId: job.storageSessionId,
       marketId: job.marketId, interval: job.interval, language: job.language,
       snapshotTime: Date.now(), reasoningEffort: "max", onProgress: undefined,
-      ...cloudAnalysisWindow(strategyId, [], request.preferredCandles || 100),
+      ...cloudAnalysisWindow(strategyId, []),
       responseMode: request.drawingRequested === false || request.positionManagementRequested ? "direct" : "full",
     } as any) as TradingGeneralAnalysisResponse;
     if (!tradingAnalysisJobs.isActive(job.analysisId)) throw new Error("盘面分析已由用户停止");

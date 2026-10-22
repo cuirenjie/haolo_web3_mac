@@ -67,6 +67,6 @@ export async function revealPureAnalysisReport(text: string, options: {
   for (let end = chunk; end < characters.length; end += chunk) {
     if (!options.isActive()) return;
     options.onText(characters.slice(0,end).join(""));
-    await wait(80);
+    await wait(100);
   }
 }

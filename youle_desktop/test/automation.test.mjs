@@ -931,11 +931,12 @@ test("worker enforces a global max concurrent run limit across jobs", async () =
     workspacePath: dir,
     prompt: "Every run, execute this limited task and return NO_FINDINGS if there is no result.",
     schedule: { type: "manual", expr: null, timezone: "UTC", misfirePolicy: "run_once" },
-    execution: { workspaceMode: "local", sandboxMode: "read-only", approvalPolicy: "never", maxDurationSeconds: 5, concurrencyPolicy: "allow_parallel" },
+    execution: { workspaceMode: "local", sandboxMode: "read-only", approvalPolicy: "never", maxDurationSeconds: 30, concurrencyPolicy: "allow_parallel" },
   };
   const firstJob = await store.createJob({ ...base, name: "Limited 1" });
   const secondJob = await store.createJob({ ...base, name: "Limited 2" });
   const startsPath = path.join(dir, "starts.txt");
+  // This verifies serialization, not process startup latency or execution deadlines.
   const worker = new AutomationWorker({
     store,
     youleAiBin: fakeBin,
@@ -972,11 +973,12 @@ test("worker serializes local workspace write jobs even when global concurrency 
     workspacePath: dir,
     prompt: "Every run, edit this workspace and return NO_FINDINGS if there is no result.",
     schedule: { type: "manual", expr: null, timezone: "UTC", misfirePolicy: "run_once" },
-    execution: { workspaceMode: "local", sandboxMode: "workspace-write", approvalPolicy: "never", maxDurationSeconds: 5, concurrencyPolicy: "allow_parallel", allowLocalWrite: true },
+    execution: { workspaceMode: "local", sandboxMode: "workspace-write", approvalPolicy: "never", maxDurationSeconds: 30, concurrencyPolicy: "allow_parallel", allowLocalWrite: true },
   };
   const firstJob = await store.createJob({ ...base, name: "Local write 1" });
   const secondJob = await store.createJob({ ...base, name: "Local write 2" });
   const startsPath = path.join(dir, "starts.txt");
+  // This verifies serialization, not process startup latency or execution deadlines.
   const worker = new AutomationWorker({
     store,
     youleAiBin: fakeBin,
@@ -1319,9 +1321,10 @@ test("queue concurrency waits for active run before starting the next run", asyn
     workspacePath: dir,
     prompt: "Every run, execute the queued task and return NO_FINDINGS if there is no result.",
     schedule: { type: "manual", expr: null, timezone: "UTC", misfirePolicy: "run_once" },
-    execution: { workspaceMode: "local", sandboxMode: "read-only", approvalPolicy: "never", maxDurationSeconds: 5, concurrencyPolicy: "queue" },
+    execution: { workspaceMode: "local", sandboxMode: "read-only", approvalPolicy: "never", maxDurationSeconds: 30, concurrencyPolicy: "queue" },
   });
   const orderPath = path.join(dir, "order.txt");
+  // This verifies serialization, not process startup latency or execution deadlines.
   const worker = new AutomationWorker({ store, youleAiBin: fakeBin, runnerEnv: { FAKE_ORDER: orderPath } });
   const first = worker.runNow(job.id);
   await waitFor(async () => (await store.listRuns({ jobId: job.id })).some((run) => run.status === "running"));

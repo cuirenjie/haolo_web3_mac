@@ -4,6 +4,7 @@ import {
   harmonicDevelopingScore,
   harmonicExactScore,
   harmonicId,
+  harmonicLegsIntact,
   harmonicPointRecords,
   harmonicPrz,
   harmonicProjectedProgress,
@@ -15,7 +16,7 @@ import {
 } from "./harmonic-subengine-common.mjs";
 
 export const HARMONIC_CYPHER_SUBENGINE_ID = "harmonic-cypher-xabcd";
-export const HARMONIC_CYPHER_SUBENGINE_VERSION = "1.1.0";
+export const HARMONIC_CYPHER_SUBENGINE_VERSION = "1.2.0";
 
 const LABELS = Object.freeze(["X", "A", "B", "C", "D"]);
 
@@ -53,6 +54,7 @@ export function evaluateCypherCandidate(snapshot, inputPoints, {
   const points = inputPoints.map((point) => ({ ...point }));
   const direction = points[0]?.type === "low" ? "bullish" : "bearish";
   if (!geometryMatches(points, direction)) return null;
+  if (!harmonicLegsIntact(snapshot, points)) return null;
   const ratios = ratiosFor(points);
   if (!ratios
     || !harmonicRangeMatches(ratios.bXa, 0.382, 0.618)
@@ -130,6 +132,7 @@ export function evaluateCypherDevelopingCandidate(snapshot, inputPoints, {
 } = {}) {
   if (!Array.isArray(inputPoints) || inputPoints.length !== 4) return null;
   const points = inputPoints.map((point) => ({ ...point }));
+  if (!harmonicLegsIntact(snapshot, points)) return null;
   const direction = points[0]?.type === "low" ? "bullish" : "bearish";
   const expected = direction === "bullish"
     ? ["low", "high", "low", "high"]
@@ -153,7 +156,7 @@ export function evaluateCypherDevelopingCandidate(snapshot, inputPoints, {
   const prz = harmonicPrz([dLevel], { atr, scale: xc, maxWidthScale: 0.04 });
   if (!prz) return null;
   const projectedPrice = (prz.low + prz.high) / 2;
-  const progress = harmonicProjectedProgress(snapshot, c, projectedPrice);
+  const progress = harmonicProjectedProgress(snapshot, c, projectedPrice, prz);
   if (!progress) return null;
   const labelledPoints = harmonicPointRecords(points, ["X", "A", "B", "C"]);
   const ruleIds = Object.freeze([

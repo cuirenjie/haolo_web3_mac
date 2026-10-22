@@ -35502,6 +35502,7 @@ html[data-theme="dark"] .trading-market-asset-mark.asset-class-forex {
   }
 }
 
+.trading-order-line-layer,
 .trading-drawing-layer {
   position: absolute;
   top: 0;
@@ -35546,6 +35547,7 @@ html[data-theme="dark"] .trading-market-asset-mark.asset-class-forex {
   cursor: cell;
 }
 
+.trading-order-line-layer text,
 .trading-drawing-layer text {
   font-family: Inter, "Segoe UI", "Microsoft YaHei", sans-serif;
   pointer-events: none;
@@ -35565,21 +35567,60 @@ html[data-theme="dark"] .trading-market-asset-mark.asset-class-forex {
 
 .trading-ai-text-size-trigger {
   outline: none;
-  cursor: text;
-  pointer-events: all;
+  pointer-events: none;
 }
 
 .trading-ai-text-size-hit-target {
   fill: transparent;
   stroke: transparent;
   stroke-width: 1.5px;
-  pointer-events: all;
+  pointer-events: none;
   vector-effect: non-scaling-stroke;
 }
 
 .trading-ai-text-size-trigger:focus-visible .trading-ai-text-size-hit-target {
   stroke: var(--trading-market-accent);
   stroke-dasharray: 3 3;
+}
+
+.trading-ai-annotation-delete {
+  visibility: hidden;
+  pointer-events: none;
+  cursor: pointer;
+  outline: none;
+}
+
+.trading-ai-annotation-delete circle {
+  fill: #111;
+  stroke: #fff;
+  stroke-opacity: 0.25;
+  stroke-width: 0.5px;
+}
+
+.trading-ai-annotation-delete path {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1.5px;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+
+.trading-ai-text-size-trigger[data-ai-annotation-hover] .trading-ai-annotation-delete,
+.trading-ai-text-size-trigger:focus-within .trading-ai-annotation-delete {
+  visibility: visible;
+  pointer-events: all;
+}
+
+.trading-ai-annotation-delete:focus-visible circle {
+  stroke: var(--trading-market-accent);
+  stroke-opacity: 1;
+  stroke-width: 2px;
+}
+
+.trading-drawing-layer.drawing-active .trading-ai-annotation-delete,
+.trading-drawing-layer.dragging-drawing .trading-ai-annotation-delete {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .trading-drawing-layer.drawing-active .trading-ai-text-size-trigger,
@@ -41360,6 +41401,90 @@ html[data-theme] .desktop-body:has(> :is(
 .binance-account-summary-heading { display: flex; min-width: 0; align-items: center; gap: 4px; }
 .binance-account-summary-card h2 { margin: 0; font-size: calc(16px + var(--app-font-size-offset)); font-weight: 400; line-height: 28px; }
 
+.binance-account-content.assets { container: binance-assets / inline-size; gap: 20px; }
+.binance-account-summary-card.total-assets:has(.binance-account-total-overview) {
+  display: grid;
+  grid-template-columns: minmax(270px, .9fr) minmax(0, 1.1fr);
+  align-items: center;
+  gap: 36px;
+  min-height: 268px;
+  padding-block: 22px;
+}
+.binance-account-total-overview { min-width: 0; padding-block: 12px; }
+.binance-account-total-overview .binance-account-primary-amount { flex-wrap: wrap; row-gap: 8px; }
+.binance-account-total-overview .binance-account-primary-amount strong { overflow-wrap: anywhere; }
+.binance-account-curve { min-width: 0; align-self: stretch; display: flex; flex-direction: column; justify-content: center; }
+.binance-account-curve-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.binance-account-curve-range { position: relative; display: flex; align-items: center; flex: 0 0 auto; }
+.binance-account-curve-range select {
+  appearance: none;
+  border: 0;
+  border-radius: 6px;
+  padding: 5px 19px 5px 0;
+  background: transparent;
+  color: var(--binance-text);
+  font: inherit;
+  font-size: calc(13px + var(--app-font-size-offset));
+  cursor: pointer;
+}
+.binance-account-curve-range option { background: var(--binance-surface-raised); color: var(--binance-text); }
+.binance-account-curve-range svg { position: absolute; right: 1px; width: 12px; height: 12px; fill: currentColor; pointer-events: none; }
+/* Keep the mobile text-and-triangle trigger while retaining the app's native,
+   keyboard-accessible popup. Outrank the shared customizable-select trigger. */
+html:root .binance-account-page .binance-account-curve-range select[data-binance-performance-range]:not([multiple]) {
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  padding: 5px 0;
+  color: var(--binance-text);
+  font-size: calc(13px + var(--app-font-size-offset));
+}
+@supports (appearance: base-select) {
+  .binance-account-curve-range svg { display: none; }
+  html:root .binance-account-page .binance-account-curve-range select[data-binance-performance-range]:not([multiple])::picker-icon {
+    width: 10px;
+    height: 10px;
+    flex: 0 0 10px;
+    mask: none;
+    clip-path: polygon(20% 35%, 80% 35%, 50% 65%);
+  }
+}
+.binance-account-curve-modes { display: flex; align-items: center; gap: 2px; }
+.binance-account-curve-modes button {
+  border: 0;
+  border-radius: 999px;
+  padding: 4px 11px;
+  background: transparent;
+  color: var(--binance-text-secondary);
+  font: inherit;
+  font-size: calc(12px + var(--app-font-size-offset));
+  line-height: 1.5;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.binance-account-curve-modes button[aria-pressed="true"] { color: var(--binance-text); background: var(--binance-surface-hover); }
+.binance-account-curve-modes button:hover,
+.binance-account-curve-range select:hover { background: var(--binance-surface-hover); }
+.binance-account-curve-modes button:active { background: var(--binance-surface-active); }
+.binance-account-curve-modes button:focus-visible,
+.binance-account-curve-range select:focus-visible { outline: 2px solid var(--binance-focus); outline-offset: 3px; }
+.binance-account-curve-chart { display: block; width: 100%; height: auto; min-height: 174px; overflow: visible; font-size: calc(12px + var(--app-font-size-offset)); font-variant-numeric: tabular-nums; }
+.binance-account-curve-line { fill: none; stroke: currentColor; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.binance-account-curve-grid line { stroke: var(--binance-border); stroke-width: 1; stroke-dasharray: 3 4; }
+.binance-account-curve-grid text,
+.binance-account-curve-axis text { fill: var(--binance-text-muted); }
+.binance-account-curve-marker circle { fill: var(--binance-surface); stroke: currentColor; stroke-width: 1.6; }
+.binance-account-curve-marker rect { fill: currentColor; }
+.binance-account-curve-marker text { fill: #fff; font-size: calc(12px + var(--app-font-size-offset)); }
+.binance-account-curve-empty { display: flex; min-height: 174px; flex: 1; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; color: var(--binance-text-muted); font-size: calc(12px + var(--app-font-size-offset)); }
+.binance-account-content.assets .futures-assets { padding-block: 24px; }
+.binance-account-content.assets .binance-account-metric-grid { margin-top: 24px; }
+@container binance-assets (max-width: 740px) {
+  .binance-account-summary-card.total-assets:has(.binance-account-total-overview) { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  .binance-account-total-overview { padding-block: 0; }
+  .binance-account-curve-chart { max-height: 230px; }
+}
+
 .binance-account-action-icon-button {
   display: grid;
   width: 32px;
@@ -41664,7 +41789,7 @@ html[data-theme] .desktop-body:has(> :is(
 .binance-account-otp-copy { border-radius: 9px; background: var(--binance-surface-hover); padding: 11px 13px; color: var(--binance-text-secondary); font-size: calc(12px + var(--app-font-size-offset)); line-height: 1.55; }
 .binance-account-otp-copy strong { color: var(--binance-text); }
 .binance-account-security-note { margin: -2px 0 0; color: var(--binance-text-muted); font-size: calc(11px + var(--app-font-size-offset)); line-height: 1.6; }
-.binance-account-dialog-error { margin: -4px 0 0; border-radius: 8px; background: var(--binance-danger-bg); padding: 9px 11px; color: var(--binance-negative); font-size: calc(12px + var(--app-font-size-offset)); line-height: 1.5; }
+.binance-account-dialog-error { margin: -4px 0 0; border-radius: 8px; background: var(--binance-danger-bg); padding: 9px 11px; color: var(--binance-danger-action); font-size: calc(12px + var(--app-font-size-offset)); line-height: 1.5; }
 .binance-account-dialog footer { padding-top: 2px; }
 .binance-account-submit { width: 100%; min-height: 46px; border-color: var(--binance-action); background: var(--binance-action); color: var(--binance-action-text); font-size: calc(14px + var(--app-font-size-offset)); }
 .binance-account-submit.danger { border-color: var(--binance-danger-action); background: var(--binance-danger-action); color: var(--binance-danger-action-text); }

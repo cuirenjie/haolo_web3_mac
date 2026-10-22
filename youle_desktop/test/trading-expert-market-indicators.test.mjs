@@ -565,7 +565,7 @@ test("all strategy chart runners refresh stale current snapshots before analysis
 test("current Binance strategy windows ignore an old chart viewport", async () => {
   const {cloudAnalysisWindow}=await import('../src/renderer/cloud-analysis-window.ts');
   const old=Array.from({length:120},(_,i)=>({time:1600000000+i*60}));
-  assert.deepEqual(cloudAnalysisWindow('wave',old,600),{analysisWindowCount:600});
+  assert.deepEqual(cloudAnalysisWindow('wave',old),{});
   assert.equal(cloudAnalysisWindow('vpvr-analysis',old).visibleRange.visibleFrom,1600000000000);
 });
 

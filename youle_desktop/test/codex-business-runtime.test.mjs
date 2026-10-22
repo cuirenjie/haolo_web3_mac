@@ -141,6 +141,11 @@ test("Codex 0.163 runs business MCP in new and restored conversations and retain
     child.stdin.write('{"method":"initialized","params":{}}\n');
   };
   const card = { id: "native-fixture-card", type: "agentMessage", text: "fixture report", __youleCloudReports: [{ runId: "fixture-cloud" }] };
+  const readyBusiness = async threadId => {
+    const inventory = await rpc("mcpServerStatus/list", { threadId, serverName: "haolo_business" });
+    const server = inventory.data.find(item => item.name === "haolo_business");
+    assert.ok(server && !server.toolsError && Object.values(server.tools).some(tool => tool.name === "haolo_trading"), JSON.stringify({ inventory, stderr }));
+  };
   const run = async (threadId, kind, userText) => {
     scenario = kind; step = 0;
     activeContext = broker.bind(threadId, { client: child, userText, executeTrading: async args => {
@@ -168,6 +173,7 @@ test("Codex 0.163 runs business MCP in new and restored conversations and retain
   assert.ok(JSON.stringify(skills).includes("trading-analysis-price-action"));
   assert.ok(JSON.stringify(skills).includes("trading-analysis-macd-analysis"));
   const initial = await rpc("thread/start", { cwd, approvalPolicy: "never", sandbox: "read-only", developerInstructions: CODEX_TRADING_INSTRUCTIONS });
+  await readyBusiness(initial.thread.id);
   await run(initial.thread.id, "plain", "Write a short greeting");
   assert.equal(executions.length, 0);
   assert.ok(JSON.stringify(modelInputs[0]).includes("haolo_codex_first"));
@@ -182,6 +188,7 @@ test("Codex 0.163 runs business MCP in new and restored conversations and retain
   assert.ok(events.some(e => e.method === "item/completed" && e.params.item?.type === "agentMessage" && e.params.item.text === "done trade"));
   await stop(); await start();
   const restored = await rpc("thread/resume", { threadId: initial.thread.id, cwd, developerInstructions: CODEX_TRADING_INSTRUCTIONS });
+  await readyBusiness(initial.thread.id);
   assert.equal(restored.thread.id, initial.thread.id);
   await run(initial.thread.id, "confirm", "确认");
   assert.equal(executions.length, 2);

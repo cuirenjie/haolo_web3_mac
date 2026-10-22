@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "harmonic",
-  "version": "2.3.0",
+  "version": "3.0.0",
   "minimumHostVersion": "0.1.164",
   "publisher": { "id": "haolo", "type": "official" },
   "display": { "name": "谐波形态", "group": "strategy", "sortOrder": 50 },

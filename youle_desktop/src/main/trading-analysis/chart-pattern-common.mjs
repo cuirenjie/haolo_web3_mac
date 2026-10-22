@@ -5,7 +5,26 @@ export const CHART_PATTERN_SCAN_PROFILES = Object.freeze([
   Object.freeze({ id: "standard", radius: 3, thresholdAtr: 0.45, minimumCandles: 60 }),
   Object.freeze({ id: "structural", radius: 5, thresholdAtr: 0.65, minimumCandles: 100 }),
   Object.freeze({ id: "macro", radius: 8, thresholdAtr: 0.9, minimumCandles: 180 }),
+  Object.freeze({ id: "major", radius: 13, thresholdAtr: 1.2, minimumCandles: 180 }),
+  Object.freeze({ id: "cycle", radius: 21, thresholdAtr: 1.6, minimumCandles: 280 }),
 ]);
+
+// Structure lifetime scales with its formation; entry freshness is a separate limit.
+export function patternBreakoutWindow(duration) {
+  return Math.max(8, Math.min(64, Math.ceil(Math.max(1, duration) * 0.65)));
+}
+
+export function patternFormationAtr(snapshot, points) {
+  return averageTrueRange(snapshot.candles.slice(0, points.at(-1).index + 1));
+}
+
+export function boundaryContainment(snapshot, start, end, upper, lower, atr) {
+  const bars = snapshot.candles.slice(start, end + 1);
+  const tolerance = Math.max(atr * 0.5, Math.abs(bars.at(-1)?.close || 0) * 0.0004);
+  const inside = bars.filter((bar, offset) => bar.close <= linePrice(upper, start + offset) + tolerance
+    && bar.close >= linePrice(lower, start + offset) - tolerance).length;
+  return bars.length ? inside / bars.length : 0;
+}
 
 export function chartPatternId(prefix, ...parts) {
   return `${prefix}-${crypto.createHash("sha1").update(parts.join(":"), "utf8").digest("hex").slice(0, 16)}`;
@@ -75,12 +94,13 @@ function localSwings(snapshot, radius, atr) {
     const type = highProminence >= lowProminence ? "high" : "low";
     const price = type === "high" ? candle.high : candle.low;
     swings.push(Object.freeze({
-      id: chartPatternId("chart-pattern-pivot", snapshot.snapshotId, radius, index, type, price),
+      id: chartPatternId("chart-pattern-pivot", snapshot.marketId, snapshot.interval, radius, candle.time, type, price),
       index,
       time: candle.time,
       price: chartPatternRound(price),
       type,
       status: "confirmed",
+      confirmedAtIndex: index + radius,
       prominenceAtr: atr > 0 ? chartPatternRound(Math.max(highProminence, lowProminence, 0) / atr) : 0,
     }));
   }
@@ -88,9 +108,10 @@ function localSwings(snapshot, radius, atr) {
 }
 
 function compactSwings(snapshot, rawSwings, atr, thresholdAtr) {
-  const threshold = Math.max(atr * thresholdAtr, snapshot.candles.at(-1).close * 0.0008);
   const compacted = [];
   for (const swing of rawSwings) {
+    const formationAtr = averageTrueRange(snapshot.candles.slice(0, swing.index + 1));
+    const threshold = Math.max(formationAtr * thresholdAtr, Math.abs(swing.price) * 0.0008);
     const previous = compacted.at(-1);
     if (!previous) {
       compacted.push(swing);
@@ -147,6 +168,7 @@ export function pointRecords(points, labels = []) {
     price: chartPatternRound(point.price),
     type: point.type,
     status: point.status || "confirmed",
+    confirmedAtIndex: point.confirmedAtIndex ?? point.index,
   })));
 }
 
@@ -173,9 +195,9 @@ export function findClosedBreakout(snapshot, afterIndex, upperBoundary, lowerBou
     if (boundary === null || boundary === undefined || boundary === "") return Number.NaN;
     return Number(boundary);
   };
-  const buffer = Math.max(Number(atr || 0) * 0.12, snapshot.candles.at(-1).close * 0.0004);
+  const buffer = Math.max(Number(atr || 0) * 0.12, snapshot.candles[afterIndex].close * 0.0004);
   const lastSearchIndex = Number.isFinite(maxSearchBars)
-    ? Math.min(snapshot.candles.length - 1, afterIndex + Math.max(1, Math.floor(maxSearchBars)))
+    ? Math.min(snapshot.candles.length - 1, afterIndex + Math.max(0, Math.floor(maxSearchBars)))
     : snapshot.candles.length - 1;
   for (let index = afterIndex + 1; index <= lastSearchIndex; index += 1) {
     const candle = snapshot.candles[index];
@@ -194,7 +216,7 @@ export function findClosedBreakout(snapshot, afterIndex, upperBoundary, lowerBou
       const futureBoundary = direction === "up"
         ? boundaryValue(upperBoundary, futureIndex)
         : boundaryValue(lowerBoundary, futureIndex);
-      return direction === "up" ? item.close < futureBoundary : item.close > futureBoundary;
+      return direction === "up" ? item.close < futureBoundary - buffer : item.close > futureBoundary + buffer;
     });
     return Object.freeze({
       state: failedAt >= 0 ? "failed" : "confirmed",
@@ -203,6 +225,7 @@ export function findClosedBreakout(snapshot, afterIndex, upperBoundary, lowerBou
       time: candle.time,
       close: chartPatternRound(candle.close),
       boundary: chartPatternRound(boundaryAt),
+      boundarySlope: chartPatternRound(boundaryValue(direction === "up" ? upperBoundary : lowerBoundary, index + 1) - boundaryAt),
       buffer: chartPatternRound(buffer),
       failedAtIndex: failedAt >= 0 ? index + 1 + failedAt : null,
     });
@@ -242,11 +265,17 @@ export function resolvePatternLifecycle(snapshot, {
   const latestIndex = snapshot.candles.length - 1;
   const duration = Math.max(1, Number(structureDuration) || 1);
   const developingLimit = Number.isFinite(maxDevelopingAgeBars)
-    ? Math.max(1, Math.floor(maxDevelopingAgeBars))
-    : Math.max(4, Math.min(12, Math.round(duration * 0.35)));
+    ? Math.max(0, Math.floor(maxDevelopingAgeBars))
+    : patternBreakoutWindow(duration);
   const confirmedLimit = Number.isFinite(maxConfirmedAgeBars)
     ? Math.max(1, Math.floor(maxConfirmedAgeBars))
     : Math.max(4, Math.min(12, Math.round(duration * 0.35)));
+  const beforeBreakout = snapshot.candles.slice(lastStructureIndex + 1, breakout?.index ?? snapshot.candles.length);
+  const prematureStop = actionLevels && Number.isFinite(actionLevels.stop)
+    ? beforeBreakout.findIndex(c => direction === "bullish" ? c.close <= actionLevels.stop : c.close >= actionLevels.stop) : -1;
+  if (prematureStop >= 0) return Object.freeze({ lifecycle: "invalidated", tradeState: "invalidated",
+    ageBars: latestIndex - lastStructureIndex, ageLimitBars: developingLimit,
+    terminalIndex: lastStructureIndex + 1 + prematureStop, terminalReason: "structural-stop-crossed-before-breakout" });
   if (!breakout || breakout.state === "developing") {
     const ageBars = Math.max(0, latestIndex - Number(lastStructureIndex || 0));
     return Object.freeze({
@@ -258,18 +287,8 @@ export function resolvePatternLifecycle(snapshot, {
       terminalReason: ageBars > developingLimit ? "structure-stale-before-breakout" : null,
     });
   }
-  if (breakout.state === "failed") {
-    return Object.freeze({
-      lifecycle: "failed",
-      tradeState: "invalidated",
-      ageBars: Math.max(0, latestIndex - breakout.index),
-      ageLimitBars: confirmedLimit,
-      terminalIndex: breakout.failedAtIndex,
-      terminalReason: "false-breakout",
-    });
-  }
   const bullish = direction === "bullish";
-  const candles = snapshot.candles.slice(breakout.index + 1);
+  const candles = snapshot.candles.slice(breakout.index);
   const buffer = Math.max(Number(breakout.buffer || 0), Number(actionLevels?.trigger || 0) * 0.0002);
   const trigger = Number(actionLevels?.trigger);
   const stop = Number(actionLevels?.stop);
@@ -283,10 +302,12 @@ export function resolvePatternLifecycle(snapshot, {
   const stopOffset = firstMatchingIndex(candles, (candle) => (
     Number.isFinite(stop) && (bullish ? candle.close <= stop : candle.close >= stop)
   ));
-  const reentryOffset = firstMatchingIndex(candles, (candle) => (
-    Number.isFinite(trigger) && (bullish ? candle.close < trigger - buffer : candle.close > trigger + buffer)
-  ));
-  const terminalOffset = [stopOffset, reentryOffset]
+  const reentryOffset = firstMatchingIndex(candles, (candle, offset) => {
+    const boundary = trigger + Number(breakout.boundarySlope || 0) * offset;
+    return Number.isFinite(boundary) && (bullish ? candle.close < boundary - buffer : candle.close > boundary + buffer);
+  });
+  const failedOffset = Number.isInteger(breakout.failedAtIndex) ? breakout.failedAtIndex - breakout.index : null;
+  const terminalOffset = [stopOffset, reentryOffset, failedOffset]
     .filter(Number.isInteger)
     .sort((first, second) => first - second)[0] ?? null;
   if (Number.isInteger(target2Offset) && (!Number.isInteger(terminalOffset) || target2Offset < terminalOffset)) {
@@ -295,18 +316,18 @@ export function resolvePatternLifecycle(snapshot, {
       tradeState: "completed",
       ageBars: latestIndex - breakout.index,
       ageLimitBars: confirmedLimit,
-      terminalIndex: breakout.index + 1 + target2Offset,
+      terminalIndex: breakout.index + target2Offset,
       terminalReason: "second-target-reached",
     });
   }
   if (Number.isInteger(terminalOffset)) {
     return Object.freeze({
-      lifecycle: "invalidated",
+      lifecycle: terminalOffset === failedOffset ? "failed" : "invalidated",
       tradeState: "invalidated",
       ageBars: latestIndex - breakout.index,
       ageLimitBars: confirmedLimit,
-      terminalIndex: breakout.index + 1 + terminalOffset,
-      terminalReason: terminalOffset === stopOffset ? "structural-stop-crossed" : "closed-back-inside-trigger",
+      terminalIndex: breakout.index + terminalOffset,
+      terminalReason: terminalOffset === failedOffset ? "false-breakout" : terminalOffset === stopOffset ? "structural-stop-crossed" : "closed-back-inside-trigger",
     });
   }
   if (Number.isInteger(target1Offset)) {
@@ -315,7 +336,7 @@ export function resolvePatternLifecycle(snapshot, {
       tradeState: "partial-target-reached",
       ageBars: latestIndex - breakout.index,
       ageLimitBars: confirmedLimit,
-      terminalIndex: breakout.index + 1 + target1Offset,
+      terminalIndex: breakout.index + target1Offset,
       terminalReason: "first-target-reached",
     });
   }

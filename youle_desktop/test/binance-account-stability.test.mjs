@@ -149,6 +149,7 @@ test("one shared manual refresh makes one snapshot request instead of the local 
     state: { activeView: "account", binanceAccount: account },
     api: { getBinanceAccountStatus: async () => account.status, getBinanceAccountSnapshot: async () => { snapshots++; return { fetchedAt: "now" }; } },
     render() {}, renderBinanceAccountLiveUpdate() {}, syncTradingExpertOrderLineSnapshot() {},
+    loadBinanceAccountPerformance: async () => {},
     reconcileExecutionPlansWithBinanceSnapshot: async () => { reconciled++; },
     progressivelyRefreshBinanceAccountSnapshot: () => assert.fail("shared snapshot is already complete"),
     scheduleBinanceAccountLiveRefresh() {}, handleBinanceCredentialFailure: () => false, errorMessage: e => e.message,
@@ -180,7 +181,7 @@ test("calendar auto-refresh retries after a temporary failure and refreshes an a
 });
 
 
-test("a snapshot's HTTP 429 does not suppress archived history/calendar or open orders", async () => {
+test("optional P&L HTTP 429 does not suppress core, archived history/calendar or open orders", async () => {
   const value = client(), calls = [];
   value.serviceFetch = async url => {
     const target = new URL(url); calls.push(target.pathname + target.search);
@@ -192,7 +193,7 @@ test("a snapshot's HTTP 429 does not suppress archived history/calendar or open 
   await value.getAccountConnectionProfitCalendar('a', {month:'2026-10'});
   await value.getAccountConnectionDetails('a', {section:'openOrders'});
   await assert.rejects(value.getAccountConnectionSnapshot('a'), {status:429});
-  assert.equal(calls.length, 4);
+  assert.equal(calls.length, 5);
 });
 
 

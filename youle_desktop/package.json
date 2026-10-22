@@ -116,6 +116,7 @@
       "src/main/trading-strategy-runtime/cloud-run-journal.mjs",
       "src/main/trading-strategy-runtime/cloud-runtime.mjs",
       "src/main/trading-strategy-runtime/run-event-stream.mjs",
+      "src/main/trading-strategy-runtime/market-recovery.mjs",
       "src/shared/**/*.mjs",
       "resources/haolo-logo.ico",
       "resources/haolo-runtime-icon.ico",
@@ -166,6 +167,10 @@
       ],
       "artifactName": "${productName}-${version}-Setup.${ext}",
       "extraResources": [
+        {
+          "from": "resources/windows-desktop-shortcut.ps1",
+          "to": "windows-desktop-shortcut.ps1"
+        },
         {
           "from": "resources/bin/haolo_ai.exe",
           "to": "bin/haolo_ai.exe"

@@ -33,6 +33,7 @@ const LABELS = {
   data: ["当前行情数据不足或未通过校验", "Market data is insufficient or failed validation"],
   history: ["云端可用 K 线不足以完成此策略分析，请扩大分析时段或稍后重试", "There are not enough cloud candles for this strategy. Expand the analysis range or try again later", "雲端可用 K 線不足以完成此策略分析，請擴大分析時段或稍後重試"],
   order_flow_data: ["订单流成交或盘口数据暂不可用，请稍后重试", "Order flow trades or depth data are unavailable. Please try again later", "訂單流成交或訂單簿資料暫不可用，請稍後重試"],
+  order_flow_rate_limit: ["订单流行情请求仍受限，本次分析已停止，请稍后重试", "Order flow market requests are still rate limited. Analysis stopped; please try again later", "訂單流行情請求仍受限，本次分析已停止，請稍後重試"],
   order_flow_market: ["订单流分析仅支持币安永续市场，请切换市场后重试", "Order flow analysis requires a Binance perpetual market. Switch markets and try again", "訂單流分析僅支援幣安永續市場，請切換市場後重試"],
   analysis_window: ["请求的分析时段超出云端可用行情，请缩短时段或调整周期", "The requested range exceeds available cloud history. Shorten the range or change the timeframe", "請求的分析時段超出雲端可用行情，請縮短時段或調整週期"],
   drawing: ["分析已完成，图表绘制未完成", "Analysis completed, but chart drawing did not complete"],
@@ -61,6 +62,7 @@ export function describeTradingAnalysisFailure(error, { stage = "analysis", lang
   else if (code === "MODEL_OUTCOME_UNKNOWN") category = "model_unknown";
   else if (code === "MARKET_HISTORY_INSUFFICIENT") category = "history";
   else if (code === "ORDER_FLOW_DATA_UNAVAILABLE") category = "order_flow_data";
+  else if (code === "ORDER_FLOW_DATA_RATE_LIMITED") category = "order_flow_rate_limit";
   else if (code === "ORDER_FLOW_MARKET_UNSUPPORTED") category = "order_flow_market";
   else if (code === "CLOUD_HISTORY_REQUIREMENTS_INVALID") category = "cloud_history_contract";
   else if (code === "ANALYSIS_WINDOW_INSUFFICIENT") category = "analysis_window";
@@ -107,11 +109,24 @@ export function tradingAnalysisSnapshotUnavailable(reason) {
 
 
 export function tradingAnalysisStoppedMessage(error, {language = 'zh-CN', strategyName = '', completedStrategyNames = []} = {}) {
-  const reason = describeTradingAnalysisFailure(error, {language}).summary;
+  const failure = describeTradingAnalysisFailure(error, {language});
+  const reason = failure.summary;
   const completed = completedStrategyNames.filter(Boolean).join('、');
+  if (failure.category === 'pending') {
+    const retained = !completed ? '' : language === 'en' || language === 'en-US'
+      ? ` Completed results (${completed}) are retained.`
+      : ['zh-Hant', 'zh-TW'].includes(language) ? `已完成的${completed}結果仍保留。` : `已完成的${completed}结果仍保留。`;
+    return pendingResultMessage(reason, strategyName, language) + retained;
+  }
   if (language === 'en' || language === 'en-US') return `${strategyName ? `${strategyName} analysis did not complete; no conclusion was generated. ` : ''}${reason}. This analysis has stopped and will not retry automatically.${completed ? ` Completed results (${completed}) are retained.` : ''}`;
   if (['zh-Hant', 'zh-TW'].includes(language)) return `${strategyName ? `${strategyName}分析未完成，未產生該策略的結論。` : ''}${reason}。本輪分析已停止，不會自動重試。${completed ? `已完成的${completed}結果仍保留。` : ''}`;
   return `${strategyName ? `${strategyName}分析未完成，未生成该策略的结论。` : ''}${reason}。本轮分析已停止，不会自动重试。${completed ? `已完成的${completed}结果仍保留。` : ''}`;
+}
+
+function pendingResultMessage(reason, name, language) {
+  if (language === 'en' || language === 'en-US') return `${name ? `${name}: ` : ''}${reason}. The query wait has ended. Avoid submitting another analysis until the original result is confirmed.`;
+  if (['zh-Hant', 'zh-TW'].includes(language)) return `${name ? `${name}：` : ''}${reason}。本次查詢等待已結束，確認結果前請勿重複發起分析。`;
+  return `${name ? `${name}：` : ''}${reason}。本次查询等待已结束，确认结果前请勿重复发起分析。`;
 }
 
 // An explicitly selected strategy owns the report, drawings and execution
@@ -122,6 +137,7 @@ export function buildTradingStrategyFailureReport(strategy, error, { language = 
   const name = String(strategy?.display?.name || strategy?.id || (english ? "Selected strategy" : "所选策略"))
     .replace(/[\r\n]/g, " ").slice(0, 120);
   const failure = describeTradingAnalysisFailure(error, { language });
+  if (failure.category === 'pending') return pendingResultMessage(failure.summary, name, language);
   if (failure.category.startsWith("preferences_")) {
     return language === "en"
       ? `${name}: ${failure.summary}. Analysis has not started. Your original local settings are retained; no new execution plan was generated.`

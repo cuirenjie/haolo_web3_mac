@@ -1,0 +1,17 @@
+{
+  "held": true,
+  "withdrawalVerified": true,
+  "verifiedAt": "2026-10-20T04:18:43.281Z",
+  "officialLatestVersion": "0.1.176",
+  "withdrawnVersion": "0.1.177",
+  "oldClientOfferedNoUpdate": true,
+  "websiteUses176": true,
+  "historyExcludes177": true,
+  "downloadRedirectUses176": true,
+  "standardChannelUnchanged": true,
+  "publishedBrieflyBeforeWithdrawal": true,
+  "withdrawnAssetStatus": 404,
+  "blockmapNotPublished": true,
+  "installerRetainedLocally": true,
+  "requiresNewUserReleaseAuthorization": true
+}

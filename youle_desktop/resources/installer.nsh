@@ -1,7 +1,7 @@
 !define MUI_DIRECTORYPAGE_VERIFYONLEAVE
 
 # Older Haolo clients launched downloaded installers without --updated. Treat an
-# existing per-user installation as an update so electron-builder passes
+# existing per-user or all-users installation as an update so electron-builder passes
 # --keep-shortcuts to the old uninstaller and preserves taskbar pins. Keep the
 # uninstaller's own isUpdated behavior parameter-only.
 !ifndef BUILD_UNINSTALLER
@@ -9,11 +9,42 @@
     ${StdUtils.TestParameter} $R9 "updated"
     StrCmp "$R9" "true" `${_t}` 0
     ReadRegStr $R9 HKEY_CURRENT_USER "${INSTALL_REGISTRY_KEY}" InstallLocation
+    StrCmp "$R9" "" 0 `${_t}`
+    ReadRegStr $R9 HKEY_LOCAL_MACHINE "${INSTALL_REGISTRY_KEY}" InstallLocation
     StrCmp "$R9" "" `${_f}` `${_t}`
   !macroend
 
   !undef isUpdated
   !define isUpdated `"" haoloIsUpdated ""`
+
+  # Manage only desktop links ourselves. Keep electron-builder's update /
+  # --keep-shortcuts / uninstaller taskbar behavior unchanged. The uninstaller
+  # is deliberately compiled WITHOUT this additional define.
+  !ifndef DO_NOT_CREATE_DESKTOP_SHORTCUT
+    !define HAOLO_MANAGE_DESKTOP_SHORTCUT
+    !define DO_NOT_CREATE_DESKTOP_SHORTCUT
+  !endif
+  !define /ifndef HAOLO_SHORTCUT_SCRIPT "${__FILEDIR__}\windows-desktop-shortcut.ps1"
+  Var haoloShortcutExit
+  Var haoloShortcutOutput
+  Var haoloShortcutOptOut
+  LangString haoloShortcutFailure 1033 "HaoLo is installed, but its desktop shortcut could not be verified. Check the desktop folder permissions and the installation account. Retry to try again, or Cancel to finish with shortcut setup incomplete. You can create it later in Settings."
+  LangString haoloShortcutFailure 2052 "HaoLo 已安装，但桌面快捷方式未能创建或验证。请检查桌面目录权限，以及安装账户是否为您日常使用的账户。点击重试再次尝试；点击取消将结束安装，快捷方式问题仍需处理，之后可在设置中重试。"
+  LangString haoloShortcutFailure 1028 "HaoLo 已安裝，但桌面捷徑未能建立或驗證。請檢查桌面目錄權限，以及安裝帳戶是否為您日常使用的帳戶。點擊重試再次嘗試；點擊取消將結束安裝，捷徑問題仍需處理，之後可在設定中重試。"
+
+  !macro customInit
+    !ifdef HAOLO_MANAGE_DESKTOP_SHORTCUT
+      InitPluginsDir
+      File /oname=$PLUGINSDIR\haolo-shortcut.ps1 "${HAOLO_SHORTCUT_SCRIPT}"
+      # Snapshot both scopes before any uninstall or registryAddInstallInfo.
+      # The elevated inner installer takes its own snapshot before it mutates anything.
+      nsExec::ExecToStack /TIMEOUT=30000 '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\haolo-shortcut.ps1" -Action Snapshot -SnapshotFile "$PLUGINSDIR\haolo-shortcut-before.json"'
+      Pop $haoloShortcutExit
+      Pop $haoloShortcutOutput
+      # An unavailable snapshot is NOT assumed to be a fresh installation.
+      # Install will report it and will never recreate a possibly user-deleted link.
+    !endif
+  !macroend
 !endif
 
 Function haoloNormalizeInstallDir
@@ -64,14 +95,34 @@ FunctionEnd
     !insertmacro haoloRefreshShortcut "$newStartMenuLink"
   !endif
 
-  !ifndef DO_NOT_CREATE_DESKTOP_SHORTCUT
-    ${ifNot} ${isNoDesktopShortcut}
-      !insertmacro haoloRefreshShortcut "$newDesktopLink"
-    ${endIf}
+  !ifdef HAOLO_MANAGE_DESKTOP_SHORTCUT
+    StrCpy $haoloShortcutOptOut ""
+    ${if} ${isNoDesktopShortcut}
+      StrCpy $haoloShortcutOptOut "-OptOut"
+    ${endif}
+    haolo_shortcut_retry:
+      StrCpy $0 "CurrentUser"
+      ${if} $installMode == "all"
+        StrCpy $0 "AllUsers"
+      ${endif}
+      nsExec::ExecToStack /TIMEOUT=30000 '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\haolo-shortcut.ps1" -Action Install -Scope "$0" -InstallDir "$INSTDIR" -SnapshotFile "$PLUGINSDIR\haolo-shortcut-before.json" $haoloShortcutOptOut'
+      Pop $haoloShortcutExit
+      Pop $haoloShortcutOutput
+      ${if} $haoloShortcutExit != "0"
+        DetailPrint "HaoLo desktop shortcut: $haoloShortcutOutput"
+        MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(haoloShortcutFailure)" /SD IDCANCEL IDRETRY haolo_shortcut_retry
+        # Silent installs also expose the incomplete shortcut result to callers.
+        SetErrorLevel 2
+      ${else}
+        SetErrorLevel 0
+      ${endif}
   !endif
 !macroend
 
 !macro customUnInstall
+  ${ifNot} ${isUpdated}
+    DeleteRegKey SHELL_CONTEXT "Software\HaoLo\DesktopShortcut\${APP_GUID}"
+  ${endif}
   DeleteRegKey HKCU "Software\Google\Chrome\NativeMessagingHosts\com.haolo.chrome"
   Delete "$APPDATA\haolo_desktop\chrome-native-host\com.haolo.chrome.json"
   RMDir "$APPDATA\haolo_desktop\chrome-native-host"

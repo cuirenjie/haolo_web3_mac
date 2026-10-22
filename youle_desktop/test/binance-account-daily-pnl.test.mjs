@@ -24,7 +24,7 @@ const serverSnapshot = () => ({
   available: 61.9301, margin: 6.8919, unrealizedPnl: -0.0952, positions: [],
   pnlStatus: "available", realizedPnlToday: 1.25, todayPnl: 1.1548,
   todayPnlPercent: 1.70624461, pnlTimeZone: "Asia/Shanghai",
-  pnlDayStart: Date.parse("2026-10-20T16:00:00Z"), pnlAsOf: Date.parse("2026-10-21T06:00:00Z"),
+  pnlDayStart: Date.parse("2026-10-20T16:00:00Z"), pnlAsOf: Date.now(),
 });
 
 function render(snapshot, visible = true) {
@@ -56,6 +56,11 @@ test("shared binding flows through the API client, actual IPC and account cards"
     console: { info() {} },
   };
   const handle = new Function(...Object.keys(deps), `return (${snapshotHandler.getText(source)});`)(...Object.values(deps));
+  const initial = await handle({}, {});
+  assert.equal(initial.ok, true);
+  assert.equal(initial.snapshot.walletBalance, 68.93081522);
+  assert.equal(initial.snapshot.realizedPnlToday, null, "core does not wait for optional income");
+  await new Promise(resolve => setImmediate(resolve));
   for (const options of [{}, { force: true }, { live: true, summary: true }]) {
     const response = await handle({}, options);
     assert.equal(response.ok, true);
@@ -66,10 +71,11 @@ test("shared binding flows through the API client, actual IPC and account cards"
     assert.equal(response.snapshot.walletBalance, 68.93081522);
     assert.equal(response.snapshot.sources.realizedPnl, "USD_M_INCOME");
   }
-  assert.equal(requests.length, 3);
+  assert.equal(requests.length, 5);
+  assert.equal(requests.filter(({url})=>url.searchParams.has("pnlTimeZone")).length, 1);
   for (const { url, init } of requests) {
     assert.equal(url.pathname, "/api/mobile/v1/account-connections/shared-a/snapshot");
-    assert.equal(url.searchParams.get("pnlTimeZone"), Intl.DateTimeFormat().resolvedOptions().timeZone);
+    if (url.searchParams.has("pnlTimeZone")) assert.equal(url.searchParams.get("pnlTimeZone"), Intl.DateTimeFormat().resolvedOptions().timeZone);
     assert.equal(init.method, "GET");
   }
   await client.getAccountConnectionSnapshot("shared-a");

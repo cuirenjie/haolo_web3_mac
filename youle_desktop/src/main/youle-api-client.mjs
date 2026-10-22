@@ -1,6 +1,6 @@
 import { HAOLO_GATEWAY_BASE_URL, migrateHaoloGatewayAuth, normalizeHaoloGatewayBaseUrl } from "./haolo-gateway.mjs";
 import crypto from "node:crypto";
-import { BINANCE_REBIND_MESSAGE } from "../shared/binance-account-errors.mjs";
+import { BINANCE_REBIND_MESSAGE, binanceBindingErrorMessage } from "../shared/binance-account-errors.mjs";
 import { verifyPlanInvitation } from './execution-plan-share.mjs';
 import { createAccountReadCoordinator } from "./binance-account/read-coordinator.mjs";
 import { waitForRunEvent } from "./trading-strategy-runtime/run-event-stream.mjs";
@@ -144,6 +144,8 @@ export class YouleAuthContractError extends Error {
     this.code = "AUTH_SESSION_REQUIRED";
   }
 }
+
+import { createSnapshotComponents } from "./binance-account/snapshot-components.mjs";
 
 /** Return the stable client identifier expected by the Haolo API. */
 export function desktopClientId(platform = process.platform) {
@@ -1652,7 +1654,7 @@ export class YouleApiClient {
     ).trim();
     if (!MOBILE_DEVICE_UUID_PATTERN.test(deviceId)) throw new Error("deviceId must be a UUID");
     const idempotencyKey = String(
-      params.idempotencyKey || params.idempotency_key || `windows-account-connection:${deviceId}`,
+      params.idempotencyKey || params.idempotency_key || `windows-account-connection:${deviceId}:${crypto.randomUUID()}`,
     ).trim();
     return this.requestJson(joinUrl(this.baseUrl, this.accountConnectionsPath), {
       method: "POST",
@@ -1697,16 +1699,26 @@ export class YouleApiClient {
     });
   }
 
-  async getAccountConnectionSnapshot(connectionId, { includeTodayPnl = false } = {}) {
+  async getAccountConnectionSnapshot(connectionId, { includeTodayPnl = false, nonBlockingPnl = false } = {}) {
     await this.load();
     this.requireAuth();
     const id = String(connectionId || "").trim();
     if (!id) throw new Error("connectionId is required");
+    if (includeTodayPnl && nonBlockingPnl) {
+      this.accountSnapshotComponents ||= createSnapshotComponents();
+      const token = this.token, baseUrl = this.baseUrl;
+      const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      return this.accountSnapshotComponents.read({scope:`${baseUrl}\n${token}\n${id}\n${zone}`,zone,
+        isCurrent:()=>this.token===token&&this.baseUrl===baseUrl,
+        core:()=>this.getAccountConnectionSnapshot(id),
+        pnl:()=>this.getAccountConnectionSnapshot(id,{includeTodayPnl:true}),
+      });
+    }
     const path = `${this.accountConnectionsPath}/${encodeURIComponent(id)}/snapshot`;
     const query = includeTodayPnl ? { pnlTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone } : {};
     return this.requestAccountJson(appendQuery(path, query), {
       timeoutMessage: "账户摘要读取超时，请稍后重试。",
-    }, { group: `${id}:snapshot` });
+    }, { group: `${id}:${includeTodayPnl ? "pnl" : "snapshot"}` });
   }
 
   async getAccountConnectionDetails(connectionId, { section, cursor } = {}) {
@@ -1717,6 +1729,16 @@ export class YouleApiClient {
     return this.requestAccountJson(appendQuery(`${this.accountConnectionsPath}/${encodeURIComponent(id)}/details`, {
       section, limit: 50, ...(cursor ? { cursor } : {}),
     }), { timeoutMessage: "账户明细读取超时，请稍后重试。" }, { group: `${id}:${section}` });
+  }
+
+  async getAccountConnectionPerformance(connectionId, { days = 7 } = {}) {
+    await this.load();
+    this.requireAuth();
+    const id = String(connectionId || "").trim();
+    if (!id || ![1, 7, 30, 90, 180, 365].includes(days)) throw new Error("Invalid account performance request");
+    return this.requestAccountJson(appendQuery(`${this.accountConnectionsPath}/${encodeURIComponent(id)}/performance`, {
+      days,
+    }), { timeoutMessage: "收益曲线读取超时，请稍后重试。" }, { group: `${id}:performance` });
   }
 
   async getAccountConnectionProfitCalendar(connectionId, { month } = {}) {
@@ -3432,7 +3454,8 @@ export class YouleApiClient {
       payload = {};
     }
     if (operation === "marketSnapshot") {
-      const allowed = new Set(["market", "interval", "limit", "visibleFrom", "visibleTo", "windowCount", "lookbackMs"]);
+      const allowed = new Set(["market", "interval", "limit", "visibleFrom", "visibleTo", "windowCount", "preferredWindowCount", "lookbackMs", "purpose", "analysisStrategy"]);
+      if(payload.purpose != null && payload.purpose !== "analysis") throw new TypeError("Invalid snapshot purpose");
       if (Object.keys(payload).some(key => !allowed.has(key))) throw new TypeError("Invalid snapshot query");
       const query = new URLSearchParams(Object.entries(payload).map(([key, value]) => [key, String(value)]));
       routes.marketSnapshot = ["GET", `/market-snapshots?${query}`];
@@ -4382,11 +4405,11 @@ export class YouleApiClient {
   async requestJson(url, init = {}) {
     const accountMutation = !["GET", "HEAD"].includes(String(init.method || "GET").toUpperCase())
       && new URL(url).pathname.startsWith(`${this.accountConnectionsPath}`);
-    if (accountMutation) this.accountReadCoordinator?.invalidate();
+    if (accountMutation) { this.accountReadCoordinator?.invalidate(); this.accountSnapshotComponents?.invalidate(); }
     try {
       return await requestJson(url, { ...init, logPath: this.logPath, fetchImpl: this.serviceFetch });
     } finally {
-      if (accountMutation) this.accountReadCoordinator?.invalidate();
+      if (accountMutation) { this.accountReadCoordinator?.invalidate(); this.accountSnapshotComponents?.invalidate(); }
     }
   }
 
@@ -5356,13 +5379,14 @@ function withAuthorizationHeader(headers, token) {
 
 function httpErrorFromResponse(status, payload, headers = null) {
   const retryable = firstBoolean(
+    payload?.detail?.retryable,
     payload?.error?.retryable,
     payload?.retryable,
     headerBoolean(headers, "x-haolo-retryable"),
   );
   const code = extractErrorCode(payload) || headerText(headers, "x-haolo-error-code");
   const membershipAccessError = code === "MEMBERSHIP_EXPIRED" || code === "TRIAL_REQUIRED";
-  const message = code === "BINANCE_CREDENTIALS_INVALID" ? BINANCE_REBIND_MESSAGE : membershipAccessError
+  const message = binanceBindingErrorMessage(code) || (code === "BINANCE_CREDENTIALS_INVALID" ? BINANCE_REBIND_MESSAGE : membershipAccessError
     ? firstProfileString(
         payload?.message,
         payload?.error?.message,
@@ -5370,11 +5394,12 @@ function httpErrorFromResponse(status, payload, headers = null) {
         payload?.data?.message,
         payload?.data?.error?.message,
       ) || (code === "TRIAL_REQUIRED" ? "请先开通体验版或其他套餐" : "会员到期")
-    : errorMessageFromPayload(payload);
+    : errorMessageFromPayload(payload));
   return new YouleHttpError(message || `HTTP ${status}`, {
     status,
     payload,
     code,
+    scope: firstProfileString(payload?.detail?.scope, payload?.error?.scope),
     category: firstProfileString(
       payload?.error?.category,
       payload?.category,
@@ -5382,6 +5407,7 @@ function httpErrorFromResponse(status, payload, headers = null) {
     ),
     retryable: retryable ?? (status === 408 || status === 425 || status === 429 || status >= 500),
     retryAfterMs: firstFiniteNonNegative(
+      payload?.detail?.retryAfterMs,
       payload?.error?.retry_after_ms,
       payload?.retry_after_ms,
       headerText(headers, "x-haolo-retry-after-ms"),
@@ -6713,6 +6739,7 @@ class YouleHttpError extends Error {
     this.status = options.status ?? null;
     this.payload = options.payload ?? null;
     this.code = options.code || null;
+    this.scope = options.scope || null;
     this.category = options.category || null;
     this.retryable = options.retryable === true;
     this.retryAfterMs = Number.isFinite(Number(options.retryAfterMs)) ? Math.max(0, Number(options.retryAfterMs)) : null;

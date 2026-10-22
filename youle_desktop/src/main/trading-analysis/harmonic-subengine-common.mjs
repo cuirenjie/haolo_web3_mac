@@ -64,11 +64,29 @@ export function harmonicPrz(levels, { atr, scale, maxWidthScale = 0.1 } = {}) {
   });
 }
 
-export function harmonicProjectedProgress(snapshot, fromPoint, targetPrice) {
+// A skipped swing may add noise inside a leg, never a more extreme endpoint.
+export function harmonicLegsIntact(snapshot, points) {
+  return points.slice(1).every((end, i) => {
+    const start = points[i];
+    if (!Number.isInteger(start.index) || !Number.isInteger(end.index)
+      || start.index < 0 || end.index <= start.index || end.index >= snapshot.candles.length) return false;
+    const low = Math.min(start.price, end.price), high = Math.max(start.price, end.price);
+    const epsilon = Math.max(Math.abs(low), Math.abs(high), 1) * 1e-10;
+    return snapshot.candles.slice(start.index + 1, end.index).every(bar => (
+      bar.low >= low - epsilon && bar.high <= high + epsilon
+    ));
+  });
+}
+
+export function harmonicProjectedProgress(snapshot, fromPoint, targetPrice, prz = null) {
   const direction = Math.sign(targetPrice - fromPoint.price);
   const distance = Math.abs(targetPrice - fromPoint.price);
   if (!direction || distance <= Number.EPSILON || fromPoint.index >= snapshot.candles.length - 1) return null;
   const candles = snapshot.candles.slice(fromPoint.index + 1);
+  const epsilon = Math.max(Math.abs(fromPoint.price), 1) * 1e-10;
+  if (candles.some(bar => direction < 0
+    ? bar.high > fromPoint.price + epsilon || (prz && bar.low < prz.low - epsilon)
+    : bar.low < fromPoint.price - epsilon || (prz && bar.high > prz.high + epsilon))) return null;
   const observedPrice = direction > 0
     ? Math.max(...candles.map((candle) => candle.high))
     : Math.min(...candles.map((candle) => candle.low));
@@ -95,20 +113,24 @@ export function harmonicConfirmation(snapshot, terminalPoint, prz, {
   scale,
   direction,
   stopBoundary,
+  stopLimit,
   targets,
 } = {}) {
   const bullish = direction === "bullish";
   const terminal = snapshot.candles[terminalPoint.index];
   const buffer = Math.max(Number(atr || 0) * 0.25, Number(scale || 0) * 0.015);
   const structuralBoundary = Number.isFinite(stopBoundary) ? stopBoundary : terminalPoint.price;
-  const stop = bullish
+  const bufferedStop = bullish
     ? Math.min(prz.low, terminalPoint.price, structuralBoundary) - buffer
     : Math.max(prz.high, terminalPoint.price, structuralBoundary) + buffer;
+  const stop = Number.isFinite(stopLimit)
+    ? (bullish ? Math.max(bufferedStop, stopLimit) : Math.min(bufferedStop, stopLimit))
+    : bufferedStop;
   let confirmation = null;
   let invalidated = false;
   for (let index = terminalPoint.index + 1; index < snapshot.candles.length; index += 1) {
     const candle = snapshot.candles[index];
-    if (bullish ? candle.close < stop : candle.close > stop) {
+    if (bullish ? candle.low <= stop : candle.high >= stop) {
       invalidated = true;
       break;
     }

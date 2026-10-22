@@ -143,11 +143,9 @@ function targetsHtml(targets, labels, ratios) {
 export function executionPlanStructuredCardBody({ entry, entryMode, stop, targets, direction, riskReward = [], account, action, hideAction = false, entryBasisMismatch = false }, language = "zh-CN") {
   const labels = copy[language] || copy["zh-CN"];
   const tone = direction === "long" ? "bullish" : "bearish";
-  // Left valuation and display both use the favorable zone endpoint:
+  // Every conditional card uses one favorable zone endpoint:
   // long at the lower edge, short at the upper edge.
-  const entryPrice = entry.upper == null || entryMode === 'left'
-    ? priceText(entryMode === 'left' && direction === 'short' ? entry.upper ?? entry.lower : entry.lower)
-    : `${priceText(entry.lower)} – ${priceText(entry.upper)}`;
+  const entryPrice = priceText(direction === 'short' ? entry.upper ?? entry.lower : entry.lower);
   const values = new Map(targets.map((_, index) => [index + 1, Number.isFinite(riskReward[index]) ? `1:${fixed(riskReward[index])}` : '—']));
   const modes = { new_position: 'new', manage_existing: 'existing', reduce_existing: 'reduce' };
   const mode = Object.hasOwn(modes, account?.mode) ? modes[account.mode] : null;

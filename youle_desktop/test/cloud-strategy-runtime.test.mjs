@@ -53,6 +53,103 @@ function setup(handler, overrides={}) {
   return {runtime,journal,calls,records,api,setOwner(value){current=value;}};
 }
 
+test('429 progress reads back off on the original run and still deliver the validated result',async()=>{
+  const waits=[];let reads=0;
+  const s=setup(({operation,run})=>{
+    if(operation==='run'&&++reads<=3)throw Object.assign(Error('busy'),{status:429,code:'MOBILE_BUSY',retryAfterMs:reads===2?7000:null});
+  },{random:()=>0,wait:async ms=>{waits.push(ms);}});
+  const result=await s.runtime.run('moving-average-analysis',params);
+  assert.deepEqual(waits,[1000,7000,4000]);
+  assert.equal(result.analysisPlan.report,'云端报告');
+  assert.equal(s.calls.filter(c=>c.operation==='createRun').length,1);
+  assert.equal(s.calls.filter(c=>c.operation==='cancelRun').length,0);
+  assert.ok(s.calls.filter(c=>c.operation==='run').every(c=>c.payload.runId===result.cloud.runId));
+  assert.equal((await s.journal.get(account.ownerId,params.analysisJobId)).state,'succeeded');
+});
+
+test('repeated 429 uses capped jittered backoff and a successful read resets it',async()=>{
+  let reads=0;const waits=[];
+  const s=setup(({operation,run})=>{
+    if(operation!=='run')return;
+    reads++;
+    if(reads<=7||reads===9)throw Object.assign(Error('busy'),{status:429});
+    if(reads===8)return run;
+  },{random:()=>0.5,wait:async ms=>{waits.push(ms);}});
+  await s.runtime.run('moving-average-analysis',params);
+  assert.deepEqual(waits,[1125,2250,4500,9000,16875,16875,16875,0,1125]);
+});
+
+test('429 deadline preserves the journal and a later resume only reads the existing run',async()=>{
+  let clock=0,busy=true;const waits=[];
+  const s=setup(({operation})=>{
+    if(operation==='run'&&busy)throw Object.assign(Error('busy'),{status:429,retryAfterMs:60000});
+  },{now:()=>clock,random:()=>0,timeoutMs:5000,wait:async ms=>{waits.push(ms);clock+=ms;}});
+  await assert.rejects(s.runtime.run('moving-average-analysis',params),e=>e.code==='CLOUD_RUN_PENDING'&&e.retryable===true&&!!e.runId);
+  assert.deepEqual(waits,[5000]);
+  const saved=await s.journal.get(account.ownerId,params.analysisJobId);
+  assert.equal(saved.state,'running');assert.equal(saved.cancelRequested,undefined);
+  assert.equal((await s.runtime.pending())[0].runId,saved.runId);
+  busy=false;
+  const recovered=createCloudStrategyRuntime({owner:async()=>account,api:()=>s.api,journal:s.journal,
+    now:()=>clock,wait:async()=>{},pollMs:0});
+  assert.equal((await recovered.resume(params.analysisJobId)).cloud.runId,saved.runId);
+  assert.equal(s.calls.filter(c=>c.operation==='createRun').length,1);
+  assert.equal(s.calls.filter(c=>c.operation==='cancelRun').length,0);
+});
+
+test('prepared admission recovery also tolerates status 429 without replaying POST',async()=>{
+  let admission=true,reads=0;
+  const s=setup(ctx=>{
+    if(ctx.operation==='createRun'&&admission){admission=false;ctx.run={...ctx.payload,id:ctx.payload.clientRunId,state:'running'};throw Error('lost admission response');}
+    if(ctx.operation==='run'&&++reads===1)throw Object.assign(Error('busy'),{status:429});
+  },{random:()=>0});
+  await assert.rejects(s.runtime.run('moving-average-analysis',params),/lost admission response/);
+  assert.equal((await s.runtime.resume(params.analysisJobId)).ok,true);
+  assert.equal(s.calls.filter(c=>c.operation==='createRun').length,1);
+});
+
+test('cancellation and owner changes during 429 backoff cannot resume result publication',async()=>{
+  for(const action of ['cancel','owner']) {
+    const controller=new AbortController();let s;
+    s=setup(({operation})=>{if(operation==='run')throw Object.assign(Error('busy'),{status:429});},
+      {random:()=>0,wait:async(_ms,_value,{signal})=>{
+        if(action==='cancel'){controller.abort();signal.throwIfAborted();}
+        else s.setOwner({...account,ownerId:'other',accountId:'other'});
+      }});
+    await assert.rejects(s.runtime.run('moving-average-analysis',params,{signal:controller.signal}),
+      e=>e.code===(action==='cancel'?'TRADING_ANALYSIS_CANCELLED':'TRADING_PREFERENCE_OWNER_CHANGED'));
+    assert.equal(s.calls.filter(c=>c.operation==='run').length,1);
+    assert.equal(s.calls.filter(c=>c.operation==='cancelRun').length,action==='cancel'?1:0);
+    assert.equal(s.calls.filter(c=>c.operation==='createRun').length,1);
+  }
+});
+
+test('429 retry does not hide authentication errors, terminal failures or invalid results',async()=>{
+  for(const status of [401,403,404,429]) {
+    const s=setup(({operation})=>{if(operation==='run')throw Object.assign(Error('permanent'),{status,retryable:false});});
+    await assert.rejects(s.runtime.run('moving-average-analysis',params),/permanent/);
+    assert.equal(s.calls.filter(c=>c.operation==='run').length,1);
+  }
+  for(const terminalState of ['failed','cancelled','mismatch']) {
+    let reads=0;
+    const s=setup(({operation,run})=>{
+      if(operation!=='run')return;
+      if(++reads===1)throw Object.assign(Error('busy'),{status:429});
+      return terminalState==='mismatch'?{...run,id:'wrong',state:'succeeded'}:{...run,state:terminalState,error:'MODEL_TIMEOUT'};
+    },{random:()=>0});
+    await assert.rejects(s.runtime.run('moving-average-analysis',params),
+      e=>e.code===({failed:'MODEL_TIMEOUT',cancelled:'TRADING_ANALYSIS_CANCELLED',mismatch:'CLOUD_RESULT_CONTEXT_INVALID'}[terminalState]));
+    assert.equal(s.calls.filter(c=>c.operation==='run').length,2);
+  }
+});
+
+test('429 on submitting a new run is not automatically replayed',async()=>{
+  const s=setup(({operation})=>{if(operation==='createRun')throw Object.assign(Error('busy admission'),{status:429});});
+  await assert.rejects(s.runtime.run('moving-average-analysis',params),/busy admission/);
+  assert.equal(s.calls.filter(c=>c.operation==='createRun').length,1);
+  assert.equal(s.calls.filter(c=>c.operation==='run').length,0);
+});
+
 test('pure analysis wakes on events then validates the full result; normal and resumed runs retain polling',async()=>{
   for(const pure of [true,false]) {
     let reads=0,streams=0,waits=0;
@@ -137,7 +234,61 @@ test('official analysis sends identities and preferences, never local core input
   assert.equal((await runtime.pending()).length,0);
 });
 
-test('host repairs undersized viewport hints before admission without changing frozen retries',async()=>{
+test('Wyckoff delegates default history, preserving explicit lookbacks and frozen retries',async()=>{
+  for(const lookbackMs of [undefined,86400000]) {
+    let first=true;
+    const {runtime,calls}=setup(({operation,run})=>{
+      if(operation==='capabilities')return {windowsWorkerReady:true,entryV2WorkerReady:true,windowsContract:'windows-v1',strategies:[{id:'wyckoff',legacyWindows:true,entryModes:['right']}]};
+      if(operation==='createRun'&&first){first=false;throw Object.assign(Error('unknown admission'),{status:503});}
+      if(operation==='run')return {...run,state:'cancelled'};
+    });
+    const input={...params,analysisWindowCount:100,...(lookbackMs?{lookbackMs}:{})};
+    await assert.rejects(runtime.run('wyckoff',input),/unknown admission/);
+    await assert.rejects(runtime.run('wyckoff',input),e=>e.code==='TRADING_ANALYSIS_CANCELLED');
+    const requests=calls.filter(c=>c.operation==='marketSnapshot');
+    assert.equal(requests.length,1);
+    assert.equal(requests[0].payload.windowCount,100);
+    assert.equal(requests[0].payload.preferredWindowCount,undefined);
+    assert.equal(requests[0].payload.analysisStrategy,'wyckoff');
+    if(lookbackMs)assert.equal(requests[0].payload.lookbackMs,lookbackMs);
+  }
+});
+
+test('Chart patterns delegates default history, preserving explicit lookbacks and frozen retries',async()=>{
+  for(const lookbackMs of [undefined,86400000]) {
+    let first=true;
+    const {runtime,calls}=setup(({operation,run})=>{
+      if(operation==='capabilities')return {windowsWorkerReady:true,entryV2WorkerReady:true,windowsContract:'windows-v1',strategies:[{id:'chart-patterns',legacyWindows:true,entryModes:['right']}]};
+      if(operation==='createRun'&&first){first=false;throw Object.assign(Error('unknown admission'),{status:503});}
+      if(operation==='run')return {...run,state:'cancelled'};
+    });
+    const input={...params,analysisWindowCount:100,...(lookbackMs?{lookbackMs}:{})};
+    await assert.rejects(runtime.run('chart-patterns',input),/unknown admission/);
+    await assert.rejects(runtime.run('chart-patterns',input),e=>e.code==='TRADING_ANALYSIS_CANCELLED');
+    const requests=calls.filter(c=>c.operation==='marketSnapshot');
+    assert.equal(requests.length,1);
+    assert.equal(requests[0].payload.windowCount,100);
+    assert.equal(requests[0].payload.preferredWindowCount,undefined);
+    assert.equal(requests[0].payload.analysisStrategy,'chart-patterns');
+    if(lookbackMs)assert.equal(requests[0].payload.lookbackMs,lookbackMs);
+  }
+});
+
+test('zoom changes cannot replace the frozen body after an unknown default-window admission',async()=>{
+  let first=true;
+  const {runtime,calls}=setup(({operation})=>{
+    if(operation==='createRun'&&first){first=false;throw Error('unknown admission');}
+  });
+  await assert.rejects(runtime.run('moving-average-analysis',{...params,candles:Array(100).fill({time:1})}),/unknown admission/);
+  await runtime.run('moving-average-analysis',{...params,candles:Array(600).fill({time:2})});
+  const snapshots=calls.filter(c=>c.operation==='marketSnapshot');
+  assert.equal(snapshots.length,1);assert.equal(snapshots[0].payload.windowCount,undefined);
+  const admissions=calls.filter(c=>c.operation==='createRun');
+  assert.deepEqual(admissions[0].payload,admissions[1].payload);
+  assert.equal(admissions[0].options.idempotencyKey,admissions[1].options.idempotencyKey);
+});
+
+test('host repairs undersized explicit counts before admission without changing frozen retries',async()=>{
   for(const strategyId of ['order-flow','dow-theory']) {
     let first=true;
     const {runtime,calls}=setup(({operation,run})=>{
@@ -350,4 +501,139 @@ test('resume fences uncertain admission on abort and rejects a simultaneous dupl
   release();
   await assert.rejects(pending,e=>e.code==='TRADING_ANALYSIS_CANCELLED');
   assert.equal(calls.filter(c=>c.operation==='cancelRun').length,1);
+});
+
+// M1-139 / M1-445: the Worker owns durable market retries; the client only
+// observes the original run and pauses its execution clock while queued.
+test('durable market waiting survives three hours and resumes the original run without admission replay',async()=>{
+  let clock=100000,reads=0;const progress=[],pauses=[];
+  const s=setup(({operation,run})=>{
+    if(operation!=='run')return;
+    reads++;
+    if(reads<=2160)return {...run,state:'queued',marketRecovery:{state:'waiting',retryAt:clock+300000,attempt:reads},progress:[{stage:'market_waiting'}]};
+    if(reads===2161)return {...run,state:'running',marketRecovery:{state:'resuming'},progress:[{stage:'market_waiting'}]};
+  },{now:()=>clock,timeoutMs:1000,pollMs:50,wait:async ms=>{pauses.push(ms);clock+=ms;}});
+  const result=await s.runtime.run('moving-average-analysis',params,{onProgress:p=>progress.push(p.stage)});
+  assert.equal(result.ok,true);assert.equal(clock,10900050);
+  assert.ok(pauses.every(ms=>ms<=5000));
+  assert.deepEqual(progress,['market_ready','market_waiting','market_resuming']);
+  assert.equal(s.calls.filter(c=>c.operation==='createRun').length,1);
+  assert.equal(s.calls.filter(c=>c.operation==='marketSnapshot').length,1);
+  assert.ok(s.calls.filter(c=>c.operation==='run').every(c=>c.payload.runId===result.cloud.runId));
+});
+
+test('market retryAt clock skew and past timestamps do not bypass bounded status checks',async()=>{
+  for(const skew of [-3600000,3600000]) {
+    let clock=7200000,reads=0;const waits=[];
+    const s=setup(({operation,run})=>operation==='run'&&++reads<=4
+      ? {...run,state:'queued',marketRecovery:{state:'waiting',retryAt:clock+skew,attempt:1}}:undefined,
+      {now:()=>clock,timeoutMs:100,wait:async ms=>{waits.push(ms);clock+=ms;}});
+    assert.equal((await s.runtime.run('moving-average-analysis',params)).ok,true);
+    assert.ok(waits.every(ms=>ms>=1000&&ms<=5000));
+  }
+});
+
+test('waiting progress text and malformed recovery never disable the execution timeout',async()=>{
+  for(const recovery of [undefined,{state:'waiting',retryAt:'999999',attempt:1},{state:'waiting',retryAt:999999,attempt:0}]) {
+    let clock=0;
+    const s=setup(({operation,run})=>operation==='run'?{...run,state:'queued',marketRecovery:recovery,progress:[{stage:'market_waiting'}]}:undefined,
+      {now:()=>clock,timeoutMs:100,pollMs:100,wait:async ms=>clock+=ms});
+    await assert.rejects(s.runtime.run('moving-average-analysis',params),e=>e.code==='CLOUD_RUN_PENDING');
+    assert.equal(s.calls.filter(c=>c.operation==='createRun').length,1);
+  }
+});
+
+test('the execution timeout resumes after a durable wait instead of remaining infinite',async()=>{
+  let clock=0,reads=0;
+  const s=setup(({operation,run})=>{
+    if(operation!=='run')return;
+    if(++reads<=3)return {...run,state:'queued',marketRecovery:{state:'waiting',retryAt:100000,attempt:1}};
+    return {...run,state:'running',marketRecovery:{state:'resuming'}};
+  },{now:()=>clock,timeoutMs:1000,pollMs:500,wait:async ms=>clock+=ms});
+  await assert.rejects(s.runtime.run('moving-average-analysis',params),e=>e.code==='CLOUD_RUN_PENDING');
+  assert.equal(clock,16000);assert.equal(reads,5);
+});
+
+test('cancellation, account changes and terminal outcomes remain authoritative during durable market waiting',async()=>{
+  for(const action of ['cancel','owner','failed']) {
+    let clock=0,reads=0;const controller=new AbortController();let s;
+    s=setup(({operation,run})=>{
+      if(operation!=='run')return;
+      if(++reads>1&&action==='failed')return {...run,state:'failed',error:'CONSENT_REVOKED',marketRecovery:{state:'waiting',retryAt:999999,attempt:1}};
+      return {...run,state:'queued',marketRecovery:{state:'waiting',retryAt:999999,attempt:1}};
+    },{now:()=>clock,timeoutMs:100,wait:async(ms)=>{
+      clock+=ms;if(action==='cancel')controller.abort();if(action==='owner')s.setOwner({...account,ownerId:'other'});
+    }});
+    await assert.rejects(s.runtime.run('moving-average-analysis',params,{signal:controller.signal}),
+      e=>e.code===({cancel:'TRADING_ANALYSIS_CANCELLED',owner:'TRADING_PREFERENCE_OWNER_CHANGED',failed:'CONSENT_REVOKED'}[action]));
+    assert.equal(s.calls.filter(c=>c.operation==='createRun').length,1);
+    assert.equal(s.calls.filter(c=>c.operation==='cancelRun').length,action==='cancel'?1:0);
+  }
+});
+
+test('a restarted client observes the same durable waiting run and cannot create another analysis',async()=>{
+  let waiting=false,reads=0,clock=1000;
+  const s=setup(({operation,run})=>{
+    if(operation!=='run')return;
+    if(!waiting)throw Object.assign(Error('restart'),{code:'FIXTURE_RESTART'});
+    if(++reads<=3)return {...run,state:'queued',marketRecovery:{state:'waiting',retryAt:999999,attempt:1}};
+  });
+  await assert.rejects(s.runtime.run('moving-average-analysis',params),/restart/);
+  waiting=true;
+  const resumed=createCloudStrategyRuntime({owner:async()=>account,api:()=>s.api,journal:s.journal,
+    now:()=>clock,timeoutMs:100,wait:async ms=>clock+=ms});
+  assert.equal((await resumed.resume(params.analysisJobId)).ok,true);
+  assert.equal(s.calls.filter(c=>c.operation==='createRun').length,1);
+  assert.equal(s.calls.filter(c=>c.operation==='marketSnapshot').length,1);
+});
+
+test('429 while observing durable waiting uses interruptible server cooldown without consuming execution budget',async()=>{
+  let clock=1000,reads=0;const waits=[];
+  const s=setup(({operation,run})=>{
+    if(operation!=='run')return;
+    if(++reads===1)return {...run,state:'queued',marketRecovery:{state:'waiting',retryAt:999999,attempt:1}};
+    if(reads===2)throw Object.assign(Error('status busy'),{status:429,retryAfterMs:900000});
+  },{random:()=>0,now:()=>clock,timeoutMs:100,wait:async ms=>{waits.push(ms);clock+=ms;}});
+  assert.equal((await s.runtime.run('moving-average-analysis',params)).ok,true);
+  assert.equal(waits.reduce((a,b)=>a+b,0),905000);assert.ok(waits.every(ms=>ms<=5000));
+  assert.equal(s.calls.filter(c=>c.operation==='createRun').length,1);
+});
+test('temporary status transport failures cannot end a known durable market wait',async()=>{
+  let clock=1000,reads=0;const waits=[];
+  const s=setup(({operation,run})=>{
+    if(operation!=='run')return;
+    if(++reads===1)return {...run,state:'queued',marketRecovery:{state:'waiting',retryAt:999999,attempt:1}};
+    if(reads===2)throw Object.assign(Error('temporary API outage'),{status:503});
+    if(reads===3)throw Object.assign(Error('connection reset'),{code:'ECONNRESET'});
+  },{random:()=>0,now:()=>clock,timeoutMs:100,wait:async ms=>{waits.push(ms);clock+=ms;}});
+  assert.equal((await s.runtime.run('moving-average-analysis',params)).ok,true);
+  assert.deepEqual(waits,[5000,1000,2000]);
+  assert.equal(s.calls.filter(c=>c.operation==='createRun').length,1);
+});
+
+test('temporary status outages during market recovery transitions retry the same run within the execution deadline',async()=>{
+  let clock=1000,reads=0;const waits=[];
+  const s=setup(({operation,run})=>{
+    if(operation!=='run')return;
+    reads++;
+    if(reads===1||reads===5)return {...run,state:'queued',marketRecovery:{state:'waiting',retryAt:999999,attempt:reads===1?1:2}};
+    if(reads===2)return {...run,state:'running',marketRecovery:{state:'resuming'}};
+    if(reads===3)throw Object.assign(Error('status unavailable before next wait is visible'),{status:503});
+    if(reads===4)throw Object.assign(Error('status transport reset'),{code:'ECONNRESET'});
+  },{random:()=>0,now:()=>clock,timeoutMs:4000,wait:async ms=>{waits.push(ms);clock+=ms;}});
+  assert.equal((await s.runtime.run('moving-average-analysis',params)).ok,true);
+  assert.deepEqual(waits,[5000,0,1000,2000,5000]);
+  assert.equal(s.calls.filter(c=>c.operation==='createRun').length,1);
+  assert.equal(s.calls.filter(c=>c.operation==='marketSnapshot').length,1);
+});
+
+test('an unknown market wait cannot make a status outage disable the execution deadline',async()=>{
+  let clock=0;
+  const s=setup(({operation})=>{if(operation==='run')throw Object.assign(Error('status down'),{status:503});},
+    {random:()=>0,now:()=>clock,timeoutMs:2500,wait:async ms=>clock+=ms});
+  await assert.rejects(s.runtime.run('moving-average-analysis',params),e=>e.code==='CLOUD_RUN_PENDING');
+  assert.equal(clock,2500);
+  assert.equal(s.calls.filter(c=>c.operation==='createRun').length,1);
+  const record=await s.journal.get(account.ownerId,params.analysisJobId);
+  assert.equal(record.state,'running');assert.equal(record.cancelRequested,undefined);
 });

@@ -1,6 +1,7 @@
 import { translateAppText } from "./app-language.mjs";
 import { positionHistoryReturn } from "../shared/position-history-return.mjs";
 import { createAccountDetailState, type AccountDetailState } from "./binance-account-details.ts";
+import { createAccountPerformanceState, renderAccountPerformance, type AccountPerformanceState } from "./binance-account-performance.ts";
 
 export type BinanceAccountStatus = {
   bound: boolean;
@@ -150,6 +151,7 @@ export type BinanceAccountUiState = {
   status: BinanceAccountStatus | null;
   snapshot: BinanceAccountSnapshot | null;
   details: { openOrders: AccountDetailState; positionHistory: AccountDetailState };
+  performance: AccountPerformanceState;
   profitCalendar: BinanceAccountProfitCalendar | null;
   profitCalendarConnectionId: string | null;
   profitCalendarMonth: string;
@@ -174,6 +176,7 @@ export function createBinanceAccountUiState(): BinanceAccountUiState {
     status: null,
     snapshot: null,
     details: { openOrders: createAccountDetailState(), positionHistory: createAccountDetailState() },
+    performance: createAccountPerformanceState(),
     profitCalendar: null,
     profitCalendarConnectionId: null,
     profitCalendarMonth: localMonthKey(new Date()),
@@ -393,6 +396,7 @@ function renderBinanceAccountLoading() {
       <div class="binance-account-scroll" aria-hidden="true">
         <div class="binance-account-content assets">
           <article class="binance-account-summary-card total-assets">
+            <div class="binance-account-total-overview">
             <div class="binance-account-skeleton-heading">
               <span class="binance-account-skeleton binance-account-skeleton-title"></span>
               <span class="binance-account-skeleton binance-account-skeleton-eye"></span>
@@ -402,6 +406,14 @@ function renderBinanceAccountLoading() {
               <span class="binance-account-skeleton binance-account-skeleton-currency"></span>
             </div>
             <span class="binance-account-skeleton binance-account-skeleton-pnl"></span>
+            </div>
+            <div class="binance-account-curve">
+              <div class="binance-account-curve-toolbar">
+                <span class="binance-account-skeleton binance-account-skeleton-tab"></span>
+                <span class="binance-account-skeleton binance-account-skeleton-tab wide"></span>
+              </div>
+              <div class="binance-account-skeleton binance-account-curve-empty"></div>
+            </div>
           </article>
           <article class="binance-account-summary-card futures-assets">
             <div class="binance-account-skeleton-heading">
@@ -456,6 +468,7 @@ function renderBoundBinanceAccount(state: BinanceAccountUiState) {
         <div class="binance-account-content ${activeSection}" role="region" aria-label="${sectionLabel(activeSection)}">
         ${activeSection === "assets" ? `
           <article class="binance-account-summary-card total-assets">
+            <div class="binance-account-total-overview">
             <header>
               <div class="binance-account-summary-heading">
                 <h2>预估总资产</h2>
@@ -467,6 +480,8 @@ function renderBoundBinanceAccount(state: BinanceAccountUiState) {
               <span>${escapeHtml(snapshot.currency || "USDT")}</span>
             </div>
             <p class="binance-account-pnl-row">今日盈亏 ${signedMetric(snapshot.todayPnl, snapshot.todayPnlPercent, visible)}</p>
+            </div>
+            ${renderAccountPerformance(state)}
           </article>
 
           <article class="binance-account-summary-card futures-assets">
@@ -536,7 +551,7 @@ function renderSharedAccountDetails(state: BinanceAccountUiState) {
   return `<section class="${orders ? "binance-account-open-orders" : "binance-account-position-history"}" aria-busy="${loading}">
     ${notices.map(text => `<p class="binance-account-data-status" role="${error ? "alert" : "status"}">${escapeHtml(text)}</p>`).join("")}
     ${content}
-    ${!loading && (error || (result && result.status !== "ready")) ? `<button type="button" class="binance-account-quiet-button" data-binance-account-action="retry-details">${escapeHtml("重试")}</button>` : ""}
+    ${orders && !loading && (error || (result && result.status !== "ready")) ? `<button type="button" class="binance-account-quiet-button" data-binance-account-action="retry-details">${escapeHtml("重试")}</button>` : ""}
     ${result?.nextCursor ? `<button type="button" class="binance-account-quiet-button" data-binance-account-action="more-details" ${loading ? "disabled" : ""}>${escapeHtml("加载更多")}</button>` : ""}
   </section>`;
 }
