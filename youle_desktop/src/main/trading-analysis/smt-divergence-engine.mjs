@@ -1,7 +1,8 @@
 import crypto from "node:crypto";
+import { selectSmtPair } from './smt-pairing.mjs';
 
 export const SMT_DIVERGENCE_ENGINE_ID = "smt-divergence";
-export const SMT_DIVERGENCE_ENGINE_VERSION = "1.0.0";
+export const SMT_DIVERGENCE_ENGINE_VERSION = "1.1.0";
 
 function idFor(...parts) {
   return `smt-${crypto.createHash("sha1").update(parts.join(":"), "utf8").digest("hex").slice(0, 18)}`;
@@ -103,25 +104,25 @@ function alignedCandles(primary, comparison) {
   return { primary: pairs.map((item) => item[0]), comparison: pairs.map((item) => item[1]) };
 }
 
-export function runSmtDivergenceEngine(snapshot, comparisonMarkets = []) {
+export function runSmtDivergenceEngine(snapshot, comparisonMarkets = [], pairingContext = null) {
   const primaryClosed = closedCandles(snapshot.candles, snapshot.interval, snapshot.snapshotTime);
-  const correlated = comparisonMarkets.find((item) => item.kind === "correlated-market") || null;
+  const choice = selectSmtPair(snapshot, comparisonMarkets, pairingContext);
+  const correlated = choice.representative?.market || null;
   const venue = comparisonMarkets.find((item) => item.kind === "venue-confirmation") || null;
   if (!correlated) {
-    return { engineId: SMT_DIVERGENCE_ENGINE_ID, engineVersion: SMT_DIVERGENCE_ENGINE_VERSION, status: "insufficient_data", currentSignal: null, signals: [], evidence: [], coverage: { primaryCandles: primaryClosed.length >= 60 ? "available" : "partial", comparisonCandles: "unavailable", venueConfirmation: venue ? "available" : "unavailable" }, reason: "缺少相关市场的同周期已收盘 K 线" };
+    return { engineId: SMT_DIVERGENCE_ENGINE_ID, engineVersion: SMT_DIVERGENCE_ENGINE_VERSION, status: "insufficient_data", pairQualified: false, diagnostics: choice.diagnostic, currentSignal: null, signals: [], evidence: [], coverage: { primaryCandles: primaryClosed.length >= 60 ? "available" : "partial", comparisonCandles: "unavailable", venueConfirmation: venue ? "available" : "unavailable" }, reason: "缺少相关市场的同周期已收盘 K 线" };
   }
-  const comparisonClosed = closedCandles(correlated.candles, snapshot.interval, snapshot.snapshotTime);
-  const aligned = alignedCandles(primaryClosed, comparisonClosed);
-  const sample = Math.min(160, aligned.primary.length);
-  const corr = correlation(returns(aligned.primary.slice(-sample)), returns(aligned.comparison.slice(-sample)));
-  const alignmentRatio = primaryClosed.length ? aligned.primary.length / Math.min(primaryClosed.length, comparisonClosed.length || primaryClosed.length) : 0;
-  const validPair = aligned.primary.length >= 60 && alignmentRatio >= 0.85 && corr !== null && corr >= 0.45;
+  const aligned = choice.representative;
+  const corr = aligned.check.correlation;
+  const alignmentRatio = aligned.check.alignmentRatio;
+  const validPair = Boolean(choice.selected);
   const primaryPivots = pivots(aligned.primary);
   const comparisonPivots = pivots(aligned.comparison);
   const high = validPair ? divergenceCandidate("high", primaryPivots, comparisonPivots, aligned.primary, aligned.comparison) : null;
   const low = validPair ? divergenceCandidate("low", primaryPivots, comparisonPivots, aligned.primary, aligned.comparison) : null;
   const signals = [high, low].filter(Boolean).sort((first, second) => first.ageBars - second.ageBars);
   const currentSignal = signals.find((item) => item.ageBars <= 18) || null;
+  if (validPair) choice.diagnostic.code = currentSignal ? 'SMT_SIGNAL_CONFIRMED' : 'SMT_NO_DIVERGENCE';
   let venueCorrelation = null;
   if (venue) {
     const venueClosed = closedCandles(venue.candles, snapshot.interval, snapshot.snapshotTime);
@@ -137,12 +138,14 @@ export function runSmtDivergenceEngine(snapshot, comparisonMarkets = []) {
     engineId: SMT_DIVERGENCE_ENGINE_ID,
     engineVersion: SMT_DIVERGENCE_ENGINE_VERSION,
     status: validPair ? "succeeded" : "insufficient_data",
+    pairQualified: validPair,
+    diagnostics: choice.diagnostic,
     pair: { primaryMarketId: snapshot.marketId, comparisonMarketId: correlated.marketId, comparisonSymbol: correlated.symbol, source: correlated.source },
     statistics: { alignedCandleCount: aligned.primary.length, alignmentRatio, correlation: corr, venueCorrelation, pivotRadius: 2, correlationThreshold: 0.45, maximumSignalAgeBars: 18 },
     currentSignal,
     signals,
     evidence,
-    coverage: { primaryCandles: primaryClosed.length >= 60 ? "available" : "partial", comparisonCandles: validPair ? "available" : aligned.primary.length ? "partial" : "unavailable", venueConfirmation: venueCorrelation !== null && venueCorrelation >= 0.8 ? "available" : venue ? "partial" : "unavailable" },
+    coverage: { primaryCandles: primaryClosed.length >= 60 ? "available" : "partial", comparisonCandles: aligned.primary.length >= 60 && alignmentRatio >= 0.85 && !correlated.failureCode && !aligned.check.code.includes('STALE') ? "available" : aligned.primary.length ? "partial" : "unavailable", venueConfirmation: venueCorrelation !== null && venueCorrelation >= 0.8 ? "available" : venue ? "partial" : "unavailable" },
     reason: validPair ? currentSignal ? currentSignal.explanation : "相关性与时间对齐合格，但最近 18 根内没有已确认 SMT 背离" : "相关市场样本、时间对齐或收益相关性未达到门槛",
   };
 }

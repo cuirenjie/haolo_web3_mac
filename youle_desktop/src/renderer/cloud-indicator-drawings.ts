@@ -1,4 +1,4 @@
-import {LineSeries,LineStyle,createSeriesMarkers,type UTCTimestamp} from 'lightweight-charts';
+import { TradingIndicatorDrawingPrimitive, type IndicatorDrawingPath, type IndicatorDrawingMarker } from './trading-indicator-drawing-primitive.ts';
 import type {TradingAiDrawingColorToken,TradingIndicatorAiDrawingPatch} from './trading-expert-ai-playback.ts';
 import { usesNativeAiDrawingStyle, nativeAiDrawingDefaults } from './trading-ai-native-style.ts';
 const TRADING_INDICATOR_AI_TOOLS = new Set(["path", "note", "text"]);
@@ -50,12 +50,6 @@ const TRADING_INDICATOR_AI_COLOR_VARIABLES: Record<TradingAiDrawingColorToken, s
   "strategy-target": "--trading-ai-strategy-target",
   "strategy-note": "--trading-ai-strategy-note",
 };
-
-function tradingIndicatorAiLineStyle(style?: string) {
-  if (style === "dotted") return LineStyle.Dotted;
-  if (style === "dashed") return LineStyle.Dashed;
-  return LineStyle.Solid;
-}
 
 export function normalizeTradingIndicatorAiDrawingPatch(value: unknown): TradingIndicatorAiDrawingPatch {
   const patch = value as Partial<TradingIndicatorAiDrawingPatch> | null;
@@ -129,20 +123,6 @@ export function normalizeTradingIndicatorAiDrawingPatch(value: unknown): Trading
   };
 }
 
-export function strictlyAscendingTradingIndicatorPathPoints(
-  points: Array<{ time: number; value: number }>,
-) {
-  let previousTime = Number.NEGATIVE_INFINITY;
-  return points
-    .slice()
-    .sort((first, second) => first.time - second.time)
-    .map((point) => {
-      const time = point.time <= previousTime ? previousTime + 1 : point.time;
-      previousTime = time;
-      return { time, value: point.value };
-    });
-}
-
 function cloudIndicatorStorageKey(sessionId:string) {return `haolo.trading.indicator-results.v1:${encodeURIComponent(sessionId)}`;}
 export function storeCloudIndicatorPatch(sessionId:string,value:unknown) {
   const patch=normalizeTradingIndicatorAiDrawingPatch(value);
@@ -162,78 +142,70 @@ export function loadCloudIndicatorPatch(sessionId:string,marketId:string,interva
 }
 
 
-export interface IndicatorAnalysisRuntime {pane:any;series:Array<{api:any}>;analysisSeries:any[];analysisMarkers:any;analysisSignature:string;}
+export interface IndicatorAnalysisRuntime {pane:any;series:Array<{api:any}>;analysisSeries:any[];analysisMarkers:any;analysisSignature:string;analysisPrimitive?:TradingIndicatorDrawingPrimitive;}
 export function indicatorAnalysisColor(host:HTMLElement,dark:boolean,token:TradingAiDrawingColorToken) {
   const variable=TRADING_INDICATOR_AI_COLOR_VARIABLES[token];
   return (variable&&getComputedStyle(host).getPropertyValue(variable).trim())||
     (variable&&getComputedStyle(document.documentElement).getPropertyValue(variable).trim())||(dark?'#c3a7ff':'#6d4acb');
 }
 export function clearIndicatorAnalysisRuntime(chart:any,runtime:IndicatorAnalysisRuntime) {
+  runtime.analysisPrimitive?.destroy();delete runtime.analysisPrimitive;
+  // Retire pre-fix in-memory series as well, before their indicator is removed.
   runtime.analysisMarkers?.setMarkers?.([]);runtime.analysisMarkers?.detach?.();runtime.analysisMarkers=null;
   runtime.analysisSeries.forEach(series=>chart?.removeSeries(series));runtime.analysisSeries=[];runtime.analysisSignature='';
 }
-export function renderIndicatorAnalysisPatch(options:{chart:any;runtime:IndicatorAnalysisRuntime;patch:TradingIndicatorAiDrawingPatch|null;host:HTMLElement;dark:boolean;force?:boolean;timeOffsetSeconds:number}) {
-  const {chart,runtime,patch,host,dark,force=false,timeOffsetSeconds}=options;
+export function renderIndicatorAnalysisPatch(options: {
+  chart: any;
+  runtime: IndicatorAnalysisRuntime;
+  patch: TradingIndicatorAiDrawingPatch | null;
+  host: HTMLElement;
+  dark: boolean;
+  force?: boolean;
+  timeOffsetSeconds: number;
+  getCandles: () => readonly { time: number }[];
+}) {
+  const {chart,runtime,patch,host,dark,force=false,timeOffsetSeconds,getCandles}=options;
   if(!chart||!runtime.series[0])return;
-  const signature=patch?JSON.stringify([patch,dark]):'';
+  const signature=patch?JSON.stringify([patch,dark,timeOffsetSeconds]):'';
   if(!force&&runtime.analysisSignature===signature)return;
   clearIndicatorAnalysisRuntime(chart,runtime);if(!patch)return;
   const id=patch.indicatorId;
-    const markers: any[] = [];
-    patch.operations.forEach(({ drawing }, operationIndex) => {
-      const defaults = drawing.tool === 'path' && usesNativeAiDrawingStyle({ ...drawing, source: 'ai' }) ? nativeAiDrawingDefaults(drawing) : null;
-      const color = defaults?.color ?? indicatorAnalysisColor(host, dark, drawing.colorToken);
-      if (drawing.tool === "path") {
-        const lineWidth = Math.max(1, Math.min(4, Math.round(defaults?.lineWidth ?? (Number(drawing.lineWidth) || 1)))) as 1 | 2 | 3 | 4;
-        const series = runtime.pane.addSeries(LineSeries, {
-          color,
-          lineWidth,
-          lineStyle: tradingIndicatorAiLineStyle(drawing.lineStyle),
-          priceLineVisible: false,
-          lastValueVisible: false,
-          crosshairMarkerVisible: false,
-          title: "",
-          priceFormat: { type: "price" as const, precision: 4, minMove: 0.0001 },
-        });
-        series.setData(
-          strictlyAscendingTradingIndicatorPathPoints(drawing.points)
-            .map((point) => ({
-              time: (point.time + timeOffsetSeconds) as UTCTimestamp,
-              value: point.value,
-            })),
-        );
-        runtime.analysisSeries.push(series);
-        return;
-      }
-      const point = drawing.points[0];
-      if (!point || (!drawing.text && drawing.markerSize === undefined)) return;
-      const usesExactIndicatorAnchor = drawing.markerSize !== undefined;
-      markers.push({
-        time: (point.time + timeOffsetSeconds) as UTCTimestamp,
-        position: usesExactIndicatorAnchor
-          ? drawing.markerSize === 0
-            ? "atPriceMiddle"
-            : drawing.text
-            ? operationIndex % 2 === 0 ? "atPriceTop" : "atPriceBottom"
-            : "atPriceMiddle"
-          : operationIndex % 2 === 0 ? "aboveBar" : "belowBar",
-        ...(usesExactIndicatorAnchor ? { price: point.value } : {}),
+  const paths: IndicatorDrawingPath[] = [];
+  const markers: IndicatorDrawingMarker[] = [];
+  patch.operations.forEach(({ drawing }, operationIndex) => {
+    const defaults = drawing.tool === 'path' && usesNativeAiDrawingStyle({ ...drawing, source: 'ai' }) ? nativeAiDrawingDefaults(drawing) : null;
+    const color = defaults?.color ?? indicatorAnalysisColor(host, dark, drawing.colorToken);
+    if (drawing.tool === "path") {
+      const lineWidth = Math.max(1, Math.min(4, Math.round(defaults?.lineWidth ?? (Number(drawing.lineWidth) || 1))));
+      paths.push({
         color,
-        shape: "circle",
-        ...(drawing.text ? { text: drawing.text } : {}),
-        ...(drawing.markerSize !== undefined ? { size: drawing.markerSize } : {}),
+        lineWidth,
+        lineStyle: drawing.lineStyle,
+        points: drawing.points.map(point => ({ ...point })),
       });
-    });
-    if (markers.length) {
-      markers.sort((first, second) => Number(first.time) - Number(second.time));
-      runtime.analysisMarkers = createSeriesMarkers(runtime.series[0].api, markers.slice(id === "rsi" || id === "kdj" ? -16 : -8), {
-        autoScale: false,
-        zOrder: "aboveSeries",
-      });
+      return;
     }
-    runtime.analysisSignature = signature;
-    runtime.series[0]?.api?.priceScale()?.setAutoScale(true);
-  }
+    const point = drawing.points[0];
+    if (!point || (!drawing.text && drawing.markerSize === undefined)) return;
+    const centered = drawing.markerSize === 0 || (drawing.markerSize !== undefined && !drawing.text);
+    markers.push({
+      time: point.time,
+      value: point.value,
+      position: centered ? "center" : operationIndex % 2 === 0 ? "above" : "below",
+      color,
+      ...(drawing.text ? { text: drawing.text } : {}),
+      size: drawing.markerSize ?? 1,
+      fontSize: Math.max(8, Math.min(32, drawing.fontSize ?? 12)),
+      bold: drawing.bold === true,
+    });
+  });
+  markers.sort((first, second) => first.time - second.time);
+  runtime.analysisPrimitive = new TradingIndicatorDrawingPrimitive(paths,
+    markers.slice(id === "rsi" || id === "kdj" ? -16 : -8), getCandles, timeOffsetSeconds);
+  runtime.series[0].api.attachPrimitive(runtime.analysisPrimitive);
+  runtime.analysisSignature = signature;
+  runtime.series[0]?.api?.priceScale()?.setAutoScale(true);
+}
 
 export function migrateCloudIndicatorPatches(from:string,to:string) {
   if(!from||from===to)return;

@@ -1810,7 +1810,7 @@ export class TradingExpertSplitPane {
 
   private renderCloudIndicatorPatch(id:TradingIndicatorId) {
     const runtime=this.indicatorPanes.get(id);if(!runtime)return;
-    renderIndicatorAnalysisPatch({chart:this.chart,runtime,host:this.host,dark:this.themeName==='dark',timeOffsetSeconds:CHINA_TIME_OFFSET_SECONDS,
+    renderIndicatorAnalysisPatch({chart:this.chart,runtime,host:this.host,dark:this.themeName==='dark',timeOffsetSeconds:CHINA_TIME_OFFSET_SECONDS,getCandles:()=>this.candles,
       patch:loadCloudIndicatorPatch(this.drawingStorageSessionId,this.market.id,this.interval,id)});
   }
 
@@ -1990,6 +1990,8 @@ export class TradingExpertSplitPane {
     this.chartNavigation = null;
     this.chartClock?.destroy();
     this.chartClock = null;
+    this.indicatorPanes.forEach(runtime => clearIndicatorAnalysisRuntime(this.chart, runtime));
+    this.indicatorPanes.clear();
     this.chart?.remove();
     this.chart = null;
     this.host.replaceChildren();

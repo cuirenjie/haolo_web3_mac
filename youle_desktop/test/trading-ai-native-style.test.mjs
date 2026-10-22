@@ -106,14 +106,13 @@ test('indicator paths use native styling while retaining their existing value an
       points: [{ time: 100, value: 40 }, { time: 99, value: 60 }, { time: 100, value: 45 }] };
     const patch = { indicatorId: 'rsi', operations: [{ op: 'upsert', drawing }] }, before = JSON.stringify(patch);
     const added = [];
-    const runtime = { pane: { addSeries: (_type, options) => {
-      const series = { options, setData: data => { series.data = data; } }; added.push(series); return series;
-    } }, series: [{ api: { priceScale: () => ({ setAutoScale() {} }) } }], analysisSeries: [], analysisMarkers: null, analysisSignature: '' };
-    renderIndicatorAnalysisPatch({ chart: { removeSeries() {} }, runtime, patch, host: {}, dark, timeOffsetSeconds: 28800 });
-    assert.equal(added[0].options.color, manualDrawingDefaults('path').color);
-    assert.equal(added[0].options.lineWidth, manualDrawingDefaults('path').lineWidth);
-    assert.notEqual(added[0].options.lineStyle, 0);
-    assert.deepEqual(added[0].data, [{ time: 28899, value: 60 }, { time: 28900, value: 40 }, { time: 28901, value: 45 }]);
+    const runtime = { pane: { addSeries: () => assert.fail('annotation must not add a data series') },
+      series: [{ api: { attachPrimitive: p => added.push(p), priceScale: () => ({ setAutoScale() {} }) } }], analysisSeries: [], analysisMarkers: null, analysisSignature: '' };
+    renderIndicatorAnalysisPatch({ chart: { removeSeries() {} }, runtime, patch, host: {}, dark, timeOffsetSeconds: 28800, getCandles: () => [] });
+    assert.equal(added[0].paths[0].color, manualDrawingDefaults('path').color);
+    assert.equal(added[0].paths[0].lineWidth, manualDrawingDefaults('path').lineWidth);
+    assert.equal(added[0].paths[0].lineStyle, 'dashed');
+    assert.deepEqual(added[0].paths[0].points, drawing.points);
     assert.equal(JSON.stringify(patch), before);
   }
 });

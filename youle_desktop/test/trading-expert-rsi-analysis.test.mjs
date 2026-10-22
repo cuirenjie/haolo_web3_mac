@@ -204,8 +204,8 @@ test("RSI card, mention catalog, auto pane, centerline and both icon themes are 
   assert.match(indicatorRenderer, /drawing\.markerSize/);
   assert.match(indicatorRenderer, /drawing\.markerSize === 0/);
   assert.match(indicatorRenderer, /id === "rsi" \|\| id === "kdj" \? -16 : -8/);
-  assert.match(indicatorRenderer, /strictlyAscendingTradingIndicatorPathPoints\(drawing\.points\)/);
-  assert.match(indicatorRenderer, /"atPriceMiddle"/);
+  assert.match(indicatorRenderer, /new TradingIndicatorDrawingPrimitive/);
+  assert.doesNotMatch(indicatorRenderer, /\.addSeries\(|\.setData\(/);
   assert.match(css, /\.trading-indicator-icon-rsi/);
   assert.match(css, /html\[data-theme="dark"\] \.trading-indicator-icon-rsi/);
   assert.match(`${skill}\n${rules}`, /失败摆动/);
