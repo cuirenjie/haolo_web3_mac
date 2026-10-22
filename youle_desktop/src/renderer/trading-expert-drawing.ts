@@ -53,6 +53,7 @@ import { renderTradingTrendAngleAnnotation } from './trading-trend-angle.ts';
 import { isTradingPitchfork, renderTradingPitchfork } from './trading-pitchfork.ts';
 import { isReferencePatternDrawing, renderReferencePattern, harmonicFillColor, HARMONIC_BLUE } from './trading-patterns.ts';
 import { usesNativeAiDrawingStyle, nativeAiDrawingDefaults, nativeAiDrawingDisplayModel, isHiddenOrderFlowAnnotation, isHiddenAiArrowDrawing, renderNativeAiHarmonicPath } from './trading-ai-native-style.ts';
+import { projectAiFibonacciDrawings, renderAiFibonacci } from './trading-ai-fibonacci.ts';
 import { chartPatternNativeDrawingModel } from './chart-pattern-native-tools.ts';
 import { isElliottWave, renderElliottWave, ELLIOTT_FONT_SIZE, ELLIOTT_HANDLE_COLOR } from './trading-elliott-wave.ts';
 import { captureTradingChartToDesktop } from './trading-chart-screenshot.ts';
@@ -6848,8 +6849,16 @@ export class TradingDrawingController {
       }
       return { id: drawing.id, render };
     }));
-    const aiDrawings = aiSourceDrawings.filter(drawing => !this.drawingVisibility.aiHidden && !planPriceLines.drawingIds.has(drawing.id) && !isHiddenOrderFlowAnnotation(drawing) && !isHiddenAiArrowDrawing(drawing))
+    const aiDrawings = projectAiFibonacciDrawings(aiSourceDrawings.filter(drawing => !this.drawingVisibility.aiHidden && !planPriceLines.drawingIds.has(drawing.id) && !isHiddenOrderFlowAnnotation(drawing) && !isHiddenAiArrowDrawing(drawing))).drawings
       .map((drawing) => nativeAiDrawingDisplayModel(chartPatternNativeDrawingModel(tradingAiDrawingDisplayModel(drawing))));
+    const aiFibonacciRenderings = new Map<string, NonNullable<ReturnType<typeof renderAiFibonacci>>>();
+    const fibonacciLabelObstacles: TradingDrawingCollisionRect[] = [];
+    for (const drawing of aiDrawings) {
+      const rendered = renderAiFibonacci(drawing, point => this.pointToScreen(point), bounds, priceToCoordinate,
+        price => formatTradingFibonacciPrice(price, true), [...planObstacles, ...fibonacciLabelObstacles],
+        drawing.id === this.aiDraft?.id, drawing.tool === 'fib-retracement' ? candleObstacles() : []);
+      if (rendered) { aiFibonacciRenderings.set(drawing.id, rendered); fibonacciLabelObstacles.push(...rendered.obstacles); }
+    }
     const aiCandlestickLabelRequests = aiDrawings.flatMap((drawing): TradingAiNoteLayoutRequest[] => {
       if (!tradingDrawingIsPriceActionCandlestickPatternLabel(drawing) || !drawing.points[0]) return [];
       const anchor = this.pointToScreen(drawing.points[0]);
@@ -6903,7 +6912,7 @@ export class TradingDrawingController {
         bounds,
         candleObstacles(),
         [...orderFlowBoxObstacles, ...priceActionDrawingObstacles, ...gannTheoryBoxObstacles],
-        planObstacles,
+        [...planObstacles, ...fibonacciLabelObstacles],
       )
       : []
     ).map((placement) => [placement.id, placement.geometry]));
@@ -6921,6 +6930,7 @@ export class TradingDrawingController {
           drawing.id === this.aiDraft?.id,
           false,
           textLayout,
+          aiFibonacciRenderings.get(drawing.id),
         );
         return drawing.id === this.aiDraft?.id ? `<g opacity="${this.aiDraftOpacity}">${markup}</g>` : markup;
       })
@@ -6949,9 +6959,11 @@ export class TradingDrawingController {
     draft: boolean,
     interactive = true,
     resolvedTextGeometry?: ReturnType<typeof tradingDrawingNoteBoxGeometry>,
+    resolvedFibonacci?: NonNullable<ReturnType<typeof renderAiFibonacci>>,
   ) {
     if (this.fibonacciSettingsPreview?.id === drawing.id) drawing = this.fibonacciSettingsPreview;
     if ((drawing.tool === 'fib-retracement' || isFibonacciProjection(drawing.tool)) && drawing.fibonacci && !fibonacciVisibleAtInterval(drawing.fibonacci, this.getInterval())) return '';
+    if (resolvedFibonacci) return this.renderDrawingFrame(drawing, [], bounds, draft, false, resolvedFibonacci.body, '', '');
     const definition = tradingDrawingToolDefinition(drawing.tool);
     if (!definition) return "";
     if (

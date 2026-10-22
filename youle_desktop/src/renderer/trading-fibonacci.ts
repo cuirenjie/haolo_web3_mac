@@ -87,23 +87,27 @@ export function fibonacciVisibleAtInterval(value: unknown, interval: string) {
 }
 
 export function fibonacciGeometry(drawing: TradingDrawingModel, first: ScreenPoint, second: ScreenPoint,
-  bounds: { width: number; height: number }, priceToY: (price: number) => number | null) {
+  bounds: { width: number; height: number }, priceToY: (price: number) => number | null,
+  prices?: ReadonlyMap<number, number>) {
   const options = fibonacciOptionsForDrawing(drawing);
   const expanded = Math.hypot(second.x - first.x, second.y - first.y) >= 3;
   const left = options.extendLeft ? 0 : Math.min(first.x, second.x);
   const right = options.extendRight ? bounds.width : Math.max(first.x, second.x);
   const firstPrice = drawing.points[0].price, secondPrice = drawing.points.at(-1)!.price;
   const levels = options.levels.filter(level => level.enabled && (expanded || level.value === 1))
-    .map(level => { const price = secondPrice + (firstPrice - secondPrice) * level.value; return { ...level, price, y: priceToY(price) }; })
+    .map(level => { const price = prices?.get(level.value) ?? secondPrice + (firstPrice - secondPrice) * level.value; return { ...level, price, y: priceToY(price) }; })
     .filter((level): level is typeof level & { y: number } => level.y !== null && Number.isFinite(level.y))
     .sort((a, b) => b.value - a.value);
   return { options, expanded, left, right, levels };
 }
 
+export type FibonacciLabelPosition = { x: number; y: number; anchor: 'start' | 'end' };
+
 export function renderFibonacci(drawing: TradingDrawingModel, first: ScreenPoint, second: ScreenPoint,
   bounds: { width: number; height: number }, priceToY: (price: number) => number | null,
-  formatPrice: (price: number) => string, opacity = 1) {
-  const { options: o, expanded, left, right, levels } = fibonacciGeometry(drawing, first, second, bounds, priceToY);
+  formatPrice: (price: number) => string, opacity = 1,
+  layout?: { labelPositions?: ReadonlyMap<number, FibonacciLabelPosition>; fontSize?: number; prices?: ReadonlyMap<number, number> }) {
+  const { options: o, expanded, left, right, levels } = fibonacciGeometry(drawing, first, second, bounds, priceToY, layout?.prices);
   const stroke = (width: number, lineStyle: TradingDrawingLineStyle) => `stroke-width="${width}" vector-effect="non-scaling-stroke"${lineStyle === 'solid' ? '' : ` stroke-dasharray="${lineStyle === 'dashed' ? '5 5' : '2 4'}"`}`;
   const line = (a: ScreenPoint, b: ScreenPoint, color: string, width: number, lineStyle: TradingDrawingLineStyle, cls: string) =>
     `<line class="${cls}" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${color}" ${stroke(width, lineStyle)} opacity="${opacity}"/>`;
@@ -116,9 +120,11 @@ export function renderFibonacci(drawing: TradingDrawingModel, first: ScreenPoint
   const body = bands + connector + levels.map(level => {
     const label = `${o.showLevels ? level.value : ''}${o.showPrices ? `${o.showLevels ? ' ' : ''}(${formatPrice(level.price)})` : ''}`;
     const inside = o.extendLeft || left < 80;
+    const position = layout?.labelPositions?.get(level.value);
+    const showLabel = label && (!layout?.labelPositions || position);
     return `<g class="trading-fibonacci-level" data-fibonacci-level="${level.value}">`
       + line({ x: left, y: level.y }, { x: right, y: level.y }, level.color, o.lineWidth, o.lineStyle, 'trading-fibonacci-level-line')
-      + (label ? `<text class="trading-fibonacci-label" x="${inside ? Math.max(0, left) + 8 : left - 8}" y="${level.y}" text-anchor="${inside ? 'start' : 'end'}" dominant-baseline="central" fill="${level.color}" opacity="${opacity}">${label}</text>` : '') + '</g>';
+      + (showLabel ? `<text class="trading-fibonacci-label" x="${position?.x ?? (inside ? Math.max(0, left) + 8 : left - 8)}" y="${position?.y ?? level.y}" text-anchor="${position?.anchor ?? (inside ? 'start' : 'end')}" dominant-baseline="central" fill="${level.color}" opacity="${opacity}"${layout?.fontSize ? ` style="font-size:${layout.fontSize}px"` : ''}>${label}</text>` : '') + '</g>';
   }).join('');
   const segments: [ScreenPoint, ScreenPoint][] = levels.map(level => [{ x: first.x <= second.x ? left : right, y: level.y }, { x: first.x <= second.x ? right : left, y: level.y }]);
   if (expanded && o.trendVisible) segments.push([first, second]);
