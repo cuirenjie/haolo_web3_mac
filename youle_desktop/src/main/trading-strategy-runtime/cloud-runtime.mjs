@@ -243,7 +243,11 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
         // admissions keep their frozen body/key, and explicit time ranges remain exact.
         const minimumHistory = cloudStrategyMinimumHistory(strategyId,capabilities.strategies.find(s=>s.id===strategyId)?.history);
         const windowCount = requestedCount === null ? null : Math.max(requestedCount,minimumHistory);
-        const readSnapshot = () => request(captured,'marketSnapshot',{market:target.marketKey,interval:target.interval,limit:600,...(visibleRange||{...(windowCount?{windowCount}:{}),...(lookbackMs?{lookbackMs}:{})})},{signal:options.signal});
+        // Wyckoff needs formation context before the current breakout. This is
+        // an advisory horizon: the server can use shorter available history,
+        // and an explicit time/visible window remains authoritative.
+        const preferredWindowCount = strategyId === 'wyckoff' && !lookbackMs && !visibleRange ? 240 : null;
+        const readSnapshot = () => request(captured,'marketSnapshot',{market:target.marketKey,interval:target.interval,limit:600,...(visibleRange||{...(windowCount?{windowCount}:{}),...(lookbackMs?{lookbackMs}:{}),...(preferredWindowCount?{preferredWindowCount}:{})})},{signal:options.signal});
         // Independent fresh reads can overlap after capability/history checks.
         // No cached market result or account consent replaces either read.
         const fast = params.pureReferenceAnalysis === true;

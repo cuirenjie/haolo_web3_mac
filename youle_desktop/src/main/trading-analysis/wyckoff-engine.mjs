@@ -1,18 +1,17 @@
 import crypto from "node:crypto";
+import {buildWyckoffRanges, wyckoffBarClosed, wyckoffLifecycleEvents} from "./wyckoff-range-lifecycle.mjs";
 
 export const WYCKOFF_ENGINE_ID = "wyckoff";
-export const WYCKOFF_ENGINE_VERSION = "0.1.0";
+export const WYCKOFF_ENGINE_VERSION = "0.2.0";
 
 const MIN_CANDLES = 60;
 const RULES = Object.freeze({
-  range: "wyckoff.v1.trading-range",
+  range: "wyckoff.v2.frozen-trading-range",
   effortResult: "wyckoff.v1.effort-result",
   accumulation: "wyckoff.v1.accumulation",
   distribution: "wyckoff.v1.distribution",
   spring: "wyckoff.v1.spring-test",
   utad: "wyckoff.v1.utad-test",
-  sos: "wyckoff.v1.sos-lps",
-  sow: "wyckoff.v1.sow-lpsy",
 });
 
 function clamp(value, minimum = 0, maximum = 1) {
@@ -28,16 +27,6 @@ function median(values) {
   if (!sorted.length) return 0;
   const middle = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
-}
-
-function quantile(values, ratio) {
-  const sorted = values.map(Number).filter(Number.isFinite).sort((a, b) => a - b);
-  if (!sorted.length) return 0;
-  const position = clamp(ratio) * (sorted.length - 1);
-  const lower = Math.floor(position);
-  const upper = Math.ceil(position);
-  if (lower === upper) return sorted[lower];
-  return sorted[lower] + (sorted[upper] - sorted[lower]) * (position - lower);
 }
 
 function average(values) {
@@ -78,128 +67,6 @@ function enrichCandles(candles) {
   });
 }
 
-function touchClusters(candles, predicate, minimumGap) {
-  const clusters = [];
-  for (const candle of candles) {
-    if (!predicate(candle)) continue;
-    const previous = clusters.at(-1);
-    if (!previous || candle.index - previous.at(-1).index >= minimumGap) clusters.push([candle]);
-    else previous.push(candle);
-  }
-  return clusters;
-}
-
-function directionChanges(candles) {
-  let previous = 0;
-  let changes = 0;
-  let comparable = 0;
-  for (let index = 1; index < candles.length; index += 1) {
-    const delta = candles[index].close - candles[index - 1].close;
-    const direction = Math.sign(delta);
-    if (!direction) continue;
-    if (previous) {
-      comparable += 1;
-      if (direction !== previous) changes += 1;
-    }
-    previous = direction;
-  }
-  return comparable ? changes / comparable : 0;
-}
-
-function trendBeforeRange(candles, startIndex, rangeHeight) {
-  const prior = candles.slice(Math.max(0, startIndex - 36), startIndex + 1);
-  const sample = prior.length >= 12 ? prior : candles.slice(startIndex, Math.min(candles.length, startIndex + 18));
-  if (sample.length < 2) return 0;
-  const first = average(sample.slice(0, Math.max(2, Math.floor(sample.length / 4))).map((item) => item.close));
-  const last = average(sample.slice(-Math.max(2, Math.floor(sample.length / 4))).map((item) => item.close));
-  return clamp((last - first) / Math.max(rangeHeight, Number.EPSILON), -2, 2);
-}
-
-function candidateWindowLengths(count) {
-  return [...new Set([
-    Math.min(180, count),
-    Math.min(144, count),
-    Math.min(120, count),
-    Math.min(96, count),
-    Math.min(72, count),
-    Math.min(60, count),
-  ].filter((value) => value >= MIN_CANDLES))];
-}
-
-function buildTradingRangeCandidates(candles, snapshotId) {
-  const candidates = [];
-  const endOffsets = [...new Set([0, candles.length >= 96 ? 6 : 0, candles.length >= 120 ? 12 : 0])];
-  for (const endOffset of endOffsets) {
-    const endIndex = candles.length - 1 - endOffset;
-    for (const length of candidateWindowLengths(endIndex + 1)) {
-      const startIndex = endIndex - length + 1;
-      if (startIndex < 0) continue;
-      const window = candles.slice(startIndex, endIndex + 1);
-      const support = quantile(window.map((item) => item.low), 0.08);
-      const resistance = quantile(window.map((item) => item.high), 0.92);
-      const height = resistance - support;
-      const atr = Math.max(median(window.map((item) => item.atr)), Number.EPSILON);
-      const widthInAtr = height / atr;
-      if (!Number.isFinite(widthInAtr) || widthInAtr < 3 || widthInAtr > 24) continue;
-      const tolerance = Math.max(atr * 0.72, height * 0.045);
-      const minimumGap = Math.max(3, Math.floor(length / 12));
-      const supportClusters = touchClusters(window, (item) => item.low <= support + tolerance, minimumGap);
-      const resistanceClusters = touchClusters(window, (item) => item.high >= resistance - tolerance, minimumGap);
-      if (supportClusters.length < 2 || resistanceClusters.length < 2) continue;
-      const containment = window.filter((item) => (
-        item.low >= support - tolerance * 1.7 && item.high <= resistance + tolerance * 1.7
-      )).length / window.length;
-      const rotation = directionChanges(window);
-      if (containment < 0.72 || rotation < 0.27) continue;
-      const subsequent = candles.slice(endIndex + 1);
-      const distantAfterRange = subsequent.some((item) => (
-        item.close > resistance + height * 1.15 || item.close < support - height * 1.15
-      ));
-      if (distantAfterRange) continue;
-      const recency = 1 - endOffset / Math.max(1, candles.length);
-      const score = clamp(
-        0.24 * clamp((supportClusters.length + resistanceClusters.length) / 8)
-        + 0.26 * clamp((containment - 0.65) / 0.3)
-        + 0.24 * clamp((rotation - 0.2) / 0.45)
-        + 0.16 * clamp(1 - Math.abs(widthInAtr - 8) / 14)
-        + 0.1 * recency,
-      );
-      candidates.push({
-        id: idFor("wyckoff-range", snapshotId, startIndex, endIndex, support, resistance),
-        startIndex,
-        baseEndIndex: endIndex,
-        endIndex: candles.length - 1,
-        startTime: candles[startIndex].time,
-        baseEndTime: candles[endIndex].time,
-        endTime: candles.at(-1).time,
-        support,
-        resistance,
-        height,
-        atr,
-        tolerance,
-        containment,
-        rotation,
-        supportTouches: supportClusters.length,
-        resistanceTouches: resistanceClusters.length,
-        score,
-        priorTrend: trendBeforeRange(candles, startIndex, height),
-        evidenceId: idFor("wyckoff-range-evidence", snapshotId, startIndex, endIndex),
-      });
-    }
-  }
-  const deduplicated = [];
-  for (const candidate of candidates.sort((a, b) => b.score - a.score)) {
-    const duplicate = deduplicated.some((existing) => (
-      Math.abs(existing.support - candidate.support) <= Math.max(existing.tolerance, candidate.tolerance)
-      && Math.abs(existing.resistance - candidate.resistance) <= Math.max(existing.tolerance, candidate.tolerance)
-      && Math.abs(existing.startIndex - candidate.startIndex) <= 12
-    ));
-    if (!duplicate) deduplicated.push(candidate);
-    if (deduplicated.length >= 4) break;
-  }
-  return deduplicated;
-}
-
 function eventEvidence(candle, range, extra = {}) {
   return Object.freeze({
     candleIndex: candle.index,
@@ -223,7 +90,7 @@ function makeEvent(snapshotId, pattern, code, candle, price, range, options = {}
     candleIndex: candle.index,
     phase: options.phase || "B",
     direction: options.direction || "neutral",
-    status: options.status === "tentative" ? "tentative" : "confirmed",
+    status: ["tentative", "invalidated"].includes(options.status) ? options.status : "confirmed",
     strength: clamp(Number(options.strength) || 0),
     ruleId: options.ruleId || RULES.effortResult,
     evidence: eventEvidence(candle, range, options.evidence),
@@ -328,34 +195,6 @@ function accumulationEvents(candles, range, snapshotId) {
     evidence: { comparedEvent: "Spring", volumeContracted: true, spreadContracted: test.spreadRatio < spring.spreadRatio },
     ruleId: RULES.spring,
   }));
-  const sosStart = test?.index ?? spring?.index ?? terminalStart;
-  const sos = findAfter(window, sosStart, (item) => (
-    item.close > range.resistance + range.tolerance * 0.08
-    && item.closeLocation >= 0.62
-    && (item.relativeVolume >= 1.05 || item.spreadRatio >= 1.2)
-  ));
-  if (sos) events.push(makeEvent(snapshotId, "accumulation", "SOS", sos, sos.high, range, {
-    label: "SOS 放量上破",
-    phase: "D",
-    direction: "bullish",
-    strength: clamp((sos.relativeVolume + sos.spreadRatio - 1.6) / 2.2),
-    evidence: { closedBeyondResistance: true },
-    ruleId: RULES.sos,
-  }));
-  const lps = sos ? findAfter(window, sos.index, (item) => (
-    item.low <= range.resistance + range.tolerance * 1.5
-    && item.low >= range.resistance - range.tolerance * 1.7
-    && item.close >= range.resistance - range.tolerance * 0.7
-    && item.relativeVolume <= Math.max(1.15, sos.relativeVolume)
-  )) : null;
-  if (lps) events.push(makeEvent(snapshotId, "accumulation", "LPS", lps, lps.low, range, {
-    label: "LPS 回踩支撑",
-    phase: "D",
-    direction: "bullish",
-    strength: clamp(1 - lps.relativeVolume / Math.max(sos.relativeVolume * 1.2, Number.EPSILON)),
-    evidence: { comparedEvent: "SOS", heldFormerResistance: true },
-    ruleId: RULES.sos,
-  }));
   return events.sort((a, b) => a.candleIndex - b.candleIndex);
 }
 
@@ -445,39 +284,11 @@ function distributionEvents(candles, range, snapshotId) {
     evidence: { comparedEvent: "UTAD", volumeContracted: true, spreadContracted: test.spreadRatio < utad.spreadRatio },
     ruleId: RULES.utad,
   }));
-  const sowStart = test?.index ?? utad?.index ?? terminalStart;
-  const sow = findAfter(window, sowStart, (item) => (
-    item.close < range.support - range.tolerance * 0.08
-    && item.closeLocation <= 0.38
-    && (item.relativeVolume >= 1.05 || item.spreadRatio >= 1.2)
-  ));
-  if (sow) events.push(makeEvent(snapshotId, "distribution", "SOW", sow, sow.low, range, {
-    label: "SOW 放量下破",
-    phase: "D",
-    direction: "bearish",
-    strength: clamp((sow.relativeVolume + sow.spreadRatio - 1.6) / 2.2),
-    evidence: { closedBeyondSupport: true },
-    ruleId: RULES.sow,
-  }));
-  const lpsy = sow ? findAfter(window, sow.index, (item) => (
-    item.high >= range.support - range.tolerance * 1.5
-    && item.high <= range.support + range.tolerance * 1.7
-    && item.close <= range.support + range.tolerance * 0.7
-    && item.relativeVolume <= Math.max(1.15, sow.relativeVolume)
-  )) : null;
-  if (lpsy) events.push(makeEvent(snapshotId, "distribution", "LPSY", lpsy, lpsy.high, range, {
-    label: "LPSY 反抽受压",
-    phase: "D",
-    direction: "bearish",
-    strength: clamp(1 - lpsy.relativeVolume / Math.max(sow.relativeVolume * 1.2, Number.EPSILON)),
-    evidence: { comparedEvent: "SOW", rejectedFormerSupport: true },
-    ruleId: RULES.sow,
-  }));
   return events.sort((a, b) => a.candleIndex - b.candleIndex);
 }
 
 function phaseBoundaries(pattern, events, range, candles) {
-  const event = (code) => events.find((item) => item.code === code);
+  const event = (code) => events.findLast((item) => item.code === code && item.status === "confirmed");
   const st = event("ST");
   const terminal = pattern === "accumulation" ? event("Spring") : event("UTAD");
   const test = event("Test");
@@ -488,9 +299,10 @@ function phaseBoundaries(pattern, events, range, candles) {
   const endB = Math.max(endA, terminal?.candleIndex ?? Math.min(range.endIndex, endA + Math.floor((range.endIndex - endA) * 0.42)));
   const endC = Math.max(endB, test?.candleIndex ?? terminal?.candleIndex ?? endB);
   const endD = Math.max(endC, lastPoint?.candleIndex ?? sign?.candleIndex ?? endC);
-  const accepted = pattern === "accumulation"
-    ? candles.slice(-3).filter((item) => item.close > range.resistance + range.tolerance * 0.2).length >= 2
-    : candles.slice(-3).filter((item) => item.close < range.support - range.tolerance * 0.2).length >= 2;
+  const closedTail = candles.filter(item => item.closed).slice(-3);
+  const accepted = Boolean(sign) && (pattern === "accumulation"
+    ? closedTail.filter((item) => item.close > range.resistance + range.tolerance * 0.2).length >= 2
+    : closedTail.filter((item) => item.close < range.support - range.tolerance * 0.2).length >= 2);
   const definitions = [
     ["A", startA, endA, true],
     ["B", endA, endB, Boolean(st)],
@@ -512,10 +324,14 @@ function phaseBoundaries(pattern, events, range, candles) {
 }
 
 function buildStructure(snapshot, candles, range, pattern) {
-  const events = pattern === "accumulation"
-    ? accumulationEvents(candles, range, snapshot.snapshotId)
-    : distributionEvents(candles, range, snapshot.snapshotId);
-  const eventCodes = new Set(events.map((item) => item.code));
+  const formationRange = {...range, endIndex:range.baseEndIndex};
+  const baseEvents = pattern === "accumulation"
+    ? accumulationEvents(candles, formationRange, snapshot.snapshotId)
+    : distributionEvents(candles, formationRange, snapshot.snapshotId);
+  const events = [...baseEvents,
+    ...wyckoffLifecycleEvents(candles,range,pattern,makeEvent,snapshot.snapshotId)].sort((a,b)=>a.candleIndex-b.candleIndex);
+  const episode = range.lifecycle[pattern === "accumulation" ? "bullish" : "bearish"].at(-1);
+  const eventCodes = new Set(events.filter(item=>item.status === "confirmed").map((item) => item.code));
   const terminalCode = pattern === "accumulation" ? "Spring" : "UTAD";
   const signCode = pattern === "accumulation" ? "SOS" : "SOW";
   const lastPointCode = pattern === "accumulation" ? "LPS" : "LPSY";
@@ -532,17 +348,22 @@ function buildStructure(snapshot, candles, range, pattern) {
   const directionalEvents = events.filter((item) => item.direction === (pattern === "accumulation" ? "bullish" : "bearish"));
   const effortScore = average(directionalEvents.map((item) => item.strength));
   const score = clamp(range.score * 0.47 + priorFit * 0.18 + phaseScore + effortScore * 0.12);
-  const status = eventCodes.has(signCode) && eventCodes.has("ST") ? "confirmed" : "tentative";
+  const status = episode?.invalidatedAt != null ? "invalidated"
+    : eventCodes.has(signCode) && eventCodes.has("ST") ? "confirmed" : "tentative";
   const phases = phaseBoundaries(pattern, events, range, candles);
   return Object.freeze({
     id: idFor("wyckoff-structure", snapshot.snapshotId, range.id, pattern, ...events.map((item) => item.id)),
     pattern,
+    relevance:range.relevance + (episode && episode.invalidatedAt === null ? .5 : 0),
     label: pattern === "accumulation" ? "吸筹候选" : "派发候选",
     direction: pattern === "accumulation" ? "bullish" : "bearish",
     status,
     score,
     range: Object.freeze({
       id: range.id,
+      frozen: range.frozen,
+      baseEndIndex: range.baseEndIndex,
+      baseEndTime: range.baseEndTime,
       startIndex: range.startIndex,
       endIndex: range.endIndex,
       startTime: range.startTime,
@@ -559,6 +380,7 @@ function buildStructure(snapshot, candles, range, pattern) {
       priorTrend: range.priorTrend,
       evidenceId: range.evidenceId,
     }),
+    lifecycle: Object.freeze({frozen:range.frozen, baseEndTime:range.baseEndTime, episodes:range.lifecycle[pattern === "accumulation" ? "bullish" : "bearish"]}),
     phases: Object.freeze(phases),
     events: Object.freeze(events),
     confirmationPrice: pattern === "accumulation"
@@ -614,12 +436,12 @@ export function runWyckoffTheoryEngine(snapshot) {
       statistics: Object.freeze({ rangeCount: 0, candidateCount: 0, eventCount: 0 }),
     });
   }
-  const candles = enrichCandles(rawCandles);
-  const ranges = buildTradingRangeCandidates(candles, snapshot.snapshotId);
+  const candles = enrichCandles(rawCandles).map((c,index)=>({...c,closed:wyckoffBarClosed(snapshot,c,index)}));
+  const ranges = buildWyckoffRanges(candles, snapshot);
   const structures = candidateDiversity(ranges.flatMap((range) => [
     buildStructure(snapshot, candles, range, "accumulation"),
     buildStructure(snapshot, candles, range, "distribution"),
-  ]).sort((a, b) => b.score - a.score));
+  ]).sort((a, b) => b.relevance - a.relevance || b.score - a.score));
   const primaryCandidate = structures[0] || null;
   if (!primaryCandidate) {
     return Object.freeze({
