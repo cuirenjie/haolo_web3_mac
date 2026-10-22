@@ -1,16 +1,38 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import vm from "node:vm";
 
 const mainSource = await readFile(new URL("../src/main/main.mjs", import.meta.url), "utf8");
 const preloadSource = await readFile(new URL("../src/main/preload.mjs", import.meta.url), "utf8");
 const rendererSource = await readFile(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
 
+test("session client retains protected transports and routes P&L completions to the renderer", () => {
+  const factory = mainSource.match(/function getYouleApiClient\(\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(factory);
+  const safeStorage = {}, appNetworkFetch = () => {}, haoloServiceFetch = () => {};
+  const events = []; let constructions = 0, wraps = 0;
+  const context = vm.createContext({
+    youleApiClient: null,
+    YouleApiClient: class { constructor(options) { constructions++; this.options = options; } },
+    wrapYouleApiClient: client => { wraps++; return client; },
+    path: { join: (...parts) => parts.join('/') }, app: { getPath: () => '/fixture' },
+    youleSessionPath: () => '/fixture/session', youleAuthPath: () => '/fixture/auth',
+    safeStorage, appNetworkFetch, haoloServiceFetch,
+    sendToRenderer: (...args) => events.push(args),
+  });
+  const client = vm.runInContext(`${factory}\ngetYouleApiClient()`, context);
+  assert.equal(client.options.safeStorage, safeStorage);
+  assert.equal(client.options.networkFetch, appNetworkFetch);
+  assert.equal(client.options.serviceFetch, haoloServiceFetch);
+  const payload = { connectionId: 'fixture', realizedPnlToday: 0 };
+  client.options.onAccountPnl(payload);
+  assert.deepEqual(events, [['binanceAccount:pnl', payload]]);
+  assert.equal(vm.runInContext('getYouleApiClient()', context), client);
+  assert.equal(constructions, 1); assert.equal(wraps, 1);
+});
+
 test("desktop session maintenance covers startup, periodic checks, resume, and unlock", () => {
-  assert.match(
-    mainSource,
-    /safeStorage,\s*\n\s*networkFetch:\s*appNetworkFetch,\s*\n\s*serviceFetch:\s*haoloServiceFetch,\s*\n\s*\}\)\)/,
-  );
   assert.match(mainSource, /startYouleSessionMaintenance\(\)/);
   assert.match(mainSource, /maintainYouleSession\("app-ready"\)/);
   assert.match(mainSource, /maintainYouleSession\("periodic"\)/);
