@@ -588,7 +588,7 @@ export class TradingChartNavigation {
 
   private consume(event: Event) { event.preventDefault(); event.stopPropagation(); }
   private isControl(target: EventTarget | null) {
-    return target instanceof Element && !!target.closest("button, input, textarea, select, [contenteditable=true], [role=menu], [role=dialog], [role=toolbar]");
+    return target instanceof Element && !!target.closest("button, input, textarea, select, [contenteditable=true], [role=menu], [role=dialog], [role=toolbar], [data-ai-annotation-delete]");
   }
 
   private readonly wheel = (event: WheelEvent) => {

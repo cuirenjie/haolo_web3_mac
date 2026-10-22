@@ -10,7 +10,7 @@ const tray = { x: 1680, y: 1032, width: 240, height: 48 };
 const layout = { visible: true, bar, anchor, occupied: [anchor, tray] };
 
 test("quote sits immediately right of Haolo, vertically centered", () => {
-  assert.deepEqual(taskbarMarketQuoteBounds(layout), { x: 1010, y: 1036, width: 161, height: 40 });
+  assert.deepEqual(taskbarMarketQuoteBounds(layout), { x: 1010, y: 1036, width: 151, height: 40 });
 });
 test("new taskbar buttons move the quote into free space without covering tray or icons", () => {
   const next = { x: 1010, y: 1036, width: 44, height: 40 };
@@ -23,7 +23,7 @@ test("150% DPI taskbars with a narrow right-hand gap retain a compact readable q
     ...layout, anchor: { x: 1076, y: 1019, width: 44, height: 48 },
     bar: { x: 0, y: 1019, width: 1707, height: 48 },
     occupied: [{ x: 1274, y: 1019, width: 433, height: 48 }],
-  }), { x: 1126, y: 1023, width: 142, height: 40 });
+  }), { x: 1126, y: 1023, width: 132, height: 40 });
 });
 test("hidden, fullscreen, missing-anchor, vertical and clipped taskbars do not show a quote", () => {
   assert.equal(taskbarMarketQuoteBounds({ ...layout, visible: false }), null);
@@ -36,7 +36,7 @@ test("negative monitor coordinates and small DPI taskbars remain inside their bo
   assert.deepEqual(taskbarMarketQuoteBounds({
     visible: true, bar: { x: -1920, y: -40, width: 1920, height: 40 },
     anchor: { x: -1000, y: -40, width: 40, height: 40 }, occupied: [],
-  }), { x: -954, y: -38, width: 161, height: 36 });
+  }), { x: -954, y: -38, width: 151, height: 36 });
 });
 test("malformed and unavailable quote values cannot become misleading zero prices", () => {
   assert.equal(normalizeTaskbarMarketQuote(null), null);

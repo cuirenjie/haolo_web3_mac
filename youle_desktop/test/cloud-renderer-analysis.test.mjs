@@ -19,7 +19,7 @@ test('text reveal and drawing run concurrently; completion waits for both in eit
 
 test('pure-reference reports include all panes before playback; original jobs stay cancellable until drawings settle',async()=>{
   let release,ready=false;const gate=new Promise(r=>release=r),drawn=[];
-  const s=setup({dependencyOverrides:{commitTradingAnalysisDrawingPatch:async(job,patch,pane,_onPhase,shouldContinue,speedMultiplier)=>{assert.equal(ready,true);assert.equal(s.finished.length,0);assert.equal(shouldContinue(),true);assert.equal(speedMultiplier,1.3);drawn.push(pane);await gate;}}});
+  const s=setup({dependencyOverrides:{commitTradingAnalysisDrawingPatch:async(job,patch,pane,_onPhase,shouldContinue,speedMultiplier)=>{assert.equal(ready,true);assert.equal(s.finished.length,0);assert.equal(shouldContinue(),true);assert.equal(speedMultiplier,1.5);drawn.push(pane);await gate;}}});
   const pending=s.workspace.runGeneralConversation({instruction:'@策略:缠论',pureReferenceAnalysis:true,onReportReady:result=>{
     assert.equal(s.calls.length,2);assert.equal(result.report,'Canonical server report');ready=true;
   }},'chan');

@@ -17,6 +17,7 @@ import { getTradingXPost } from './trading-x-post.mjs';
 import { registerClientSettingsSync } from "./client-settings-sync.mjs";
 import { HAOLO_GATEWAY_BASE_URL, HAOLO_GATEWAY_HOST } from "./haolo-gateway.mjs";
 import { clipboard, nativeImage, shell } from "electron/common";
+import { runDesktopShortcutAction } from "./windows-desktop-shortcut.mjs";
 import { app, BrowserWindow, dialog, ipcMain, Menu, net, Notification, powerMonitor, safeStorage, screen, session, Tray } from "electron/main";
 import crypto from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
@@ -1914,13 +1915,13 @@ function systemIntegrationShortcutPath(key, baseName = shortcutBaseName()) {
   return null;
 }
 
-function packagedWindowsShortcutPaths(baseName = shortcutBaseName()) {
+function packagedWindowsShortcutPaths(baseName = shortcutBaseName(), { includeDesktop = true } = {}) {
   const fileName = `${baseName}.lnk`;
   return uniqueSystemIntegrationPaths([
     systemIntegrationShortcutPath("startMenu", baseName),
-    systemIntegrationShortcutPath("desktop", baseName),
+    ...(includeDesktop ? [systemIntegrationShortcutPath("desktop", baseName)] : []),
     path.join(commonAppDataPath(), "Microsoft", "Windows", "Start Menu", "Programs", fileName),
-    path.join(publicUserPath(), "Desktop", fileName),
+    ...(includeDesktop ? [path.join(publicUserPath(), "Desktop", fileName)] : []),
   ]);
 }
 
@@ -1953,9 +1954,9 @@ function shortcutDetails() {
   };
 }
 
-async function writeAppShortcut(shortcutPath) {
-  await fs.promises.mkdir(path.dirname(shortcutPath), { recursive: true });
-  const operation = (await shortcutExists(shortcutPath)) ? "replace" : "create";
+async function writeAppShortcut(shortcutPath, { existingOnly = false } = {}) {
+  if (!existingOnly) await fs.promises.mkdir(path.dirname(shortcutPath), { recursive: true });
+  const operation = existingOnly || (await shortcutExists(shortcutPath)) ? "replace" : "create";
   const ok = shell.writeShortcutLink(shortcutPath, operation, shortcutDetails());
   if (!ok) {
     throw new Error("创建快捷方式失败");
@@ -1972,12 +1973,14 @@ async function repairAppShortcut(shortcutPath) {
     needsRepair = true;
   }
   if (!needsRepair) return shortcutPath;
-  return writeAppShortcut(shortcutPath);
+  return writeAppShortcut(shortcutPath, { existingOnly: true });
 }
 
 async function migrateLegacyPackagedWindowsShortcuts() {
-  const currentPaths = packagedWindowsShortcutPaths();
-  const legacyPaths = packagedWindowsShortcutPaths(legacyShortcutBaseName());
+  // Desktop migration belongs to the installer helper's persistent policy.
+  // A leftover legacy link must not recreate a current-name link the user deleted.
+  const currentPaths = packagedWindowsShortcutPaths(shortcutBaseName(), { includeDesktop: false });
+  const legacyPaths = packagedWindowsShortcutPaths(legacyShortcutBaseName(), { includeDesktop: false });
   const migrations = legacyPaths.map(async (legacyPath, index) => {
     if (!legacyPath || !(await shortcutExists(legacyPath))) return null;
     try {
@@ -2014,6 +2017,11 @@ function ensureWindowsNotificationShortcut() {
 
 async function repairPackagedWindowsShortcuts() {
   if (process.platform !== "win32" || !app.isPackaged) return;
+  try {
+    await manageDesktopShortcut("Recover");
+  } catch (error) {
+    console.warn("[system-integration] desktop shortcut recovery incomplete", error?.message || error);
+  }
   const migrationResults = await migrateLegacyPackagedWindowsShortcuts();
   const repairs = [];
   repairs.push(...packagedWindowsShortcutPaths().map((shortcutPath) => repairAppShortcut(shortcutPath)));
@@ -2446,10 +2454,13 @@ function startupIntegrationEnabled() {
 async function systemIntegrationState() {
   const startMenuPath = systemIntegrationShortcutPath("startMenu");
   return {
+    // Kept in the settings snapshot; the desktop UI is an explicit create action.
+    desktop: process.platform === "win32" ? await shortcutExists(systemIntegrationShortcutPath("desktop")) : false,
     taskbar: await taskbarIntegrationEnabled(),
     startMenu: process.platform === "win32" ? await shortcutExists(startMenuPath) : false,
     startup: startupIntegrationEnabled(),
     available: {
+      desktop: process.platform === "win32" && app.isPackaged,
       taskbar: process.platform === "win32",
       startMenu: process.platform === "win32",
       startup: true,
@@ -2487,7 +2498,9 @@ function setStartupIntegration(enabled) {
 async function setSystemIntegration(params = {}) {
   const key = String(params.key || "");
   const enabled = Boolean(params.enabled);
-  if (key === "taskbar" || key === "startMenu") {
+  if (key === "desktop") {
+    await manageDesktopShortcut(enabled ? "Restore" : "Disable");
+  } else if (key === "taskbar" || key === "startMenu") {
     await setShortcutIntegration(key, enabled);
   } else if (key === "startup") {
     setStartupIntegration(enabled);
@@ -2495,6 +2508,25 @@ async function setSystemIntegration(params = {}) {
     throw new Error("未知系统设置项");
   }
   return systemIntegrationState();
+}
+
+async function manageDesktopShortcut(action) {
+  if (process.platform !== "win32" || !app.isPackaged) throw new Error("Desktop shortcuts require the installed Windows application");
+  try {
+    return await runDesktopShortcutAction({
+      action,
+      scriptPath: path.join(process.resourcesPath, "windows-desktop-shortcut.ps1"),
+      installDir: path.dirname(appExecutablePath()),
+      runPowerShell,
+    });
+  } catch (error) {
+    appendAppServerLogLine("desktop-shortcut", `${action}: ${error?.message || error}`);
+    const language = appLanguage();
+    throw new Error(language === "en"
+      ? "Could not update the desktop shortcut. Check the desktop folder permissions and try again."
+      : language === "zh-TW" ? "無法更新桌面捷徑，請檢查桌面目錄權限後重試。"
+      : "无法更新桌面快捷方式，请检查桌面目录权限后重试。");
+  }
 }
 
 function resolveBundledDefaultResource(relativePath) {

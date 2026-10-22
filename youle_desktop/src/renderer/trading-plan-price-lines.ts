@@ -21,12 +21,20 @@ function planPriceGroup(drawing: TradingDrawingModel) {
       : ref ? [ref.conditionId, ref.revision, ref.conditionHash] : 'legacy']);
 }
 
-function planPriceLabel(drawing: TradingDrawingModel, role: PlanPriceRole, targetIndex: number) {
+function planPriceLabel(drawing: TradingDrawingModel, role: PlanPriceRole, targetIndex: number, stop?: number) {
   // History keeps the language of the original analysis, like other AI labels.
   const text = drawing.text || '';
   const english = /[A-Za-z]/.test(text) && !/\p{Script=Han}/u.test(text);
   const traditional = /[場條損參側區]/.test(text);
-  if (role === 'entry') return english ? 'Entry' : traditional ? '入場' : '入场';
+  if (role === 'entry') {
+    // Current projections carry the card scenario's side in the entry text.
+    // Older immutable drawings have only the matching entry/stop prices.
+    const side = /做多|\b(?:entry\s+long|long\s+entry)\b/i.test(text) ? 'long'
+      : /做空|\b(?:entry\s+short|short\s+entry)\b/i.test(text) ? 'short'
+      : stop != null && stop !== drawing.points[0].price ? (stop < drawing.points[0].price ? 'long' : 'short') : null;
+    return english ? `Entry${side ? ` ${side}` : ''}`
+      : `${traditional ? '入場' : '入场'}${side ? (side === 'long' ? '做多' : '做空') : ''}`;
+  }
   if (role === 'stop') return english ? 'Stop loss' : traditional ? '止損' : '止损';
   return english ? `TP${targetIndex}` : `第${targetIndex}止盈`;
 }
@@ -68,7 +76,7 @@ export function buildTradingPlanPriceLines(drawings: readonly TradingDrawingMode
     const cardPrice = executionPlanPriceText(price);
     const label = Number(cardPrice.replaceAll(',', '')) > 0 ? cardPrice
       : price.toLocaleString('en-US', { maximumSignificantDigits: 12, useGrouping: false });
-    const shortLabel = planPriceLabel(drawing, role, targetIndex);
+    const shortLabel = planPriceLabel(drawing, role, targetIndex, stops.get(group));
     lines.push({
       id: `plan:${drawing.id}`,
       marketId: drawing.symbol,

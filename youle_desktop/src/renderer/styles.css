@@ -35437,6 +35437,7 @@ html[data-theme="dark"] .trading-market-asset-mark.asset-class-forex {
   }
 }
 
+.trading-order-line-layer,
 .trading-drawing-layer {
   position: absolute;
   top: 0;
@@ -35481,6 +35482,7 @@ html[data-theme="dark"] .trading-market-asset-mark.asset-class-forex {
   cursor: cell;
 }
 
+.trading-order-line-layer text,
 .trading-drawing-layer text {
   font-family: Inter, "Segoe UI", "Microsoft YaHei", sans-serif;
   pointer-events: none;
@@ -35500,21 +35502,60 @@ html[data-theme="dark"] .trading-market-asset-mark.asset-class-forex {
 
 .trading-ai-text-size-trigger {
   outline: none;
-  cursor: text;
-  pointer-events: all;
+  pointer-events: none;
 }
 
 .trading-ai-text-size-hit-target {
   fill: transparent;
   stroke: transparent;
   stroke-width: 1.5px;
-  pointer-events: all;
+  pointer-events: none;
   vector-effect: non-scaling-stroke;
 }
 
 .trading-ai-text-size-trigger:focus-visible .trading-ai-text-size-hit-target {
   stroke: var(--trading-market-accent);
   stroke-dasharray: 3 3;
+}
+
+.trading-ai-annotation-delete {
+  visibility: hidden;
+  pointer-events: none;
+  cursor: pointer;
+  outline: none;
+}
+
+.trading-ai-annotation-delete circle {
+  fill: #111;
+  stroke: #fff;
+  stroke-opacity: 0.25;
+  stroke-width: 0.5px;
+}
+
+.trading-ai-annotation-delete path {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1.5px;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+
+.trading-ai-text-size-trigger[data-ai-annotation-hover] .trading-ai-annotation-delete,
+.trading-ai-text-size-trigger:focus-within .trading-ai-annotation-delete {
+  visibility: visible;
+  pointer-events: all;
+}
+
+.trading-ai-annotation-delete:focus-visible circle {
+  stroke: var(--trading-market-accent);
+  stroke-opacity: 1;
+  stroke-width: 2px;
+}
+
+.trading-drawing-layer.drawing-active .trading-ai-annotation-delete,
+.trading-drawing-layer.dragging-drawing .trading-ai-annotation-delete {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .trading-drawing-layer.drawing-active .trading-ai-text-size-trigger,

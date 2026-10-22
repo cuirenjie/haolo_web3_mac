@@ -28,9 +28,14 @@ export function nativeAiDrawingDisplayModel(drawing: TradingDrawingModel): Tradi
 
 export function isHiddenOrderFlowAnnotation(drawing: Pick<TradingDrawingModel, 'source' | 'tool' | 'colorToken'>) {
   // Suppress only the microstructure text and its leader, in every language.
-  // Keep the underlying buy/sell arrows, imbalance regions and accepted patch.
+  // Arrow visibility is handled separately; regions and accepted patches stay intact.
   return drawing.source === 'ai' && (drawing.tool === 'note' || drawing.tool === 'text')
     && (drawing.colorToken === 'order-flow-buy' || drawing.colorToken === 'order-flow-sell');
+}
+
+export function isHiddenAiArrowDrawing(drawing: Pick<TradingDrawingModel, 'source' | 'tool'>) {
+  // Apply to all strategies and restored history, independently of native styling.
+  return drawing.source === 'ai' && ['arrow', 'arrow-marker', 'arrow-up', 'arrow-down', 'arrow-left', 'arrow-right'].includes(drawing.tool);
 }
 
 export function renderNativeAiHarmonicPath(drawing: TradingDrawingModel, points: readonly ScreenPoint[]) {

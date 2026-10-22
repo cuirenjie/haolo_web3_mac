@@ -108,6 +108,10 @@
     ],
     "extraResources": [
       {
+        "from": "resources/windows-desktop-shortcut.ps1",
+        "to": "windows-desktop-shortcut.ps1"
+      },
+      {
         "from": "resources/haolo-logo.ico",
         "to": "haolo-logo.ico"
       },

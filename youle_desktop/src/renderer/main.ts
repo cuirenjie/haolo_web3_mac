@@ -5542,16 +5542,19 @@ const state: UiState = {
     },
     systemIntegration: {
       values: {
+        desktop: false,
         taskbar: false,
         startMenu: false,
         startup: false,
       },
       available: {
+        desktop: false,
         taskbar: true,
         startMenu: true,
         startup: true,
       },
       updating: {
+        desktop: false,
         taskbar: false,
         startMenu: false,
         startup: false,
@@ -6127,7 +6130,7 @@ const AUTO_TASK_FREQUENCY_OPTIONS: Array<{ value: AutoTaskDraftState["frequency"
   { value: "weekly", label: "每周" },
   { value: "monthly", label: "每月" },
 ];
-const SYSTEM_INTEGRATION_KEYS = ["taskbar", "startMenu", "startup"] as const;
+const SYSTEM_INTEGRATION_KEYS = ["desktop", "taskbar", "startMenu", "startup"] as const;
 let appLanguageSelectionRevision = 0;
 
 void boot();
@@ -36414,6 +36417,7 @@ async function refreshSystemIntegrationState(options: { renderAfter?: boolean } 
 }
 
 function systemIntegrationLabel(key: SystemIntegrationKey) {
+  if (key === "desktop") return "桌面快捷方式";
   if (key === "taskbar") return "固定在桌面任务栏";
   if (key === "startMenu") return "固定在开始菜单";
   return "开机启动";
@@ -36432,7 +36436,7 @@ async function toggleSystemIntegration(key: SystemIntegrationKey) {
     return;
   }
   const previous = state.settings.systemIntegration.values[key];
-  const next = !previous;
+  const next = key === "desktop" ? true : !previous;
   state.settings.systemIntegration.values[key] = next;
   state.settings.systemIntegration.updating[key] = true;
   state.settings.systemIntegration.error = null;
@@ -36440,6 +36444,7 @@ async function toggleSystemIntegration(key: SystemIntegrationKey) {
   try {
     const snapshot = await api.setSystemIntegration({ key, enabled: next });
     applySystemIntegrationState(snapshot);
+    if (key === "desktop") showToast("桌面快捷方式已就绪", 3000);
   } catch (error) {
     const message = systemIntegrationErrorMessage(error);
     state.settings.systemIntegration.values[key] = previous;
@@ -60807,6 +60812,7 @@ function renderSettingsDialog() {
               : `
                 <div class="settings-general-list">
                   ${renderSettingsLanguageRow()}
+                  ${renderSettingsDesktopShortcutRow()}
                   ${renderSettingsSwitchRow("固定在桌面任务栏", "taskbar")}
                   ${renderSettingsSwitchRow("固定在开始菜单", "startMenu")}
                   ${renderSettingsSwitchRow("开机启动", "startup")}
@@ -61029,6 +61035,16 @@ function renderSettingsTaskCompletionPopupRow() {
       ></button>
     </div>
   `;
+}
+
+function renderSettingsDesktopShortcutRow() {
+  const integration = state.settings.systemIntegration;
+  const busy = integration.updating.desktop;
+  const disabled = integration.loading || busy || !integration.available.desktop;
+  return `<div class="settings-switch-row ${disabled ? "disabled" : ""}">
+    <span>桌面快捷方式</span>
+    <button type="button" class="settings-update-button" data-settings-integration="desktop" ${disabled ? "disabled" : ""}>${busy ? "处理中..." : "创建桌面快捷方式"}</button>
+  </div>`;
 }
 
 function renderSettingsSwitchRow(label: string, key: SystemIntegrationKey) {

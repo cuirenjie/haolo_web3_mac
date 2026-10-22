@@ -1,7 +1,7 @@
 // Isolated real chart, fixture candles and storage; no account or model requests.
 const { app, BrowserWindow } = require('electron');
 const fs = require('node:fs'), path = require('node:path'), assert = require('node:assert/strict');
-const root = path.resolve(__dirname, '..'), output = path.join(root, '.cache/ai-annotation-restore-M1-441');
+const root = path.resolve(__dirname, '..'), output = path.join(root, '.cache/ai-arrow-hidden-M1-449');
 fs.mkdirSync(output, { recursive: true });
 app.setPath('userData', path.join(output, `profile-${Date.now()}`));
 app.disableHardwareAcceleration();
@@ -12,6 +12,7 @@ let win;
   setTimeout(() => app.exit(1), 90000).unref();
   await app.whenReady();
   win = new BrowserWindow({ show: false, width: 1400, height: 950, webPreferences: { offscreen: true, backgroundThrottling: false } });
+  win.webContents.session.webRequest.onBeforeRequest((details, callback) => callback({ cancel: !/^(http:\/\/127\.0\.0\.1:|data:|blob:|devtools:)/.test(details.url) }));
   const js = code => win.webContents.executeJavaScript(`(async()=>{${code}})()`, true);
   const settle = () => js('await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
   const capture = async name => {
@@ -52,6 +53,7 @@ let win;
             operations.push(op('projected-terminal-label','text',[points[4]],names[4]+'? 预测',{fontSize:14}));}
         }
         operations.push(op('region','rectangle',[{...points[3],price:low+10},{...points[4],price:low+6}],undefined,{lineStyle:'dashed'}));
+        operations.push(op('arrow-up','arrow-up',[points[2]]),op('arrow-down','arrow-down',[points[3]]));
         operations.push(op('summary','note',[points[1]],'PRZ · '+(developing?'发展中 / Developing':'已确认 / Confirmed'),{fontSize:12}));
         return {schemaVersion:1,analysisId:id,drawingTurnId:id+developing+shark,baseRevision:0,marketId,interval,operations};
       };
@@ -73,6 +75,7 @@ let win;
   await win.loadURL(`http://127.0.0.1:${process.env.HAOLO_QA_PORT || 5209}/@fs/${path.join(root, 'test/fixtures/trading-chart-navigation.html').replaceAll('\\', '/')}`);
   await init();
   await js(`d.clearAllDrawings();d.drawings=[{id:'manual-kept',tool:'trend-line',symbol:d.getSymbol(),points:[{time:d.getCandles().at(-20).time,price:1320},{time:d.getCandles().at(-10).time,price:1325}]}];d.persistDrawings();window.manualBefore=JSON.stringify(d.drawings);window.undoBefore=JSON.stringify(d.redoStack);`);
+  await js(`d.drawings.push({id:'manual-arrow',tool:'arrow-down',symbol:d.getSymbol(),points:[{time:d.getCandles().at(-15).time,price:1330}]});d.persistDrawings();window.manualBefore=JSON.stringify(d.drawings);d.redraw();`);
   for (const theme of ['light', 'dark']) {
     await js(`document.documentElement.dataset.theme='${theme}';d.redraw()`);
     for (const [name, developing, shark] of [['classic', false, false], ['shark-developing', true, true]]) {
@@ -94,6 +97,8 @@ let win;
     }
     for (const strategy of await js('return catalog.map(x=>x.id)')) {
       await js(`d.storeAiDrawingPatch(makePatch('${strategy}'));d.redraw()`); await settle();
+      check(`${theme} ${strategy} all AI arrows hidden`, await js('return [...d.aiContent.querySelectorAll("[data-drawing-id]")].every(e=>!e.dataset.drawingId.endsWith("-arrow-up")&&!e.dataset.drawingId.endsWith("-arrow-down"))'));
+      check(`${theme} ${strategy} manual arrow retained`, await js('return Boolean(d.content.querySelector("[data-drawing-id=manual-arrow] .trading-drawing-directional-arrow"))'));
       const result = await js(`const drawing=d.aiDrawings[0],g=d.aiContent.querySelector('[data-drawing-id="'+drawing.id+'"]');
         const line=g.querySelector('polyline');return {stroke:line.getAttribute('stroke'),width:Number(line.getAttribute('stroke-width')),native:d.aiContent.querySelector('[data-ai-native-note]')!==null};`);
       if (['price-action','wyckoff'].includes(strategy)) {
@@ -113,7 +118,7 @@ let win;
     check(`${theme} order-flow micro text hidden`, await js('return [...d.aiContent.querySelectorAll("[data-drawing-id]")].filter(e=>/micro-(pressure|cluster)/.test(e.dataset.drawingId)).length'), 0);
     check(`${theme} hidden text has no hover targets`, await js('return [...d.aiTextHitContent.querySelectorAll("[data-ai-text-size-trigger]")].filter(e=>/micro-(pressure|cluster)/.test(e.dataset.aiTextSizeTrigger)).length'), 0);
     check(`${theme} hidden text excluded from toolbar`, await js('return d.aiTextDrawingsForCurrentContext().every(x=>!/^micro-(pressure|cluster)/.test(x.id))'));
-    check(`${theme} buy/sell arrows preserved`, await js('return d.aiContent.querySelectorAll(".trading-drawing-directional-arrow").length'), 2);
+    check(`${theme} buy/sell arrows hidden`, await js('return d.aiContent.querySelectorAll(".trading-drawing-directional-arrow").length'), 0);
     check(`${theme} POC and structure annotations preserved`, await js('return ["micro-poc-label","micro-structure-label"].every(id=>d.aiContent.querySelector("[data-drawing-id="+id+"] .trading-note"))'));
     check(`${theme} raw order-flow drawings preserved`, await js('return JSON.stringify(d.aiDrawings)===orderFlowAccepted'));
     await capture(`order-flow-${theme}`);
@@ -140,6 +145,28 @@ let win;
   await win.reload(); await pause(200); await init();
   check('order-flow history retains four suppressed source labels', await js('return d.aiDrawings.filter(x=>/^micro-(pressure|cluster)/.test(x.id)).length'), 4);
   check('order-flow history keeps source labels hidden', await js('return [...d.aiContent.querySelectorAll("[data-drawing-id]")].filter(e=>/^micro-(pressure|cluster)/.test(e.dataset.drawingId)).length'), 0);
+  check('history retains raw arrows but never renders them', await js('return d.aiDrawings.some(x=>x.tool==="arrow-down")&&!d.aiContent.querySelector(".trading-drawing-directional-arrow")'));
+  await js(`workspace.splitLayoutId='2-columns';workspace.applySplitLayout();`);
+  for(let i=0;i<100&&!await js('return Boolean(workspace.splitPanes[0]?.candles.length)');i++)await pause(50);
+  check('split chart ready', await js('return Boolean(workspace.splitPanes[0]?.candles.length)'));
+  for(const theme of ['light','dark']) for(const language of ['zh-CN','en','zh-TW']) {
+    await js(`document.documentElement.dataset.theme='${theme}';lang.applyAppLanguage('${language}',{root:document.body});d.redraw();`);
+    for(const pane of [0,1]) {
+      const result=await js(`const controller=${pane}===0?d:workspace.splitPanes[0].getDrawingController();
+        controller.getChart().timeScale().setVisibleLogicalRange({from:controller.getCandles().length-115,to:controller.getCandles().length+5});
+        await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+        const patch=makePatch('macd-analysis');patch.marketId=controller.getSymbol();patch.interval=controller.getInterval();
+        patch.operations.forEach(op=>op.drawing.symbol=patch.marketId);const accepted=JSON.stringify(patch),phases=[];
+        await controller.playAiDrawingPatch(patch,{speedMultiplier:100,onPhase:(phase,drawing)=>{if(drawing)phases.push(drawing.tool);}});
+        return {arrows:controller.aiContent.querySelectorAll('.trading-drawing-directional-arrow').length,
+          playedArrows:phases.some(tool=>tool.startsWith('arrow')),rawIntact:JSON.stringify(patch)===accepted,
+          rawArrows:controller.aiDrawings.filter(d=>d.tool.startsWith('arrow')).length,
+          shape:!!controller.aiContent.querySelector('[data-drawing-id$=structure]'),note:!!controller.aiContent.querySelector('.trading-note')};`);
+      check(`${theme} ${language} pane ${pane} playback and final display omit arrows`, result,
+        {arrows:0,playedArrows:false,rawIntact:true,rawArrows:2,shape:true,note:true});
+    }
+  }
+  await capture('split-final-dark');
   fs.writeFileSync(path.join(output,'report.json'),JSON.stringify(report,null,2));
   console.log(JSON.stringify({checks:report.checks.length,screenshots:report.screenshots,output}));
   app.exit(0);

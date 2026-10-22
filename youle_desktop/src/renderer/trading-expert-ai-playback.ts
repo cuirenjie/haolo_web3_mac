@@ -120,7 +120,8 @@ export interface TradingIndicatorAiDrawingPatch {
 export type TradingAiPlaybackPhase = "moving" | "drawing" | "committing" | "completed" | "cancelled";
 
 interface TradingAiPlaybackControllerOptions {
-  setDraft: (drawing: TradingAiDrawing | null) => void;
+  // Opacity belongs only to the transient display, never to the accepted patch.
+  setDraft: (drawing: TradingAiDrawing | null, opacity?: number) => void;
   commit: (drawing: TradingAiDrawing) => void;
   setCursor: (point: TradingDrawingPoint | null, pulse?: boolean) => void;
 }
@@ -176,55 +177,53 @@ export class TradingAiDrawingPlaybackController {
     const requestedSpeed = options.speedMultiplier ?? 1;
     const speed = Number.isFinite(requestedSpeed) && requestedSpeed > 0 ? requestedSpeed : 1;
     const duration = (normal: number) => normal / speed;
+    if (reducedMotion) {
+      this.currentCursor = null;
+      this.options.setCursor(null);
+    }
     try {
       for (const drawing of drawings) {
         this.assertCurrent(generation);
         const first = drawing.points[0];
         if (!first) continue;
-        if (reducedMotion) {
-          // Windows accessibility/remote-desktop settings can enable reduced
-          // motion. Keep observable steps without cursor travel or flashing;
-          // zero-duration promises otherwise commit the entire patch before paint.
-          this.options.setCursor(null);
-          options.onPhase?.("drawing", drawing);
-          this.options.setDraft(drawing);
-          await this.animate(Math.max(160, 260 / speed), generation, () => {});
-          this.assertCurrent(generation);
-          options.onPhase?.("committing", drawing);
-          this.options.setDraft(null);
-          this.options.commit(drawing);
-          continue;
+        if (!reducedMotion) {
+          options.onPhase?.("moving", drawing);
+          if (this.currentCursor) {
+            const origin = this.currentCursor;
+            await this.animate(duration(170), generation, (progress) => {
+              const cursor = interpolateTradingDrawingPoint(origin, first, easeInOutCubic(progress));
+              this.currentCursor = cursor;
+              this.options.setCursor(cursor);
+            });
+          } else {
+            this.currentCursor = first;
+            this.options.setCursor(first);
+          }
+          this.options.setCursor(first, true);
+          await this.wait(duration(90), generation);
         }
-        options.onPhase?.("moving", drawing);
-        if (this.currentCursor) {
-          const origin = this.currentCursor;
-          await this.animate(duration(170), generation, (progress) => {
-            const cursor = interpolateTradingDrawingPoint(origin, first, easeInOutCubic(progress));
-            this.currentCursor = cursor;
-            this.options.setCursor(cursor);
-          });
-        } else {
-          this.currentCursor = first;
-          this.options.setCursor(first);
-        }
-        this.options.setCursor(first, true);
-        await this.wait(duration(90), generation);
         options.onPhase?.("drawing", drawing);
-        if (drawing.tool === "note" && drawing.text) {
+        if (!reducedMotion && drawing.tool === "note" && drawing.text) {
           await this.playText(drawing, generation, duration(420));
         } else if (drawing.points.length === 1) {
-          this.options.setDraft(drawing);
-          await this.wait(duration(150), generation);
+          await this.animate(Math.max(160, duration(180)), generation, (progress) => {
+            this.options.setDraft(drawing, progress);
+          });
         } else {
-          await this.playSegments(drawing, generation, duration(235));
+          // Reduced motion removes decorative cursor travel/pulses, not the
+          // essential stroke progression. Whole-object previews look like stamps.
+          await this.playSegments(drawing, generation,
+            reducedMotion ? Math.max(160, duration(180)) : duration(235), reducedMotion);
         }
         this.assertCurrent(generation);
         options.onPhase?.("committing", drawing);
         this.options.setDraft(null);
         this.options.commit(drawing);
-        this.currentCursor = drawing.points.at(-1) ?? first;
-        this.options.setCursor(this.currentCursor, true);
-        await this.wait(duration(105), generation);
+        if (!reducedMotion) {
+          this.currentCursor = drawing.points.at(-1) ?? first;
+          this.options.setCursor(this.currentCursor, true);
+          await this.wait(duration(105), generation);
+        }
       }
       this.assertCurrent(generation);
       options.onPhase?.("completed");
@@ -244,15 +243,17 @@ export class TradingAiDrawingPlaybackController {
     }
   }
 
-  private async playSegments(drawing: TradingAiDrawing, generation: number, segmentDuration: number) {
+  private async playSegments(drawing: TradingAiDrawing, generation: number, segmentDuration: number, reducedMotion: boolean) {
     const completed = [drawing.points[0]];
     for (let index = 1; index < drawing.points.length; index += 1) {
       const first = drawing.points[index - 1];
       const second = drawing.points[index];
       await this.animate(segmentDuration, generation, (progress) => {
-        const current = interpolateTradingDrawingPoint(first, second, easeInOutCubic(progress));
-        this.currentCursor = current;
-        this.options.setCursor(current);
+        const current = interpolateTradingDrawingPoint(first, second, reducedMotion ? progress : easeInOutCubic(progress));
+        if (!reducedMotion) {
+          this.currentCursor = current;
+          this.options.setCursor(current);
+        }
         this.options.setDraft({ ...drawing, points: [...completed, current] });
       });
       completed.push(second);
@@ -282,18 +283,30 @@ export class TradingAiDrawingPlaybackController {
       return Promise.resolve();
     }
     return new Promise<void>((resolve, reject) => {
-      let startedAt: number | null = null;
+      let previousFrame: number | null = null;
+      let elapsed = 0;
       const frame = (now: number) => {
-        try { this.assertCurrent(generation); }
-        catch (error) {
+        try {
+          this.assertCurrent(generation);
+          if (window.document?.visibilityState === "hidden") {
+            previousFrame = null;
+            window.requestAnimationFrame(frame);
+            return;
+          }
+          // Long tasks, throttled/remote sessions and background resume must not
+          // consume a whole stroke between two paints. Keep at least six steps
+          // even at accelerated speed; normal refresh rates keep their timing.
+          const delta = previousFrame === null ? 0 : Math.max(0, now - previousFrame);
+          previousFrame = now;
+          elapsed = Math.min(duration, elapsed + Math.min(delta, 50, duration / 6));
+          const progress = Math.min(1, elapsed / duration);
+          onFrame(progress);
+          this.assertCurrent(generation);
+          if (progress >= 1) resolve();
+          else window.requestAnimationFrame(frame);
+        } catch (error) {
           reject(error);
-          return;
         }
-        startedAt ??= now;
-        const progress = Math.min(1, (now - startedAt) / duration);
-        onFrame(progress);
-        if (progress >= 1) resolve();
-        else window.requestAnimationFrame(frame);
       };
       window.requestAnimationFrame(frame);
     });

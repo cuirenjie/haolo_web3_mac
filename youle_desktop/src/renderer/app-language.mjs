@@ -13,6 +13,11 @@ export const APP_LANGUAGE_STORAGE_KEY = "haolo.appearance.language";
 export const APP_LANGUAGES = Object.freeze(["en", "zh-CN", "zh-TW"]);
 
 const ENGLISH_UI_PHRASES = Object.freeze({
+  "桌面快捷方式": "Desktop shortcut",
+  "创建桌面快捷方式": "Create desktop shortcut",
+  "桌面快捷方式已就绪": "Desktop shortcut is ready",
+  "桌面快捷方式设置失败：": "Failed to update desktop shortcut: ",
+  "无法更新桌面快捷方式，请检查桌面目录权限后重试。": "Could not update the desktop shortcut. Check the desktop folder permissions and try again.",
   "收益曲线": "Profit chart",
   "收益率曲线": "Return chart",
   "收益额曲线": "Profit chart",
@@ -944,6 +949,13 @@ const ENGLISH_UI_PHRASES = Object.freeze({
 });
 
 const TRADITIONAL_UI_PHRASES = Object.freeze({
+  "删除 AI 标注": "刪除 AI 標註",
+  "AI 标注已删除": "AI 標註已刪除",
+  "桌面快捷方式": "桌面捷徑",
+  "创建桌面快捷方式": "建立桌面捷徑",
+  "桌面快捷方式已就绪": "桌面捷徑已就緒",
+  "桌面快捷方式设置失败：": "桌面捷徑設定失敗：",
+  "无法更新桌面快捷方式，请检查桌面目录权限后重试。": "無法更新桌面捷徑，請檢查桌面目錄權限後重試。",
   "周期设置": "週期設定",
   "指标设置": "指標設定",
   "关闭指标设置": "關閉指標設定",

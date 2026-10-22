@@ -219,6 +219,8 @@ const PHRASES = Object.freeze({
   "请点击绘图线条或控制点": "Click a drawing or a control point", "已放大": "Zoomed in", "已缩小": "Zoomed out",
   "当前图表全部 AI 标注已缩小": "All AI annotation text on this chart made smaller",
   "当前图表全部 AI 标注已放大": "All AI annotation text on this chart made larger",
+  "删除 AI 标注": "Delete AI annotation",
+  "AI 标注已删除": "AI annotation deleted",
   "账户持仓与委托线": "Position and order lines", "AI 策略绘图": "AI strategy drawings", "AI 文字标注字号调节": "AI annotation font size controls",
   "暂无成交量数据": "No volume data", "请输入图片链接": "Enter an image URL",
   "项目": "Item", "数值": "Value", "价格": "Price", "目标": "Target", "止损": "Stop",

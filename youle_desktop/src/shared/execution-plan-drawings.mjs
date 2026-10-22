@@ -48,7 +48,7 @@ export function projectExecutionPlanDrawings(patch, plan, language = 'zh-CN') {
       ...scenario.targets.map(target => ['target', target])];
     for (const [index, [role, level]] of levels.entries()) {
       const targetIndex = role === 'target' ? index - 1 : undefined;
-      const label = role === 'entry' ? (english ? 'Entry' : traditional ? '入場' : '入场')
+      const label = role === 'entry' ? (english ? `Entry ${scenario.side}` : `${traditional ? '入場' : '入场'}做${scenario.side === 'long' ? '多' : '空'}`)
         : role === 'stop' ? (english ? 'Stop loss' : traditional ? '止損' : '止损')
         : english ? `TP${targetIndex}` : `第${targetIndex}止盈`;
       operations.push({op: 'upsert', drawing: {

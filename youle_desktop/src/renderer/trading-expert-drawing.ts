@@ -19,11 +19,13 @@ import {
 } from "./trading-expert-ai-playback.ts";
 import {
   fitTradingOrderLineLabels,
+  tradingPlanPriceLineObstacles,
   renderTradingOrderLineSvg,
   renderTradingOrderPositionCards,
   type TradingOrderLine,
 } from "./trading-expert-order-lines.ts";
 import { buildTradingPlanPriceLines } from './trading-plan-price-lines.ts';
+import { TradingAiPlanAutoscale, tradingAiPlanFitRange } from './trading-ai-plan-autoscale.ts';
 import { normalizePlanLevel, type PlanLevel } from '../shared/execution-plan-drawings.mjs';
 import { PLAN_DRAWING_HISTORY_CHANGED, projectStoredTradingPlanDrawings } from './trading-plan-drawing-history.ts';
 import { tradingDrawingLabelObstacles } from './trading-drawing-label-obstacles.ts';
@@ -40,6 +42,7 @@ import { isCycleDrawing, cycleAnchorPoints, moveCycleAnchor, cycleFillColor, ren
 import { manualDrawingDefaults, manualFibLevelColor, DRAWING_SELECTION_COLOR, type ManualDrawingDefaults } from './trading-drawing-defaults.ts';
 import { TradingDrawingLayer } from './trading-drawing-layer.ts';
 import { TradingDrawingHoverText } from './trading-drawing-hover-text.ts';
+import { TradingAiAnnotationHover } from './trading-ai-annotation-hover.ts';
 import { isPlainTextDrawing, isManualNote, isManualPriceNote, isPinNote, isCallout, isComment, isSignpost, isAnnotationTable, isInlineAnnotation, annotationTextGeometry, annotationPrice, priceLabelGeometry, calloutPath, PLAIN_TEXT_FONT_SIZE, PLAIN_TEXT_COLOR, PLAIN_TEXT_FONT_FAMILY } from './trading-plain-text.ts';
 import { annotationTableCells, annotationTableGeometry, annotationTableCellAt, updateAnnotationTableCell, type TableCell } from './trading-annotation-table.ts';
 import { TradingDrawingCrosshair } from './trading-drawing-crosshair.ts';
@@ -49,7 +52,7 @@ import { tradingInfoLineRows, renderTradingInfoLineCard } from './trading-info-l
 import { renderTradingTrendAngleAnnotation } from './trading-trend-angle.ts';
 import { isTradingPitchfork, renderTradingPitchfork } from './trading-pitchfork.ts';
 import { isReferencePatternDrawing, renderReferencePattern, harmonicFillColor, HARMONIC_BLUE } from './trading-patterns.ts';
-import { usesNativeAiDrawingStyle, nativeAiDrawingDefaults, nativeAiDrawingDisplayModel, isHiddenOrderFlowAnnotation, renderNativeAiHarmonicPath } from './trading-ai-native-style.ts';
+import { usesNativeAiDrawingStyle, nativeAiDrawingDefaults, nativeAiDrawingDisplayModel, isHiddenOrderFlowAnnotation, isHiddenAiArrowDrawing, renderNativeAiHarmonicPath } from './trading-ai-native-style.ts';
 import { chartPatternNativeDrawingModel } from './chart-pattern-native-tools.ts';
 import { isElliottWave, renderElliottWave, ELLIOTT_FONT_SIZE, ELLIOTT_HANDLE_COLOR } from './trading-elliott-wave.ts';
 import { captureTradingChartToDesktop } from './trading-chart-screenshot.ts';
@@ -1121,13 +1124,15 @@ function renderTradingDrawingSelectionToolbar() {
 
 export function renderTradingDrawingLayer() {
   return `
+    <svg class="trading-order-line-layer" data-trading-order-line-layer data-i18n-drawing>
+      <g data-trading-order-lines aria-label="账户持仓与委托线"></g>
+    </svg>
     <svg class="trading-drawing-layer" data-drawing-layer data-i18n-drawing aria-label="K线绘图画布" role="img">
       <defs>
         <marker id="trading-drawing-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
           <path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke" stroke="none" />
         </marker>
       </defs>
-      <g data-trading-order-lines aria-label="账户持仓与委托线"></g>
       <g data-drawing-content></g>
       <g data-ai-drawing-content aria-label="AI 策略绘图"></g>
       <g data-ai-text-hit-content aria-label="AI 文字标注字号调节"></g>
@@ -2046,6 +2051,7 @@ export function layoutTradingAiNoteBoxes(
   bounds: { width: number; height: number },
   candleObstacles: TradingDrawingCollisionRect[],
   boxObstacles: TradingDrawingCollisionRect[] = [],
+  reservedObstacles: TradingDrawingCollisionRect[] = [],
 ) {
   const collisionCellSize = 8;
   const collisionColumns = Math.max(1, Math.ceil(bounds.width / collisionCellSize));
@@ -2130,25 +2136,23 @@ export function layoutTradingAiNoteBoxes(
       addCandidate(note.anchor.x + distance, note.anchor.y + distance / 2);
       addCandidate(note.anchor.x - metrics.boxWidth - distance, note.anchor.y + distance / 2);
     }
-    if (note.avoidBoxInteriors) {
-      for (const obstacle of boxObstacles) {
-        addCandidate(
-          obstacle.x + obstacle.width + AI_NOTE_CANDLE_GAP,
-          note.anchor.y - metrics.boxHeight / 2,
-        );
-        addCandidate(
-          obstacle.x - metrics.boxWidth - AI_NOTE_CANDLE_GAP,
-          note.anchor.y - metrics.boxHeight / 2,
-        );
-        addCandidate(
-          note.anchor.x - metrics.boxWidth / 2,
-          obstacle.y - metrics.boxHeight - AI_NOTE_CANDLE_GAP,
-        );
-        addCandidate(
-          note.anchor.x - metrics.boxWidth / 2,
-          obstacle.y + obstacle.height + AI_NOTE_CANDLE_GAP,
-        );
-      }
+    for (const obstacle of [...reservedObstacles, ...(note.avoidBoxInteriors ? boxObstacles : [])]) {
+      addCandidate(
+        obstacle.x + obstacle.width + AI_NOTE_CANDLE_GAP,
+        note.anchor.y - metrics.boxHeight / 2,
+      );
+      addCandidate(
+        obstacle.x - metrics.boxWidth - AI_NOTE_CANDLE_GAP,
+        note.anchor.y - metrics.boxHeight / 2,
+      );
+      addCandidate(
+        note.anchor.x - metrics.boxWidth / 2,
+        obstacle.y - metrics.boxHeight - AI_NOTE_CANDLE_GAP,
+      );
+      addCandidate(
+        note.anchor.x - metrics.boxWidth / 2,
+        obstacle.y + obstacle.height + AI_NOTE_CANDLE_GAP,
+      );
     }
     const horizontalStep = Math.max(36, Math.min(96, metrics.boxWidth * 0.4));
     const verticalStep = Math.max(28, Math.min(72, metrics.boxHeight + AI_NOTE_LAYOUT_GAP));
@@ -2180,6 +2184,9 @@ export function layoutTradingAiNoteBoxes(
       const boxCollision = note.avoidBoxInteriors && boxObstacles.some((obstacle) => (
         tradingDrawingRectsOverlap(rect, obstacle, AI_NOTE_CANDLE_GAP)
       ));
+      const reservedCollision = reservedObstacles.some(obstacle => (
+        tradingDrawingRectsOverlap(rect, obstacle, AI_NOTE_CANDLE_GAP)
+      ));
       const noteOverlapArea = occupied.reduce((total, candidate) => (
         total + tradingDrawingRectOverlapArea(rect, candidate)
       ), 0);
@@ -2195,6 +2202,7 @@ export function layoutTradingAiNoteBoxes(
         geometry,
         rect,
         boxCollision,
+        reservedCollision,
         score: (noteCollision ? 1_000_000_000 : 0)
           + (candleCollision ? 1_000_000 : 0)
           + noteOverlapArea * 10_000
@@ -2206,7 +2214,7 @@ export function layoutTradingAiNoteBoxes(
           + candidateIndex * 0.000001,
       };
     }).sort((first, second) => first.score - second.score);
-    const selected = ranked.find((candidate) => !candidate.boxCollision);
+    const selected = ranked.find((candidate) => !candidate.boxCollision && !candidate.reservedCollision);
     if (!selected) continue;
     occupied.push(selected.rect);
     placements.push({ id: note.id, geometry: selected.geometry });
@@ -2679,8 +2687,11 @@ export class TradingDrawingController {
   private aiDrawings: TradingDrawingModel[] = [];
   private readonly aiDrawingSets: TradingAiDrawingSets<TradingDrawingModel>;
   private aiDrawingSetPlaying = false;
+  private aiPlanAutoscale: TradingAiPlanAutoscale | null = null;
   private aiDrawingPlaybackVersion = 0;
+  private readonly aiPlaybackDeletedTextIds = new Set<string>();
   private aiDraft: TradingDrawingModel | null = null;
+  private aiDraftOpacity = 1;
   private aiCursorPoint: TradingDrawingPoint | null = null;
   private aiCursorPulse = false;
   private orderLines: TradingOrderLine[] = [];
@@ -2714,6 +2725,7 @@ export class TradingDrawingController {
   private readonly pointerInteraction = {};
   private readonly manualLayer: TradingDrawingLayer;
   private readonly hoverText: TradingDrawingHoverText;
+  private readonly aiAnnotationHover: TradingAiAnnotationHover;
   private projectionTimes: Map<number, number | null> | null = null;
   private readonly crosshair: TradingDrawingCrosshair;
   private selectionToolbarStyleKey = '';
@@ -2777,7 +2789,7 @@ export class TradingDrawingController {
         this.drawingStyles.set(drawing.tool, tradingDrawingStyleFromModel(drawing));
       }
     }
-    const orderLineContent = this.overlay.querySelector<SVGGElement>("[data-trading-order-lines]");
+    const orderLineContent = this.host.querySelector<SVGGElement>("[data-trading-order-lines]");
     const orderPositionCardLayer = this.host.querySelector<HTMLElement>("[data-trading-order-position-cards]");
     const content = this.overlay.querySelector<SVGGElement>("[data-drawing-content]");
     const aiContent = this.overlay.querySelector<SVGGElement>("[data-ai-drawing-content]");
@@ -2802,6 +2814,10 @@ export class TradingDrawingController {
       && tradingDrawingToolDefinition(this.activeTool)?.kind === 'cursor');
     this.aiContent = aiContent;
     this.aiTextHitContent = aiTextHitContent;
+    this.aiAnnotationHover = new TradingAiAnnotationHover(this.chartElement, aiTextHitContent,
+      () => this.userDrawingEnabled && !this.drawingsHidden && !this.drawingVisibility.aiHidden
+        && tradingDrawingToolDefinition(this.activeTool)?.kind === 'cursor',
+      id => this.deleteAiTextDrawing(id));
     this.aiCursorContent = aiCursorContent;
     this.toolbar = toolbar;
     this.status = status;
@@ -2835,11 +2851,13 @@ export class TradingDrawingController {
     this.onAiDrawingContextsChanged = options.onAiDrawingContextsChanged || (() => undefined);
     this.timeOffsetSeconds = options.timeOffsetSeconds;
     this.aiPlayback = new TradingAiDrawingPlaybackController({
-      setDraft: (drawing) => {
+      setDraft: (drawing, opacity = 1) => {
         this.aiDraft = drawing ? this.aiDrawingModel(drawing) : null;
+        this.aiDraftOpacity = opacity;
         this.redraw();
       },
       commit: (drawing) => {
+        if (this.aiPlaybackDeletedTextIds.has(drawing.id)) return;
         const model = this.aiDrawingModel(drawing);
         this.aiDrawings = [
           ...this.aiDrawings.filter((candidate) => (
@@ -3172,7 +3190,7 @@ export class TradingDrawingController {
     const target = event.target;
     if (event.button !== 0 || !(target instanceof Element)) return;
     if (!this.chartElement.contains(target) && !this.overlay.contains(target)) return;
-    if (target.closest('[data-drawing-id], button, input, textarea, select, [contenteditable=true], [role=menu], [role=dialog], [role=toolbar]')) return;
+    if (target.closest('[data-drawing-id], [data-ai-annotation-delete], button, input, textarea, select, [contenteditable=true], [role=menu], [role=dialog], [role=toolbar]')) return;
     if (this.userDrawingEnabled
       && tradingDrawingToolDefinition(this.activeTool)?.kind === 'cursor') {
       const hidden = !this.drawingVisibility.manualHidden && this.drawingVisibility.latestHidden(this.drawings.filter(drawing =>
@@ -3277,6 +3295,16 @@ export class TradingDrawingController {
     this.finishAiTextSizeToolbarDrag();
     this.hoveredAiTextDrawingId = null;
     this.aiTextSizeToolbarVisibility.setAvailable(false);
+  }
+
+  private deleteAiTextDrawing(id: string) {
+    const drawing = this.aiTextDrawing(id);
+    if (!drawing) return;
+    if (this.aiDrawingSetPlaying) this.aiPlaybackDeletedTextIds.add(id);
+    this.aiDrawings = this.aiDrawings.filter(candidate => candidate !== drawing);
+    this.persistAiDrawings();
+    this.redraw();
+    this.setStatus(translateDrawingText('AI 标注已删除'));
   }
 
   private showAiTextSizeToolbar(id: string) {
@@ -6368,13 +6396,17 @@ export class TradingDrawingController {
       speedMultiplier?: number;
     } = {},
   ) {
-    const drawings = this.normalizeAiDrawingPatch(patch);
+    // Validate the complete patch before omitting arrows from the visible playback.
+    const drawings = this.normalizeAiDrawingPatch(patch)
+      .filter(drawing => !isHiddenAiArrowDrawing({ source: 'ai', tool: drawing.tool }));
     const playbackStorageSessionId = this.storageSessionId;
     // Explicit removal must also invalidate pending playback and its final patch save.
     const playbackClearVersion = this.aiDrawingClearVersion;
     this.cancelAiPlayback({ clear: true });
+    this.aiPlaybackDeletedTextIds.clear();
     const playbackVersion = ++this.aiDrawingPlaybackVersion;
     this.aiDrawingSetPlaying = true;
+    let fitCompletedPlan = false;
     try {
       await options.beforePlayback?.();
       if (
@@ -6399,12 +6431,17 @@ export class TradingDrawingController {
         // Playback cancellation is intentionally non-throwing. Re-apply the complete
         // patch so a cancelled frame sequence can never leave a blank or partial chart.
         this.storeAiDrawingPatch(patch);
+        fitCompletedPlan = true;
       }
     } finally {
       if (this.aiDrawingPlaybackVersion === playbackVersion) {
+        this.aiPlaybackDeletedTextIds.clear();
         this.aiDrawingSetPlaying = false;
         this.aiDrawings = this.aiDrawingSets.selectedDrawings(this.aiDrawings);
-        if (!this.destroyed) this.redraw();
+        if (!this.destroyed) {
+          if (fitCompletedPlan) this.fitCompletedAiPlan();
+          else this.redraw();
+        }
       }
     }
   }
@@ -6415,7 +6452,19 @@ export class TradingDrawingController {
     this.aiDrawingSets.select(patch, patch.analysisId);
     this.aiDrawings = this.aiDrawingSets.selectedDrawings(this.aiDrawings);
     this.drawingVisibility.setLayers({aiHidden: false, plansHidden: false});
-    this.persistAiDrawings(); this.redraw();
+    this.persistAiDrawings(); this.fitCompletedAiPlan();
+  }
+
+  aiPlanPriceRange() { return this.aiPlanAutoscale?.priceRange() ?? null; }
+
+  private fitCompletedAiPlan() {
+    if (this.drawingScope !== 'main') { this.redraw(); return; }
+    this.aiPlanAutoscale ??= new TradingAiPlanAutoscale();
+    this.redraw();
+    if (!this.aiPlanPriceRange()) return;
+    this.getChart()?.priceScale('right', this.paneIndex).setAutoScale(true);
+    this.redraw();
+    this.getNavigation?.()?.schedule();
   }
 
   storeAiDrawingPatch(patch: TradingAiDrawingPatch) {
@@ -6428,6 +6477,13 @@ export class TradingDrawingController {
       drawings,
     );
     this.aiDrawings = this.aiDrawingSets.selectedDrawings(this.aiDrawings);
+    if (this.aiDrawingSetPlaying && this.aiPlaybackDeletedTextIds.size) {
+      this.aiDrawings = this.aiDrawings.filter(drawing => !tradingAiDrawingMatchesContext(drawing, patch.marketId, patch.interval)
+        || !this.aiPlaybackDeletedTextIds.has(drawing.id));
+      // The final complete playback patch must not resurrect a label deleted
+      // while later objects were still being animated.
+      this.aiDrawingSets.updateSelected(this.aiDrawings);
+    }
     this.persistAiDrawings();
     this.redraw();
   }
@@ -6695,6 +6751,18 @@ export class TradingDrawingController {
     if (this.overlay.getAttribute("viewBox") !== viewBox) this.overlay.setAttribute("viewBox", viewBox);
     if (this.overlay.getAttribute("width") !== String(bounds.width)) this.overlay.setAttribute("width", String(bounds.width));
     if (this.overlay.getAttribute("height") !== String(bounds.height)) this.overlay.setAttribute("height", String(bounds.height));
+    // Only the price-line surface spans the right axis. All drawing geometry
+    // remains clipped to its own plot/pane, including during zoom and resize.
+    const orderLineOverlay = this.orderLineContent.ownerSVGElement;
+    const priceScaleWidth = orderLineOverlay ? Math.max(0, this.getChart()?.priceScale("right").width() ?? 0) : 0;
+    const orderLineBounds = { ...bounds, priceScaleWidth };
+    if (orderLineOverlay) {
+      const width = bounds.width + priceScaleWidth;
+      const attributes = { viewBox: `0 0 ${width} ${bounds.height}`, width: String(width), height: String(bounds.height) };
+      for (const [name, value] of Object.entries(attributes)) {
+        if (orderLineOverlay.getAttribute(name) !== value) orderLineOverlay.setAttribute(name, value);
+      }
+    }
     const candleSeries = this.getCandleSeries();
     const priceToCoordinate = (price: number) => finiteTradingChartCoordinate(candleSeries?.priceToCoordinate(price));
     const symbol = this.getSymbol();
@@ -6707,10 +6775,14 @@ export class TradingDrawingController {
       aiSourceDrawings.push(this.aiDraft);
     }
     const planPriceLines = buildTradingPlanPriceLines(aiSourceDrawings);
+    this.aiPlanAutoscale?.update(candleSeries, this.aiDrawingSetPlaying || this.drawingVisibility.plansHidden ? null
+      : tradingAiPlanFitRange(planPriceLines.lines.map(line => line.price),
+        this.drawingVisibility.aiHidden ? [] : aiSourceDrawings.filter(drawing => !isHiddenOrderFlowAnnotation(drawing) && !isHiddenAiArrowDrawing(drawing))));
     const displayedOrderLines = [
       ...(this.drawingVisibility.ordersHidden ? [] : this.orderLines),
       ...(this.drawingVisibility.plansHidden ? [] : planPriceLines.lines),
     ];
+    const planObstacles = tradingPlanPriceLineObstacles(displayedOrderLines, symbol, orderLineBounds, priceToCoordinate);
     // Most charts have no order labels or notes to avoid. Do not scan history
     // just to render an empty layer, and share the work when both need it.
     let obstacles: TradingDrawingCollisionRect[] | null = null;
@@ -6724,7 +6796,7 @@ export class TradingDrawingController {
         ? renderTradingOrderLineSvg(
           displayedOrderLines,
           this.getSymbol(),
-          bounds,
+          orderLineBounds,
           priceToCoordinate,
           candleObstacles(),
           annotationObstacles,
@@ -6776,7 +6848,7 @@ export class TradingDrawingController {
       }
       return { id: drawing.id, render };
     }));
-    const aiDrawings = aiSourceDrawings.filter(drawing => !this.drawingVisibility.aiHidden && !planPriceLines.drawingIds.has(drawing.id) && !isHiddenOrderFlowAnnotation(drawing))
+    const aiDrawings = aiSourceDrawings.filter(drawing => !this.drawingVisibility.aiHidden && !planPriceLines.drawingIds.has(drawing.id) && !isHiddenOrderFlowAnnotation(drawing) && !isHiddenAiArrowDrawing(drawing))
       .map((drawing) => nativeAiDrawingDisplayModel(chartPatternNativeDrawingModel(tradingAiDrawingDisplayModel(drawing))));
     const aiCandlestickLabelRequests = aiDrawings.flatMap((drawing): TradingAiNoteLayoutRequest[] => {
       if (!tradingDrawingIsPriceActionCandlestickPatternLabel(drawing) || !drawing.points[0]) return [];
@@ -6812,13 +6884,26 @@ export class TradingDrawingController {
     const orderFlowBoxObstacles = this.visibleOrderFlowBoxObstacles(aiDrawings, bounds);
     const priceActionDrawingObstacles = this.visiblePriceActionDrawingObstacles(aiDrawings, bounds);
     const gannTheoryBoxObstacles = this.visibleGannTheoryBoxObstacles(aiDrawings, bounds);
-    const aiTextLayoutRequests = [...aiCandlestickLabelRequests, ...aiNoteRequests];
+    const aiInlineRequests = aiDrawings.flatMap((drawing): TradingAiNoteLayoutRequest[] => {
+      if (!planObstacles.length || !['text', 'anchored-text'].includes(drawing.tool)
+        || tradingDrawingIsPriceActionCandlestickPatternLabel(drawing) || !drawing.text) return [];
+      const anchor = this.drawingPointToScreen(drawing, 0, bounds);
+      if (!anchor || !tradingDrawingScreenPointVisible(anchor, bounds)) return [];
+      const fontSize = drawing.fontSize ?? DEFAULT_TEXT_FONT_SIZE;
+      const layout = tradingDrawingTextLayout(drawing.text, fontSize);
+      const rect = { x: anchor.x - layout.width / 2, y: anchor.y - fontSize, width: layout.width, height: layout.height };
+      if (!planObstacles.some(obstacle => tradingDrawingRectsOverlap(rect, obstacle, AI_NOTE_CANDLE_GAP))) return [];
+      return [{ id: drawing.id, anchor, text: drawing.text, fontSize }];
+    });
+    const aiTextLayoutRequests = [...aiCandlestickLabelRequests, ...aiNoteRequests, ...aiInlineRequests];
+    const layoutRequestedIds = new Set(aiTextLayoutRequests.map(request => request.id));
     const aiTextLayouts = new Map((aiTextLayoutRequests.length
       ? layoutTradingAiNoteBoxes(
         aiTextLayoutRequests,
         bounds,
         candleObstacles(),
         [...orderFlowBoxObstacles, ...priceActionDrawingObstacles, ...gannTheoryBoxObstacles],
+        planObstacles,
       )
       : []
     ).map((placement) => [placement.id, placement.geometry]));
@@ -6829,14 +6914,15 @@ export class TradingDrawingController {
     updateTradingDrawingMarkup(this.aiContent, orderedAiDrawings
       .map((drawing) => {
         const textLayout = aiTextLayouts.get(drawing.id);
-        if (drawing.tool === "note" && !textLayout) return "";
-        return this.renderDrawing(
+        if ((drawing.tool === "note" || layoutRequestedIds.has(drawing.id)) && !textLayout) return "";
+        const markup = this.renderDrawing(
           drawing,
           bounds,
           drawing.id === this.aiDraft?.id,
           false,
           textLayout,
         );
+        return drawing.id === this.aiDraft?.id ? `<g opacity="${this.aiDraftOpacity}">${markup}</g>` : markup;
       })
       .map((markup) => `<g data-i18n-skip>${markup}</g>`)
       .join(""));
@@ -6844,7 +6930,7 @@ export class TradingDrawingController {
       .map((drawing) => {
         if (drawing.id === this.aiDraft?.id) return "";
         const textLayout = aiTextLayouts.get(drawing.id);
-        if (drawing.tool === "note" && !textLayout) return "";
+        if ((drawing.tool === "note" || layoutRequestedIds.has(drawing.id)) && !textLayout) return "";
         return this.renderAiTextSizeHitTarget(drawing, bounds, textLayout);
       })
       .join(""));
@@ -6854,7 +6940,7 @@ export class TradingDrawingController {
     this.updateToolbarState();
     this.updateSelectionToolbar(bounds);
     this.updateAxisMarkers(bounds);
-    } finally { this.projectionTimes = null; this.hoverText?.refresh(); }
+    } finally { this.projectionTimes = null; this.hoverText?.refresh(); this.aiAnnotationHover?.refresh(); }
   }
 
   private renderDrawing(
@@ -7570,20 +7656,20 @@ export class TradingDrawingController {
       ? resolvedTextGeometry ?? tradingDrawingNoteBoxGeometry(point, text, fontSize, bounds)
       : null;
     const textBox = noteGeometry ?? (boxed ? tradingDrawingTextBoxLayout(text, fontSize, bounds) : null);
-    const layout = textBox?.layout ?? tradingDrawingTextLayout(text, fontSize);
+    const layout = resolvedTextGeometry?.layout ?? textBox?.layout ?? tradingDrawingTextLayout(text, fontSize);
     const textLines = (x: number, firstBaseline: number) => layout.lines.map((line, index) => (
       `<tspan x="${x}" y="${firstBaseline + index * layout.lineHeight}"${line ? ` textLength="${layout.lineWidths[index]}" lengthAdjust="spacingAndGlyphs"` : ""}>${escapeHtml(line)}</tspan>`
     )).join("");
     const fontWeight = drawing.bold ? 700 : 400;
     if (toolId === "text" || toolId === "anchored-text") {
       const isPriceActionCandlestickPatternLabel = tradingDrawingIsPriceActionCandlestickPatternLabel(drawing);
-      const inlinePoint = isPriceActionCandlestickPatternLabel && resolvedTextGeometry
+      const inlinePoint = resolvedTextGeometry
         ? {
             x: resolvedTextGeometry.boxLeft + resolvedTextGeometry.boxWidth / 2,
             y: resolvedTextGeometry.boxTop + fontSize,
           }
         : point;
-      const backgroundPoint = isPriceActionCandlestickPatternLabel
+      const backgroundPoint = drawing.source === 'ai'
         ? { x: inlinePoint.x - layout.width / 2, y: inlinePoint.y }
         : inlinePoint;
       const background = drawing.textBackgroundColor
@@ -7592,7 +7678,7 @@ export class TradingDrawingController {
       const inlineLabelClass = drawing.source === "ai"
         ? ` class="trading-ai-inline-label${isPriceActionCandlestickPatternLabel ? " trading-price-action-candlestick-label" : ""}"`
         : "";
-      const candlestickLeader = isPriceActionCandlestickPatternLabel && resolvedTextGeometry
+      const candlestickLeader = resolvedTextGeometry
         ? `<line class="trading-price-action-candlestick-label-leader" x1="${point.x}" y1="${point.y}" x2="${resolvedTextGeometry.connectorPoint.x}" y2="${resolvedTextGeometry.connectorPoint.y}" />`
           + `<circle class="trading-price-action-candlestick-label-target" cx="${point.x}" cy="${point.y}" r="2.2" />`
         : "";
@@ -7696,7 +7782,7 @@ export class TradingDrawingController {
         width: geometry.boxWidth + 12,
         height: geometry.boxHeight + 12,
       };
-    } else if (tradingDrawingIsPriceActionCandlestickPatternLabel(drawing) && resolvedTextGeometry) {
+    } else if (resolvedTextGeometry) {
       box = {
         x: resolvedTextGeometry.boxLeft - 6,
         y: resolvedTextGeometry.boxTop - 6,
@@ -7706,15 +7792,19 @@ export class TradingDrawingController {
     } else {
       const layout = tradingDrawingTextLayout(drawing.text, fontSize);
       box = {
-        x: point.x - 7,
+        x: point.x - (['text', 'anchored-text'].includes(drawing.tool) ? layout.width / 2 : 0) - 7,
         y: point.y - fontSize - 6,
         width: layout.width + 14,
         height: layout.height + 12,
       };
     }
     const label = drawing.text.replace(/\s+/g, " ").trim().slice(0, 48);
+    const deleteX = Math.max(0, Math.min(bounds.width - 18, box.x + box.width - 18));
+    const deleteY = Math.max(0, Math.min(bounds.height - 18, box.y - 16));
     return `<g class="trading-ai-text-size-trigger" data-i18n-skip data-ai-text-size-trigger="${escapeHtml(drawing.id)}" tabindex="0" role="group" aria-label="${escapeHtml(translateAppText(`AI 标注：${label}；当前字号 ${fontSize}px`))}">`
       + `<rect class="trading-ai-text-size-hit-target" x="${box.x}" y="${box.y}" width="${box.width}" height="${box.height}" />`
+      + `<g class="trading-ai-annotation-delete" data-ai-annotation-delete="${escapeHtml(drawing.id)}" role="button" tabindex="0" aria-label="${escapeHtml(translateDrawingText('删除 AI 标注'))}" transform="translate(${deleteX} ${deleteY})">`
+      + `<title>${escapeHtml(translateDrawingText('删除 AI 标注'))}</title><circle cx="9" cy="9" r="9"/><path d="m5.5 5.5 7 7m0-7-7 7"/></g>`
       + `</g>`;
   }
 
@@ -7909,7 +7999,9 @@ export class TradingDrawingController {
     this.drawingVisibility.destroy();
     if (this.destroyed) return;
     this.destroyed = true;
+    this.aiPlanAutoscale?.destroy();
     this.hoverText.destroy();
+    this.aiAnnotationHover.destroy();
     this.overlay.classList.remove('drawing-handles-idle');
     this.finishHorizontalLineTextEdit(false, false);
     this.horizontalLineSettings.close();

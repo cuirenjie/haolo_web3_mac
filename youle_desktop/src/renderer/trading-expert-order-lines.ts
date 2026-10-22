@@ -105,6 +105,13 @@ interface TradingOrderLineRenderEntry {
   labelY: number;
 }
 
+interface TradingOrderLineBounds {
+  width: number;
+  height: number;
+  /** Right axis width, outside the plot's width. */
+  priceScaleWidth?: number;
+}
+
 interface TradingOrderLineRenderGeometry extends TradingOrderLineRenderEntry {
   labelLeft: number;
   labelTop: number;
@@ -596,7 +603,7 @@ function escapeXml(value: string) {
 function visibleTradingOrderLineGeometry(
   lines: readonly TradingOrderLine[],
   market: string,
-  bounds: { width: number; height: number },
+  bounds: TradingOrderLineBounds,
   priceToCoordinate: (price: number) => number | null,
   candleObstacles: readonly TradingOrderLineCandleObstacle[],
   annotationObstacles: readonly TradingOrderLineCandleObstacle[],
@@ -610,7 +617,21 @@ function visibleTradingOrderLineGeometry(
   });
   const labelRight = Math.max(1, bounds.width - ORDER_LINE_PRICE_AXIS_GUTTER);
   const grouped = new Map<number, Array<{ line: TradingOrderLine; lineY: number; labelWidth: number }>>();
-  visible.forEach((entry) => {
+  // Plan labels are price-axis markers: never move them away from their price
+  // to avoid candles or neighbouring labels. Account labels keep their layout.
+  const planEntries = visible.filter(({ line }) => line.labelMode === "price").map(({ line, lineY }) => {
+    const keyWidth = orderLineLabelKeyWidth(line);
+    const priceWidth = Math.max(0, bounds.priceScaleWidth ?? tradingOrderLineLabelWidth(line) - keyWidth);
+    return {
+      line, lineY, labelY: lineY,
+      labelLeft: bounds.width - keyWidth,
+      labelTop: lineY - ORDER_LINE_LABEL_HEIGHT / 2,
+      labelWidth: keyWidth + priceWidth,
+      priceLevelIndex: 0,
+      priceLevelCount: 1,
+    };
+  });
+  visible.filter(({ line }) => line.labelMode !== "price").forEach((entry) => {
     const member = {
       ...entry,
       labelWidth: Math.min(
@@ -624,7 +645,7 @@ function visibleTradingOrderLineGeometry(
   });
   const levels = [...grouped.values()];
   const levelByPrice = new Map(levels.map((members) => [members[0].line.price, members]));
-  return layoutTradingOrderLineLabels(
+  const accountEntries = layoutTradingOrderLineLabels(
     levels.map((members) => ({ line: members[0].line, lineY: members[0].lineY })),
     bounds.height,
   ).flatMap((entry) => {
@@ -653,6 +674,22 @@ function visibleTradingOrderLineGeometry(
       };
     });
   });
+  return [...accountEntries, ...planEntries];
+}
+
+/** Fixed plan badges and strokes are reserved before AI annotation layout. */
+export function tradingPlanPriceLineObstacles(
+  lines: readonly TradingOrderLine[],
+  market: string,
+  bounds: TradingOrderLineBounds,
+  priceToCoordinate: (price: number) => number | null,
+): TradingOrderLineCandleObstacle[] {
+  return visibleTradingOrderLineGeometry(
+    lines.filter(line => line.labelMode === 'price'), market, bounds, priceToCoordinate, [], [],
+  ).flatMap(entry => [
+    { x: entry.labelLeft, y: entry.labelTop, width: entry.labelWidth, height: ORDER_LINE_LABEL_HEIGHT },
+    { x: 0, y: entry.lineY - 0.5, width: bounds.width, height: 1 },
+  ]);
 }
 
 function formatPositionCardNumber(
@@ -829,7 +866,7 @@ function groupTradingOrderLinePriceLevels(entries: readonly TradingOrderLineRend
 export function renderTradingOrderLineSvg(
   lines: readonly TradingOrderLine[],
   market: string,
-  bounds: { width: number; height: number },
+  bounds: TradingOrderLineBounds,
   priceToCoordinate: (price: number) => number | null,
   candleObstacles: readonly TradingOrderLineCandleObstacle[] = [],
   annotationObstacles: readonly TradingOrderLineCandleObstacle[] = [],
@@ -863,7 +900,8 @@ export function renderTradingOrderLineSvg(
     const position = line.kind === "position-long" || line.kind === "position-short";
     const liquidation = line.kind === "liquidation";
     const keyWidth = orderLineLabelKeyWidth(line);
-    const labelTextX = left + keyWidth + ORDER_LINE_LABEL_TEXT_GAP;
+    const plan = line.labelMode === "price";
+    const labelTextX = plan ? bounds.width + (width - keyWidth) / 2 : left + keyWidth + ORDER_LINE_LABEL_TEXT_GAP;
     const lineEnd = Math.max(0, left - 6);
     const connector = priceLevelIndex === 0 && Math.abs(lineY - labelY) > 0.5
       ? `<path class="trading-order-line-connector" d="M ${lineEnd} ${lineY} L ${left - 2} ${labelY}" />`
@@ -881,7 +919,7 @@ export function renderTradingOrderLineSvg(
           : "flat";
     const quantityText = quantityUsdtLabel(line.quantityUsdt ?? null);
     const pnlText = line.pnl === null || line.pnl === undefined ? "" : signedUsdt(line.pnl);
-    const labelText = `<text class="trading-order-line-label-text" x="${labelTextX}" y="${labelY + 0.5}">`
+    const labelText = plan && width <= keyWidth ? "" : `<text class="trading-order-line-label-text"${plan ? ' text-anchor="middle"' : ''} x="${labelTextX}" y="${labelY + 0.5}">`
       + (line.labelMode === "price"
         ? `<tspan class="trading-order-line-price">${escapeXml(line.label)}</tspan>`
         : liquidation
@@ -924,6 +962,18 @@ export function fitTradingOrderLineLabels(
     const background = group.querySelector<SVGRectElement>(".trading-order-line-label-bg");
     const text = group.querySelector<SVGTextElement>(".trading-order-line-label-text");
     if (!background || !text) return;
+    if (group.hasAttribute("data-trading-plan-price-line")) {
+      // Keep the key/axis seam fixed even for tiny prices with many decimals.
+      text.removeAttribute("textLength");
+      text.removeAttribute("lengthAdjust");
+      const key = group.querySelector<SVGRectElement>(".trading-order-line-label-key");
+      const available = Number(background.getAttribute("width")) - Number(key?.getAttribute("width")) - 8;
+      if (available > 0 && text.getComputedTextLength() > available) {
+        text.setAttribute("textLength", String(available));
+        text.setAttribute("lengthAdjust", "spacingAndGlyphs");
+      }
+      return;
+    }
     const left = Number(background.getAttribute("x"));
     if (!Number.isFinite(left)) return;
     let textBounds: DOMRect;
