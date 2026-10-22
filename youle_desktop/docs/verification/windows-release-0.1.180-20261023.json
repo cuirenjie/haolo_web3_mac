@@ -1,0 +1,147 @@
+{
+  "version": "0.1.180",
+  "task": "M1-458",
+  "builtAt": "2026-10-22T17:53:23.782Z",
+  "sourceCommit": "fcdea09ab32eb300c9e3bff1dba4d33aca2c728e",
+  "sourcePushed": true,
+  "clientVariant": "haolo_windows_web3",
+  "arch": "x64",
+  "businessBaseUrl": "https://haolo.com",
+  "uploaded": false,
+  "published": false,
+  "productionChanged": false,
+  "filename": "haolo_desktop-0.1.180-Setup.exe",
+  "bytes": 247804296,
+  "sha256": "0b611834c7355a01c46805d53113432139f9fb37715321c05fdb07546b183323",
+  "installer": "D:\\haolo_windows_web3\\youle_desktop\\release\\build-0.1.180-local-20261023\\haolo_desktop-0.1.180-Setup.exe",
+  "desktop": "C:\\Users\\joiec\\Desktop\\好咯最新安装包\\haolo_windows_web3\\haolo_desktop-0.1.180-Setup.exe",
+  "previousDesktopBackup": "C:\\Users\\joiec\\Desktop\\好咯最新安装包\\haolo_windows_web3\\archive\\0.1.180-20261022-4b9bf325",
+  "blockmap": {
+    "bytes": 251133,
+    "sha256": "36745f243622e00f04cc96da3d109a6bc3d448554586648b68a7fd6bba66555e"
+  },
+  "scope": [
+    "Binance request admission, deadlines and private-route recovery",
+    "Independent account PnL completion and renderer updates",
+    "SMT pairing source and public diagnostics",
+    "Indicator drawing without market time-axis mutation",
+    "0.1.180 version, three installer languages and rebuilt native host"
+  ],
+  "gateway": {
+    "repository": "haolo_windows_web3",
+    "path": "services/haolo-binance-gateway",
+    "remote": "origin/dev",
+    "tree": "38801a0680ce7532f33526678718d6b9841a94b5",
+    "latestCommit": "a3920810c9cc59e1c1e881cf173ae13253607b3a",
+    "runtimeFixCommit": "ef8e8dbd640b60a05a0f98c20d0087ddc55fbee9",
+    "alreadySynchronized": true,
+    "deployed": false
+  },
+  "tests": {
+    "passed": 5210,
+    "total": 5210,
+    "failed": 0,
+    "skipped": 0,
+    "typecheck": true,
+    "productionBuild": true
+  },
+  "signatures": [
+    {
+      "file": "youle_desktop\\release\\build-0.1.180-local-20261023\\win-unpacked\\haolo_desktop.exe",
+      "bytes": 210986952,
+      "sha256": "067f11489269a7e78491e59f0eab925de7c399e9ae02b585a502c5ac17c881ea",
+      "status": "Valid",
+      "subject": "E=contact@keroro.cc, CN=Keroro Software Ltd, O=Keroro Software Ltd, L=Shenzhen, S=Guangdong, C=CN, OID.1.3.6.1.4.1.311.60.2.1.1=Shenzhen, OID.1.3.6.1.4.1.311.60.2.1.2=Guangdong, OID.1.3.6.1.4.1.311.60.2.1.3=CN, SERIALNUMBER=91440300MA5FAR1W6E, OID.2.5.4.15=Private Organization",
+      "thumbprint": "EC6346287B2F343CB7BFA4CF4CAB7DB02379A0AD",
+      "issuer": "CN=GlobalSign GCC R45 EV CodeSigning CA 2020, O=GlobalSign nv-sa, C=BE",
+      "notAfter": "2027-08-27T03:38:41.0000000Z",
+      "timestampSubject": "CN=DigiCert SHA256 RSA4096 Timestamp Responder 2026 1, O=\"DigiCert, Inc.\", C=US",
+      "evCodeSigning": true,
+      "digest": "sha256",
+      "filename": "haolo_desktop.exe"
+    },
+    {
+      "file": "youle_desktop\\release\\build-0.1.180-local-20261023\\win-unpacked\\resources\\bin\\haolo-chrome-native-host.exe",
+      "bytes": 30664,
+      "sha256": "be294bc3625cbd67e952e448054d1b8103146b981c964d1441c841199a51c732",
+      "status": "Valid",
+      "subject": "E=contact@keroro.cc, CN=Keroro Software Ltd, O=Keroro Software Ltd, L=Shenzhen, S=Guangdong, C=CN, OID.1.3.6.1.4.1.311.60.2.1.1=Shenzhen, OID.1.3.6.1.4.1.311.60.2.1.2=Guangdong, OID.1.3.6.1.4.1.311.60.2.1.3=CN, SERIALNUMBER=91440300MA5FAR1W6E, OID.2.5.4.15=Private Organization",
+      "thumbprint": "EC6346287B2F343CB7BFA4CF4CAB7DB02379A0AD",
+      "issuer": "CN=GlobalSign GCC R45 EV CodeSigning CA 2020, O=GlobalSign nv-sa, C=BE",
+      "notAfter": "2027-08-27T03:38:41.0000000Z",
+      "timestampSubject": "CN=DigiCert SHA256 RSA4096 Timestamp Responder 2026 1, O=\"DigiCert, Inc.\", C=US",
+      "evCodeSigning": true,
+      "digest": "sha256",
+      "filename": "haolo-chrome-native-host.exe"
+    },
+    {
+      "file": "youle_desktop\\release\\build-0.1.180-local-20261023\\haolo_desktop-0.1.180-Setup.exe",
+      "bytes": 247804296,
+      "sha256": "0b611834c7355a01c46805d53113432139f9fb37715321c05fdb07546b183323",
+      "status": "Valid",
+      "subject": "E=contact@keroro.cc, CN=Keroro Software Ltd, O=Keroro Software Ltd, L=Shenzhen, S=Guangdong, C=CN, OID.1.3.6.1.4.1.311.60.2.1.1=Shenzhen, OID.1.3.6.1.4.1.311.60.2.1.2=Guangdong, OID.1.3.6.1.4.1.311.60.2.1.3=CN, SERIALNUMBER=91440300MA5FAR1W6E, OID.2.5.4.15=Private Organization",
+      "thumbprint": "EC6346287B2F343CB7BFA4CF4CAB7DB02379A0AD",
+      "issuer": "CN=GlobalSign GCC R45 EV CodeSigning CA 2020, O=GlobalSign nv-sa, C=BE",
+      "notAfter": "2027-08-27T03:38:41.0000000Z",
+      "timestampSubject": "CN=DigiCert SHA256 RSA4096 Timestamp Responder 2026 1, O=\"DigiCert, Inc.\", C=US",
+      "evCodeSigning": true,
+      "digest": "sha256",
+      "filename": "haolo_desktop-0.1.180-Setup.exe"
+    },
+    {
+      "file": "youle_desktop\\release\\build-0.1.180-local-20261023\\ev-signing\\haolo_desktop-0.1.180-Setup.__uninstaller.exe",
+      "bytes": 250576,
+      "sha256": "b09c345af54e84c4720e5232d61e6c61b8bd768b4b54f867546e6b2ecb7e83f2",
+      "status": "Valid",
+      "subject": "E=contact@keroro.cc, CN=Keroro Software Ltd, O=Keroro Software Ltd, L=Shenzhen, S=Guangdong, C=CN, OID.1.3.6.1.4.1.311.60.2.1.1=Shenzhen, OID.1.3.6.1.4.1.311.60.2.1.2=Guangdong, OID.1.3.6.1.4.1.311.60.2.1.3=CN, SERIALNUMBER=91440300MA5FAR1W6E, OID.2.5.4.15=Private Organization",
+      "thumbprint": "EC6346287B2F343CB7BFA4CF4CAB7DB02379A0AD",
+      "issuer": "CN=GlobalSign GCC R45 EV CodeSigning CA 2020, O=GlobalSign nv-sa, C=BE",
+      "notAfter": "2027-08-27T03:38:41.0000000Z",
+      "timestampSubject": "CN=DigiCert SHA256 RSA4096 Timestamp Responder 2026 1, O=\"DigiCert, Inc.\", C=US",
+      "evCodeSigning": true,
+      "digest": "sha256",
+      "filename": "haolo_desktop-0.1.180-Setup.__uninstaller.exe"
+    }
+  ],
+  "package": {
+    "sourceFiles": 297,
+    "extraResources": 324,
+    "asarSha256": "b387976752ceff1ee16b4127b46aaf1fc8d87a11bd39eef5ef4874ae19a388b5",
+    "runtimeVersion": "0.163.0",
+    "runtimeFiles": 47,
+    "buildInputs": 1368,
+    "buildInputsSha256": "d11bf33bffab6bdcd22d7d6b4bfeb884bcc0f77ead57af814dc74eb167cb5fe8"
+  },
+  "startup": {
+    "passed": true,
+    "actualPackagedAsar": true,
+    "isolated": true,
+    "errors": [],
+    "visualChecked": true
+  },
+  "updater": {
+    "passed": true,
+    "resumedFrom": 1048576,
+    "identicalFiles": 399,
+    "auditFiles": 1500,
+    "differential": {
+      "reconstructed": true,
+      "from": "0.1.179",
+      "to": "0.1.180",
+      "sha256": "0b611834c7355a01c46805d53113432139f9fb37715321c05fdb07546b183323",
+      "networkBytes": 20130911,
+      "rangeRequests": 11,
+      "scope": "Actual installer bytes through production differential downloader with local in-memory Range responses; no production network"
+    }
+  },
+  "environmentCorrections": [
+    "First test run used unavailable default Python; final full run explicitly uses existing Python 3.12.14, without changing tests.",
+    "Git author identity matches recent repository commits using command-scoped configuration; existing Git LFS was added to this process PATH and hooks were run normally."
+  ],
+  "limitations": [
+    "No real system installation, account binding or paid analysis was performed. Startup uses sealed ASAR with isolated profile and blocked external network.",
+    "No update-channel upload, backend API/Worker or market gateway deployment was performed. Server-side SMT pairing and PnL improvements require their independently verified backend release."
+  ],
+  "evidence": "D:\\haolo_windows_web3\\youle_desktop\\release\\build-0.1.180-local-20261023",
+  "logs": "D:\\haolo_windows_web3\\.cache\\release-0.1.180-20261023"
+}
