@@ -48,3 +48,11 @@
 ## 交付与上线边界
 
 客户端与业务后端均已修改本地源码，API、独立 Worker 和正在运行的客户端尚未更新。后续获授权发布时需分别验证客户端推荐窗口传参、API 实际返回窗口、Worker 0.2.0 文件哈希、真实任务形态和交易计划；不能把仅客户端构建或仅 API 更新当作本修复上线。
+
+## 2026-10-22 后续授权发布
+
+2026-10-22 M1-442 发布验收完成：Windows 源码 30b16c6、后端 08b8a50 已推送，API／独立策略 Worker 均 complete，各 1042 运行文件一致。线上行情补取与原 240 根真实数据完全匹配，两端各 9 组回放及旧版绘图器三语双主题 45 项检查通过；原 100 根计划价位一致。安装包未发布、旧报告不自动改写。交接期间 7 次 503 已单列，交接后 106581 请求零错误；详见 D:/haolo_front_web3/docs/backend-wyckoff-lifecycle-release-20261022.md。
+
+新增旧客户端服务端补历史，无需本次安装包。线上真实数据经 API／Worker 安装代码回放，补丁在修复前已提交的绘图器 485de85 上完成 45 项实际检查，箱体、SOS/LPS 与五条计划线均正常。回放使用受控模型回复，未创建用户付费任务或更改既有计划。历史报告不自动补图，重新分析使用新逻辑。
+
+[亮色回归截图](D:/haolo_windows_web3/youle_desktop/.cache/wyckoff-production-M1-442/light-zh-CN.png)；[双端发布记录](D:/haolo_front_web3/docs/backend-wyckoff-lifecycle-release-20261022.md)。
