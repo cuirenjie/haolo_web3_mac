@@ -1,6 +1,7 @@
 import { PublicRestCache } from "./public-rest-cache.mjs";
 import crypto from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
+import { MarketRefreshScope } from "./market-refresh-scope.mjs";
 
 export class GatewayCache {
   constructor({ redisUrl = "", prefix = "haolo:market:" } = {}) {
@@ -67,8 +68,8 @@ export class GatewayCache {
     return Object.freeze({ value: record.value, fresh: Number(record.freshUntil || 0) > now });
   }
 
-  async set(key, value, freshTtlMs, staleTtlMs = freshTtlMs) {
-    if (key.startsWith("rest:")) return this.publicRest.set(this.key(key), value, freshTtlMs, staleTtlMs, this.redis);
+  async set(key, value, freshTtlMs, staleTtlMs = freshTtlMs, options = {}) {
+    if (key.startsWith("rest:")) return this.publicRest.set(this.key(key), value, freshTtlMs, staleTtlMs, this.redis, options);
     const now = Date.now();
     const record = { value, freshUntil: now + Math.max(0, freshTtlMs), staleUntil: now + Math.max(freshTtlMs, staleTtlMs) };
     this.memory.set(key, record);
@@ -250,65 +251,80 @@ export class GatewayCache {
 
   async singleFlight(key, factory) {
     if (this.inflight.has(key)) return this.inflight.get(key);
-    const promise = Promise.resolve().then(factory).finally(() => this.inflight.delete(key));
+    const promise = Promise.resolve().then(factory).finally(() => {
+      if (this.inflight.get(key) === promise) this.inflight.delete(key);
+    });
     this.inflight.set(key, promise);
     return promise;
   }
 
-  async sharedSingleFlight(key, factory, { leaseMs = 65_000, readResult = null } = {}) {
+  async sharedSingleFlight(key, factory, { leaseMs = 65_000, timeoutMs = 65_000, readResult = null } = {}) {
     return this.singleFlight(key, async () => {
-      if (!this.redisUrl) return factory();
-      // Coordination and budget state fail closed. Never turn a Redis outage
-      // into one upstream fetch per replica; callers can still use stale data.
-      if (!this.redis?.isReady) throw Object.assign(new Error("Market coordination unavailable"), {
-        statusCode: 503, code: "MARKET_COORDINATION_UNAVAILABLE", retryAfterMs: 1_000,
-      });
-      const lockKey = this.key(`rest-flight:${crypto.createHash("sha256").update(key).digest("hex")}`);
-      const token = crypto.randomUUID();
-      const duration = Math.max(100, Math.trunc(leaseMs));
-      const deadline = Date.now() + duration;
-      while (Date.now() < deadline) {
-        const ready = await readResult?.();
-        if (ready !== undefined && ready !== null) return ready;
-        let acquired;
-        try { acquired = await this.redis.set(lockKey, token, { NX: true, PX: duration }); }
-        catch { throw Object.assign(new Error("Market coordination unavailable"), {
+      const scope = new MarketRefreshScope(timeoutMs);
+      let renew;
+      let lockKey;
+      let token;
+      const release = () => this.redis.sendCommand(["EVAL",
+        "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0",
+        "1", lockKey, token]).catch(() => {});
+      try {
+        if (!this.redisUrl) return await scope.run(() => factory(scope.signal, scope), "refresh");
+        // Coordination and budget state fail closed. Never turn a Redis outage
+        // into one upstream fetch per replica; callers can still use stale data.
+        if (!this.redis?.isReady) throw Object.assign(new Error("Market coordination unavailable"), {
           statusCode: 503, code: "MARKET_COORDINATION_UNAVAILABLE", retryAfterMs: 1_000,
-        }); }
-        if (acquired) {
-          const controller = new AbortController();
-          let renewing = false;
-          const renew = setInterval(async () => {
-            if (renewing || controller.signal.aborted) return;
-            renewing = true;
-            try {
-              const owned = await this.redis.sendCommand(["EVAL",
-                "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('PEXPIRE', KEYS[1], ARGV[2]) end return 0",
-                "1", lockKey, token, String(duration)]);
-              if (Number(owned) !== 1) throw new Error("Market refresh lease lost");
-            } catch {
-              controller.abort(Object.assign(new Error("Market coordination unavailable"), {
-                statusCode: 503, code: "MARKET_COORDINATION_UNAVAILABLE", retryAfterMs: 1_000,
-              }));
-            } finally { renewing = false; }
-          }, Math.max(25, Math.floor(duration / 3)));
-          renew.unref?.();
+        });
+        lockKey = this.key(`rest-flight:${crypto.createHash("sha256").update(key).digest("hex")}`);
+        token = crypto.randomUUID();
+        const duration = Math.max(100, Math.trunc(leaseMs));
+        const deadline = Date.now() + duration;
+        while (Date.now() < deadline) {
+          const ready = await scope.run(() => readResult?.(scope), "cache_read");
+          if (ready !== undefined && ready !== null) return ready;
+          let acquired;
           try {
-            const result = await factory(controller.signal);
-            controller.signal.throwIfAborted();
-            return result;
-          } finally {
-            clearInterval(renew);
-            await this.redis.sendCommand(["EVAL",
-              "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0",
-              "1", lockKey, token]).catch(() => {});
+            acquired = await scope.run(() => this.redis.set(lockKey, token, { NX: true, PX: Math.min(duration, Math.max(1, scope.deadlineMs - Date.now())) }),
+              "lease_acquire", value => value ? release() : undefined);
           }
+          catch (error) { scope.check(); throw Object.assign(new Error("Market coordination unavailable"), {
+            statusCode: 503, code: "MARKET_COORDINATION_UNAVAILABLE", retryAfterMs: 1_000,
+          }); }
+          if (acquired) {
+            let renewing = false;
+            scope.lease = { key: lockKey, token, deadlineMs: scope.deadlineMs };
+            renew = setInterval(async () => {
+              if (renewing || scope.closed || scope.signal.aborted) return;
+              renewing = true;
+              try {
+                const owned = await this.redis.sendCommand(["EVAL",
+                  "local t=redis.call('TIME'); local remaining=tonumber(ARGV[3])-(t[1]*1000+math.floor(t[2]/1000)); if remaining>0 and redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('PEXPIRE', KEYS[1], math.min(tonumber(ARGV[2]),remaining)) end return 0",
+                  "1", lockKey, token, String(duration), String(scope.deadlineMs)]);
+                if (Number(owned) !== 1) throw new Error("Market refresh lease lost");
+              } catch {
+                scope.controller.abort(Object.assign(new Error("Market coordination unavailable"), {
+                  statusCode: 503, code: "MARKET_COORDINATION_UNAVAILABLE", retryAfterMs: 1_000,
+                }));
+              } finally { renewing = false; }
+            }, Math.max(25, Math.floor(duration / 3)));
+            renew.unref?.();
+            return await scope.run(() => factory(scope.signal, scope), "refresh");
+          }
+          await scope.run(() => delay(Math.min(100, Math.max(1, deadline - Date.now()))), "lease_wait");
         }
-        await delay(Math.min(100, Math.max(1, deadline - Date.now())));
+        throw Object.assign(new Error("Market refresh already in progress"), {
+          statusCode: 503, code: "MARKET_REFRESH_PENDING", retryAfterMs: 1_000,
+        });
+      } finally {
+        scope.close();
+        clearInterval(renew);
+        if (lockKey && token) {
+          // A stuck Redis cleanup cannot retain the local single-flight entry.
+          // Token comparison and the finite lease protect the next owner.
+          const cleanup = new MarketRefreshScope(1_000);
+          try { await cleanup.run(release, "lease_release"); } catch {}
+          finally { cleanup.close(); }
+        }
       }
-      throw Object.assign(new Error("Market refresh already in progress"), {
-        statusCode: 503, code: "MARKET_REFRESH_PENDING", retryAfterMs: 1_000,
-      });
     });
   }
 

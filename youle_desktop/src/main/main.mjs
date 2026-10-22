@@ -4706,7 +4706,8 @@ function getBinanceAccountService() {
         router.privateFetch.bind(router),
         url,
         init,
-        { source: "account", priority: BINANCE_REQUEST_PRIORITIES.account },
+        { source: "account", priority: BINANCE_REQUEST_PRIORITIES.account,
+          privateFallbackFetch: router.canUsePrivateGateway() ? router.privateFallbackFetch.bind(router) : null },
       ),
       profitCalendarFetch: (url, init) => getBinanceRequestGovernor().fetch(
         router.privateFetch.bind(router),
@@ -4715,6 +4716,7 @@ function getBinanceAccountService() {
         {
           source: "account-calendar",
           priority: BINANCE_REQUEST_PRIORITIES.accountInteractive,
+          privateFallbackFetch: router.canUsePrivateGateway() ? router.privateFallbackFetch.bind(router) : null,
         },
       ),
     });

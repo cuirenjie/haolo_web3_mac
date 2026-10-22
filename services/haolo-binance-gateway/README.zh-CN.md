@@ -2,6 +2,8 @@
 
 当前生产主机为香港 `8.217.125.71`。部署、权限、Redis 主库及旧机缓冲说明见 [香港生产流程](docs/hong-kong-production.zh-CN.md)；不要将旧新加坡记录或 market-only 候选模板当作现行部署清单。
 
+2026-10-21 优化候选的指标口径、持久采集、hmc1 灰度与客户端条件请求见 [本轮实现说明](docs/market-efficiency-20261021.zh-CN.md)。源码状态不代表已部署；线上开关与旧实例需分别核验。
+
 本服务同时提供两个严格分层的入口：
 
 - `8787`：公共行情 REST/WebSocket 网关。公共数据可集中缓存、合并请求和共享上游订阅。
@@ -87,7 +89,7 @@ Windows 安装包还会读取打包资源 `resources/binance-gateway.json`。正
 - `HAOLO_MARKET_ROUTING_MODE=off|compatible|strict`：默认 off。compatible 只分流携带新版能力的客户端，旧版仍留原节点，**不是防绕过的权限隔离**；确认旧版升级后才切 strict。strict 在 REST、票据和 WS 握手均检查，直连 IP、Bearer、伪造 tier 头无例外。
 - `HAOLO_MARKET_NODE_TIER=paid|free`；两端配置相同的 `HAOLO_MARKET_PAID_ORIGIN` / `HAOLO_MARKET_FREE_ORIGIN`。建议保留 `https://market.youle.pro` 为会员入口，新免费入口 `https://market-free.youle.pro`；后者尚待 DNS/TLS/节点配置，不代表已开通。
 - 路由不匹配返回业务 HTTP 409 / `MARKET_ROUTE_REQUIRED`。客户端只接受本地配置的两个 HTTPS origin，只允许一次换路，禁止 HTTP 自动重定向携带身份。不要使用 HTTP 421：真实集成复现底层传输自动重放 POST 导致正文长度错误；409 已通过独立两节点实际 HTTP/WS 验证。票据由目标节点独立签发、30 秒一次性消费，两个节点不共享业务密钥或 Redis。
-- `HAOLO_MARKET_COMPACT_ENABLED=false` 默认关闭。灰度通过后设 true：只有明确协商 `hmc1` 的票据使用紧凑结构。旧版维持 JSON；未知字段/事件原样 JSON 回退，价格数量仍是原字符串，字段存在性、顺序及每条事件保持；小于原 JSON 才采用紧凑格式。WS deflate 保持 0%，不引入采样、批处理等待或精度截断。原有慢客户端背压与断线恢复规则保留；“无损”指编码往返，不承诺网络断线不丢包。
+- 2026-10-21 源码改为 `HAOLO_MARKET_COMPACT_ENABLED=true`，`HAOLO_MARKET_COMPACT_PERCENT=100`，现有环境显式 false 仍生效。只有明确协商 `hmc1` 的票据使用紧凑结构，可按稳定用户队列灰度或设 0 回退。旧版维持 JSON；未知字段/事件原样 JSON 回退，价格数量仍是原字符串，字段存在性、顺序及每条事件保持；小于原 JSON 才采用紧凑格式。WS deflate 保持 0%，不引入采样、批处理等待或精度截断。原有慢客户端背压与断线恢复规则保留；“无损”指编码往返，不承诺网络断线不丢包。
 - 已分流会话每 15 分钟重新取得权威身份/票据，遇会员到期则在截止时提前释放订阅并要求重连。取消/升级最迟下个租约重查（认证缓存最多 15 秒），避免永远保留旧线路；更新客户端并不立即搬迁已经打开的连接。`HAOLO_MARKET_SESSION_MAX_MS` 可设 1–60 分钟。
 
 免费 ENS 使用独立 `market` 角色、独立 Redis 和 `HAOLO_PUBLIC_EGRESS_ID=hk-ens-free-a`，自行连接 Binance 上游并共享订阅，不能把免费节点配置为逐用户回源付费 ECS。不得给免费节点配置业务 JWT 签名私钥或私有交易出口。现有 `deploy/hong-kong` 是候选模板，不能直接覆盖现行生产；4 核 8 GiB 候选需把 market 容器内存上限降至 4 GiB，给 Redis（512 MiB 数据上限）、系统与 TLS 留余量，再执行压测。不能将原模板 8 GiB 容器上限直接用在 8 GiB 机器上。

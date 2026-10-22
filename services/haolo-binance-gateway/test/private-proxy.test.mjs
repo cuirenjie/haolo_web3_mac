@@ -110,6 +110,11 @@ test("private proxy authenticates, enforces host allowlist and opens an opaque t
   assert.equal(proxy.metrics.acceptedTunnels, 1);
   const replayed = await connectRequest(port, `CONNECT fapi.binance.com:443 HTTP/1.1\r\nHost: fapi.binance.com:443\r\nProxy-Authorization: Basic ${auth}\r\n\r\n`);
   assert.match(replayed, /^HTTP\/1\.1 409/);
+  const attribution = await (await fetch(`http://127.0.0.1:${port}/metrics`, {
+    headers: { authorization: `Bearer ${config.metricsToken}` },
+  })).text();
+  assert.match(attribution, /haolo_market_socket_bytes_total\{node="shared",tier="unknown",transport="private_client",market="futures"\} [1-9]\d*/);
+  assert.doesNotMatch(attribution, /00000000-0000|permitToken|Proxy-Authorization/);
 });
 
 test("private proxy rejects private, shared, mapped and documentation addresses", () => {

@@ -118,7 +118,9 @@ for (const cancelledIndex of [0, 1]) {
     assert.equal(upstreamSignal.aborted, false);
     finish();
     assert.deepEqual((await pending[1 - cancelledIndex]).data, candles);
-    assert.equal(calls, 1); assert.equal(governor.snapshot().coalesced, 1);
+    // Public service now merges before entering the transport governor, so it
+    // sends only one consumer/body reader downstream.
+    assert.equal(calls, 1); assert.equal(governor.snapshot().coalesced, 0);
   });
 }
 

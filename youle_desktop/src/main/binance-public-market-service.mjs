@@ -172,6 +172,11 @@ function cloneData(value) {
   return value == null ? value : structuredClone(value);
 }
 
+function responseEtag(response) {
+  const value = String(response?.headers?.get?.("etag") || "");
+  return /^(?:W\/)?"[^"\r\n]{1,240}"$/.test(value) ? value : null;
+}
+
 function retryAfterMs(response, currentMs = Date.now()) {
   const raw = String(response?.headers?.get?.("retry-after") || "").trim();
   if (!raw) return null;
@@ -246,6 +251,7 @@ export class BinancePublicMarketService {
     this.deferred = new Map();
     this.lifecycleController = new AbortController();
     this.pendingRequests = new Set();
+    this.flights = new Map();
     this.closePromise = null;
   }
 
@@ -298,7 +304,7 @@ export class BinancePublicMarketService {
     };
   }
 
-  store(url, data, currentMs, request, { fresh = true, fetchedAt = null } = {}) {
+  store(url, data, currentMs, request, { fresh = true, fetchedAt = null, etag = null } = {}) {
     const prior = this.cache.get(url);
     // Repeated stale responses must not restart the age/retention clock.
     const storedAt = Number.isFinite(fetchedAt) && fetchedAt > 0
@@ -309,6 +315,7 @@ export class BinancePublicMarketService {
     this.cache.delete(url);
     this.cache.set(url, {
       data: cloneData(data),
+      etag,
       storedAt,
       expiresAt,
       staleUntil: expiresAt + cacheStaleTtlMs(request, storedAt),
@@ -319,14 +326,46 @@ export class BinancePublicMarketService {
   request(value = {}, { signal: callerSignal } = {}) {
     const lifecycleSignal = this.lifecycleController.signal;
     if (lifecycleSignal.aborted) return Promise.reject(lifecycleSignal.reason);
-    const signal = callerSignal
-      ? AbortSignal.any([callerSignal, lifecycleSignal])
-      : lifecycleSignal;
-    const pending = this.requestInternal(value, { signal });
-    this.pendingRequests.add(pending);
-    const removePending = () => this.pendingRequests.delete(pending);
-    pending.then(removePending, removePending);
-    return pending;
+    if (callerSignal?.aborted) return Promise.reject(callerSignal.reason);
+    let request;
+    try { request = normalizeBinancePublicMarketRequest(value, { baseUrls: this.baseUrls }); }
+    catch { return this.requestInternal(value, { signal: lifecycleSignal }); }
+    // A background request must never determine the priority/freshness of a
+    // live caller. Canonical URL parameters allow equivalent requests to join.
+    const key = `${request.url}\n${request.freshness}\n${request.demand}`;
+    let flight = this.flights.get(key);
+    if (!flight) {
+      const controller = new AbortController();
+      flight = { controller, consumers: 0, settled: false };
+      const signal = AbortSignal.any([controller.signal, lifecycleSignal]);
+      flight.promise = this.requestInternal(value, { signal });
+      this.flights.set(key, flight);
+      this.pendingRequests.add(flight.promise);
+      const done = () => {
+        flight.settled = true;
+        if (this.flights.get(key) === flight) this.flights.delete(key);
+        this.pendingRequests.delete(flight.promise);
+      };
+      flight.promise.then(done, done);
+    }
+    flight.consumers++;
+    return new Promise((resolve, reject) => {
+      let finished = false;
+      const finish = (callback, result) => {
+        if (finished) return;
+        finished = true;
+        callerSignal?.removeEventListener("abort", abort);
+        flight.consumers--;
+        if (!flight.consumers && !flight.settled) {
+          if (this.flights.get(key) === flight) this.flights.delete(key);
+          flight.controller.abort(new DOMException("No market request consumers remain", "AbortError"));
+        }
+        callback(result);
+      };
+      const abort = () => finish(reject, callerSignal.reason);
+      callerSignal?.addEventListener("abort", abort, { once: true });
+      flight.promise.then(result => finish(resolve, cloneData(result)), error => finish(reject, error));
+    });
   }
 
   close(reason = new DOMException("The Binance market service is closing", "AbortError")) {
@@ -378,11 +417,15 @@ export class BinancePublicMarketService {
     timer?.unref?.();
     const signal = controller?.signal || callerSignal;
     let response;
+    const retained = this.stale(request.url, currentMs);
+    // Sequence-sensitive bootstrap endpoints always receive a complete body.
+    const validator = !/\/(?:depth|aggTrades)$/.test(request.path) ? retained?.etag : null;
     try {
       response = await fetchBinanceResponse(this.fetch, request.url, {
         method: "GET",
         cache: "no-store",
         headers: {
+          ...(validator ? { "if-none-match": validator } : {}),
           ...(request.freshness === "live" ? { "x-haolo-market-freshness": "live" } : {}),
           ...(request.demand === "prefetch" ? { "x-haolo-market-demand": "prefetch" } : {}),
         },
@@ -390,7 +433,17 @@ export class BinancePublicMarketService {
       });
       const complete = await bufferBinanceResponse(response, { signal });
       let data;
-      try { data = await complete.json(); } catch (error) {
+      const notModified = response.status === 304;
+      if (notModified) {
+        // Conditional GET uses weak comparison: a compressing proxy can mark
+        // the 200 tag weak while forwarding the origin's strong tag on 304.
+        const returnedTag = responseEtag(response);
+        if (!validator || !returnedTag || returnedTag.replace(/^W\//, "") !== validator.replace(/^W\//, "")
+          || retained.staleUntil <= this.currentTimeMs()) {
+          throw new Error("Market response has no usable matching ETag representation");
+        }
+        data = retained.data;
+      } else try { data = await complete.json(); } catch (error) {
         // Non-JSON HTTP errors still carry useful status/Retry-After headers.
         if (response.ok) throw error;
         data = null;
@@ -410,7 +463,7 @@ export class BinancePublicMarketService {
         });
         while (this.deferred.size > MAX_CACHE_ENTRIES) this.deferred.delete(this.deferred.keys().next().value);
       }
-      if (!response.ok) {
+      if (!response.ok && !notModified) {
         const errorCode = Number(data?.code) === -1121
           ? "BINANCE_MARKET_SYMBOL_UNAVAILABLE"
           : null;
@@ -430,10 +483,14 @@ export class BinancePublicMarketService {
         };
       }
       const gatewayStale = diagnostics.cacheStatus === "STALE";
-      const fetchedAt = headerNumber(response, "x-haolo-data-fetched-at");
+      // A 304 without origin timing proves equality, not data freshness.
+      const fetchedAt = headerNumber(response, "x-haolo-data-fetched-at") || (notModified ? retained.storedAt : null);
       const tooOldForLive = request.freshness === "live" && fetchedAt > 0 && completedAt - fetchedAt > 1_000;
-      this.store(request.url, data, completedAt, request, { fresh: !gatewayStale && !tooOldForLive, fetchedAt });
-      if (gatewayStale || tooOldForLive) {
+      const expiredValidation = notModified && completedAt - fetchedAt >= cacheTtlMs(request, fetchedAt);
+      this.store(request.url, data, completedAt, request, {
+        fresh: !gatewayStale && !tooOldForLive && !expiredValidation, fetchedAt, etag: responseEtag(response),
+      });
+      if (gatewayStale || tooOldForLive || expiredValidation) {
         const entry = this.stale(request.url, completedAt);
         if (!entry) return { ok: false, status: 503, data: null, cached: false,
           error: "Market data exceeded its retention window", diagnostics };
@@ -442,8 +499,8 @@ export class BinancePublicMarketService {
         });
       }
       return {
-        ok: true, status: Number(response.status || 200), data: cloneData(data),
-        cached: false, retryAfterMs: null, diagnostics, fetchedAt: this.cache.get(request.url)?.storedAt,
+        ok: true, status: notModified ? 200 : Number(response.status || 200), data: cloneData(data),
+        cached: notModified, revalidated: notModified, retryAfterMs: null, diagnostics, fetchedAt: this.cache.get(request.url)?.storedAt,
       };
     } catch (error) {
       if (callerSignal?.aborted) throw callerSignal.reason || error;

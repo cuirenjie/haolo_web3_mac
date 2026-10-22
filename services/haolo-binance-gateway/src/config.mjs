@@ -181,7 +181,9 @@ export function loadGatewayConfig(env = process.env) {
     marketPaidOrigin,
     marketFreeOrigin,
     marketDelegationSecret,
-    marketCompactEnabled: booleanValue(env.HAOLO_MARKET_COMPACT_ENABLED, false),
+    // Capability negotiation keeps old clients on JSON; explicit false is the rollback switch.
+    marketCompactEnabled: booleanValue(env.HAOLO_MARKET_COMPACT_ENABLED, true),
+    marketCompactPercent: positiveInteger(env.HAOLO_MARKET_COMPACT_PERCENT, 100, { min: 0, max: 100 }),
     marketSessionMaxMs: positiveInteger(env.HAOLO_MARKET_SESSION_MAX_MS, 15 * 60_000, { min: 60_000, max: 60 * 60_000 }),
     wsCompressionPercent: positiveInteger(env.HAOLO_MARKET_WS_COMPRESSION_PERCENT, 0, { min: 0, max: 100 }),
     wsCompressionThreshold: positiveInteger(env.HAOLO_MARKET_WS_COMPRESSION_THRESHOLD, 1024, { min: 1024, max: 65536 }),

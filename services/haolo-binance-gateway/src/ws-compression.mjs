@@ -1,8 +1,16 @@
 import { createHash } from "node:crypto";
 
 export function compressionCohort(userId, percent = 0) {
+  return featureCohort(userId, percent, "market-compression-v1");
+}
+
+export function compactCohort(userId, percent = 100) {
+  return featureCohort(userId, percent, "market-compact-v1");
+}
+
+function featureCohort(userId, percent, feature) {
   if (!(percent > 0)) return false;
-  const bucket = createHash("sha256").update(`market-compression-v1:${userId}`).digest().readUInt32BE(0) % 100;
+  const bucket = createHash("sha256").update(`${feature}:${userId}`).digest().readUInt32BE(0) % 100;
   return bucket < percent;
 }
 

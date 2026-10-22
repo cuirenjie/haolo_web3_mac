@@ -495,11 +495,16 @@ export class BinanceRequestGovernor {
     const headers = new Headers(init?.headers || {});
     const isPublicGet = method === "GET" && !headers.has("x-mbx-apikey")
       && !url.searchParams.has("signature");
-    const publicFallbackFetch = isPublicGet && typeof context.publicFallbackFetch === "function"
-      ? context.publicFallbackFetch : null;
+    // Account fallback is an authenticated, separately budgeted private tunnel.
+    // Signed requests must never reach the public market cache; local egress
+    // cooldowns must not disable an available private tunnel either.
+    const fallbackFetch = isPublicGet && typeof context.publicFallbackFetch === "function"
+      ? context.publicFallbackFetch
+      : method === "GET" && typeof context.privateFallbackFetch === "function"
+        ? context.privateFallbackFetch : null;
     const currentMs = nowValue(this.now);
     const cooldownMs = this.cooldownRemaining(bucket, currentMs);
-    if (cooldownMs > 0 && !publicFallbackFetch) {
+    if (cooldownMs > 0 && !fallbackFetch) {
       this.metrics.blocked += 1;
       this.recordDiagnostic({
         at: currentMs,
@@ -547,7 +552,7 @@ export class BinanceRequestGovernor {
         // prefetches cannot spend the chart's capacity or age out before I/O.
         reservation = queuedCooldownMs > 0 ? null : this.reserve(bucket, weight, startedAt);
         const needsFallback = !reservation || queuedCooldownMs > 0;
-        if (needsFallback && !publicFallbackFetch) {
+        if (needsFallback && !fallbackFetch) {
           this.releaseReservation(bucket, reservation);
           const budgetBlocked = queuedCooldownMs <= 0;
           const retryAfterMs = queuedCooldownMs || this.retryAfterForBudget(bucket, startedAt);
@@ -560,7 +565,7 @@ export class BinanceRequestGovernor {
           return localRateLimitResponse(retryAfterMs, budgetBlocked ? "budget" : "upstream",
             budgetBlocked ? "local-budget" : "direct-binance");
         }
-        const transport = needsFallback ? publicFallbackFetch : networkFetch;
+        const transport = needsFallback ? fallbackFetch : networkFetch;
         if (needsFallback) this.releaseReservation(bucket, reservation);
         let observation;
         const response = await runWithExecutionDeadline((...args) => {
