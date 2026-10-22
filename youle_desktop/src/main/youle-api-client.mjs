@@ -162,6 +162,7 @@ export class YouleApiClient {
     this.logPath = options.logPath;
     this.clientId = String(options.clientId || process.env.HAOLO_DESKTOP_CLIENT_ID || "").trim()
       || desktopClientId(options.platform || process.platform);
+    this.onAccountPnl = typeof options.onAccountPnl === "function" ? options.onAccountPnl : undefined;
     this.networkFetch = typeof options.networkFetch === "function"
       ? options.networkFetch
       : (url, init) => fetch(url, init);
@@ -1718,7 +1719,10 @@ export class YouleApiClient {
       return this.accountSnapshotComponents.read({scope:`${baseUrl}\n${token}\n${id}\n${zone}`,zone,
         isCurrent:()=>this.token===token&&this.baseUrl===baseUrl,
         core:()=>this.getAccountConnectionSnapshot(id),
-        pnl:()=>this.getAccountConnectionSnapshot(id,{includeTodayPnl:true}),
+        pnl:(snapshot)=>snapshot.pnlEndpointVersion === 1
+          ? this.getAccountConnectionTodayPnl(id, zone, snapshot.bindingVersion)
+          : this.getAccountConnectionSnapshot(id,{includeTodayPnl:true}),
+        onUpdate:this.onAccountPnl ? (fields)=>this.onAccountPnl({connectionId:id,...fields}) : undefined,
       });
     }
     const path = `${this.accountConnectionsPath}/${encodeURIComponent(id)}/snapshot`;
@@ -1726,6 +1730,16 @@ export class YouleApiClient {
     return this.requestAccountJson(appendQuery(path, query), {
       timeoutMessage: "账户摘要读取超时，请稍后重试。",
     }, { group: `${id}:${includeTodayPnl ? "pnl" : "snapshot"}` });
+  }
+
+  async getAccountConnectionTodayPnl(connectionId, zone, bindingVersion) {
+    await this.load();
+    this.requireAuth();
+    const id = String(connectionId || "").trim();
+    if (!id) throw new Error("connectionId is required");
+    return this.requestAccountJson(appendQuery(`${this.accountConnectionsPath}/${encodeURIComponent(id)}/today-pnl`, {
+      pnlTimeZone: zone, bindingVersion,
+    }), { timeoutMessage: "今日盈亏读取超时，请稍后重试。" }, { group: `${id}:pnl` });
   }
 
   async getAccountConnectionDetails(connectionId, { section, cursor } = {}) {

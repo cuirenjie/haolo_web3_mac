@@ -42,7 +42,10 @@ test("account traffic remains governed before its authenticated private tunnel",
   const main = await readFile(new URL("../src/main/main.mjs", import.meta.url), "utf8");
   assert.match(main, /new BinanceRequestGovernor\([\s\S]*binance-request-governor\.json/);
   assert.match(main, /const privateTransport = getBinancePrivateProxyTransport\(\)/);
-  assert.match(main, /getBinanceRequestGovernor\(\)\.fetch\([\s\S]*router\.privateFetch\.bind\(router\)[\s\S]*source: "account"[\s\S]*BINANCE_REQUEST_PRIORITIES\.account/);
+  assert.match(main, /fetch: createBinanceAccountFetch\(\{ governor: getBinanceRequestGovernor\(\), router \}\)/);
+  const accountFetch = await readFile(new URL("../src/main/binance-account/network-fetch.mjs", import.meta.url), "utf8");
+  assert.match(accountFetch, /governor\.fetch\(request\(router\.privateFetch\.bind\(router\)\)/);
+  assert.match(accountFetch, /priority: calendar \? BINANCE_REQUEST_PRIORITIES\.accountInteractive : BINANCE_REQUEST_PRIORITIES\.account/);
   assert.match(main, /permitProvider: \(url, options\) => gatewayClient\.privateRequestPermit\(url, options\)/);
   assert.match(main, /usageReporter: \(report\) => gatewayClient\.reportPrivateUsage\(report\)/);
   assert.match(main, /restartClientAfterAuthChange\(\)[\s\S]*resetBinanceNetworkRuntimeAfterAuthChange\(\)/);

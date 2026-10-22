@@ -41531,6 +41531,7 @@ html:root .binance-account-page .binance-account-curve-range select[data-binance
 .binance-account-realized-row { font-variant-numeric: tabular-nums; }
 .binance-account-pnl-row strong { font-weight: 500; }
 .binance-account-realized-value { font-weight: 500; }
+.binance-account-pnl-progress { margin-inline-start: 8px; color: var(--binance-text-secondary); font-size: 0.85em; font-weight: 400; }
 .binance-account-page .positive { color: var(--binance-positive); }
 .binance-account-page .negative { color: var(--binance-negative); }
 .binance-account-page .neutral,

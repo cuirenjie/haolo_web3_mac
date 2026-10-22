@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
 import { createAccountPerformanceState } from "../src/renderer/binance-account-performance.ts";
+import { createAccountPnlUpdates } from "../src/renderer/binance-account-pnl.ts";
 import { YouleApiClient } from "../src/main/youle-api-client.mjs";
 import { BinanceAccountService } from "../src/main/binance-account/service.mjs";
 import { BINANCE_REBIND_MESSAGE, binanceCredentialErrorResult, binanceAccountReadErrorResult, isBinanceCredentialError } from "../src/shared/binance-account-errors.mjs";
@@ -101,6 +102,7 @@ function harness() {
     },
     render: () => { stats.renders++; }, renderBinanceAccountLiveUpdate: () => { stats.renders++; },
     loadBinanceAccountPerformance: async () => {}, createAccountPerformanceState,
+    binanceAccountPnlUpdates: createAccountPnlUpdates(),
     syncTradingExpertOrderLineSnapshot() {}, reconcileExecutionPlansWithBinanceSnapshot: async () => {},
     stopBinanceAccountLiveRefresh() {}, stopBinanceAccountOtpCountdown() {}, startBinanceAccountOtpCountdown() {},
     sendBinanceAccountOtp: async () => {}, showToast() {}, errorMessage: e => e.message,
@@ -120,8 +122,19 @@ function harness() {
     ${code}
     return {${names.join(",")}};
   `)(...Object.values(deps));
-  return { state, stats, ...fns };
+  return { state, stats, api:deps.api, pnlUpdates:deps.binanceAccountPnlUpdates, ...fns };
 }
+
+test("an income credential failure arriving before initial core IPC still opens the rebind recovery", async () => {
+  const h = harness();
+  h.pnlUpdates.remember({connectionId:"a",pnlScopeId:"pending",pnlSequence:1,bindingVersion:1,
+    pnlStatus:"waiting",realizedPnlToday:null,pnlError:{code:"BINANCE_CREDENTIALS_INVALID"}});
+  h.api.getBinanceAccountSnapshot = async () => ({...snapshot(),pnlScopeId:"pending",pnlSequence:0,bindingVersion:1});
+  await h.loadBinanceAccountPage();
+  assert.equal(h.state.binanceAccount.rebindRequired,true);
+  assert.equal(h.state.binanceAccount.snapshot,null);
+  assert.equal(h.state.binanceAccount.error,BINANCE_REBIND_MESSAGE);
+});
 
 test("initial, manual, silent and progressive failures offer rebind and stop retrying invalid credentials", async () => {
   for (const kind of ["initial", "manual", "silent", "progressive"]) {

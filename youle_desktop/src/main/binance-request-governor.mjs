@@ -254,6 +254,7 @@ export class BinanceRequestGovernor {
     statePath = "",
     now = Date.now,
     maxConcurrency = 4,
+    reservedAccountConcurrency = 0,
     safetyRatio = 0.6,
     limits = {},
     onDiagnostic = null,
@@ -261,6 +262,9 @@ export class BinanceRequestGovernor {
     this.statePath = String(statePath || "");
     this.now = now;
     this.maxConcurrency = Math.max(1, positiveInteger(maxConcurrency, 4));
+    this.reservedAccountConcurrency = Math.min(this.maxConcurrency - 1,
+      Math.max(0, Math.floor(Number(reservedAccountConcurrency) || 0)));
+    this.runningMarket = 0;
     this.safetyRatio = Math.min(0.9, Math.max(0.1, Number(safetyRatio) || 0.6));
     this.limits = {
       futures: positiveInteger(limits.futures, 2_400),
@@ -442,7 +446,7 @@ export class BinanceRequestGovernor {
     }
   }
 
-  enqueue(run, priority, signal) {
+  enqueue(run, priority, signal, { account = false, queueTimeoutMs = 0 } = {}) {
     return new Promise((resolve, reject) => {
       if (signal?.aborted) {
         reject(abortReason(signal));
@@ -455,6 +459,8 @@ export class BinanceRequestGovernor {
         resolve,
         reject,
         signal,
+        account,
+        queueTimer: null,
         abortQueued: null,
       };
       task.abortQueued = signal
@@ -462,11 +468,24 @@ export class BinanceRequestGovernor {
           const index = this.queue.indexOf(task);
           if (index < 0) return;
           this.queue.splice(index, 1);
+          clearTimeout(task.queueTimer);
           signal.removeEventListener("abort", task.abortQueued);
           reject(abortReason(signal));
         }
         : null;
       if (task.abortQueued) signal.addEventListener("abort", task.abortQueued, { once: true });
+      if (Number.isFinite(queueTimeoutMs) && queueTimeoutMs > 0) {
+        task.queueTimer = setTimeout(() => {
+          const index = this.queue.indexOf(task);
+          if (index < 0) return;
+          this.queue.splice(index, 1);
+          if (task.abortQueued) signal.removeEventListener("abort", task.abortQueued);
+          reject(Object.assign(new Error("Binance request queue timed out"), {
+            name: "TimeoutError", stage: "queue",
+          }));
+        }, queueTimeoutMs);
+        task.queueTimer.unref?.();
+      }
       this.queue.push(task);
       this.queue.sort((left, right) => right.priority - left.priority || left.sequence - right.sequence);
       this.pump();
@@ -475,11 +494,19 @@ export class BinanceRequestGovernor {
 
   pump() {
     while (this.running < this.maxConcurrency && this.queue.length) {
-      const task = this.queue.shift();
+      // Account traffic shares the same egress weight/cooldown ledger, but
+      // slow market bodies cannot consume every execution slot.
+      const index = this.queue.findIndex(task => task.account
+        || this.runningMarket < this.maxConcurrency - this.reservedAccountConcurrency);
+      if (index < 0) break;
+      const [task] = this.queue.splice(index, 1);
+      clearTimeout(task.queueTimer);
       if (task.abortQueued) task.signal.removeEventListener("abort", task.abortQueued);
       this.running += 1;
+      if (!task.account) this.runningMarket += 1;
       Promise.resolve().then(task.run).then(task.resolve, task.reject).finally(() => {
         this.running -= 1;
+        if (!task.account) this.runningMarket -= 1;
         this.pump();
       });
     }
@@ -524,7 +551,10 @@ export class BinanceRequestGovernor {
       return localRateLimitResponse(cooldownMs, "upstream", "direct-binance");
     }
 
-    const dedupeKey = isPublicGet ? `${method} ${url.href}` : "";
+    const account = ["account", "account-calendar"].includes(context.source);
+    // Account time reads must not join a public request using another route
+    // or waiting behind the market lane's reserved-capacity limit.
+    const dedupeKey = isPublicGet ? `${account ? "account " : ""}${method} ${url.href}` : "";
     const pending = dedupeKey ? this.inflightPublicGets.get(dedupeKey) : null;
     if (pending) {
       this.metrics.coalesced += 1;
@@ -617,7 +647,8 @@ export class BinanceRequestGovernor {
         });
         throw error;
       }
-    }, context.priority ?? BINANCE_REQUEST_PRIORITIES.market, networkInit?.signal);
+    }, context.priority ?? BINANCE_REQUEST_PRIORITIES.market, networkInit?.signal,
+    { account, queueTimeoutMs: context.queueTimeoutMs });
     const tracked = request.catch((error) => {
       if (!networkStarted) this.releaseReservation(bucket, reservation);
       throw error;

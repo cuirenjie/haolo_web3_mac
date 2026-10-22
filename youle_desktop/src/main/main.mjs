@@ -239,6 +239,7 @@ import { BinanceCredentialStore } from "./binance-account/credential-store.mjs";
 import { BinanceAccountError, BinanceAccountService } from "./binance-account/service.mjs";
 import { binanceCredentialErrorResult, binanceAccountReadErrorResult } from "../shared/binance-account-errors.mjs";
 import { BinancePrivateProxyTransport } from "./binance-account/private-proxy-fetch.mjs";
+import { createBinanceAccountFetch } from "./binance-account/network-fetch.mjs";
 import { BinanceRequestGovernor, BINANCE_REQUEST_PRIORITIES } from "./binance-request-governor.mjs";
 import { BinancePublicMarketService } from "./binance-public-market-service.mjs";
 import { MarketIndicesService } from "./market-indices.mjs";
@@ -4485,6 +4486,7 @@ function getYouleApiClient() {
       safeStorage,
       networkFetch: appNetworkFetch,
       serviceFetch: haoloServiceFetch,
+      onAccountPnl: (payload) => sendToRenderer("binanceAccount:pnl", payload),
     }));
   }
   return youleApiClient;
@@ -4592,6 +4594,7 @@ function getBinanceRequestGovernor() {
     binanceRequestGovernor = new BinanceRequestGovernor({
       statePath: path.join(app.getPath("userData"), "binance-request-governor.json"),
       maxConcurrency: 6,
+      reservedAccountConcurrency: 2,
       onDiagnostic: (diagnostic) => {
         if (!["local_budget", "direct_binance", "gateway_downstream", "gateway_upstream"].includes(diagnostic?.origin)) return;
         console.warn("[binance-rate-limit]", diagnostic);
@@ -4765,23 +4768,8 @@ function getBinanceAccountService() {
     const router = getBinanceNetworkRouter();
     binanceAccountService = new BinanceAccountService({
       credentialStore: getBinanceCredentialStore(),
-      fetch: (url, init) => getBinanceRequestGovernor().fetch(
-        router.privateFetch.bind(router),
-        url,
-        init,
-        { source: "account", priority: BINANCE_REQUEST_PRIORITIES.account,
-          privateFallbackFetch: router.canUsePrivateGateway() ? router.privateFallbackFetch.bind(router) : null },
-      ),
-      profitCalendarFetch: (url, init) => getBinanceRequestGovernor().fetch(
-        router.privateFetch.bind(router),
-        url,
-        init,
-        {
-          source: "account-calendar",
-          priority: BINANCE_REQUEST_PRIORITIES.accountInteractive,
-          privateFallbackFetch: router.canUsePrivateGateway() ? router.privateFallbackFetch.bind(router) : null,
-        },
-      ),
+      fetch: createBinanceAccountFetch({ governor: getBinanceRequestGovernor(), router }),
+      profitCalendarFetch: createBinanceAccountFetch({ governor: getBinanceRequestGovernor(), router, calendar: true }),
     });
   }
   return binanceAccountService;
@@ -5148,6 +5136,12 @@ function normalizeSharedBinanceSnapshot(snapshot) {
     pnlAsOf: snapshot?.pnlAsOf ?? null,
     pnlTimeZone: snapshot?.pnlTimeZone ?? null,
     pnlReason: snapshot?.pnlReason ?? null,
+    pnlStatus: snapshot?.pnlStatus ?? "unavailable",
+    pnlRetryAfterMs: snapshot?.pnlRetryAfterMs ?? null,
+    pnlExpiresAfterMs: snapshot?.pnlExpiresAfterMs ?? null,
+    pnlScopeId: snapshot?.pnlScopeId ?? null,
+    pnlSequence: snapshot?.pnlSequence ?? 0,
+    bindingVersion: snapshot?.bindingVersion ?? null,
     initialMargin: margin,
     availableBalance: available,
     positions: (Array.isArray(snapshot?.positions) ? snapshot.positions : []).map((row) => sharedSnapshotPosition(row, fetchedAt)),

@@ -142,6 +142,7 @@ contextBridge.exposeInMainWorld("codexDesktop", {
     return result;
   },
   sendBinanceAccountOtp: () => ipcRenderer.invoke("binanceAccount:sendOtp"),
+  onBinanceAccountPnl: (callback) => on("binanceAccount:pnl", callback),
   bindBinanceAccount: (params) => ipcRenderer.invoke("binanceAccount:bind", params),
   getBinanceAccountSnapshot: (params) => invokeBinanceAccountSnapshot(params),
   getBinanceAccountDetails: async (params) => {
