@@ -1,7 +1,7 @@
 // Shared by the host and renderer. Only fixed descriptions cross into reports
 // or diagnostics; upstream messages can contain credentials or model output.
 import { modelFailureFacts } from "../model-failure-policy.mjs";
-import { isQuotaFailure } from "../error-signals.mjs";
+import { isMembershipFailure, isQuotaFailure } from "../error-signals.mjs";
 
 const LABELS = {
   model_unknown: ["模型响应未能确认完成，本次分析已停止，原任务记录已保留", "The model response could not be confirmed as complete. Analysis stopped and the original task record was retained", "模型回應未能確認完成，本次分析已停止，原任務記錄已保留"],
@@ -16,7 +16,9 @@ const LABELS = {
   cancelled: ["本次分析已停止", "This analysis was stopped"],
   entitlement: ["暂时无法验证会员权益", "Membership verification is unavailable"],
   authentication: ["分析服务身份验证失败", "Analysis service authentication failed"],
-  membership: ["当前套餐或积分不可用", "The current plan or credits are unavailable"],
+  membership: ["此功能需要有效会员，请检查会员状态", "This feature requires an active membership. Check your membership status", "此功能需要有效會員，請檢查會員狀態"],
+  model_membership: ["当前会员等级不支持所选模型，请更换模型或升级会员", "Your membership tier does not support this model. Select another model or upgrade", "目前會員等級不支援所選模型，請更換模型或升級會員"],
+  credits: ["当前可用积分不足，请获取积分后重试", "Your available credits are insufficient. Add credits and try again", "目前可用點數不足，請取得點數後重試"],
   policy: ["分析结果未通过权限校验", "The analysis failed permission checks"],
   model_unavailable: ["当前服务通道不支持所选模型，请联系管理员配置可用通道", "The selected model is unavailable on this service. Contact an administrator to configure a supported route."],
   model_empty: ["分析模型返回了空结果", "The analysis model returned an empty result"],
@@ -37,6 +39,7 @@ const LABELS = {
 };
 
 export function describeTradingAnalysisFailure(error, { stage = "analysis", language = "zh-CN" } = {}) {
+  if (language === "en-US") language = "en";
   const facts = modelFailureFacts(error);
   const code = String(error?.code || error?.errorCode || error?.payload?.detail?.code || error?.detail?.code || "").toUpperCase();
   const message = facts.detail;
@@ -60,7 +63,9 @@ export function describeTradingAnalysisFailure(error, { stage = "analysis", lang
   else if (code === "SECURE_STORAGE_UNAVAILABLE") category = "secure_storage";
   else if (["MEMORY_DECRYPT_FAILED", "MEMORY_STORE_INVALID"].includes(code)) category = "personal_memory";
   else if (code === "TRADING_ENTITLEMENT_UNAVAILABLE" || /无法验证会员权益/u.test(message)) category = "entitlement";
-  else if (isQuotaFailure(error)) category = "membership";
+  else if (/MODEL_MEMBERSHIP_REQUIRED/.test(message)) category = "model_membership";
+  else if (isMembershipFailure(error)) category = "membership";
+  else if (isQuotaFailure(error)) category = "credits";
   else if (/AUTH|ACCOUNT_ID_REQUIRED|INVALID_API_KEY/.test(code) || [401, 403].includes(status) || /unauthori[sz]ed|invalid api key|authentication failed|请先登录|未登录/iu.test(message)) category = "authentication";
   else if (facts.modelUnavailable) category = "model_unavailable";
   else if (/SIDE_EFFECT|PERMISSION|POLICY/.test(code)
@@ -96,6 +101,7 @@ export function tradingAnalysisSnapshotUnavailable(reason) {
 // An explicitly selected strategy owns the report, drawings and execution
 // plan for the whole request. Failure is not permission to run another engine.
 export function buildTradingStrategyFailureReport(strategy, error, { language = "zh-CN" } = {}) {
+  if (language === "en-US") language = "en";
   const english = language === "en";
   const name = String(strategy?.display?.name || strategy?.id || (english ? "Selected strategy" : "所选策略"))
     .replace(/[\r\n]/g, " ").slice(0, 120);

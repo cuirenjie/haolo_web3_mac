@@ -49,7 +49,14 @@ export function errorSignals(error) {
   return { detail: [...texts].join(" "), statuses: [...statuses], retryable };
 }
 
+export function isMembershipFailure(error) {
+  const { detail } = errorSignals(error);
+  return /TRIAL_REQUIRED|MEMBERSHIP_EXPIRED|MODEL_MEMBERSHIP_REQUIRED|membership[_\s-]*(?:required|expired)|未开通有效.*(?:体验版|套餐)|会员(?:等级|权益)?不足|会员(?:已)?(?:到期|过期)|會員(?:等級|權益)?不足|會員(?:已)?(?:到期|過期)/iu.test(detail);
+}
+
 export function isQuotaFailure(error) {
+  // A model-tier or membership denial is not proof of an empty wallet.
+  if (isMembershipFailure(error)) return false;
   const { detail, statuses } = errorSignals(error);
   return statuses.includes(402)
     || /(?:TRIAL_REQUIRED|MEMBERSHIP_EXPIRED|ANALYSIS_CREDITS_REQUIRED|积分不足|積分不足|当前套餐或积分不可用|未开通有效.*(?:体验版|套餐)|会员(?:等级|权益)?不足|会员(?:已)?(?:到期|过期)|會員(?:已)?(?:到期|過期)|会员权益不可用|请先开通体验版|开通体验版或其他套餐|当前没有可用积分|您的额度不足|额度不足|余额不足|没有余额|无可用额度|可用额度为\s*0|Token\s*余额不足|充值\s*Token|insufficient[_\s-]*(?:quota|balance|credits?|funds?|tokens?)|not enough[_\s-]*(?:quota|balance|credits?|funds?|tokens?)|out of[_\s-]*(?:quota|credits?|funds?|tokens?)|no[_\s-]*(?:quota|credits?|funds?|tokens?)|payment required|quota[_\s-]*exceeded|billing[_\s-]*(?:required|quota|limit))/iu.test(detail);

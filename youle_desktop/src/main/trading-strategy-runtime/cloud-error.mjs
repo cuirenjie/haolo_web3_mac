@@ -31,7 +31,7 @@ const messages = {
   TRADING_ANALYSIS_CANCELLED: ['策略分析已取消。','Strategy analysis was cancelled.','策略分析已取消。'],
   CLOUD_RESULT_CONTEXT_INVALID: ['云端结果与当前任务不一致，未应用结果。','The cloud result does not match this task and was not applied.','雲端結果與目前任務不一致，未套用結果。'],
   MODEL_MEMBERSHIP_REQUIRED: ['当前套餐不支持所选模型，请更换模型。','The current plan does not support this model. Select another model.','目前方案不支援所選模型，請更換模型。'],
-  ANALYSIS_CREDITS_REQUIRED: ['当前套餐或积分不可用，请检查账户。','The current plan or credits are unavailable. Check your account.','目前方案或點數不可用，請檢查帳戶。'],
+  ANALYSIS_CREDITS_REQUIRED: ['当前可用积分不足，请获取积分后重试。','Your available credits are insufficient. Add credits and try again.','目前可用點數不足，請取得點數後重試。'],
   RUN_LIMIT: ['当前已有分析任务在运行，请等待完成后重试。','Analysis tasks are already running. Wait for them to complete before retrying.','目前已有分析任務在執行，請等待完成後重試。'],
   CLOUD_ANALYSIS_FAILED: ['云端分析未完成，原任务记录已保留。','Cloud analysis did not complete. The original task record has been retained.','雲端分析未完成，原任務記錄已保留。'],
 };

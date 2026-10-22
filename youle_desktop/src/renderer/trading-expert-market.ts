@@ -5479,7 +5479,7 @@ class TradingExpertMarketWorkspace {
       return;
     }
     if (action === "restore-chart-settings") {
-      this.chartSettingsNavigation()?.setVerticalLocked(true);
+      this.chartSettingsNavigation()?.setVerticalLocked(false);
       this.drawingVisibilitySettings.setLayers({ aiHidden: false, manualHidden: false });
       this.chartSettings = cloneTradingChartSettings(DEFAULT_TRADING_CHART_SETTINGS);
       this.persistAndApplyChartSettings({ rebuildSeries: true });
@@ -6057,7 +6057,7 @@ class TradingExpertMarketWorkspace {
       this.chartSettings,
       isDarkTheme() ? "dark" : "light",
       this.drawingVisibilitySettings.layers(),
-      this.chartSettingsNavigation()?.isVerticalLocked() ?? true,
+      this.chartSettingsNavigation()?.isVerticalLocked() ?? false,
     ).trim();
     const next = template.content.firstElementChild as HTMLElement | null;
     if (!next) return;
@@ -6078,7 +6078,7 @@ class TradingExpertMarketWorkspace {
     const navigation = this.chartSettingsNavigation();
     const lock = this.chartSettingsBackdrop.querySelector<HTMLInputElement>('[data-chart-setting="verticalLocked"]');
     if (lock) {
-      lock.checked = navigation?.isVerticalLocked() ?? true;
+      lock.checked = navigation?.isVerticalLocked() ?? false;
       lock.disabled = !navigation;
     }
     const reset = this.chartSettingsBackdrop.querySelector<HTMLButtonElement>('[data-market-action="reset-chart"]');

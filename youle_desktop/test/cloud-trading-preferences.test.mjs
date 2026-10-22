@@ -29,6 +29,8 @@ test('new users read server defaults without saving or importing synthetic defau
   assert.equal(loaded.profile.maxLossPerTradePercent, 2);
   assert.equal(loaded.profile.preferenceForm.entryMode, 'auto');
   assert.equal(loaded.fieldSources.risk, 'product_default');
+  assert.equal(loaded.completed, false);
+  assert.equal(loaded.profile.onboardingCompleted, false);
   assert.deepEqual(calls.map(c => c[0]), ['preferences']);
   assert.equal(writes.length, 0);
   assert.equal(calls[0][2].expectedAccountId, 'account-a');
@@ -54,22 +56,54 @@ test('failed save retries the same operation and never compiles or writes local 
   assert.equal(writes.length, 0);
 });
 
-test('migration conflicts block execution and save until explicit per-field resolution', async () => {
+test('legacy answers never import or block analysis, and users can still save settings', async () => {
   const entries = [{ scope: 'trading.risk', key: 'max_loss_per_trade_percent', value: 1, source: 'user_explicit' }];
   const { adapter, calls, writes } = setup((operation, payload) => {
     if (operation === 'preferences') return config(2);
-    if (operation === 'importPreferences' && !payload.resolutions) {
-      throw { payload: { detail: { code: 'PREFERENCE_IMPORT_CONFLICT', fields: [{ fieldId: 'risk', local: '1', cloud: '2' }] } } };
-    }
+    if (operation === 'importPreferences') throw Error('Legacy import must not run');
     return config(3);
   }, entries);
   const loaded = await adapter.load();
-  assert.equal(loaded.migration.code, 'PREFERENCE_IMPORT_CONFLICT');
-  await assert.rejects(adapter.save(loaded.profile.preferenceForm), error => error.code === 'PREFERENCE_IMPORT_RESOLUTION_REQUIRED');
-  await assert.rejects(adapter.effective(), error => error.code === 'PREFERENCE_IMPORT_RESOLUTION_REQUIRED');
-  assert.equal((await adapter.resolveImport({ risk: 'local' })).revision, 3);
-  assert.deepEqual(calls.at(-1)[1].resolutions, { risk: 'local' });
+  assert.equal(loaded.migration, null);
+  assert.equal(loaded.profile.maxLossPerTradePercent, 2);
+  assert.equal((await adapter.effective()).revision, 2);
+  assert.equal((await adapter.save(loaded.profile.preferenceForm)).revision, 3);
+  assert.deepEqual(calls.map(c => c[0]), ['preferences', 'preferences', 'savePreferences']);
   assert.equal(writes.length, 0);
+  assert.equal(entries[0].value, 1);
+});
+
+test('unreadable legacy storage is irrelevant and stale migration actions only refresh', async () => {
+  const calls = [];
+  const adapter = createCloudTradingPreferences({
+    owner: async () => ({ ownerId: 'account-a', accountId: 'account-a', baseUrl: 'https://haolo.example' }),
+    store: () => { throw Error('MEMORY_STORE_INVALID'); },
+    api: () => ({ tradingCloudRequest: async operation => { calls.push(operation); return config(); } }),
+  });
+  assert.equal((await adapter.load()).profile.maxLossPerTradePercent, 2);
+  assert.equal((await adapter.effective()).migration, null);
+  assert.equal((await adapter.resolveImport({ risk: 'local' })).migration, null);
+  assert.deepEqual(calls, ['preferences', 'preferences', 'preferences']);
+});
+
+test('a deliberate cloud settings save remains effective with legacy local answers present', async () => {
+  let current = config();
+  const fixture = setup((operation, payload) => {
+    if (operation === 'preferences') return current;
+    assert.equal(operation, 'savePreferences');
+    current = config(1);
+    current.fields.risk = { choice: payload.changes.risk, source: 'user_saved' };
+    current.entries = current.entries.map(e => e.key === 'max_loss_per_trade_percent'
+      ? { ...e, value: 1, source: 'user_saved' } : e);
+    return current;
+  }, [{ scope: 'trading.risk', key: 'max_loss_per_trade_percent', value: 3 }]);
+  const loaded = await fixture.adapter.load();
+  loaded.profile.preferenceForm.choices.risk.selected = ['1'];
+  await fixture.adapter.save({ ...loaded.profile.preferenceForm, changedFields: ['risk'] });
+  const effective = await fixture.adapter.effective();
+  assert.equal(effective.profile.maxLossPerTradePercent, 1);
+  assert.equal(effective.fieldSources.risk, 'user_saved');
+  assert.equal((await fixture.adapter.load()).profile.maxLossPerTradePercent, 1);
 });
 
 test('account changes and unavailable cloud cannot become a local fallback', async () => {
@@ -112,6 +146,8 @@ test('saving the entry mode patches only the edited field and preserves default 
   assert.equal(saved.profile.entryMode, 'left');
   assert.equal(saved.profile.fieldSources.entryMode, 'user_saved');
   assert.equal(saved.profile.fieldSources.risk, 'product_default');
+  assert.equal(saved.completed, true);
+  assert.equal(saved.profile.onboardingCompleted, true);
   assert.equal(fixture.writes.length, 0);
 });
 

@@ -604,7 +604,7 @@ export function renderTradingChartSettingsDialog(
   settings: TradingChartSettings = cloneTradingChartSettings(),
   themeName: TradingChartThemeName = "dark",
   drawingVisibility: TradingDrawingLayerVisibility = { aiHidden: false, manualHidden: false },
-  verticalLocked = true,
+  verticalLocked = false,
 ) {
   const theme = settings.themes[themeName];
   const tabs: Array<[TradingChartSettingsTab, string]> = [

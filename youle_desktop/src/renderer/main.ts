@@ -32022,7 +32022,7 @@ function isTradingAnalysisCancellation(error: unknown) {
 }
 
 function buildTradingAnalysisAvailabilityReport(_instruction: string, error: unknown) {
-  const failure = describeTradingAnalysisFailure(error, { language: appLanguageLocale() === "en-US" ? "en" : "zh-CN" });
+  const failure = describeTradingAnalysisFailure(error, { language: appLanguageLocale() });
   return failure.summary;
 }
 
@@ -32082,7 +32082,7 @@ async function runTradingGeneralChartRequest(
     updateProgress(
       "complete",
       result.drawingDeferred
-        ? describeTradingAnalysisFailure(null, { stage: "drawing", language: appLanguageLocale() === "en-US" ? "en" : "zh-CN" }).summary
+        ? describeTradingAnalysisFailure(null, { stage: "drawing", language: appLanguageLocale() }).summary
         : `${result.modelName} 已完成 ${result.symbol} ${result.candleCount} 根 K 线的通用盘面分析${request.drawingRequested ? "与绘图" : "，原画线保持不变"}。`,
     );
     clearTradingExpertThinkingState(targetThreadId());
@@ -32182,7 +32182,7 @@ async function runTradingStrategyChartRequest(
     updateProgress(
       strategy.ui.completionPhase,
       result.drawingDeferred
-        ? describeTradingAnalysisFailure(null, { stage: "drawing", language: appLanguageLocale() === "en-US" ? "en" : "zh-CN" }).summary
+        ? describeTradingAnalysisFailure(null, { stage: "drawing", language: appLanguageLocale() }).summary
         : `${result.modelName} 已完成 ${result.symbol} ${strategy.ui.completionMetric(result)}${request.drawingRequested ? "与绘图" : "，原画线保持不变"}。`,
     );
     clearTradingExpertThinkingState(targetThreadId());
@@ -32208,10 +32208,10 @@ async function runTradingStrategyChartRequest(
       await persistCompletedTradingExpertTranscript(targetThreadId(), quotaItem ? [...transcriptItems, quotaItem] : transcriptItems);
     } else {
       const report = buildTradingStrategyFailureReport(strategy, error, {
-        language: appLanguageLocale() === "en-US" ? "en" : "zh-CN",
+        language: appLanguageLocale(),
       });
       updateProgress("error", describeTradingAnalysisFailure(error, {
-        language: appLanguageLocale() === "en-US" ? "en" : "zh-CN",
+        language: appLanguageLocale(),
       }).summary);
       clearTradingExpertThinkingState(targetThreadId());
       const reportItem = appendTradingExpertReport(targetThreadId(), report, undefined, undefined, "plain");

@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
+import { createHarness } from "./helpers/trading-preference-harness.mjs";
 
 const rendererSource = readFile(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
 const stylesSource = readFile(new URL("../src/renderer/styles.css", import.meta.url), "utf8");
@@ -36,6 +37,25 @@ test("onboarding parses complete current and legacy ratios before persisting the
   assert.equal(parse("1.5R后保本，最低盈亏比1:1.5").breakEvenTriggerR, 1.5);
   assert.equal(parse("不移动保本").moveStopToBreakEven, false);
   assert.equal(parse("最低盈亏比1:1.5.3"), null, "malformed decimals must not be partially accepted");
+});
+
+test("reset defaults show the optional entry in empty chats until a new settings save", async () => {
+  let completed = false;
+  const h = createHarness({ api: {
+    getTradingPreferenceProfile: async () => ({ ok: true, completed, profile: { onboardingCompleted: completed } }),
+  } });
+  await h.loadTradingPreferenceProfile();
+  const thread = h.state.threads[0];
+  assert.match(h.renderTradingPreferenceOnboardingEntry(thread), /默认交易偏好已生效/);
+  h.startTradingPreferenceOnboarding();
+  assert.deepEqual(h.runtime.openedSettings, ["trading"]);
+  assert.equal(h.runtime.saves.length, 0);
+  h.state.items[thread.id] = { existing: { id: "existing", text: "分析当前行情" } };
+  assert.equal(h.renderTradingPreferenceOnboardingEntry(thread), "");
+  h.state.items[thread.id] = {};
+  completed = true;
+  await h.loadTradingPreferenceProfile();
+  assert.equal(h.renderTradingPreferenceOnboardingEntry(thread), "");
 });
 
 function sourceBlock(source, startMarker, endMarker) {

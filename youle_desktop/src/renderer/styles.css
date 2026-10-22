@@ -37136,7 +37136,7 @@ html[data-theme="dark"] .trading-market-period-overflow {
   border-radius: 6px;
   background: var(--measurement-color);
   color: var(--trading-measurement-text);
-  font: 600 18px/30px Arial, "Microsoft YaHei", sans-serif;
+  font: 400 16px/30px Arial, "Microsoft YaHei", sans-serif;
   text-align: center;
   white-space: pre;
   transform-origin: left top;
