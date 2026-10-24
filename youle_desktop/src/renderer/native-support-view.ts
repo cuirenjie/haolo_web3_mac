@@ -22,7 +22,7 @@ export class NativeSupportView {
     if (input && input === document.activeElement) this.focus = { start: input.selectionStart, end: input.selectionEnd };
   }
   text(key: string) {
-    if (key === "conversation" && supportIsTyping(this.support.entry().payload?.ai)) return assistText(this.options.language(), "typing");
+    if (key === "conversation" && supportIsTyping(this.support.entry().payload?.ai)) return assistText(this.support.replyLocale(), "typing");
     if (key === "title") return this.options.language() === "en" ? "Support haolo" : "客服 haolo";
     return (COPY[this.options.language() as keyof typeof COPY] || COPY["zh-CN"])[key as keyof typeof COPY["zh-CN"]] || key;
   }
@@ -64,9 +64,9 @@ export class NativeSupportView {
     const proposal = payload?.ai?.mode === "ai" ? payload.ai.actions.find(a => a.status === "proposed" && a.device_id === this.support.deviceId) : undefined;
     element.setAttribute("aria-label", this.text("conversation"));
     element.innerHTML = `
-      ${payload?.ai?.mode === "ai" ? `<div class="support-ai-identity">${assistText(this.options.language(), "identity")}</div>` : ""}
+      ${payload?.ai?.mode === "ai" ? `<div class="support-ai-identity">${assistText(this.support.replyLocale(), "identity")}</div>` : ""}
       <div class="native-support-messages" role="log" aria-live="polite" aria-relevant="additions text">${payload?.messages.length ? payload.messages.map((message) => this.message(message)).join("") : `<p class="native-support-welcome">${this.text(this.support.opening ? "loading" : "welcome")}</p>`}</div>
-      ${proposal ? `<div class="support-consent"><strong>${assistText(this.options.language(), "consent")}</strong><p data-i18n-skip>${escape(proposal.title)}</p><ol>${proposal.plan.map(action => `<li>${escape(describeSupportAction(action, this.options.language()))}</li>`).join("")}</ol><button type="button" data-support-consent="accept" ${this.support.assisting ? "disabled" : ""}>${assistText(this.options.language(), "accept")}</button><button type="button" data-support-consent="decline" ${this.support.assisting ? "disabled" : ""}>${assistText(this.options.language(), "decline")}</button></div>` : ""}
+      ${proposal ? `<div class="support-consent"><strong>${assistText(this.support.replyLocale(), "consent")}</strong><p data-i18n-skip>${escape(proposal.title)}</p><ol>${proposal.plan.map(action => `<li>${escape(describeSupportAction(action, proposal.reply_locale || this.support.replyLocale()))}</li>`).join("")}</ol><button type="button" data-support-consent="accept" ${this.support.assisting ? "disabled" : ""}>${assistText(this.support.replyLocale(), "accept")}</button><button type="button" data-support-consent="decline" ${this.support.assisting ? "disabled" : ""}>${assistText(this.support.replyLocale(), "decline")}</button></div>` : ""}
       ${error ? `<div class="native-support-error" role="alert">${this.text(error)} <button type="button" data-support-retry>${this.text("retry")}</button></div>` : ""}
       ${closed ? `<div class="native-support-ended">${this.text("ended")} <button type="button" data-support-continue>${this.text("continue")}</button></div>` : ""}
       <form class="composer native-support-composer">
@@ -114,7 +114,7 @@ export class NativeSupportView {
     else this.support.chooseFile(files[0]);
   }
   private message(message: SupportMessage) {
-    if (message.support_event === "joined") return `<article class="native-support-message is-system" data-i18n-skip>${escape(message.text)}</article>`;
+    if (message.support_event === "joined") return `<article class="native-support-message is-system" data-i18n-skip>${escape(this.support.entry().payload?.ai?.copy?.joined || message.text)}</article>`;
     const attachments = (message.attachments || []).map((attachment) => {
       const url = supportMediaUrl(attachment.url), name = attachment.name || attachment.file_name || this.text("file");
       if (!url) return "";

@@ -1,4 +1,9 @@
 const messages = {
+  CLOUD_TASK_REPLY_FAILED: ['本次回复未完成，原会话和已收到的内容已保留。','This reply did not complete. The conversation and received content were retained.','本次回覆未完成，原對話與已收到的內容已保留。'],
+  CLOUD_TASK_BUSY: ['此会话正在回复，请稍候或先停止。','This conversation is replying. Wait or stop it first.','此對話正在回覆，請稍候或先停止。'],
+  CLOUD_TASK_MESSAGE_INVALID: ['请输入 1 至 8000 字的消息。','Enter a message of 1–8000 characters.','請輸入 1 至 8000 字的訊息。'],
+  CLOUD_TASK_SUBMISSION_UNCERTAIN: ['上一条消息的发送结果尚未确认，请重试原消息。','The previous submission is unconfirmed. Retry the original message.','上一則訊息的傳送結果尚未確認，請重試原訊息。'],
+  CLOUD_TASK_HISTORY_INVALID: ['原会话记录校验失败，未新建或替换会话。','The original conversation could not be validated. No conversation was created or replaced.','原對話記錄驗證失敗，未建立或替換對話。'],
   PRICE_ALERT_CLOUD_UNAVAILABLE: ['云端价格预警暂未就绪，请稍后重试。','Cloud price alerts are not ready. Please retry shortly.','雲端價格預警暫未就緒，請稍後重試。'],
   PRICE_ALERT_EMAIL_REQUIRED: ['请先在账号页面绑定邮箱。','Add an email address on the Account page first.','請先在帳號頁面綁定信箱。'],
   PRICE_ALERT_READBACK_FAILED: ['尚未确认云端保存结果，请重试。','The cloud save could not be verified. Please retry.','尚未確認雲端儲存結果，請重試。'],

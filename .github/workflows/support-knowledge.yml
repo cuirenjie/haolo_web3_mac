@@ -1,0 +1,53 @@
+name: Product support knowledge
+on:
+  push:
+    branches: [dev]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: support-knowledge-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Verify source and adapter contract; produce immutable candidate
+        run: |
+          python tools/support_knowledge.py --commit "$GITHUB_SHA" --emit-runtime --output output/support-bundle.json --report output/support-changes.json
+          python -m unittest discover -s tools -p 'test_support_knowledge.py'
+          node tools/prepare-support.mjs --check --output output/support-node-bundle.json
+          python -c "import json; assert json.load(open('output/support-bundle.json')) == json.load(open('output/support-node-bundle.json'))"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: support-knowledge-${{ github.sha }}
+          path: |
+            output/support-bundle.json
+            output/support-changes.json
+          retention-days: 30
+  stage:
+    needs: validate
+    if: github.ref == 'refs/heads/dev' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Stage candidate with short-lived GitHub identity
+        run: python tools/support_knowledge.py --commit "$GITHUB_SHA" --upload

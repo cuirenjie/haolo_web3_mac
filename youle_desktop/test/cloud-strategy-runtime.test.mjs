@@ -653,3 +653,9 @@ test('an unknown market wait cannot make a status outage disable the execution d
   const record=await s.journal.get(account.ownerId,params.analysisJobId);
   assert.equal(record.state,'running');assert.equal(record.cancelRequested,undefined);
 });
+test('new rounds bind the server task to the existing source conversation UUID',async()=>{
+  const {runtime,calls}=setup();const sourceThreadId='01a16ea8-1af6-7310-ac9c-7c7fc030c7ae';
+  await runtime.run('moving-average-analysis',{...params,sourceThreadId,storageSessionId:'pane'});
+  assert.equal(calls.find(c=>c.operation==='createRun').payload.context.taskId,sourceThreadId);
+  assert.equal(calls.find(c=>c.operation==='createRun').payload.origin,undefined);
+});

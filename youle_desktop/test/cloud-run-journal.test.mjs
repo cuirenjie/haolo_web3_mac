@@ -23,4 +23,17 @@ test('encrypted journal survives restart, serializes mutations and isolates acco
   const locked=new CloudRunJournal({...options,safeStorage:{isEncryptionAvailable:()=>false}});
   await assert.rejects(locked.put('account-a','a',{}),e=>e.code==='SECURE_STORAGE_UNAVAILABLE');
   assert.equal((await reopened.get('account-a','a')).instruction,'private-user-text');
+  const origin={sourceThreadId:'old-thread',storageSessionId:'old-thread',analysisJobId:'job'};
+  await journal.put('account-a','old',{runId:'run-old',origin,acknowledged:true});
+  const originalNow=Date.now;
+  try {
+    Date.now=()=>originalNow()+8*86400000;
+    await journal.put('account-a','new',{runId:'run-new',origin:{...origin,sourceThreadId:'new-thread'}});
+  } finally {Date.now=originalNow;}
+  assert.equal(await reopened.get('account-a','old'),null);
+  assert.deepEqual((await reopened.origins('account-a'))['run-old'],origin);
+  assert.deepEqual(await reopened.origins('account-b'),{});
+  await journal.rememberOrigin('account-a','run-old',{...origin,sourceThreadId:'canonical'});
+  assert.equal((await new CloudRunJournal(options).origins('account-a'))['run-old'].sourceThreadId,'canonical');
+  assert.equal((await fs.readFile(options.storagePath)).includes('canonical'),false);
 });

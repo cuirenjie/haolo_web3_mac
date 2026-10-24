@@ -5,9 +5,30 @@ import test from "node:test";
 import {
   confirmProfileAvailableBalanceStateBeforeSend,
   profileAvailableBalanceState,
+  insufficientCreditsNotice,
+  isInsufficientCreditsNotice,
+  INSUFFICIENT_CREDITS_NOTICE,
+  ACTIVE_MEMBERSHIP_CREDITS_NOTICE,
 } from "../src/renderer/quota-balance.ts";
 
 const rendererSource = readFile(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
+
+test("exhaustion explanation requires both a known empty wallet and an active membership", () => {
+  const now = Date.parse("2026-10-25T00:24:00+08:00");
+  const profile = { real_balance: 0, subscription_balance: 0, total_balance: 0,
+    active_membership: { plan_id: "basic", status: "active", expires_at: "2026-11-24T02:25:31+08:00" } };
+  assert.equal(insufficientCreditsNotice(profile, now), ACTIVE_MEMBERSHIP_CREDITS_NOTICE);
+  for (const uncertain of [null, { active_membership: profile.active_membership },
+    { ...profile, real_balance: 2 }, { ...profile, subscription_balance: 1 },
+    { ...profile, active_membership: { ...profile.active_membership, expires_at: "2026-10-24T00:00:00Z" } },
+    { ...profile, active_membership: { ...profile.active_membership, status: "expired" } }]) {
+    assert.equal(insufficientCreditsNotice(uncertain, now), INSUFFICIENT_CREDITS_NOTICE);
+  }
+  for (const notice of [INSUFFICIENT_CREDITS_NOTICE, ACTIVE_MEMBERSHIP_CREDITS_NOTICE, "您的积分不足，请充值或开通会员"]) {
+    assert.equal(isInsufficientCreditsNotice(notice), true);
+  }
+  assert.equal(isInsufficientCreditsNotice("会员等级不足"), false);
+});
 
 function sourceBlock(source, startMarker, endMarker) {
   const start = source.indexOf(startMarker);

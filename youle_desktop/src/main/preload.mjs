@@ -242,6 +242,7 @@ contextBridge.exposeInMainWorld("codexDesktop", {
   runTradingGeneralAnalysis: (params) => ipcRenderer.invoke("tradingAnalysis:runGeneral", params),
   recordTradingAnalysisFailure: (params) => ipcRenderer.invoke("tradingAnalysis:recordFailure", params),
   tradingCloudRecovery: (action, key) => ipcRenderer.invoke("tradingCloud:recovery", {action, key}),
+  tradingCloudTaskChat: (action,input) => ipcRenderer.invoke('tradingCloud:taskChat',{action,input}),
   tradingCloudPlans: (action, input) => ipcRenderer.invoke('tradingCloud:plans', {action,input}),
   getCloudAlertFeed: () => ipcRenderer.invoke('tradingCloud:alertFeed'),
   onCloudAlertFeed: (callback) => on('tradingCloud:alertFeed', callback),

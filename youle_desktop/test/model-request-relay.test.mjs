@@ -154,6 +154,32 @@ test("loopback model relay retries an unsupported encoding once and remembers th
   }
 });
 
+test("cancelling a pending request retains the native numeric AbortError and keeps the relay alive", async () => {
+  let entered;
+  const ready = new Promise(resolve => { entered = resolve; });
+  let rejected;
+  const cancelled = new Promise(resolve => { rejected = resolve; });
+  const relay = new ModelRequestRelay({ upstreamBaseUrl: "http://127.0.0.1:1/v1", fetch: async (_url, init) => {
+    entered();
+    await new Promise((_resolve, reject) => init.signal.addEventListener("abort", () => reject(init.signal.reason), { once: true }));
+  } });
+  relay.once("request-error", rejected);
+  await relay.start();
+  try {
+    const controller = new AbortController();
+    const pending = fetch(`${relay.localBaseUrl()}/responses`, { method: "POST", body: JSON.stringify({ input: "synthetic cancellation" }), signal: controller.signal });
+    const rejection = assert.rejects(pending, /abort/i);
+    await ready;
+    controller.abort();
+    await rejection;
+    const error = await cancelled;
+    assert.equal(error.aborted, true);
+    assert.equal(error.code, 20);
+    const response = await fetch(`http://127.0.0.1:${relay.port}/outside-prefix`);
+    assert.equal(response.status, 404);
+  } finally { await relay.stop(); }
+});
+
 function listen(server) {
   return new Promise((resolve, reject) => {
     server.once("error", reject);

@@ -1,5 +1,6 @@
 import {cloudPlanCard,normalizeCloudReports,type CloudTradingReport} from '../main/cloud-plan-contract.mjs';
 import {createSavedExecutionPlan,type SavedExecutionPlan} from './execution-plans.ts';
+import {isGeneratedPlanRecord} from './saved-plan-source.ts';
 import {cloudPlanSyncFailurePolicy} from '../main/cloud-plan-sync-policy.mjs';
 
 export function mergeCloudExecutionPlans(values:unknown,previous:readonly SavedExecutionPlan[]):SavedExecutionPlan[] {
@@ -14,7 +15,9 @@ export function mergeCloudExecutionPlans(values:unknown,previous:readonly SavedE
     const createdAt=remote.createdAt||new Date(incoming.executionPlan.createdAt).toISOString();
     const local=existing||createSavedExecutionPlan({candidate:{...card,cloudReport:report},createdAt,
       sourceThreadId:report.origin?.sourceThreadId||`cloud-run:${report.runId}`,sourceMessageId:`cloud-report:${report.runId}`,sourceTitle:card.title});
-    return {...local,title:card.title,content:card.content,cloudReport:report,linkedAlertId:remote.linkedAlertId,status:remote.status,endReason:remote.endReason||null,
+    const sourceThreadId=local.sourceThreadId && !isGeneratedPlanRecord(local.sourceMessageId) && !local.sourceThreadId.startsWith('cloud-run:')
+      ? local.sourceThreadId : report.origin?.sourceThreadId || local.sourceThreadId;
+    return {...local,sourceThreadId,...(sourceThreadId.startsWith('cloud-task:') ? {sourceMessageId:report.runId} : {}),title:card.title,content:card.content,cloudReport:report,linkedAlertId:remote.linkedAlertId,status:remote.status,endReason:remote.endReason||null,
       statusUpdatedAt:new Date(remote.statusUpdatedAt||remote.activatedAt||createdAt).toISOString()} as SavedExecutionPlan;
   });
   return [...cloud,...previous.filter(plan=>!plan.cloudReport)];

@@ -1,6 +1,12 @@
 // Match the business pool's authorization ID before credential lookup or dispatch.
 export const DEEPSEEK_FLASH_MODEL = "deepseek-flash";
 export const LEGACY_DEEPSEEK_FLASH_MODEL = "deepseek-v4-flash";
+export function isManagedAnalysisModel(value) {
+  return [DEEPSEEK_FLASH_MODEL, LEGACY_DEEPSEEK_FLASH_MODEL,
+    "gpt-5.6-sol", "gpt-6-sol", "gpt-6-astra", "gpt-5.6-terra", "gpt-5.6-luna",
+    "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex-spark", "gpt-5.2",
+  ].includes(String(value ?? "").trim().toLowerCase());
+}
 export function canonicalDeepSeekModel(value) {
   const model = String(value ?? "").trim();
   return [DEEPSEEK_FLASH_MODEL, LEGACY_DEEPSEEK_FLASH_MODEL].includes(model.toLowerCase())

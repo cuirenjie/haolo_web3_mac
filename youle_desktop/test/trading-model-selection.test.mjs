@@ -17,7 +17,7 @@ const request = {
   responseFormat: "json",
 };
 
-test("Trading analysis sends the selected GPT-6 model through Haolo AI at max", async () => {
+test("Trading analysis preserves selected GPT-6 display while executing DeepSeek low", async () => {
   const calls = [];
   const provider = createAppServerTradingAnalysisProvider({
     modelId: GPT_6_SOL_MODEL,
@@ -32,14 +32,14 @@ test("Trading analysis sends the selected GPT-6 model through Haolo AI at max", 
   const result = await provider.analyze(request, { reasoningEffort: "low" });
 
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].modelId, GPT_6_SOL_MODEL);
-  assert.equal(calls[0].modelProvider, "haolo_ai");
-  assert.equal(calls[0].reasoningEffort, "max");
+  assert.equal(calls[0].modelId, "deepseek-flash");
+  assert.equal(calls[0].modelProvider, "deepseek");
+  assert.equal(calls[0].reasoningEffort, "low");
   assert.equal(result.modelId, GPT_6_SOL_MODEL);
-  assert.equal(result.reasoningEffort, "max");
+  assert.equal(result.reasoningEffort, "low");
 });
 
-test("Astra selection remains a distinct request model", async () => {
+test("Astra selection uses DeepSeek inference", async () => {
   const calls = [];
   const provider = createAppServerTradingAnalysisProvider({
     modelId: GPT_6_ASTRA_MODEL,
@@ -52,11 +52,11 @@ test("Astra selection remains a distinct request model", async () => {
   });
 
   await provider.analyze(request, { reasoningEffort: "medium" });
-  assert.equal(calls[0].modelId, GPT_6_ASTRA_MODEL);
-  assert.equal(calls[0].reasoningEffort, "max");
+  assert.equal(calls[0].modelId, "deepseek-flash");
+  assert.equal(calls[0].reasoningEffort, "low");
 });
 
-test("GPT-6 failures use the current GPT fallback at high", async () => {
+test("GPT-6 selections never fall back to GPT after a failure", async () => {
   const calls = [];
   const provider = createAppServerTradingAnalysisProvider({
     modelId: GPT_6_ASTRA_MODEL,
@@ -70,12 +70,10 @@ test("GPT-6 failures use the current GPT fallback at high", async () => {
         : { status: "success", text: "{}" };
     },
   });
-  const result = await provider.analyze(request);
+  await assert.rejects(provider.analyze(request), /overloaded/);
   assert.deepEqual(calls.map(({ modelId, modelProvider, reasoningEffort }) => ({ modelId, modelProvider, reasoningEffort })), [
-    { modelId: GPT_6_ASTRA_MODEL, modelProvider: "haolo_ai", reasoningEffort: "max" },
-    { modelId: "gpt-5.6-sol", modelProvider: "haolo_ai", reasoningEffort: "high" },
+    { modelId: "deepseek-flash", modelProvider: "deepseek", reasoningEffort: "low" },
   ]);
-  assert.equal(result.modelId, "gpt-5.6-sol");
 });
 
 test("concurrent intent routing keeps each request's selected model registry", async () => {

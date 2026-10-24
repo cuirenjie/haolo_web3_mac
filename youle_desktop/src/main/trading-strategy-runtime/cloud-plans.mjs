@@ -1,10 +1,11 @@
+import {cloudTaskHistory} from './cloud-task-history.mjs';
 import {isDeepStrictEqual as equal} from 'node:util';
 import {validateCloudResult} from './cloud-runtime.mjs';
 import {cloudReportFromResponse,selectCloudPlan} from '../cloud-plan-contract.mjs';
 
 const fail = code => {throw Object.assign(new Error(code),{code});};
 const right=plan=>plan.executionPolicy==='right-legacy-v1'&&plan.monitoringPolicy==='windows_v1';
-export function createCloudPlans({owner,api}) {
+export function createCloudPlans({owner,api,sources}) {
   const active=new Set();
   async function request(captured,operation,payload={},key) {
     const assert=async()=>{const current=await owner();if(current.ownerId!==captured.ownerId||current.baseUrl!==captured.baseUrl)fail('TRADING_PREFERENCE_OWNER_CHANGED');};
@@ -14,7 +15,24 @@ export function createCloudPlans({owner,api}) {
   }
   return {async perform(action,input={}) {
     const captured=await owner();
+    if(action==='history') {
+      let taskId = input.taskId, runId;
+      if (input.planId) {
+        const plan = await request(captured,'plan',{planId:input.planId});
+        if (!plan.saved || plan.deleted || plan.runId !== input.runId) fail('CLOUD_PLAN_SOURCE_INVALID');
+        const run = await request(captured,'run',{runId:plan.runId});
+        if (run.id !== plan.runId) fail('CLOUD_PLAN_SOURCE_INVALID');
+        taskId = run.context?.taskId; runId = run.id;
+      }
+      const task = await request(captured,'task',{taskId});
+      if (task.id !== taskId) fail('CLOUD_PLAN_SOURCE_INVALID');
+      const history = cloudTaskHistory(task,runId);
+      if (runId) await sources?.().rememberOrigin(captured.ownerId,runId,{
+        sourceThreadId:history.threadId,storageSessionId:history.threadId,analysisJobId:''});
+      return history;
+    }
     if(action==='list') {
+      const origins=await sources?.().origins(captured.ownerId) || {};
       const reports=[],items=[],seen=new Set(),cursors=new Set();let after;
       do {
         const response=await request(captured,'plans',after?{after}:{});
@@ -25,7 +43,7 @@ export function createCloudPlans({owner,api}) {
         const run=response.receipts?.[plan.id]||await request(captured,'run',{runId:plan.runId});
         const result=validateCloudResult(run,{runId:run.id,body:{...run,preferencesRevision:plan.appliedPreferences.revision},
           preferencesHash:plan.appliedPreferences.configHash,requestedEntryMode:right(plan)?'right':plan.executionPlan.requestedMode,
-          marketId:run.desktopResult?.snapshot?.marketId,interval:run.desktopResult?.snapshot?.interval});
+          marketId:run.desktopResult?.snapshot?.marketId,interval:run.desktopResult?.snapshot?.interval,origin:origins[run.id]});
         if(!equal(result.executionPlan,plan.executionPlan))fail('CLOUD_RESULT_CONTEXT_INVALID');
         reports.push(selectCloudPlan(cloudReportFromResponse(result)[0],plan));
         }
@@ -35,7 +53,7 @@ export function createCloudPlans({owner,api}) {
       }while(after);
       return {items,reports};
     }
-    if(!['read','save','activate','lifecycle','delete'].includes(action))fail('CLOUD_PLAN_ACTION_INVALID');
+    if(!['read','save','activate','lifecycle','delete','source'].includes(action))fail('CLOUD_PLAN_ACTION_INVALID');
     const planId=String(input.planId||'');
     const lock=`${captured.ownerId}:${planId}`;
     if(active.has(lock))fail('CLOUD_PLAN_BUSY');
@@ -51,6 +69,13 @@ export function createCloudPlans({owner,api}) {
       }
       if(plan.id!==planId||(plan.monitoringPolicy!=='entry_v2'&&!right(plan)))fail('ENTRY_POLICY_UNAVAILABLE');
       if(action==='read')return {plan};
+      if(action==='source') {
+        if(!sources || !plan.saved || plan.runId!==input.runId
+          || typeof input.sourceThreadId!=='string' || !/^[a-f0-9-]{36}$/i.test(input.sourceThreadId))fail('CLOUD_PLAN_SOURCE_INVALID');
+        await sources().rememberOrigin(captured.ownerId,plan.runId,{sourceThreadId:input.sourceThreadId,
+          storageSessionId:input.sourceThreadId,analysisJobId:''});
+        return {sourceThreadId:input.sourceThreadId};
+      }
       if(plan.confirmationHash!==input.confirmationHash||plan.scenario?.conditionHash!==input.conditionHash||plan.runId!==input.runId)fail('CLOUD_RESULT_CONTEXT_INVALID');
       let result;
       if(action==='save') {

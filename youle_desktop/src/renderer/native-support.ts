@@ -1,5 +1,6 @@
 export type SupportAttachment = { kind: string; name?: string; file_name?: string; url?: string; mime_type?: string; size_bytes?: number; object_key?: string };
-import { SupportAssist, type SupportAI, type SupportProposal } from "./support-assist.ts";
+import { SupportAssist, SUPPORT_EXECUTOR_VERSIONS, validateSupportProposal, type SupportAI, type SupportProposal } from "./support-assist.ts";
+import { supportRuntime } from "./support-runtime.ts";
 export type SupportMessage = { id: string; role: string; text?: string; created_at?: string; attachments?: SupportAttachment[]; sender_type?: string; support_event?: string };
 export type SupportPayload = { session: { id: string; status: string; created_at?: string; updated_at?: string }; messages: SupportMessage[]; support_online?: boolean; ai?: SupportAI | null };
 export type SupportRecord = { id: string; title: string; status: string; updatedAt: number; readIds: string[]; unread: number };
@@ -121,7 +122,13 @@ export class NativeSupport {
   close() { if (this.assisting) return; this.active = false; this.assistPinned = false; this.selection++; this.opening = false; }
   private async configure(id: string) {
     if (!this.options.context) return;
-    await this.request({ action: "aiContext", sessionId: id, context: { ...this.options.context(), device_id: this.deviceId, surface: "windows", locale: this.options.locale() } });
+    await this.request({ action: "aiContext", sessionId: id, context: this.productContext() });
+  }
+  replyLocale() { return this.entry().payload?.ai?.reply_locale || this.options.locale(); }
+  private productContext() {
+    return { ...this.options.context?.(), ...supportRuntime, channel: "haolo_windows_web3",
+      action_versions: Object.fromEntries(Object.entries(supportRuntime.action_versions).filter(([key, v]) => SUPPORT_EXECUTOR_VERSIONS[key] === v)),
+      device_id: this.deviceId, surface: "windows", locale: this.options.locale() };
   }
   async decide(proposal: SupportProposal, accepted: boolean) {
     if (this.assisting || proposal.device_id !== this.deviceId) return;
@@ -129,6 +136,7 @@ export class NativeSupport {
     const token = crypto.randomUUID().replaceAll("-", "") + crypto.randomUUID().replaceAll("-", "");
     this.assisting = true;
     try {
+      if (accepted) validateSupportProposal(proposal, this.productContext());
       const result = await this.timedRequest({ action: "aiConsent", sessionId: sid, actionId: proposal.id, body: { decision: accepted ? "accept" : "decline", epoch: proposal.epoch, device_id: this.deviceId, token } });
       if (!accepted) return;
       this.assistPinned = true;
@@ -137,7 +145,7 @@ export class NativeSupport {
         const data = await this.timedRequest({ action: "ai", sessionId: sid });
         if (data.ai?.mode !== "ai" || data.ai.epoch !== proposal.epoch || !data.ai.actions?.some((a: SupportProposal) => a.id === proposal.id && a.status === "running")) throw new Error("support_operation_superseded");
       };
-      this.assist = new SupportAssist({ locale: () => this.options.locale() === "zh-Hant" ? "zh-TW" : this.options.locale(), authorize,
+      this.assist = new SupportAssist({ locale: () => proposal.reply_locale || this.replyLocale(), authorize,
         theme: () => document.documentElement.dataset.theme || "", themePersisted: () => this.options.storage.getItem("haolo.appearance.theme") });
       await this.assist.run(result.plan, (index, stage, outcome) => this.timedRequest({ action: "aiStep", sessionId: sid, actionId: proposal.id, body: { index, stage, result: outcome || "", device_id: this.deviceId, token } }));
     } catch {

@@ -61,7 +61,7 @@ export interface ConversationSummary {
   name: string;
   kind: ConversationKind;
   created_at?: string | null;
-  thread_kind?: "local_codex" | "channel" | "provider_chat" | "auto_task" | "group_chat";
+  thread_kind?: "local_codex" | "channel" | "provider_chat" | "auto_task" | "group_chat" | "cloud_task";
   provider?: string | null;
   channel_type?: "group" | "direct";
   status?: ConversationStatus;

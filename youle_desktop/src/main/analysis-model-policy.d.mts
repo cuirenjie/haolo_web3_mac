@@ -8,3 +8,4 @@ export const ANALYSIS_RECOVERY_WINDOW_MS: number;
 export function normalizeAnalysisModelRecoveryState(value: unknown): AnalysisModelRecoveryState | null;
 export function analysisModelPolicySelection(state: unknown, modelId?: unknown, now?: number): { modelId: string; fallback: boolean };
 export function withAnalysisModelRecoveryPolicy<T extends Record<string, unknown>>(params: T, state: unknown, now?: number): T & Record<string, unknown>;
+export function normalizeAnalysisRPCSelection<T extends Record<string, unknown>>(method: string, params: T): T & Record<string, unknown>;

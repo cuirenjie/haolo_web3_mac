@@ -68,7 +68,7 @@ function composerHarness({text=catalog[0].mentionTokens[0],attachments=[],busy=f
     tradingStrategyAnalysisTargetByRequest:new WeakMap(),tradingPreferenceOnboardingByThreadId:new Map(),
     workflowComposerNamedTextValuesByThreadId:new Map(),businessModelPoolsState:{configured:true},
     firstString:(...v)=>v.find(x=>typeof x==='string'&&x)||null,currentComposerThreadId:()=> 'origin',composerThreadIdForSend:()=> 'origin',
-    isComposerSendPending:no,isThreadContinuationCreationActive:no,isLocalGroupChatThreadId:no,
+    isComposerSendPending:no,isThreadContinuationCreationActive:no,isLocalGroupChatThreadId:no,isCloudTaskThread:no,
     activeWorkflowRunForThread:()=>null,switchingThreadId:null,isThreadResumeInFlight:no,
     isVideoExpertThreadId:no,isImageGenerationThreadMode:no,isMediaCreationMode:no,isLocalCodexThread:()=>true,
     isBlankNewThread:no,isLocalBlankThreadId:no,threadModelSelection:()=>({userSelected:true}),threadModelSettings:()=>({}),

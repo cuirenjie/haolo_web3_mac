@@ -3401,6 +3401,7 @@ export class YouleApiClient {
       importPreferences: ["POST", "/trading-preferences/import"],
       capabilities: ["GET", "/trading-capabilities"],
       createRun: ["POST", "/agent-runs"],
+      createAssistantRun: ["POST", "/assistant-runs"],
       plans: ["GET", "/trading-plans"],
       priceAlerts: ["GET", "/alerts"],
       createPriceAlertDraft: ["POST", "/alert-drafts"],
@@ -3418,6 +3419,11 @@ export class YouleApiClient {
       const action={plan:['GET',''],savePlan:['POST','/save'],activatePlan:['POST','/activate'],planLifecycle:['PATCH','/lifecycle'],deletePlan:['DELETE','']}[operation];
       routes[operation]=[action[0],`/plans/${planId}${action[1]}`];
       payload=body;
+    }
+    if (operation === 'task') {
+      const id = String(payload.taskId || '');
+      if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id)) throw new TypeError('Invalid cloud task id');
+      routes.task = ['GET', `/tasks/${id}`]; payload = {};
     }
     if (["run", "runEvents", "cancelRun"].includes(operation)) {
       const id = String(payload.runId || "");

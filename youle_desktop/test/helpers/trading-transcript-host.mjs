@@ -22,7 +22,7 @@ export function longTradingTranscript(count) {
 
 // Execute the real IPC handler and transcript/index/rollout code. Only the
 // app-server transport and Electron/workspace services are replaced.
-export function createTradingTranscriptHost(t, initialItems, threadId = "origin") {
+export function createTradingTranscriptHost(t, initialItems, threadId = "origin", {missingSourceId} = {}) {
   const tempDirectory = path.resolve(os.tmpdir());
   const root = fs.mkdtempSync(path.join(tempDirectory, "haolo-long-transcript-"));
   t.after(() => {
@@ -55,13 +55,16 @@ export function createTradingTranscriptHost(t, initialItems, threadId = "origin"
       } },
       recordTradingTranscriptDiagnostic: (stage, details) => events.push({ stage, ...details }),
       runSerializedThreadSettingsOperation: async (id, callback) => {
-        assert.equal(id, threadId);
+        assert.equal(id, missingSourceId || threadId);
         return callback();
       },
       currentSkillsCwd: root, desktopWorkspace: () => root,
-      getClientForThread: id => { assert.equal(id, threadId); return { __youleWorkspaceCwd: root }; },
+      getClientForThread: id => { assert.ok([threadId,missingSourceId].includes(id)); return { __youleWorkspaceCwd: root }; },
       ensureThreadGroupWorkspaceDirectory: () => {}, workspaceCodexHome: () => root,
       requestAppServer: async (_client, method, params) => {
+        if (missingSourceId && params.threadId === missingSourceId) {
+          throw new Error(method === 'thread/read' ? 'no rollout found for thread id' : `thread not loaded: ${missingSourceId}`);
+        }
         assert.equal(params.threadId, threadId);
         calls.push({ method, itemCount: params.items?.length });
         if (method === "thread/read") return readThread();
@@ -69,15 +72,21 @@ export function createTradingTranscriptHost(t, initialItems, threadId = "origin"
         if (method === "thread/name/set") return {};
         throw new Error(`Unexpected app-server method: ${method}`);
       },
-      rememberThreadClient: () => {}, isMissingRolloutErrorMessage: () => false,
+      rememberThreadClient: () => {}, isMissingRolloutErrorMessage: value => missingSourceId && value.includes('no rollout found'),
       isThreadNotFoundError: () => false, delay: async () => {}, console,
+      firstString: (...values) => values.find(v => typeof v === 'string' && v) || '',
+      refreshSkillsDeveloperInstructions: async () => '', threadConfigurationParams: params => params,
+      videoGenerationInstructionOptions: () => ({}),
+      requestThreadStart: async () => {calls.push({method:'thread/start'});return readThread();},
+      withThreadRuntimeSettings: value => value, injectLatestSkillsInstructions: async () => {},
+      snapshotThreadArtifacts: async () => {}, appServerClientByThreadId:new Map(),
     };
     vm.runInNewContext(source.slice(start, end), context);
   };
   restart();
   return {
     root, threadId, calls, events, restart,
-    persist: params => handler(null, { threadId, cwd: root, ...params }),
+    persist: params => handler(null, { threadId:missingSourceId || threadId, cwd: root, ...params }),
     readItems: () => transcript.readTradingTranscriptItemsFromRollout(rolloutPath),
     restore: () => transcript.withTradingTranscriptHistory(readThread(), { codexHome: root }),
   };

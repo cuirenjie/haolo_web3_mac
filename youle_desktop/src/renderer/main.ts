@@ -1,3 +1,4 @@
+import {createCloudTaskChatController} from './cloud-task-chat.ts';
 import { alertConfirmationIntentPrompt, parseAlertConfirmationIntent } from "../main/trading-confirmation-intent.mjs";
 import { NativeSupport, type SupportResult } from "./native-support";
 import { NativeSupportView } from "./native-support-view";
@@ -18,7 +19,9 @@ import { accountSettingsSync, type SettingValues } from './account-settings-sync
 import type { CloudRecoveryApi } from "./cloud-task-recovery.ts";
 import {normalizeCloudReports, cloudReportFromResponse, cloudPlanCard, bindLegacyCloudCandidate, type CloudTradingReport} from '../main/cloud-plan-contract.mjs';
 import {rememberTradingPlanDrawingHistory} from './trading-plan-drawing-history.ts';
+import {createSavedPlanSourceResolver, resolveSavedPlanSource, linkSavedPlanSource, isGeneratedPlanRecord, isObsoletePlanRecoveryNotice} from './saved-plan-source.ts';
 import {createExecutionPlanMenu, createPlanDialog, planMenuText, planChartContext} from './execution-plan-menu.ts';
+import {createSavedExecutionPlanMenu, navigateSavedPlan, savedPlanSourceThreadId} from './saved-execution-plan-menu.ts';
 import {showPlanShare} from './execution-plan-share.ts';
 import { createExternalTradingReplyPlanAttachments } from './external-trading-plan-images.ts';
 import './execution-plan-menu.css';
@@ -364,6 +367,7 @@ import {
   type MediaModelBillingUnit,
 } from "./media-model-pricing";
 import { redactVideoGenerationCompletionMetadata } from "./video-generation-privacy";
+import { redactLeakedToolProtocol, modelProtocolErrorText } from "../shared/model-protocol-text.mjs";
 import {
   isFeishuImageAttachment,
   isFeishuVideoAttachment,
@@ -508,6 +512,9 @@ import {
 import {
   confirmProfileAvailableBalanceStateBeforeSend,
   profileAvailableBalanceState,
+  insufficientCreditsNotice,
+  isInsufficientCreditsNotice,
+  INSUFFICIENT_CREDITS_NOTICE,
 } from "./quota-balance";
 import {
   activeMembershipEntitlement,
@@ -1015,7 +1022,7 @@ const DESKTOP_SANDBOX_POLICY = "danger-full-access";
 const AUTHENTICATED_WORKSPACE_BOOT_TIMEOUT_MS = 12_000;
 const APP_WINDOW_MODE_TRANSITION_REVEAL_DELAY_MS = 50;
 const APP_WINDOW_MODE_TRANSITION_FALLBACK_MS = 1800;
-const INSUFFICIENT_QUOTA_MESSAGE = "您的积分不足，请充值或开通会员";
+const INSUFFICIENT_QUOTA_MESSAGE = INSUFFICIENT_CREDITS_NOTICE;
 const RECHARGE_TOKEN_ACTION_ID = "recharge-token";
 const RECHARGE_TOKEN_ACTION_KIND = "recharge_token";
 const LOW_BALANCE_PROFILE_REFRESH_INITIAL_DELAY_MS = 1_000;
@@ -2022,7 +2029,8 @@ type DesktopApi = {
     }>;
   }): Promise<any>;
   tradingCloudRecovery?: CloudRecoveryApi;
-  tradingCloudPlans?: (action:'list'|'read'|'save'|'activate'|'lifecycle'|'delete',input?:Record<string,unknown>)=>Promise<any>;
+  tradingCloudTaskChat?: (action:'read'|'send'|'cancel',input:Record<string,unknown>)=>Promise<any>;
+  tradingCloudPlans?: (action:'list'|'read'|'save'|'activate'|'lifecycle'|'delete'|'source'|'history',input?:Record<string,unknown>)=>Promise<any>;
   getCloudAlertFeed?:()=>Promise<any>;
   onCloudAlertFeed?:(callback:(value:any)=>void)=>()=>void;
   cancelTradingAnalysis?(params?: { analysisJobId?: string }): Promise<{ cancelled?: boolean }>;
@@ -9315,6 +9323,11 @@ async function loadThreads(options: { allPages?: boolean } = {}) {
         }),
     )
     .map(({ thread }) => thread);
+  const cloudSources: ConversationSummary[] = state.executionPlans.filter(plan => isCloudTaskThread(plan.sourceThreadId)).map(plan => ({
+    id:plan.sourceThreadId,name:plan.sourceTitle || plan.title,kind:'main_session',thread_kind:'cloud_task',
+    preview:'',preview_time:formatThreadTime(plan.createdAt),last_message_at:plan.createdAt,agents:fallbackMembers('main_session'),
+  }));
+  state.threads = mergeThreads(cloudSources,state.threads);
   const channelThreads = Object.values(state.channels).filter(shouldShowChannelInMainThreads).map(mapChannelThread);
   const localThreads = state.threads.filter((thread) =>
     !hiddenThreadIds.has(thread.id) &&
@@ -15648,6 +15661,10 @@ async function selectThread(
     showToast(state.loading ? "工作区正在加载，请稍候" : "工作区连接尚未就绪，请稍后重试");
     return;
   }
+  if (isCloudTaskThread(threadId)) {
+    leaveNativeSupport(false); rememberActiveComposerDraft();
+    await selectCloudTaskThread(threadId); return;
+  }
   const leavingNativeSupport = Boolean(nativeSupportController?.active);
   leaveNativeSupport(false);
   // Apply before same-thread and cached-history shortcuts so every history
@@ -17359,6 +17376,8 @@ function scheduleMissingAssistantPreviewHydration() {
 }
 
 function shouldHydrateAssistantPreview(thread: ConversationSummary) {
+  // Cloud task previews arrive with their original task history, not local UUID transcripts.
+  if (isCloudTaskThread(thread.id)) return false;
   if (isProviderThread(thread)) return false;
   if (!usesAssistantThreadPreview(thread)) return false;
   if (thread.id === state.currentThreadId) return false;
@@ -18235,6 +18254,7 @@ function activeWorkflowRunForThread(threadId: string | null | undefined) {
 }
 
 function isThreadBusy(threadId: string | null | undefined) {
+  if (threadId && isCloudTaskThread(threadId)) return getCloudTaskChat().busy(threadId);
   if (isProviderThreadBusy(threadId)) return true;
   return Boolean(
     threadId &&
@@ -18277,6 +18297,7 @@ function isPureTradingAnalysisThread(threadId: string | null | undefined) {
 }
 
 function isComposerThreadBusy(threadId: string | null | undefined) {
+  if (threadId && isCloudTaskThread(threadId)) return getCloudTaskChat().busy(threadId);
   if (isPureTradingAnalysisThread(threadId)) return true;
   if (hasActiveCompletedTradingAnalysis(threadId)) return false;
   return (
@@ -18380,6 +18401,7 @@ function conversationSupplementTurnKey(threadId: string | null | undefined, turn
 function isLocalCodexThread(threadId: string | null | undefined) {
   return Boolean(
     threadId &&
+      !isCloudTaskThread(threadId) &&
       !threadId.startsWith("local-group-chat:") &&
       !providerFromThreadId(threadId) &&
       !channelIdFromThreadId(threadId),
@@ -18424,6 +18446,7 @@ function shouldRecoverStaleCodexWorkForComposer(threadId: string | null | undefi
 }
 
 function composerSubmitActionForThread(threadId: string | null | undefined) {
+  if (threadId && isCloudTaskThread(threadId)) return getCloudTaskChat().busy(threadId) ? "interrupt" : "send";
   if (isPureTradingAnalysisThread(threadId)) return "interrupt";
   if (threadId && localGroupChatBusyThreadIds.has(threadId)) return "interrupt";
   if (activeWorkflowRunForThread(threadId)) return "interrupt";
@@ -18740,6 +18763,7 @@ function shouldKeepChatSurfaceUpdateLocal(threadId: string | null | undefined = 
 }
 
 function canInterruptThread(threadId: string | null | undefined) {
+  if (threadId && isCloudTaskThread(threadId)) return getCloudTaskChat().canCancel(threadId);
   if (threadId && localGroupChatBusyThreadIds.has(threadId)) {
     const run = localGroupChatRunsByThreadId.get(threadId);
     return Boolean(run && !run.stopRequested);
@@ -22957,6 +22981,7 @@ function formatTurnFailureMessage(
     return "当前会话的上下文已满，自动整理与恢复未能完成。请重试；若仍失败，请拆分消息或新建任务。";
   }
   const detail = String(reason || "").trim();
+  if (detail.includes("MODEL_TOOL_PROTOCOL_ERROR")) return modelProtocolErrorText(state.settings.language);
   const { statuses } = errorSignals(reason);
   if (/(?:os error 10061(?![\w]|[.,]\d)|ECONNREFUSED|connection refused|actively refused|failed to connect to (?:websocket|server))/i.test(detail)) {
     return "网络连接被拒绝。请检查代理或网络后重试。";
@@ -23893,6 +23918,7 @@ function upsertItem(threadId: string, item: CodexItem, options: { updateThreadPr
     discardCachedThreadMessageSurface(threadId);
   }
   item = sanitizeIncomingThreadItem(item, threadId);
+  if (isObsoletePlanRecoveryNotice(item.id)) return;
   const id = String(item.id || `item-${state.itemOrder[threadId].length}`);
   const wasTopLevelBlankThread = state.blankThreadId === threadId;
   const wasGroupBlankThread = groupBlankThreadIds.has(threadId);
@@ -23912,6 +23938,16 @@ function upsertItem(threadId: string, item: CodexItem, options: { updateThreadPr
   }
   const savedItem = state.items[threadId][id];
   if (savedItem.__youleCloudReports?.length) rememberTradingPlanDrawingHistory(threadId, savedItem.__youleCloudReports);
+  if (savedItem.__youleCloudReports?.length && state.auth.authenticated && !isGeneratedPlanRecord(savedItem.id)) {
+    let linked = false;
+    state.executionPlans = state.executionPlans.map(plan => {
+      if (!savedItem.__youleCloudReports?.some(report => report.runId === plan.cloudReport?.runId
+        && report.planRecords.some(record => record.id === plan.id)) || plan.sourceThreadId === threadId) return plan;
+      linked = true;
+      return linkSavedPlanSource(plan, {threadId, messageId:savedItem.id});
+    });
+    if (linked) saveExecutionPlans(state.executionPlansScope, state.executionPlans);
+  }
   const assistantProvider = assistantProviderFromItem(threadId, savedItem);
   if (assistantProvider) {
     rememberThreadLastAssistantProvider(threadId, assistantProvider, { persist: !suppressCreatedAtStamp });
@@ -24272,8 +24308,11 @@ function appendInsufficientQuotaAgentMessage(
     sender_label: options.senderLabel ?? undefined,
     createdAt: new Date().toISOString(),
     turnId: turnId || undefined,
-    text: INSUFFICIENT_QUOTA_MESSAGE,
-    actions: [rechargeTokenMessageAction()],
+    text: insufficientCreditsNotice(state.auth.profile as Record<string, unknown> | null),
+    actions: [
+      { id: "view-credit-usage", kind: "navigate", destination: "consumption", label: "查看消耗明细" },
+      rechargeTokenMessageAction(),
+    ],
     __youleInsufficientQuota: true,
     __youleInsufficientQuotaTurnId: turnId || undefined,
   } as CodexItem;
@@ -24286,7 +24325,7 @@ function hasInsufficientQuotaAgentMessage(threadId: string, turnId: string | nul
   return (state.itemOrder[threadId] || []).some((id) => {
     const item = state.items[threadId]?.[id];
     if (!item || item.type !== "agentMessage") return false;
-    if ((item as Record<string, unknown>).__youleInsufficientQuota !== true && itemText(item).trim() !== INSUFFICIENT_QUOTA_MESSAGE) return false;
+    if ((item as Record<string, unknown>).__youleInsufficientQuota !== true && !isInsufficientCreditsNotice(itemText(item))) return false;
     const itemQuotaTurnId = firstString((item as Record<string, unknown>).__youleInsufficientQuotaTurnId, itemTurnId(item));
     return itemQuotaTurnId === turnId;
   });
@@ -24308,7 +24347,7 @@ function hasVisibleThreadContent(threadId: string) {
 }
 
 function threadSummaryIndicatesInsufficientQuota(thread: ConversationSummary) {
-  return [thread.name, thread.preview].some((value) => firstString(value)?.trim() === INSUFFICIENT_QUOTA_MESSAGE);
+  return [thread.name, thread.preview].some((value) => isInsufficientCreditsNotice(firstString(value) || ""));
 }
 
 function rechargeTokenMessageAction(): MessageAction {
@@ -27058,6 +27097,7 @@ function renderPersonalStrategyDialog() {
 
 async function sendCurrentMessage(threadIdOverride?: string | null) {
   let threadId = composerThreadIdForSend(firstString(threadIdOverride, currentComposerThreadId()));
+  if (threadId && isCloudTaskThread(threadId)) { await sendCloudTaskMessage(threadId); return; }
   if (!threadId || submittingComposerThreadIds.has(threadId) || isPureTradingAnalysisThread(threadId) || isComposerSendPending(threadId)) return;
   if (activeWorkflowRunForThread(threadId)) {
     showToast(WORKFLOW_RUNNING_SEND_BLOCKED_TOAST, 2200);
@@ -29435,6 +29475,11 @@ function adoptReplacementCodexThread(previousThreadId: string, replacementThread
   if (!nextThreadId || nextThreadId === previousThreadId) return previousThreadId;
 
   tradingExpertAnalysisThreadAliases.set(previousThreadId, nextThreadId);
+  if (state.executionPlans.some(plan => plan.sourceThreadId === previousThreadId || plan.cloudReport?.origin?.sourceThreadId === previousThreadId)) {
+    state.executionPlans = state.executionPlans.map(plan => plan.sourceThreadId === previousThreadId || plan.cloudReport?.origin?.sourceThreadId === previousThreadId
+      ? linkSavedPlanSource(plan, {threadId:nextThreadId}) : plan);
+    saveExecutionPlans(state.executionPlansScope, state.executionPlans);
+  }
   const activeTradingJobs = tradingExpertAnalysisJobIdsByThreadId.get(previousThreadId);
   if (activeTradingJobs?.size) {
     const nextTradingJobs = tradingExpertAnalysisJobIdsByThreadId.get(nextThreadId) || new Set<string>();
@@ -29921,6 +29966,7 @@ function settleInterruptedVideoGeneration(
 
 async function interruptCurrentTurn(threadIdOverride?: string | null, source: InterruptTurnSource = "unknown") {
   const threadId = firstString(threadIdOverride, currentComposerThreadId(), state.currentThreadId);
+  if (threadId && isCloudTaskThread(threadId)) { await getCloudTaskChat().stop(threadId); return; }
   const channelInteraction = threadId ? activeChannelCodexInteractions.get(threadId) : null;
   if (threadId && channelInteraction) {
     channelInteraction.cancelled = true;
@@ -32170,6 +32216,8 @@ function canSendVideoExpertComposer(threadId?: string | null) {
 
 function canSendComposer(threadId?: string | null) {
   if (!threadId) return false;
+  if (isCloudTaskThread(threadId)) return state.auth.authenticated && getCloudTaskChat().ready(threadId)
+    && !getCloudTaskChat().busy(threadId) && Boolean(state.composerText.trim());
   if (localGroupChatBusyThreadIds.has(threadId)) return false;
   if (isThreadContinuationCreationActive(threadId)) return false;
   if (isVideoExpertThreadId(threadId)) return canSendVideoExpertComposer(threadId);
@@ -39382,7 +39430,7 @@ async function updateExecutionPlanLifecycle(
   }
 }
 
-async function deleteExecutionPlan(planId: string) {
+async function deleteExecutionPlan(planId: string, valid: () => boolean = () => true) {
   const plan = state.executionPlans.find((item) => item.id === planId);
   if (!plan || executionPlanAlertSyncBusyIds.has(planId) || executionPlanDeleteBusyIds.has(planId)) return;
   const linkedAlertId = plan.linkedAlertId
@@ -39394,6 +39442,7 @@ async function deleteExecutionPlan(planId: string) {
     confirmLabel: "删除",
     tone: "danger",
   }))) return;
+  if (!valid()) return;
   if (linkedAlertId && !api.tradingAlertsDelete) {
     showToast("当前版本不支持删除计划关联预警，计划未删除。", 5000);
     return;
@@ -39408,6 +39457,7 @@ async function deleteExecutionPlan(planId: string) {
       const remote=plan.cloudReport.planRecords[0];
       const response=await api.tradingCloudPlans?.('delete',{planId:remote.id,runId:remote.runId,version:remote.version,
         confirmationHash:remote.confirmationHash,conditionHash:remote.scenario.conditionHash});
+      if (!valid()) return;
       if(!response?.ok)throw new Error(response?.error?.message||'云端删除未确认');
       state.executionPlans=nextPlans;
       if(!saveExecutionPlans(state.executionPlansScope,nextPlans))showToast('云端计划已删除，本机缓存写入失败',5000);
@@ -39418,11 +39468,14 @@ async function deleteExecutionPlan(planId: string) {
     state.executionPlans = nextPlans;
     if (linkedAlertId) {
       const response = await api.tradingAlertsDelete!({ alertId: linkedAlertId });
+      if (!valid()) return;
       if (response?.ok === false) throw new Error(response.error?.message || "关联预警删除失败");
     }
     await refreshTradingAlerts();
+    if (!valid()) return;
     showToast(linkedAlertId ? "计划及其关联预警已删除" : "计划已删除", 5000);
   } catch (error) {
+    if (!valid()) return;
     saveExecutionPlans(state.executionPlansScope, previousPlans);
     state.executionPlans = previousPlans;
     showToast(`删除计划失败：${errorMessage(error)}`, 5000);
@@ -43732,7 +43785,7 @@ function renderThreadRow(thread: ConversationSummary) {
   const finalResultUnviewed = hasUnviewedFinalResult(thread.id);
   const draftPreview = active ? null : threadComposerDraftPreview(thread.id);
   const preview = draftPreview?.plain ?? threadListPreviewText(thread);
-  const rawRowName = wechatLinkedThread
+  const rawRowName = isCloudTaskThread(thread.id) ? thread.name : wechatLinkedThread
     ? WECHAT_CHANNEL_THREAD_NAME
     : feishuConnectionThread
       ? FEISHU_CHANNEL_THREAD_NAME
@@ -51444,6 +51497,7 @@ function contextUsageProgressState(threadId: string) {
 }
 
 function chatHeaderTitle(thread: ConversationSummary) {
+  if (isCloudTaskThread(thread.id)) return thread.name;
   if (isBlankNewThread(thread.id)) return NEW_THREAD_TITLE;
   if (isWechatLinkedThread(thread)) return WECHAT_CHANNEL_THREAD_NAME;
   if (isFeishuConnectionThread(thread)) return FEISHU_CHANNEL_THREAD_NAME;
@@ -52943,6 +52997,7 @@ function shouldLocalizeAppOwnedMessage(message: Message, fromUser: boolean) {
     record.__youleLocalStatus === true
     || isBlankThreadWelcomeMessage(message)
     || id.startsWith("agent-notice-")
+    || id.startsWith("quota-insufficient-")
     || id.startsWith("trading-preference-")
     || id.startsWith("wechat-channel-")
     || id.startsWith("feishu-channel-")
@@ -53096,7 +53151,7 @@ function renderMessageActions(message: Message) {
 function renderMessageActionButton(action: MessageAction) {
   const kind = firstString(action.kind) || "";
   const actionId = firstString(action.id, kind, action.label) || "";
-  const isRecharge = isRechargeTokenAction(action);
+  const isRecharge = isRechargeTokenAction(action) || action.destination === "consumption";
   const isTradingAlertsNavigation = action.destination === "trading-alerts";
   const isBinanceAccountNavigation = action.destination === "binance-account";
   const isStrategiesNavigation = action.destination === "strategies";
@@ -56480,6 +56535,14 @@ function renderWorkflowComposerInputSlots(
 }
 
 function renderComposer(thread: ConversationSummary) {
+  if (isCloudTaskThread(thread.id)) return `
+    <form id="composerForm" class="composer" data-thread-id="${escapeAttr(thread.id)}">
+      ${state.composerQuote ? renderComposerQuotePreview(state.composerQuote) : ''}
+      <div class="composer-input-wrap"><div class="composer-highlight" aria-hidden="true">${renderComposerMentionHighlights(state.composerText)}</div>
+        <textarea id="composerInput" maxlength="8000" placeholder="${state.settings.language === 'en' ? 'Continue this conversation' : /zh-(TW|Hant)/.test(state.settings.language) ? '繼續此對話' : '继续此会话'}">${escapeHtml(state.composerText)}</textarea>
+      </div>
+      <div class="composer-tools"></div>${renderComposerModelPicker(thread.id)}${renderVoiceInputButton()}${renderComposerSubmitButton(thread)}
+    </form>`;
   if (isVideoExpertThread(thread)) return renderVideoExpertComposer(thread);
   const threadBusy = isComposerThreadBusy(thread.id);
   const interruptDisabled = threadBusy && !canInterruptThread(thread.id);
@@ -61965,6 +62028,7 @@ function bindBinanceAccountEvents(scope: ParentNode) {
 }
 
 function bindExecutionPlanEvents() {
+  getSavedPlanMenu().bind(root);
   if (root.dataset.executionPlanEventsBound === "1") return;
   root.dataset.executionPlanEventsBound = "1";
   root.addEventListener("click", (event) => {
@@ -67076,6 +67140,148 @@ async function createExecutionPlanStickyFromMessageAction(card: HTMLElement) {
   }
 }
 
+var cloudTaskChatController: ReturnType<typeof createCloudTaskChatController> | undefined;
+function getCloudTaskChat() {
+  return cloudTaskChatController ||= createCloudTaskChatController({
+    scope:()=>state.auth.authenticated ? `${currentExecutionPlanStorageScope()}:${authenticatedWorkspaceGeneration}` : null,
+    request:async(action,input)=>{
+      if(!api.tradingCloudTaskChat)throw new Error('当前客户端不支持云端会话，请重启后重试');
+      return api.tradingCloudTaskChat(action,input);
+    },
+    apply:applyCloudTaskHistory,
+    changed:id=>scheduleProtectedRender({sourceThreadId:id}),
+    error:error=>showToast(errorMessage(error),5000),
+    restoreDraft:(id,prompt)=>{
+      if (state.composerDrafts[id]?.text.trim() || currentComposerThreadId() === id && state.composerText.trim()) return;
+      setComposerDraft(id,{text:prompt,attachments:[],quote:null});
+      if(currentComposerThreadId()===id)state.composerText=prompt;
+    },
+  });
+}
+async function sendCloudTaskMessage(threadId:string) {
+  if (!state.auth.authenticated || state.voiceInput.status !== 'idle') return;
+  const generation=authenticatedWorkspaceGeneration;
+  const text=composerInputTextForThread(threadId).trim();
+  if (!text) return;
+  if (state.attachments.length || state.composerThreadReferences.length) {showToast('请先移除附件或跨会话引用，再发送文字消息');return;}
+  const prompt=state.composerQuote ? `${text}\n\n${composerQuoteContextBody(state.composerQuote)}` : text;
+  if(prompt.length>8000){showToast('消息及引用内容不能超过 8000 字');return;}
+  rememberComposerDraftForThread(threadId);
+  const selection=tradingExpertSelectedModelRequestOptions(threadId);
+  const ok=await getCloudTaskChat().send(threadId,prompt,selection.model || '',state.settings.language).catch(error=>{showToast(errorMessage(error));return false;});
+  if(!ok || generation!==authenticatedWorkspaceGeneration)return;
+  if(state.composerDrafts[threadId]?.text.trim()===text)forgetComposerDraft(threadId);
+  if(currentComposerThreadId()===threadId && state.composerText.trim()===text){state.composerText='';state.composerQuote=null;}
+  scheduleProtectedRender({sourceThreadId:threadId});
+}
+function isCloudTaskThread(id: string | null | undefined) { return Boolean(id?.startsWith('cloud-task:')); }
+function applyCloudTaskHistory(history: any) {
+  const id = history.threadId;
+  if (!isCloudTaskThread(id) || !Array.isArray(history.items)) throw new Error('云端历史会话格式错误');
+  ensureThreadState(id);
+  state.items[id] = {}; state.itemOrder[id] = [];
+  for (const item of history.items) upsertItem(id,item);
+  state.executionPlans = state.executionPlans.map(plan => {
+    const message = history.items.find((item: CodexItem) => item.__youleCloudReports?.some(report => report.runId === plan.cloudReport?.runId
+      && report.planRecords.some(record => record.id === plan.id)));
+    return message && (plan.sourceThreadId !== id || plan.sourceMessageId !== message.id || plan.sourceTitle !== history.title)
+      ? linkSavedPlanSource(plan,{threadId:id,messageId:message.id,title:history.title}) : plan;
+  });
+  saveExecutionPlans(state.executionPlansScope,state.executionPlans);
+  const summary: ConversationSummary = {id,name:history.title,kind:'main_session',thread_kind:'cloud_task',
+    preview:latestThreadAssistantPreviewText(id),preview_time:formatThreadTime(history.updatedAt),
+    last_message_at:history.updatedAt,agents:fallbackMembers('main_session')};
+  state.threads = sortThreadsForList(mergeThreads(state.threads,[summary]));
+  initializeTradingExpertTaskThread(id);
+}
+async function selectCloudTaskThread(threadId: string) {
+  state.activeView = 'chat'; state.currentThreadId = threadId; state.activeTurnId = null;
+  state.chatPreview = null; state.closingPreviewSource = null;
+  restoreComposerDraftForThread(threadId); rememberChatThreadSelection(threadId);
+  ensureThreadState(threadId); render();
+  initializeTradingExpertTaskThread(threadId,{expandPanel:true});
+  await getCloudTaskChat().load(threadId);
+
+}
+function savedPlanSourceForNavigation(plan: SavedExecutionPlan) {
+  const source = resolveSavedPlanSource(plan, resolvedTradingAlertThreadId, id => hiddenThreadIds.has(id));
+  if (source) return source;
+  for (const [threadId, items] of Object.entries(state.items)) {
+    if (hiddenThreadIds.has(threadId)) continue;
+    if (Object.values(items).some(item => !isGeneratedPlanRecord(item.id) && item.__youleCloudReports?.some(report => report.runId === plan.cloudReport?.runId
+      && report.planRecords.some(record => record.id === plan.id)))) return resolvedTradingAlertThreadId(threadId);
+  }
+  return '';
+}
+var savedPlanSourceResolver: ReturnType<typeof createSavedPlanSourceResolver> | undefined;
+function ensureSavedPlanSource(plan: SavedExecutionPlan, valid: () => boolean) {
+  const view = state.activeView, selected = state.currentThreadId;
+  const currentNavigation = () => valid() && state.activeView === view && state.currentThreadId === selected
+    && state.executionPlans.some(item => item.id === plan.id);
+  savedPlanSourceResolver ||= createSavedPlanSourceResolver({
+    scope: () => state.auth.authenticated ? `${currentExecutionPlanStorageScope()}:${authenticatedWorkspaceGeneration}` : null,
+    lookup: savedPlanSourceForNavigation,
+    unavailable: () => state.settings.language === 'en' ? 'The source conversation is unavailable'
+      : /zh-(TW|Hant)/.test(state.settings.language) ? '此計畫的來源對話無法使用' : '此计划的来源会话不可用',
+    read: async id => {
+      if (isCloudTaskThread(id)) {
+        const generation = authenticatedWorkspaceGeneration;
+        const response = await api.tradingCloudPlans?.('history',{taskId:id.slice('cloud-task:'.length)});
+        if (generation !== authenticatedWorkspaceGeneration) return;
+        if (!response?.ok) throw new Error(response?.error?.message || '无法读取原始历史会话');
+        applyCloudTaskHistory(response); return;
+      }
+      if (isProviderThread(threadById(id)) || isBlankNewThread(id) || hasCachedVisibleThreadContent(id)) return;
+      const result = await api.readThreadForBackgroundHydration({threadId:id,cwd:threadWorkspaceCwd(id)});
+      if (result?.thread?.id !== id) throw new Error('thread not found');
+    },
+    findOriginal: async (saved, current) => {
+      const response = await api.tradingCloudPlans?.('history',{planId:saved.id,runId:saved.cloudReport?.runId});
+      if (!current()) return null;
+      if (!response?.ok) throw new Error(response?.error?.message || '无法读取原始历史会话');
+      applyCloudTaskHistory(response);
+      return {threadId:response.threadId,messageId:saved.cloudReport!.runId,title:response.title};
+    },
+    save: async (saved, source, current) => {
+      if (!current()) return;
+      if (saved.cloudReport && api.tradingCloudPlans && /^[a-f0-9-]{36}$/i.test(source.threadId)) {
+        const response = await api.tradingCloudPlans('source',{planId:saved.id,runId:saved.cloudReport.runId,sourceThreadId:source.threadId});
+        if (!current()) return;
+        if (!response?.ok) throw new Error(response?.error?.message || '无法保存计划会话关联');
+      }
+      if (!current()) return;
+      const plans = state.executionPlans.map(item => item.id === saved.id ? linkSavedPlanSource(item,source) : item);
+      if (!saveExecutionPlans(state.executionPlansScope,plans)) throw new Error('无法保存计划会话关联');
+      state.executionPlans = plans;
+    },
+  });
+  return savedPlanSourceResolver(plan, currentNavigation);
+}
+var savedPlanMenu: ReturnType<typeof createSavedExecutionPlanMenu> | undefined;
+function getSavedPlanMenu() { return savedPlanMenu ||= createSavedExecutionPlanMenu({
+  language: () => state.settings.language,
+  scope: () => state.auth.authenticated ? `${currentExecutionPlanStorageScope()}:${authenticatedWorkspaceGeneration}` : null,
+  resolve: id => {
+    if (!state.auth.authenticated || state.activeView !== 'plans') return null;
+    const plan = state.executionPlans.find(item => item.id === id);
+    if (!plan) return null;
+    const source = savedPlanSourceForNavigation(plan);
+    return {plan, scope: `${currentExecutionPlanStorageScope()}:${authenticatedWorkspaceGeneration}`,
+      busy: executionPlanAlertSyncBusyIds.has(id) || executionPlanDeleteBusyIds.has(id),
+      chartBusy: Boolean(source && isThreadBusy(source)), sourceAvailable: Boolean(source || plan.cloudReport)};
+  },
+  lifecycle: updateExecutionPlanLifecycle,
+  remove: deleteExecutionPlan,
+  navigate: (plan, destination, valid) => navigateSavedPlan(plan, destination, {
+    language: () => state.settings.language, valid, sourceAvailable: id => !hiddenThreadIds.has(id),
+    ensureSource: plan => ensureSavedPlanSource(plan, valid),
+    initializeChart: id => initializeTradingExpertTaskThread(id, {expandPanel: true}), selectThread,
+    isCurrentThread: id => state.activeView === 'chat' && state.currentThreadId === id,
+    showChart: showTradingExecutionPlanChart,
+  }),
+  error: error => showToast(errorMessage(error), 5000),
+}); }
+
 var messagePlanMenu: ReturnType<typeof createExecutionPlanMenu> | undefined;
 function getMessagePlanMenu() { return messagePlanMenu ||= createExecutionPlanMenu({
   language: () => state.settings.language,
@@ -67175,6 +67381,10 @@ function bindMessageContentEvents(container: ParentNode = root) {
       const kind = button.dataset.messageActionKind || "";
       if (button.dataset.messageAction === RECHARGE_TOKEN_ACTION_ID || kind === RECHARGE_TOKEN_ACTION_KIND) {
         openRechargePage();
+        return;
+      }
+      if (button.dataset.messageActionDestination === "consumption") {
+        openConsumptionPage();
         return;
       }
       if (button.dataset.messageActionDestination === "execution-plans") {
@@ -69744,6 +69954,7 @@ function handleAuthExpired(session: any = {}) {
 }
 
 function resetAuthenticatedWorkspace() {
+  cloudTaskChatController?.reset();
   refreshCloudExecutionPlans.reset();
   workspaceStartupError = null;
   workspaceStartupSlow = false;
@@ -76575,7 +76786,7 @@ function normalizeHaoloDisplayText(text: string) {
 }
 
 function assistantVisibleText(text: string) {
-  return redactVideoGenerationCompletionMetadata(cleanVisibleMessageText(text));
+  return redactLeakedToolProtocol(redactVideoGenerationCompletionMetadata(cleanVisibleMessageText(text)), state.settings.language);
 }
 
 function stripInternalTurnGroupMemoryText(text: string) {

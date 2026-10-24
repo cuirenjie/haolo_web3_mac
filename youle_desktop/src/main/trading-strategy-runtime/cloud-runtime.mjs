@@ -308,7 +308,7 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
           requestedEntryMode:input.requestedEntryMode,origin:input.origin,
           marketId:params.marketId,interval:params.interval,state:'prepared',
           body:{clientContract:'windows-v1',clientRunId:runId,executionPolicy:input.executionPolicy,
-            context:{taskId:randomUUID(),marketKey:target.marketKey,interval:target.interval,snapshotId:snapshot.snapshotId,version:1},
+            context:{taskId:/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(input.origin.sourceThreadId) ? input.origin.sourceThreadId : randomUUID(),marketKey:target.marketKey,interval:target.interval,snapshotId:snapshot.snapshotId,version:1},
             strategy:strategyId,prompt:input.instruction,locale:input.locale,preferencesRevision:input.preferencesRevision,analysisKind:input.analysisKind,
             positionManagementRequested:input.positionManagementRequested,analysisContext:input.analysisContext,
             responseMode:input.responseMode,explicitModelSelection:input.explicitModelSelection,...(input.modelId ? {modelId:input.modelId} : {}),

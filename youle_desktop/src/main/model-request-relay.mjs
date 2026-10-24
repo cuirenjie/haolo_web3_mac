@@ -6,6 +6,7 @@ import { pipeline } from "node:stream/promises";
 import { WebSocketServer } from "ws";
 import { normalizeModelRequestBody, modelFromRequestBody } from "./model-request-policy.mjs";
 import { createModelProgressWatchdog } from "./model-progress-watchdog.mjs";
+import { adaptDeepSeekBody, createDeepSeekResponseStream, restoreDeepSeekResponse } from "./deepseek-responses-adapter.mjs";
 import {
   MODEL_REQUEST_COMPRESSION_MIN_BYTES,
   prepareCompressedModelRequest,
@@ -47,6 +48,10 @@ export class ModelRequestRelay extends EventEmitter {
     this.upstreamCompressionSupported = true;
     this.WebSocketImpl = options.WebSocketImpl || null;
     this.resolveHistoryModel = options.resolveHistoryModel;
+    this.resolveToolRecoveryState = options.resolveToolRecoveryState;
+    this.managedAnalysis = options.managedAnalysis === true;
+    this.contextProjectionEnabled = options.contextProjectionEnabled !== false
+      && !/^(?:0|false|no|off)$/i.test(String(process.env.HAOLO_DESKTOP_CONTEXT_PROJECTION || ""));
     this.deepSeekBilling = options.deepSeekBilling;
     this.progressTimeouts = options.progressTimeouts;
     this.webSockets = new Set();
@@ -176,7 +181,8 @@ export class ModelRequestRelay extends EventEmitter {
         });
         const forward = (from, to) => from.on("message", (data, binary) => {
           if (from === client) {
-            try { data = normalizeModelRequestBody(data, "", this.maxRequestBytes, this.resolveHistoryModel); }
+            try { data = normalizeModelRequestBody(data, "", this.maxRequestBytes, this.resolveHistoryModel, this.managedAnalysis,
+              { enabled: this.contextProjectionEnabled, onMetrics: metrics => this.emit("context-projection", metrics) }); }
             catch (error) {
               client.send(JSON.stringify({ type: "error", error: { code: error.code, message: error.message } }));
               client.close(1008, "Model request rejected");
@@ -220,8 +226,12 @@ export class ModelRequestRelay extends EventEmitter {
         writeJsonError(response, 404, "MODEL_RELAY_ROUTE_NOT_FOUND", "Unknown model relay route.");
         return;
       }
-      const body = normalizeModelRequestBody(await readRequestBody(request, this.maxRequestBytes), request.headers["content-encoding"], this.maxRequestBytes, this.resolveHistoryModel);
+      let body = normalizeModelRequestBody(await readRequestBody(request, this.maxRequestBytes), request.headers["content-encoding"], this.maxRequestBytes, this.resolveHistoryModel, this.managedAnalysis,
+        { enabled: this.contextProjectionEnabled, onMetrics: metrics => this.emit("context-projection", metrics) });
       const deepSeek = modelFromRequestBody(body, request.headers["content-encoding"]) === "deepseek-flash";
+      const protocol = deepSeek && /\/responses(?=\?|$)/.test(target)
+        ? adaptDeepSeekBody(body, request.headers["content-encoding"], this.maxRequestBytes, this.resolveToolRecoveryState) : null;
+      if (protocol) body = protocol.body;
       const requestHeaders = { ...request.headers };
       if (deepSeek && this.deepSeekBilling !== undefined) {
         if (!this.deepSeekBilling?.keyId) throw Object.assign(new Error("Model billing profile unavailable"), { code: "MODEL_BILLING_UNAVAILABLE" });
@@ -277,16 +287,29 @@ export class ModelRequestRelay extends EventEmitter {
         throw Object.assign(new Error("Model billing contract unavailable"), { code: "MODEL_BILLING_UNSUPPORTED" });
       }
       copyResponseHeaders(upstreamResponse.headers, response);
+      if (protocol && upstreamResponse.ok) {
+        // Fetch has already decoded the upstream body; the adapter changes its
+        // bytes, so upstream lengths/encodings no longer describe this stream.
+        response.removeHeader("content-length");
+        response.removeHeader("content-encoding");
+        if (!/text\/event-stream/i.test(upstreamResponse.headers.get("content-type") || "")) {
+          const result = restoreDeepSeekResponse(await upstreamResponse.json(), protocol.names);
+          response.writeHead(upstreamResponse.status);
+          response.end(JSON.stringify(result));
+          return;
+        }
+      }
       response.writeHead(upstreamResponse.status);
       responseStarted = true;
       if (!upstreamResponse.body || request.method === "HEAD") {
         response.end();
         return;
       }
-      if (watchdog) await pipeline(Readable.fromWeb(upstreamResponse.body), watchdog.stream, response, { signal: controller.signal });
+      if (protocol && upstreamResponse.ok) await pipeline(Readable.fromWeb(upstreamResponse.body), watchdog.stream, createDeepSeekResponseStream(protocol.names), response, { signal: controller.signal });
+      else if (watchdog) await pipeline(Readable.fromWeb(upstreamResponse.body), watchdog.stream, response, { signal: controller.signal });
       else await pipeline(Readable.fromWeb(upstreamResponse.body), response);
     } catch (error) {
-      const timeout = controller.signal.reason?.code?.startsWith("MODEL_");
+      const timeout = typeof controller.signal.reason?.code === "string" && controller.signal.reason.code.startsWith("MODEL_");
       if (timeout) error = controller.signal.reason;
       if (!responseStarted && !response.headersSent && (!controller.signal.aborted || timeout)) {
         const status = error?.code === "MODEL_RETIRED" ? 400 : error?.code === "MODEL_RELAY_BODY_TOO_LARGE" ? 413 : 502;
@@ -294,7 +317,7 @@ export class ModelRequestRelay extends EventEmitter {
           response,
           status,
           error?.code || "MODEL_RELAY_UPSTREAM_FAILED",
-          status === 400 ? error.message : status === 413
+          status === 400 || error?.code === "MODEL_TOOL_PROTOCOL_ERROR" ? error.message : status === 413
             ? "Model request exceeds the local relay safety limit."
             : "Model transport failed before the upstream response started.",
         );

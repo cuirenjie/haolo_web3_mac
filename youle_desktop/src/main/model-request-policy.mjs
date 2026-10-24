@@ -1,6 +1,7 @@
 import zlib from "node:zlib";
+import { projectModelToolContext } from "./model-context-projection.mjs";
 import { assertAllowedModelRequest, isRetiredExecutionModel } from "./retired-model-policy.mjs";
-import { migrateDeepSeekModelSelection } from "./deepseek-model-policy.mjs";
+import { migrateDeepSeekModelSelection, isManagedAnalysisModel, DEEPSEEK_FLASH_MODEL } from "./deepseek-model-policy.mjs";
 
 export function modelFromRequestBody(body, encoding = "") {
   try {
@@ -16,7 +17,7 @@ export function assertAllowedModelBody(body, encoding = "", maxBytes = 128 * 102
   normalizeModelRequestBody(body, encoding, maxBytes);
 }
 
-export function normalizeModelRequestBody(body, encoding = "", maxBytes = 128 * 1024 * 1024, resolveHistoryModel) {
+export function normalizeModelRequestBody(body, encoding = "", maxBytes = 128 * 1024 * 1024, resolveHistoryModel, managedAnalysis = false, contextOptions = {}) {
   if (body == null || body.length === 0) return body;
   let bytes = Buffer.isBuffer(body) ? body : Buffer.from(body);
   const format = String(encoding || "").trim().toLowerCase();
@@ -44,7 +45,20 @@ export function normalizeModelRequestBody(body, encoding = "", maxBytes = 128 * 
     }
   }
   assertAllowedModelRequest(compatible);
-  const migrated = migrateDeepSeekModelSelection(compatible);
+  let migrated = migrateDeepSeekModelSelection(compatible);
+  const target = migrated.type === "response.create" && migrated.response && typeof migrated.response === "object" ? migrated.response : migrated;
+  if (managedAnalysis && isManagedAnalysisModel(target.model)) {
+    const normalized = { ...target, model: DEEPSEEK_FLASH_MODEL,
+      reasoning: { ...target.reasoning, effort: "low" },
+      ...(Object.hasOwn(target, "reasoning_effort") ? { reasoning_effort: "low" } : {}) };
+    migrated = target === migrated ? normalized : { ...migrated, response: normalized };
+  }
+  if (managedAnalysis && contextOptions.enabled !== false) {
+    const projection = projectModelToolContext(migrated);
+    migrated = projection.payload;
+    // Observability is counts only, never user text, account IDs or tool data.
+    try { contextOptions.onMetrics?.(projection.metrics); } catch { /* Diagnostic observer only. */ }
+  }
   if (migrated === payload) return body;
   const serialized = Buffer.from(JSON.stringify(migrated));
   const compress = { gzip: zlib.gzipSync, deflate: zlib.deflateSync, br: zlib.brotliCompressSync, zstd: zlib.zstdCompressSync }[format];

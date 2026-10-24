@@ -14,6 +14,7 @@ import { ModelRequestRelay, modelRequestRelayEnabled } from "./model-request-rel
 import { haoloRoute } from "./haolo-network-policy.mjs";
 import { requestWithThreadHistoryRecovery } from "./thread-history-recovery.mjs";
 import { DEEPSEEK_FLASH_MODEL, LEGACY_DEEPSEEK_FLASH_MODEL, isDeepSeekFlashModel, migrateDeepSeekModelSelection } from "./deepseek-model-policy.mjs";
+import { normalizeAnalysisRPCSelection } from "./analysis-model-policy.mjs";
 import { providerModelInputCapabilities } from "./provider-input-capabilities.mjs";
 import { DEFAULT_EXECUTION_MODEL, assertAllowedModelRequest, isRetiredExecutionModel } from "./retired-model-policy.mjs";
 import { HAOLO_BUILTIN_PLUGIN_IDS, syncBuiltinPluginRegistration } from "./plugin-manager.mjs";
@@ -74,7 +75,7 @@ export const DEEPSEEK_EXECUTION_PROVIDER_ID = "deepseek";
 export const DEEPSEEK_EXECUTION_MODEL = DEEPSEEK_FLASH_MODEL;
 export const DEEPSEEK_EXECUTION_ENV_KEY = "HAOLO_DEEPSEEK_EXECUTION_TOKEN";
 const DEFAULT_MODEL = DEFAULT_EXECUTION_MODEL;
-const DEFAULT_MODEL_REASONING_EFFORT = "high";
+const DEFAULT_MODEL_REASONING_EFFORT = "low";
 const DEFAULT_WINDOWS_SANDBOX_MODE = "unelevated";
 // The root thread occupies the only session slot. This is a runtime backstop
 // for Haolo's ordinary serial-execution policy, even if a stale prompt tries
@@ -83,7 +84,7 @@ const DEFAULT_AGENT_MAX_THREADS_PER_SESSION = 1;
 // The managed haolo_ai provider uses the ChatGPT/Codex OAuth subscription
 // route. Production currently enforces a 400K native window on that route,
 // independently of the 1.05M window advertised for direct OpenAI API access.
-// Compact at 300K so the compact request itself still has enough headroom.
+// The working-history budget is separate from the native model capacity.
 const MANAGED_MODEL_CONTEXT_WINDOW = 400_000;
 const MANAGED_MODEL_AUTO_COMPACT_TOKEN_LIMIT = 300_000;
 const MANAGED_MODEL_EFFECTIVE_CONTEXT_WINDOW_PERCENT = 95;
@@ -122,7 +123,7 @@ const LEGACY_MANAGED_SECTION_CONFIG_VALUES = [
   { section: "model_providers.deepseek", key: "http_headers", value: /version\s*=\s*"(?:0\.144\.1|0\.153\.4)"/ },
 ];
 const FORCED_MANAGED_SECTION_CONFIG_VALUES = [
-  { section: "model_providers.haolo_ai", key: "supports_websockets", value: "true" },
+  { section: "model_providers.haolo_ai", key: "supports_websockets", value: "false" },
   { section: "features.network_proxy", key: "enabled", value: "false" },
   { section: "windows", key: "sandbox", value: `"${DEFAULT_WINDOWS_SANDBOX_MODE}"` },
 ];
@@ -196,6 +197,7 @@ export class AppServerClient extends EventEmitter {
     this.nextId = 1;
     this.pending = new Map();
     this.activeRuntimeTurns = new Map();
+    this.toolRecoveryStates = new Map();
     this.historyModelSelections = new Map();
     this.timedOutRequests = new Map();
     this.status = "stopped";
@@ -320,6 +322,7 @@ export class AppServerClient extends EventEmitter {
       const wasReady = this.status === "ready";
       this.status = "stopped";
       this.activeRuntimeTurns.clear();
+      this.toolRecoveryStates.clear();
       this.historyModelSelections.clear();
       void this.stopModelRequestRelays();
       this.rejectAll(new Error(`app-server exited with code ${code ?? "null"}, signal ${signal ?? "null"}`));
@@ -457,15 +460,22 @@ export class AppServerClient extends EventEmitter {
       // trading-analysis sessions, so provider recovery cannot interrupt them.
       const threadId = message.params?.threadId;
       const turnId = message.params?.turn?.id || message.params?.turnId;
-      if (threadId && message.method === "turn/started") this.activeRuntimeTurns.set(threadId, turnId || null);
+      if (threadId && message.method === "turn/started") {
+        this.activeRuntimeTurns.set(threadId, turnId || null);
+        // Host-owned turn scope survives history compaction. Duplicate start
+        // notifications cannot reopen tools during an answer-only recovery.
+        if (!this.toolRecoveryStates.has(threadId) || this.toolRecoveryStates.get(threadId).turnId !== turnId) this.toolRecoveryStates.set(threadId, { turnId, answerOnly: false });
+      }
       if (threadId && ["turn/completed", "turn/failed"].includes(message.method)
         && (!this.activeRuntimeTurns.get(threadId) || this.activeRuntimeTurns.get(threadId) === turnId)) {
         this.activeRuntimeTurns.delete(threadId);
+        this.toolRecoveryStates.delete(threadId);
       }
       if (threadId && message.method === "thread/status/changed" && message.params?.status?.type === "active"
         && !this.activeRuntimeTurns.has(threadId)) this.activeRuntimeTurns.set(threadId, null);
       if (threadId && message.method === "thread/closed") {
         this.activeRuntimeTurns.delete(threadId);
+        this.toolRecoveryStates.delete(threadId);
         this.historyModelSelections.delete(threadId);
       }
       this.emit("notification", message);
@@ -487,6 +497,7 @@ export class AppServerClient extends EventEmitter {
   }
 
   requestRaw(method, params = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
+    params = normalizeAnalysisRPCSelection(method, params);
     params = migrateDeepSeekModelSelection(params);
     try { assertAllowedModelRequest(params); } catch (error) { return Promise.reject(error); }
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
@@ -499,7 +510,7 @@ export class AppServerClient extends EventEmitter {
       && typeof params.threadId === "string" && params.model) {
       this.historyModelSelections.set(params.threadId, {
         model: params.model,
-        effort: isDeepSeekFlashModel(params.model) ? "max" : "low",
+        effort: "low",
       });
     }
     const id = this.nextId++;
@@ -564,6 +575,7 @@ export class AppServerClient extends EventEmitter {
     this.ws = null;
     await stopProcessTree(this.child);
     this.activeRuntimeTurns.clear();
+    this.toolRecoveryStates.clear();
     this.historyModelSelections.clear();
     this.child = null;
     await this.stopModelRequestRelays();
@@ -595,9 +607,12 @@ export class AppServerClient extends EventEmitter {
             fetch: this.modelRelayFetch || undefined,
             WebSocketImpl: this.modelRelayWebSocketImpl,
             resolveHistoryModel: (threadId) => this.historyModelSelections.get(threadId),
+            resolveToolRecoveryState: (threadId) => this.toolRecoveryStates.get(threadId),
             deepSeekBilling: route.deepSeekBilling,
+            managedAnalysis: route.deepSeekBilling !== undefined,
           });
           relay.on("request-metrics", (metrics) => this.emitModelRelayMetrics(metrics));
+          relay.on("context-projection", (metrics) => this.emitModelRelayMetrics({ contextProjection: metrics }));
           relay.on("request-error", (error) => {
             if (!error.aborted) {
               this.emitLog("system", `[model-transport] upstream error ${error.code}`);
@@ -649,6 +664,10 @@ export class AppServerClient extends EventEmitter {
   }
 
   emitModelRelayMetrics(metrics) {
+    const context = metrics?.contextProjection;
+    if (context?.savedBytes > 0) {
+      this.emitLog("system", `[model-context] ${context.changedOutputs} tool outputs, ${context.references} identical text references; ${context.beforeBytes} -> ${context.afterBytes} bytes (${context.savedBytes} removed before inference)`);
+    }
     const compression = metrics?.compression;
     if (compression?.fallbackApplied) {
       this.emitLog(
@@ -2676,7 +2695,7 @@ export function defaultCodexConfigArgs(options = {}) {
     "-c",
     `model_providers.${DEEPSEEK_EXECUTION_PROVIDER_ID}.http_headers.X-Haolo-Model-Capability="${DEFAULT_PROVIDER_MODEL_CAPABILITY}"`,
   ];
-  if (options.defaultProviderSupportsWebsockets === false) {
+  if (haoloRoute(providerBaseUrl) || options.defaultProviderSupportsWebsockets === false) {
     args.push(
       "-c",
       `model_providers.${DEFAULT_PROVIDER_ID}.supports_websockets=false`,

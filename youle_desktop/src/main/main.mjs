@@ -1,4 +1,5 @@
 import { CodexProviderConversations } from "./codex-provider-conversation.mjs";
+import { excludeCurrentThreadMemory } from "./group-memory-context.mjs";
 import { createSupportUploads } from "./native-support.mjs";
 import { channelCodexInput, CHANNEL_CODEX_INSTRUCTIONS } from "./channel-codex-input.mjs";
 import { CodexBusinessTools, CODEX_BUSINESS_TOOLS, CODEX_TRADING_INSTRUCTIONS } from "./codex-business-tools.mjs";
@@ -60,6 +61,7 @@ import { createSharedBinanceAccountReader } from "./binance-account/shared-reade
 import { PersonalMemoryStore } from "./personal-context/memory-store.mjs";
 import { createCloudTradingPreferences, cloudTradingPreferenceFailure } from "./personal-context/cloud-trading-preferences.mjs";
 import { createCloudStrategyRuntime, cloudAccountConnection } from "./trading-strategy-runtime/cloud-runtime.mjs";
+import {createCloudTaskChat} from './trading-strategy-runtime/cloud-task-chat.mjs';
 import {createCloudPlans} from './trading-strategy-runtime/cloud-plans.mjs';
 import {createCloudPriceAlerts, isCloudPriceAlert} from './trading-alerts/cloud-price-alerts.mjs';
 import {createCloudAlertFeed} from './trading-strategy-runtime/cloud-alert-feed.mjs';
@@ -10054,11 +10056,11 @@ async function refreshSkillsDeveloperInstructions(
   }
 }
 
-function buildThreadGroupMemoryInstructions(cwd) {
+function buildThreadGroupMemoryInstructions(cwd, contextPolicy = {}) {
   const startedAt = performanceTimingStart();
   const workspace = path.resolve(cwd || desktopWorkspace());
   const sessionsDir = path.join(workspaceCodexHome(workspace), "sessions");
-  const files = recentGroupSessionFiles(sessionsDir);
+  const files = excludeCurrentThreadMemory(recentGroupSessionFiles(sessionsDir), contextPolicy.currentThreadId);
   let entriesCount = 0;
   let totalChars = 0;
   try {
@@ -10431,7 +10433,7 @@ function buildDesktopDeveloperInstructions(
   fs.mkdirSync(outputDir, { recursive: true });
   const groupContextInstructions = buildThreadGroupContextInstructions(threadGroupContext);
   const groupMemoryInstructions = contextPolicy.includeConversationMemory === false
-    ? null : buildThreadGroupMemoryInstructions(cwd || desktopWorkspace());
+    ? null : buildThreadGroupMemoryInstructions(cwd || desktopWorkspace(), contextPolicy);
   const mediaRoutingInstructions = buildHaoloMediaDeveloperInstructions(cwd || desktopWorkspace());
   const conversationModeInstructions = buildConversationModeDeveloperInstructions(
     conversationMode,
@@ -15453,12 +15455,15 @@ async function runPersonalStrategyRequest(strategyId, params = {}) {
   };
 }
 
-let cloudStrategyRuntime;
+let cloudStrategyRuntime, cloudRunJournal;
+function getCloudRunJournal() {
+  return cloudRunJournal ||= new CloudRunJournal({storagePath:path.join(app.getPath("userData"), "cloud-strategy-runs.bin"), safeStorage});
+}
 function getCloudStrategyRuntime() {
   if (cloudStrategyRuntime) return cloudStrategyRuntime;
   cloudStrategyRuntime = createCloudStrategyRuntime({
     owner: requireHaoloAccountOwner, api: getYouleApiClient,
-    journal: new CloudRunJournal({storagePath:path.join(app.getPath("userData"), "cloud-strategy-runs.bin"), safeStorage}),
+    journal: getCloudRunJournal(),
     connection: async (_owner, target) => {
       if (!target.marketKey.startsWith("binance:usdm:") || !target.marketKey.endsWith("USDT")) return null;
       const connections = await readSharedBinanceAccountConnections();
@@ -15850,7 +15855,15 @@ ipcMain.handle("tradingCloud:recovery", async (event, params = {}) => {
   } catch(error) {return {ok:false,error:cloudStrategyFailure(error,{language:appLanguage()})};}
 });
 
-const cloudPlans = createCloudPlans({owner:requireHaoloAccountOwner,api:getYouleApiClient});
+let cloudTaskChatJournal;
+const cloudTaskChat = createCloudTaskChat({owner:requireHaoloAccountOwner,api:getYouleApiClient,
+  journal:()=>cloudTaskChatJournal ||= new CloudRunJournal({storagePath:path.join(app.getPath('userData'),'cloud-task-chat.bin'),safeStorage})});
+ipcMain.handle('tradingCloud:taskChat',async(event,params={})=>{
+  assertExternalModelsIpcSender(event);
+  try {return {ok:true,...await cloudTaskChat.perform(params.action,params.input)};}
+  catch(error){return {ok:false,error:cloudStrategyFailure(error,{language:appLanguage()})};}
+});
+const cloudPlans = createCloudPlans({owner:requireHaoloAccountOwner,api:getYouleApiClient,sources:getCloudRunJournal});
 const cloudPriceAlerts = createCloudPriceAlerts({owner:requireHaoloAccountOwner,api:getYouleApiClient});
 async function tradingAlertsCombinedSnapshot() {
   const local = await (await getTradingAlertService()).snapshot();
@@ -18876,6 +18889,7 @@ ipcMain.handle("codex:sendMessage", async (_event, params = {}) => {
       params.imageGenerationSize || params.image_generation_size,
       params.imageGenerationSizeField || params.image_generation_size_field,
       videoGenerationOptions,
+      { currentThreadId: threadId },
     );
     const conversationModeTurnOverrides = buildConversationModeTurnOverrides(
       conversationMode,
