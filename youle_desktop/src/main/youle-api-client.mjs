@@ -1,5 +1,6 @@
 import { HAOLO_GATEWAY_BASE_URL, migrateHaoloGatewayAuth, normalizeHaoloGatewayBaseUrl } from "./haolo-gateway.mjs";
 import crypto from "node:crypto";
+import { createConditionalPollFetch } from "./conditional-poll-fetch.mjs";
 import { supportRoute } from "./native-support.mjs";
 import { BINANCE_REBIND_MESSAGE, binanceBindingErrorMessage } from "../shared/binance-account-errors.mjs";
 import { verifyPlanInvitation } from './execution-plan-share.mjs';
@@ -4380,11 +4381,15 @@ export class YouleApiClient {
   }
 
   async requestJson(url, init = {}) {
+    this.conditionalPollFetch ||= createConditionalPollFetch(
+      (target, options) => this.serviceFetch(target, options),
+      () => `${this.baseUrl}:${this.authRevision}:${this.profile?.id || this.profile?.user_id || ''}:${this.token || ''}`,
+    );
     const accountMutation = !["GET", "HEAD"].includes(String(init.method || "GET").toUpperCase())
       && new URL(url).pathname.startsWith(`${this.accountConnectionsPath}`);
     if (accountMutation) { this.accountReadCoordinator?.invalidate(); this.accountSnapshotComponents?.invalidate(); }
     try {
-      return await requestJson(url, { ...init, logPath: this.logPath, fetchImpl: this.serviceFetch });
+      return await requestJson(url, { ...init, logPath: this.logPath, fetchImpl: this.conditionalPollFetch });
     } finally {
       if (accountMutation) { this.accountReadCoordinator?.invalidate(); this.accountSnapshotComponents?.invalidate(); }
     }

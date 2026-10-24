@@ -10,7 +10,7 @@ import { createMarketFrameEncoder } from "./market-frame.mjs";
 import { compactCohort, compressionCohort, compressionOptions } from "./ws-compression.mjs";
 import { marketTier, requireMarketRoute } from "./market-routing.mjs";
 import { TrafficMetrics, streamFamily, restFamily } from "./traffic-metrics.mjs";
-import { MARKET_WIRE_CODEC } from "./market-wire-codec.mjs";
+import { negotiateMarketCodec } from "./market-wire-codec.mjs";
 import { MarketTicketStore } from "./market-tickets.mjs";
 
 // A browser that cannot consume the feed must not turn the gateway into an
@@ -268,7 +268,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
         }
         const body = await readJsonBody(request);
         const codec = config.marketCompactEnabled && compactCohort(identity.userId, config.marketCompactPercent ?? 100)
-          && Array.isArray(body?.codecs) && body.codecs.includes(MARKET_WIRE_CODEC) ? MARKET_WIRE_CODEC : "json";
+          ? negotiateMarketCodec(body?.codecs) : "json";
         const { ticket, expiresInMs, audit } = await tickets.issue({
           userId: identity.userId, marketTier: marketTier(identity), membershipExpiresAt: identity.membershipExpiresAt || null,
           marketRouting: identity.marketRouting || request.headers["x-haolo-market-routing"] === "1", codec,

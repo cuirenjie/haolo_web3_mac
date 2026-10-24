@@ -1,6 +1,6 @@
 // Events are shared by all subscribers and never retained after delivery.
 // A WeakMap avoids growing a stream/history cache as symbols change.
-import { compactMarketPayload, MARKET_WIRE_CODEC } from "./market-wire-codec.mjs";
+import { compactMarketPayload, MARKET_WIRE_CODECS } from "./market-wire-codec.mjs";
 
 export function createMarketFrameEncoder(stringify = JSON.stringify) {
   const frames = new WeakMap();
@@ -16,10 +16,10 @@ export function createMarketFrameEncoder(stringify = JSON.stringify) {
         original = Object.freeze({ text, bytes: Buffer.byteLength(text), codec: "json", stream: event.stream });
         entry.set(jsonMode, original);
       }
-      const compact = codec === MARKET_WIRE_CODEC ? compactMarketPayload(event, combined) : null;
+      const compact = MARKET_WIRE_CODECS.includes(codec) ? compactMarketPayload(event, combined, codec) : null;
       const text = compact ? stringify(compact) : original.text;
       const bytes = Buffer.byteLength(text);
-      entry.set(mode, Object.freeze({ ...(bytes < original.bytes ? { text, bytes, codec: MARKET_WIRE_CODEC, stream: event.stream } : original), jsonBytes: original.bytes }));
+      entry.set(mode, Object.freeze({ ...(bytes < original.bytes ? { text, bytes, codec, stream: event.stream } : original), jsonBytes: original.bytes }));
     }
     return entry.get(mode);
   };
