@@ -1,5 +1,6 @@
 import { HAOLO_GATEWAY_BASE_URL, migrateHaoloGatewayAuth, normalizeHaoloGatewayBaseUrl } from "./haolo-gateway.mjs";
 import crypto from "node:crypto";
+import { supportRoute } from "./native-support.mjs";
 import { BINANCE_REBIND_MESSAGE, binanceBindingErrorMessage } from "../shared/binance-account-errors.mjs";
 import { verifyPlanInvitation } from './execution-plan-share.mjs';
 import { createAccountReadCoordinator } from "./binance-account/read-coordinator.mjs";
@@ -451,6 +452,20 @@ export class YouleApiClient {
       await this.saveModelAuth();
     }
     return this.sessionSummary();
+  }
+
+  async supportRequest(params = {}) {
+    await this.load();
+    this.requireAuth();
+    const route = supportRoute(params);
+    const owner = `${this.baseUrl}:${this.profile?.id}`;
+    const result = await this.requestJson(joinUrl(this.baseUrl, route.path), {
+      method: route.method,
+      headers: this.clientHeaders({ auth: true, json: true }),
+      ...(route.body ? { body: JSON.stringify(route.body) } : {}),
+    });
+    if (owner !== `${this.baseUrl}:${this.profile?.id}` || !this.token) throw new Error("support_auth_changed");
+    return result;
   }
 
   async createDesktopWebHandoff() {
@@ -1617,6 +1632,17 @@ export class YouleApiClient {
     const id = String(connectionId || "").trim();
     if (!id) throw new Error("connectionId is required");
     return this.requestJson(joinUrl(this.baseUrl, `${this.accountConnectionsPath}/${encodeURIComponent(id)}`), {
+      method: "DELETE",
+      headers: this.authHeaders(),
+    });
+  }
+
+  async discardPendingAccountConnection(connectionId) {
+    await this.load();
+    this.requireAuth();
+    const id = String(connectionId || "").trim();
+    if (!id) throw new Error("connectionId is required");
+    return this.requestJson(joinUrl(this.baseUrl, `${this.accountConnectionsPath}/${encodeURIComponent(id)}/pending-binding`), {
       method: "DELETE",
       headers: this.authHeaders(),
     });

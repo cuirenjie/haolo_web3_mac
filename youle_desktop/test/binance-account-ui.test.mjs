@@ -101,7 +101,7 @@ test("unbound state and binding dialog match the complete secure flow", () => {
   assert.equal(state.dialog.code, "");
 });
 
-test("a binding owned by another device still renders the bound account state", () => {
+test("legacy empty connections offer recovery while shared credentials render the account", () => {
   const state = createBinanceAccountUiState();
   state.loaded = true;
   state.loading = false;
@@ -118,8 +118,9 @@ test("a binding owned by another device still renders the bound account state", 
   };
   state.snapshot = accountSnapshot();
   const page = renderBinanceAccountPage(state);
-  assert.match(page, /账户已绑定/);
-  assert.match(page, /当前绑定设备不在 Windows/);
+  assert.match(page, /账户绑定未完成/);
+  assert.match(page, /data-binance-account-action="rebind"/);
+  assert.doesNotMatch(page, /当前绑定设备不在 Windows/);
   assert.doesNotMatch(page, /还未绑定 API|data-binance-account-action="refresh"/);
 
   state.status.serverCredentialsBound = true;

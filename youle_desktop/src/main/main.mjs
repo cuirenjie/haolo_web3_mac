@@ -1,4 +1,5 @@
 import { CodexProviderConversations } from "./codex-provider-conversation.mjs";
+import { createSupportUploads } from "./native-support.mjs";
 import { channelCodexInput, CHANNEL_CODEX_INSTRUCTIONS } from "./channel-codex-input.mjs";
 import { CodexBusinessTools, CODEX_BUSINESS_TOOLS, CODEX_TRADING_INSTRUCTIONS } from "./codex-business-tools.mjs";
 import { CodexTradingArtifacts } from "./codex-trading-artifacts.mjs";
@@ -4929,16 +4930,37 @@ async function syncSharedBinanceAccountCredentials(credentials) {
   const api = getYouleApiClient();
   const deviceId = sharedBinanceConnectionDeviceId();
   await api.registerMobileDevice({ deviceId, platform: "windows" });
-  let connections = await readSharedBinanceAccountConnections();
-  let target = connections[0] || null;
+  const connections = await readSharedBinanceAccountConnections();
+  // Prefer the working account binding over any newer unfinished attempt.
+  let target = connections.find((item) => item.credentialsBound === true)
+    || connections.find((item) => String(item.deviceId || "") === deviceId)
+    || connections[0]
+    || null;
+  let created = false;
   if (!target?.id) {
     target = await api.createAccountConnection({
       deviceId,
       label: "Windows",
       analysisConsent: false,
     });
+    created = true;
   }
-  return api.bindAccountConnectionCredentials(target.id, credentials);
+  try {
+    return await api.bindAccountConnectionCredentials(target.id, credentials);
+  } catch (error) {
+    if (created && target?.id) {
+      try {
+        // The server checks under lock that no concurrent bind saved a key.
+        // Older servers return 404; never fall back to unconditional unbind.
+        await api.discardPendingAccountConnection(target.id);
+      } catch {
+        // Preserve the useful binding error. Any leftover record is shown as
+        // incomplete and can be reused on the next attempt.
+        console.warn("[binance-account] pending connection cleanup unavailable");
+      }
+    }
+    throw error;
+  }
 }
 
 async function removeSharedBinanceAccountConnection() {
@@ -4974,7 +4996,7 @@ async function readBinanceAccountStatusWithSharedBinding(owner) {
     await getBinanceAccountService().remove(owner.ownerId);
     local = await getBinanceAccountService().status(owner.ownerId);
   }
-  const remoteBound = connections.length > 0;
+  const remoteBound = Boolean(serverCredentialConnection);
   const localBound = local.bound === true;
   const sharedDeviceId = sharedBinanceConnectionDeviceId();
   const own = connections.find((item) => String(item.deviceId || "") === sharedDeviceId);
@@ -4984,7 +5006,8 @@ async function readBinanceAccountStatusWithSharedBinding(owner) {
     localBound,
     remoteBound,
     remoteOnly: !localBound && remoteBound,
-    connectionId: own?.id || connections[0]?.id || null,
+    bindingIncomplete: !localBound && !remoteBound && connections.length > 0,
+    connectionId: serverCredentialConnection?.id || own?.id || connections[0]?.id || null,
     serverCredentialsBound: Boolean(serverCredentialConnection),
     serverConnectionId: serverCredentialConnection?.id || null,
     emailMasked: maskedEmail(owner.email),
@@ -13102,6 +13125,29 @@ ipcMain.handle("youle:refreshSession", async (_event, params = {}) => {
   return getYouleApiClient().refreshSession({
     reason: String(params.reason || "renderer-lifecycle"),
   });
+});
+
+const nativeSupportUploads = createSupportUploads({ getClient: getYouleApiClient });
+const nativeSupportUploadOwners = new WeakSet();
+function supportErrorResult(error) {
+  // Return bounded status codes, never signed URLs, credentials or raw network errors.
+  return { ok: false, status: Number(error?.status || error?.statusCode) || (isYouleAuthExpiredError(error) ? 401 : 0), code: String(error?.message || "").match(/^support_[a-z_]+$/)?.[0] || "support_request_failed" };
+}
+ipcMain.handle("youle:supportRequest", async (event, params = {}) => {
+  assertExternalModelsIpcSender(event);
+  try {
+    if (params.action === "sign") throw new Error("support_invalid_action");
+    return { ok: true, data: await getYouleApiClient().supportRequest(params) };
+  } catch (error) { return supportErrorResult(error); }
+});
+ipcMain.handle("youle:supportUpload", async (event, params = {}) => {
+  assertExternalModelsIpcSender(event);
+  if (!nativeSupportUploadOwners.has(event.sender)) {
+    nativeSupportUploadOwners.add(event.sender);
+    event.sender.once("destroyed", () => { void nativeSupportUploads.disposeOwner(event.sender.id); });
+  }
+  try { return { ok: true, data: await nativeSupportUploads.run(event.sender.id, params) }; }
+  catch (error) { return supportErrorResult(error); }
 });
 
 ipcMain.handle("youle:openWebsiteSupport", async () => {

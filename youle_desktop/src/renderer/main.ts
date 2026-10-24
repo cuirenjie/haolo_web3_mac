@@ -1,4 +1,6 @@
 import { alertConfirmationIntentPrompt, parseAlertConfirmationIntent } from "../main/trading-confirmation-intent.mjs";
+import { NativeSupport, type SupportResult } from "./native-support";
+import { NativeSupportView } from "./native-support-view";
 import { CodexTradingWorkflowSteps } from "./codex-trading-workflows";
 import { CodexTradingTools } from "./codex-trading-tools";
 import { ExternalChannelRecoveryTurns } from "./external-channel-recovery.mjs";
@@ -125,6 +127,7 @@ import {
   collapseTradingExpertWatchlist,
   ensureTradingExpertChartIndicatorVisible,
   TRADING_EXPERT_TREND_BAND_MENTION,
+  TRADING_MARKET_INDICATOR_CATALOG,
   cancelTradingExpertAnalysis,
   migrateTradingExpertMarketWorkspaceStorageSession,
   renderTradingExpertMarketWorkspace,
@@ -1566,6 +1569,8 @@ type DesktopApi = {
   getYouleSession(): Promise<any>;
   refreshYouleSession?(params?: { reason?: string }): Promise<any>;
   openWebsiteSupport?(): Promise<{ ok?: boolean; authenticated?: boolean }>;
+  supportRequest?(params: any): Promise<SupportResult>;
+  supportUpload?(params: any): Promise<SupportResult>;
   refreshProfile(): Promise<any>;
   listImageGenerationModels?(params?: { force?: boolean }): Promise<any>;
   listProviderModelCatalog?(params?: { force?: boolean }): Promise<any>;
@@ -5716,6 +5721,9 @@ let workspaceStartupSlow = false;
 let previewCloseTimer: number | null = null;
 let marketplaceFillCheckFrame: number | null = null;
 let marketplaceRequestSeq = 0;
+let nativeSupportController: NativeSupport | null = null;
+let nativeSupportView: NativeSupportView | null = null;
+let nativeSupportReturn: { rightCollapsed: boolean; chartFocus: boolean; chatPreview: UiState["chatPreview"] } | null = null;
 let renderFrame: number | null = null;
 let workflowComposerConnectorFrame: number | null = null;
 let workflowComposerConnectorResizeObserver: ResizeObserver | null = null;
@@ -6420,6 +6428,7 @@ function applyAuthSession(session: any, fallbackBaseUrl = "") {
   state.auth.authenticated = Boolean(session?.authenticated);
   state.auth.baseUrl = normalizeLoginBaseUrlValue(session?.baseUrl || fallbackBaseUrl);
   state.auth.profile = session?.profile || null;
+  syncNativeSupportAccount();
   const accountIdentity = firstString(
     state.auth.profile?.id,
     state.auth.profile?.email,
@@ -15639,6 +15648,8 @@ async function selectThread(
     showToast(state.loading ? "工作区正在加载，请稍候" : "工作区连接尚未就绪，请稍后重试");
     return;
   }
+  const leavingNativeSupport = Boolean(nativeSupportController?.active);
+  leaveNativeSupport(false);
   // Apply before same-thread and cached-history shortcuts so every history
   // selection overrides a watchlist the user previously expanded.
   if (isTradingExpertSurfaceThreadId(threadId) && !isBlankNewThread(threadId)) {
@@ -15682,7 +15693,7 @@ async function selectThread(
       render();
     }
     if (!state.chatPreview && !state.closingPreviewSource) {
-      if (clearedFinalResultDot) render();
+      if (clearedFinalResultDot || leavingNativeSupport) render();
       return;
     }
     state.chatPreview = null;
@@ -16262,6 +16273,7 @@ function replaceWorkflowCanvasThreadId(
 }
 
 async function startNewThread() {
+  leaveNativeSupport(false);
   state.chatPreview = null;
   state.closingPreviewSource = null;
   const currentThreadId = state.currentThreadId;
@@ -32210,7 +32222,7 @@ function canSendConversationSupplement(threadId?: string | null) {
 function syncComposerSendButton() {
   if (deferInteractionRender(root.querySelector("#composerForm"), syncComposerSendButton)) return;
   patchComposerDynamicState(state.currentThreadId);
-  const button = root.querySelector<HTMLButtonElement>(".send-button");
+  const button = root.querySelector<HTMLButtonElement>("#composerForm .send-button");
   if (!button) return;
   if (isComposerThreadBusy(state.currentThreadId)) {
     button.disabled =
@@ -35549,6 +35561,9 @@ function renderPerformancePayload(mode: string): Record<string, unknown> {
 }
 
 function render() {
+  if (nativeSupportView?.composing) return;
+  nativeSupportView?.captureFocus();
+  if (nativeSupportController?.active && state.activeView !== "chat" && !nativeSupportController.assisting && !nativeSupportController.assistPinned) leaveNativeSupport(false);
   if (deferInteractionRender(root, render)) return;
   syncTaskbarUnreadCount();
   if (state.activeView !== "recharge") {
@@ -43069,7 +43084,7 @@ function renderConversationListIcon(icon: "new-chat" | "account" | "plans" | "sk
 }
 
 function renderConversationListActions() {
-  const newConversationActive = state.activeView === "chat" && isBlankNewThread(state.currentThreadId);
+  const newConversationActive = !nativeSupportController?.active && state.activeView === "chat" && isBlankNewThread(state.currentThreadId);
   const accountActive = state.activeView === "account";
   const planningActive = state.activeView === "plans" || state.activeView === "alerts";
   const skillsActive = state.activeView === "skillsPlaza";
@@ -43118,7 +43133,7 @@ function renderConversationListFooter() {
       <button
         type="button"
         class="conversation-list-support-button conversation-list-footer-button"
-        data-action="open-website-support"
+        data-action="open-native-support"
         title="联系客服"
         aria-label="联系客服"
       >
@@ -43483,6 +43498,9 @@ function renderThreadSections(threads: ConversationSummary[], emptyText: string)
   const grouped = groupedThreadsForList(projectThreads, showEmptyGroups);
   const defaultGroup = ensureDefaultThreadGroup();
   const groupSections = conversationGroupSectionsForList(grouped, defaultGroup);
+  if (nativeSupportController?.records.length && !groupSections.some((section) => section.group.id === defaultGroup.id)) {
+    groupSections.unshift({ group: defaultGroup, threads: [] });
+  }
   const projectSections = [
     ...groupSections.map((section) => renderThreadGroupSection(section.group, section.threads)),
     grouped.ungrouped.length ? renderUngroupedConversationProject(grouped.ungrouped) : "",
@@ -43605,6 +43623,16 @@ function renderUngroupedConversationProject(threads: ConversationSummary[]) {
 
 function renderConversationProjectThreads(projectId: string, threads: ConversationSummary[]) {
   const expanded = expandedConversationProjectIds.has(projectId);
+  if (isDefaultThreadGroup(projectId) && nativeSupportController?.records.length && nativeSupportView) {
+    // Insert support entries without changing the model conversations' own order.
+    const rows = threads.map((thread) => ({ time: Date.parse(thread.last_message_at || thread.preview_time || thread.created_at || "") || 0, html: renderThreadRow(thread) }));
+    for (const record of nativeSupportController.records) {
+      const at = rows.findIndex((row) => row.time < record.updatedAt);
+      rows.splice(at < 0 ? rows.length : at, 0, { time: record.updatedAt, html: nativeSupportView.historyRow(record) });
+    }
+    const visible = expanded ? rows : rows.slice(0, CONVERSATION_PROJECT_PREVIEW_LIMIT);
+    return `<div class="conversation-project-thread-list">${visible.map((row) => row.html).join("")}${visible.length < rows.length ? `<button type="button" class="conversation-project-expand" data-conversation-project-expand="${escapeAttr(projectId)}">展开显示</button>` : ""}</div>`;
+  }
   const visibleThreads = expanded
     ? threads
     : threads.slice(0, CONVERSATION_PROJECT_PREVIEW_LIMIT);
@@ -44665,6 +44693,7 @@ function renderContactRequestsPage() {
 }
 
 function isActiveThreadRow(threadId: string) {
+  if (nativeSupportController?.active) return false;
   if (threadId === state.currentThreadId) return true;
   return Boolean(
     state.currentThreadId &&
@@ -46617,7 +46646,14 @@ function handleLocalGroupChatMemberAction(action: string) {
   }
 }
 
+function renderNativeSupportExitButton() {
+  return `<button type="button" class="native-support-exit" data-support-exit>${escapeHtml(nativeSupportView?.text("exit") || "退出客服")}</button>`;
+}
+
 function renderChatPanel(thread: ConversationSummary | null) {
+  if (nativeSupportController?.active && !isTradingExpertSurfaceThreadId(thread?.id)) {
+    return `<main class="chat-panel native-support-panel"><header class="native-support-standalone-header"><strong class="trading-expert-panel-title">${escapeHtml(nativeSupportView?.text("conversation") || "客服会话")}</strong>${renderNativeSupportExitButton()}</header><div data-native-support-host></div></main>`;
+  }
   if (!thread) {
     return `
       <main class="chat-panel blank-panel">
@@ -46707,14 +46743,16 @@ function tradingExpertPanelToggleLabel(expanded: boolean) {
 function renderTradingExpertConversationHeader(thread: ConversationSummary) {
   const conversationExpanded = state.tradingExpertChartCollapsed && !state.rightCollapsed;
   const label = tradingExpertPanelToggleLabel(conversationExpanded);
-  const title = chatHeaderTitle(thread) || NEW_THREAD_TITLE;
+  const title = nativeSupportController?.active
+    ? nativeSupportView?.text("conversation") || "客服会话"
+    : chatHeaderTitle(thread) || NEW_THREAD_TITLE;
   return `
     <header class="trading-expert-panel-header">
       <div class="trading-expert-panel-heading">
         <strong class="trading-expert-panel-title" title="${escapeAttr(title)}">${escapeHtml(title)}</strong>
       </div>
       <div class="trading-expert-panel-header-actions">
-        ${renderTradingWatchlistToggle()}
+        ${nativeSupportController?.active ? renderNativeSupportExitButton() : renderTradingWatchlistToggle()}
         <button type="button" class="small-icon-button panel-toggle trading-expert-panel-header-toggle ${conversationExpanded ? "expanded" : "collapsed"}" data-action="toggle-right-panel" data-trading-expert-conversation-expansion title="${label}" aria-label="${label}" aria-expanded="${conversationExpanded ? "true" : "false"}">
           ${renderPanelLayoutIcon("right")}
         </button>
@@ -57821,6 +57859,14 @@ function patchActiveWorkflowNodeDialog(threadId: string) {
 }
 
 function renderAgentPanel(thread: ConversationSummary | null) {
+  if (nativeSupportController?.active) {
+    return thread && isTradingExpertSurfaceThreadId(thread.id)
+      ? `<aside class="agent-panel ${state.rightCollapsed ? "collapsed" : "expanded"} trading-expert-panel native-support-panel" aria-hidden="${state.rightCollapsed}" aria-label="${escapeAttr(nativeSupportView?.text("conversation") || "客服会话")}">
+          ${renderTradingExpertConversationHeader(thread)}
+          <div data-native-support-host></div>
+        </aside>`
+      : "";
+  }
   const threadId = thread?.id;
   if (thread && isTradingExpertThreadId(threadId)) {
     const collapsed = state.rightCollapsed;
@@ -58492,6 +58538,7 @@ function patchActiveTaskTimelineInPlace(panel: HTMLElement, threadId: string, ta
 }
 
 function patchActiveAgentPanel(threadId: string | null | undefined = state.currentThreadId) {
+  if (nativeSupportController?.active) return true;
   if (deferInteractionRender(root.querySelector(".agent-panel"), () => patchActiveAgentPanel())) return true;
   if (!threadId || threadId !== state.currentThreadId || state.activeView !== "chat" || state.chatPreview) return false;
   patchMultiModelClusterPresence(threadId);
@@ -62158,6 +62205,7 @@ function handleRightPanelToggle(event: MouseEvent) {
 
 function bindEvents() {
   bindWindowControls();
+  bindNativeSupportEvents();
   bindWebsiteSupportEvents();
   bindCascadeMenuHoverEvents();
   const settingsDialog = root.querySelector<HTMLElement>(".settings-dialog");
@@ -66398,6 +66446,84 @@ function bindWorkflowCanvasContextMenu() {
       insertWorkflowCanvasNestedSpec(menuState, spec);
     });
   });
+}
+
+function syncNativeSupportAccount() {
+  if (!nativeSupportController) {
+    nativeSupportController = new NativeSupport({
+      bridge: {
+        supportRequest: (params) => api.supportRequest?.(params) ?? Promise.resolve({ ok: false }),
+        supportUpload: (params) => api.supportUpload?.(params) ?? Promise.resolve({ ok: false }),
+      },
+      storage: localStorage,
+      context: () => ({ version: APP_VERSION, page: state.activeView,
+        capabilities: ["open_settings", "set_theme", "open_usage", ...(root.querySelector('[data-market-action="toggle-indicator-editor"]') ? ["open_indicators", "set_indicator", "open_candle_settings", "set_candle_colors"] : [])],
+        indicator_catalog: TRADING_MARKET_INDICATOR_CATALOG.map(item => ({ id: `${item.scope}:${item.id}`, label: item.label,
+          parameters: item.parameters.map((p, index) => ({ index: String(index), label: p.label, min: p.min, max: p.max, step: p.step })) })),
+      }),
+      locale: () => state.settings.language === "zh-TW" ? "zh-Hant" : state.settings.language,
+      visible: () => state.activeView === "chat" && !document.hidden && !shouldShowLoginWindow(),
+      changed: (history) => {
+        nativeSupportView?.update();
+        if (history) scheduleRender({ protectComposer: true });
+      },
+    });
+    nativeSupportView = new NativeSupportView(nativeSupportController, {
+      language: () => state.settings.language,
+      openExternal: (url) => api.openExternal(url),
+      requestRender: () => scheduleRender({ protectComposer: true }),
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden && nativeSupportController?.active) void nativeSupportController.refresh();
+    });
+  }
+  const identity = state.auth.authenticated && state.auth.profile?.id
+    ? `${state.auth.baseUrl}::${state.auth.profile.id}` : "";
+  if (identity !== nativeSupportController.account) {
+    leaveNativeSupport(false);
+    nativeSupportView?.reset();
+    nativeSupportController.setAccount(identity);
+  }
+}
+
+function openNativeSupport(sessionId = "") {
+  if (shouldShowLoginWindow()) return;
+  syncNativeSupportAccount();
+  if (!nativeSupportController?.account) return;
+  if (!nativeSupportController.active) {
+    rememberActiveComposerDraft();
+    nativeSupportReturn = { rightCollapsed: state.rightCollapsed, chartFocus: state.tradingExpertChartFocusMode, chatPreview: state.chatPreview };
+  }
+  state.activeView = "chat";
+  state.chatPreview = null;
+  state.rightCollapsed = !isTradingExpertSurfaceThreadId(state.currentThreadId);
+  state.tradingExpertChartFocusMode = false;
+  collapsedThreadGroupIds.delete(DEFAULT_THREAD_GROUP_ID);
+  void nativeSupportController.open(sessionId);
+  render();
+}
+
+function leaveNativeSupport(restorePreview: boolean) {
+  if (!nativeSupportController?.active) return;
+  nativeSupportController.close();
+  if (nativeSupportReturn) {
+    state.rightCollapsed = nativeSupportReturn.rightCollapsed;
+    state.tradingExpertChartFocusMode = nativeSupportReturn.chartFocus;
+    if (restorePreview) state.chatPreview = nativeSupportReturn.chatPreview;
+    nativeSupportReturn = null;
+  }
+}
+
+function bindNativeSupportEvents() {
+  if (nativeSupportController?.active && nativeSupportController.assistPinned && state.activeView !== "chat") {
+    const dock = document.createElement("aside"); dock.className = "support-assist-dock";
+    dock.innerHTML = `<button type="button" data-support-exit>${nativeSupportView?.text("exit") || "haolo"}</button><div data-native-support-host></div>`;
+    root.append(dock);
+  }
+  root.querySelectorAll<HTMLElement>('[data-action="open-native-support"]').forEach((button) => button.addEventListener("click", () => openNativeSupport()));
+  root.querySelectorAll<HTMLElement>("[data-support-session]").forEach((button) => button.addEventListener("click", () => openNativeSupport(button.dataset.supportSession)));
+  root.querySelectorAll<HTMLButtonElement>("[data-support-exit]").forEach((button) => button.addEventListener("click", () => { leaveNativeSupport(true); render(); }));
+  nativeSupportView?.mount(root.querySelector<HTMLElement>("[data-native-support-host]"));
 }
 
 function bindWebsiteSupportEvents() {

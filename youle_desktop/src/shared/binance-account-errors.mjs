@@ -1,6 +1,7 @@
 export const BINANCE_REBIND_MESSAGE = "API Key 无效，请重新绑定";
 
 const BINDING_ERROR_MESSAGES = Object.freeze({
+  READ_ONLY_KEY_REQUIRED: "API 权限不符合只读要求。请开启读取权限，关闭交易、提现和划转权限后重新绑定。",
   CONNECTION_REVOKED: "此 Binance 连接已解绑，请关闭窗口后重新绑定。",
   ACCOUNT_CREDENTIALS_NOT_BOUND: "尚未完成 Binance API 绑定，请重新绑定。",
   CONNECTION_LIMIT: "已达到账户连接数量上限，请解除不用的连接后重试。",

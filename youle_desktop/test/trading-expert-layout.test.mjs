@@ -192,7 +192,7 @@ test("Trading Expert message action opens its dedicated two-pane presentation", 
   assert.doesNotMatch(tradingChatBranch, /renderChatHeader\(thread\)/);
   assert.match(tradingPanelToggleBlock, /return expanded \? "收起会话" : "展开会话"/);
   assert.match(tradingPanelToggleBlock, /function renderTradingExpertConversationHeader\(thread: ConversationSummary\)/);
-  assert.match(tradingPanelToggleBlock, /const title = chatHeaderTitle\(thread\) \|\| NEW_THREAD_TITLE/);
+  assert.match(tradingPanelToggleBlock, /const title = nativeSupportController\?\.active[\s\S]*nativeSupportView\?\.text\("conversation"\)[\s\S]*: chatHeaderTitle\(thread\) \|\| NEW_THREAD_TITLE/);
   assert.match(tradingPanelToggleBlock, /const conversationExpanded = state\.tradingExpertChartCollapsed && !state\.rightCollapsed/);
   assert.match(tradingPanelToggleBlock, /class="trading-expert-panel-header"[\s\S]*class="trading-expert-panel-title"[\s\S]*data-action="toggle-right-panel"/);
   assert.match(tradingPanelToggleBlock, /data-trading-expert-conversation-expansion/);

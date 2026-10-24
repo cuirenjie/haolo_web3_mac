@@ -19,7 +19,6 @@ const manualDevelopmentRestart =
 
 export default defineConfig({
   plugins: [tradingChartLibraryPlugin(chartLibrary)],
-  resolve: { alias: { 'lightweight-charts': chartLibrary } },
   optimizeDeps: { exclude: ['lightweight-charts'] },
   root,
   base: "./",

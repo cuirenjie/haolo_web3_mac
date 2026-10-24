@@ -16,13 +16,16 @@ function sourceBlock(source, startMarker, endMarker) {
   return source.slice(start, end);
 }
 
-test("all customer-service entries open the website support flow", async () => {
+test("main workspace opens native support while other entries retain website support", async () => {
   const source = await rendererSource;
   const aboutBlock = sourceBlock(source, "function renderSettingsAboutPanel", "function renderSettingsLinkRow");
   const supportEvents = sourceBlock(source, "function bindWebsiteSupportEvents", "function bindAgentPanelEvents");
 
   assert.match(aboutBlock, /renderSettingsLinkRow\("联系客服", "", "open-website-support"\)/);
-  assert.equal((source.match(/data-action="open-website-support"/g) || []).length, 4);
+  assert.equal((source.match(/data-action="open-website-support"/g) || []).length, 3);
+  const footer = sourceBlock(source, "function renderConversationListFooter", "function renderChatList");
+  assert.match(footer, /data-action="open-native-support"/);
+  assert.doesNotMatch(footer, /open-website-support/);
   assert.match(supportEvents, /api\.openWebsiteSupport\(\)/);
   assert.match(supportEvents, /HAOLO_HOME_URL\}\/\#support=open/);
   assert.match(supportEvents, /aria-busy/);
