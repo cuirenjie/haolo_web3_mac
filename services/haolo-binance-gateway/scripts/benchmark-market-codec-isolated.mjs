@@ -9,13 +9,13 @@ import { setTimeout as delay } from 'node:timers/promises';
 import WebSocket from 'ws';
 import { createPublicGatewayServer } from '../src/public-server.mjs';
 import { GatewayCache } from '../src/cache.mjs';
-import { decodeMarketPayload } from '../src/market-wire-codec.mjs';
+import { decodeMarketWireFrame } from '../src/market-binary-codec.mjs';
 import { baseConfig } from '../test/helpers.mjs';
 
 const stamp = () => performance.timeOrigin + performance.now();
 const count = Number(process.argv[2] || 320), codec = process.argv[3] || 'json';
 assert(Number.isInteger(count) && count >= 1 && count <= 2000);
-assert(['json', 'hmc1'].includes(codec));
+assert(['json', 'hmc1', 'hmc2', 'hmz1'].includes(codec));
 
 if (process.argv[4] === 'client') {
   const origin = process.argv[5], clients = [], offsets = [], sequence = Array(count).fill(-1), latencies = [];
@@ -31,8 +31,8 @@ if (process.argv[4] === 'client') {
       headers: { authorization: `Bearer client-${id}` }, body: JSON.stringify({ codecs: [codec] }) })).json();
     const client = new WebSocket(origin.replace('http:', 'ws:') + `/stream/futures?streams=btcusdt@aggTrade&ticket=${ticket.ticket}`, { perMessageDeflate: false });
     clients[id] = client;
-    client.on('message', raw => {
-      const { data } = decodeMarketPayload(JSON.parse(String(raw)));
+    client.on('message', (raw, binary) => {
+      const { data } = decodeMarketWireFrame(raw, binary);
       if (data.a !== sequence[id] + 1 || data.p !== '65123.12345678' || data.q !== '0.00000100') errors++;
       sequence[id] = data.a; messages++; latencies.push(stamp() - data.E);
       if (messages === count * 500) process.send({ type: 'delivered' });
@@ -51,7 +51,7 @@ if (process.argv[4] === 'client') {
   process.disconnect();
 } else {
   const listeners = new Set();
-  const gateway = createPublicGatewayServer({ config: baseConfig({ marketCompactEnabled: true,
+  const gateway = createPublicGatewayServer({ config: baseConfig({ marketCompactEnabled: true, marketBinaryEnabled: true,
     maxWebsocketClientsTotal: count + 1, marketNodeTier: 'paid', downstreamRequestsPerMinute: 100000 }),
     restGateway: { cache: new GatewayCache() },
     accessTokenVerifier: { verify: async userId => ({ userId, marketTier: 'paid', membershipExpiresAt: Date.now() + 3600000 }) },

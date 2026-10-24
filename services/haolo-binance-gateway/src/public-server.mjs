@@ -10,7 +10,7 @@ import { createMarketFrameEncoder } from "./market-frame.mjs";
 import { compactCohort, compressionCohort, compressionOptions } from "./ws-compression.mjs";
 import { marketTier, requireMarketRoute } from "./market-routing.mjs";
 import { TrafficMetrics, streamFamily, restFamily } from "./traffic-metrics.mjs";
-import { negotiateMarketCodec } from "./market-wire-codec.mjs";
+import { negotiateMarketTransport } from "./market-binary-codec.mjs";
 import { MarketTicketStore } from "./market-tickets.mjs";
 
 // A browser that cannot consume the feed must not turn the gateway into an
@@ -268,7 +268,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
         }
         const body = await readJsonBody(request);
         const codec = config.marketCompactEnabled && compactCohort(identity.userId, config.marketCompactPercent ?? 100)
-          ? negotiateMarketCodec(body?.codecs) : "json";
+          ? negotiateMarketTransport(body?.codecs, config.marketBinaryEnabled === true) : "json";
         const { ticket, expiresInMs, audit } = await tickets.issue({
           userId: identity.userId, marketTier: marketTier(identity), membershipExpiresAt: identity.membershipExpiresAt || null,
           marketRouting: identity.marketRouting || request.headers["x-haolo-market-routing"] === "1", codec,
@@ -550,7 +550,8 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
     let backpressureTimer = null;
     const pendingMarketFrames = new Map();
     const sendFrame = (frame) => {
-      websocket.send(frame.text, { binary: false, compress: frame.bytes >= (config.wsCompressionThreshold || 1024) });
+      websocket.send(frame.text, { binary: !!frame.binary,
+        compress: !frame.binary && frame.bytes >= (config.wsCompressionThreshold || 1024) });
       metrics.websocketMarketFrames += 1;
       // Application bytes before compression, NOT wire/billing bytes.
       metrics.websocketMarketPayloadBytes += frame.bytes;

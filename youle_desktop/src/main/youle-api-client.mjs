@@ -4384,6 +4384,7 @@ export class YouleApiClient {
     this.conditionalPollFetch ||= createConditionalPollFetch(
       (target, options) => this.serviceFetch(target, options),
       () => `${this.baseUrl}:${this.authRevision}:${this.profile?.id || this.profile?.user_id || ''}:${this.token || ''}`,
+      { changes: true },
     );
     const accountMutation = !["GET", "HEAD"].includes(String(init.method || "GET").toUpperCase())
       && new URL(url).pathname.startsWith(`${this.accountConnectionsPath}`);

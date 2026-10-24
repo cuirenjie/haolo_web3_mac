@@ -124,6 +124,10 @@ test('IPC bridge restricts route and identity, keeps credentials private, reject
 test('production API wrapper sends authenticated settings reads and writes with token refresh intact', async () => {
   const requests = [], refreshes = [];
   const raw = new YouleApiClient({ serviceFetch: async (url, init) => {
+    if (url.endsWith('/sync/changes')) {
+      assert.equal(init.headers.Authorization, 'Bearer refreshed-settings-token');
+      return new Response('{}', { status: 503 }); // Optional feed failure retains normal authenticated reads.
+    }
     requests.push({ url, init });
     if (init.headers.Authorization !== 'Bearer refreshed-settings-token') {
       return new Response(JSON.stringify({ detail: { code: 'AUTH_HEADER_MISSING', message: 'Authorization header is required' } }), { status: 401 });
