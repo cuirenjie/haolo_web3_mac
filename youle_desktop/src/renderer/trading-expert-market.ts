@@ -167,6 +167,7 @@ export function recordTradingRendererFailure(error: unknown, context: Record<str
 
 function activeTradingAnalysisLanguage(): AppLanguage {
   const locale = appLanguageLocale();
+  if (locale === "ko-KR") return "ko";
   return locale === "zh-CN" || locale === "zh-TW" ? locale : "en";
 }
 

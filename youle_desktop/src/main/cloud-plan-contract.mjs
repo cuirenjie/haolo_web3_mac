@@ -1,3 +1,4 @@
+import { koreanText, localizedChoice } from '../shared/korean.mjs';
 // Public presentation contract shared with the renderer and durable history.
 // Contains no strategy decisions. The main process validates the server receipt;
 // activation always re-reads the account-owned plan on the server.
@@ -21,7 +22,7 @@ export function normalizeCloudReports(value) {
   const rows=JSON.parse(json), seen=new Set(), seenPlans=new Set();
   return rows.map(row=>{
     if(row?.schemaVersion!==1||!uuid(row.runId)||seen.has(row.runId)||!hash(row.resultHash)
-      ||!['zh-CN','en','zh-Hant'].includes(row.locale)||typeof row.marketId!=='string'||typeof row.interval!=='string'
+      ||!['zh-CN','en','zh-Hant','ko'].includes(row.locale)||typeof row.marketId!=='string'||typeof row.interval!=='string'
       ||typeof row.strategyId!=='string'||typeof row.report!=='string'||row.report.length>500000
       ||!Array.isArray(row.planRecords)) fail();
     seen.add(row.runId);
@@ -140,7 +141,7 @@ export function cloudPlanCard(report, { hideExpiry = false, separateAction = fal
     return {title,content,html:executionPlanCardHeading(title,lines,language)+executionPlanCardBody(lines,language,{expiresAt,hideAction:separateAction}),
       ...(separateAction?{actionHtml:executionPlanCardAction(lines,language)}:{})};
   }
-  const index=report.locale==='en'?1:report.locale==='zh-Hant'?2:0,t=key=>words[key]?.[index]||key;
+  const t=key=>words[key]?localizedChoice(words[key],displayLanguage||report.locale):key;
   const plan=report.executionPlan,condition=plan.entryCondition,scenario=plan.scenarios[0];
   const language=displayLanguage||(report.locale==='zh-Hant'?'zh-TW':report.locale);
   // Historical observation payloads remain readable, but never become cards.

@@ -1,3 +1,4 @@
+import { withKoreanVariants } from '../shared/korean.mjs';
 import { readFileSync } from "node:fs";
 import { executionPlanCardHeading, executionPlanCardBody, executionPlanCardFooter, executionPlanCardAction } from "./execution-plan-card-view.mjs";
 import {normalizeCloudReports, cloudPlanCard} from './cloud-plan-contract.mjs';
@@ -35,11 +36,11 @@ const MAX_LINE_TEXT_LENGTH = 600;
 const MAX_LINES = 24;
 export const EXECUTION_PLAN_STICKY_MIN_WIDTH = 240;
 export const EXECUTION_PLAN_STICKY_MIN_HEIGHT = 180;
-const STICKY_UI_COPY = Object.freeze({
+const STICKY_UI_COPY = Object.freeze(withKoreanVariants({
   en: Object.freeze({ lang: "en", defaultTitle: "Execution plan", controls: "Sticky-note controls", zoomIn: "Zoom in", zoomOut: "Zoom out", delete: "Delete" }),
   "zh-CN": Object.freeze({ lang: "zh-CN", defaultTitle: "执行计划", controls: "便利贴操作", zoomIn: "放大", zoomOut: "缩小", delete: "删除" }),
   "zh-TW": Object.freeze({ lang: "zh-TW", defaultTitle: "執行計畫", controls: "便利貼操作", zoomIn: "放大", zoomOut: "縮小", delete: "刪除" }),
-});
+}));
 
 function text(value, maxLength) {
   return String(value || "").replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, maxLength);
@@ -60,7 +61,7 @@ function nearestFontSize(value) {
 
 export function normalizeExecutionPlanStickyPayload(input = {}) {
   const cloudReport=input.cloudReport?normalizeCloudReports([input.cloudReport])[0]:null;
-  const language = input.language === "en" || input.language === "zh-TW" ? input.language : "zh-CN";
+  const language = input.language === "ko" || input.language === "en" || input.language === "zh-TW" ? input.language : "zh-CN";
   const lines = Array.isArray(input.lines)
     ? input.lines.slice(0, MAX_LINES).map((line = {}) => {
         const lineText = text(line.text, MAX_LINE_TEXT_LENGTH);

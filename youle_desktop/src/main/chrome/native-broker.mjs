@@ -30,6 +30,7 @@ export class ChromeNativeBroker extends EventEmitter {
     installationKey = userDataPath,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     logger = console,
+    language = "zh-CN",
   } = {}) {
     super();
     if (!userDataPath) throw new TypeError("ChromeNativeBroker requires userDataPath");
@@ -41,6 +42,7 @@ export class ChromeNativeBroker extends EventEmitter {
     this.release = chromeRolloutDecision(this.releasePolicy, installationKey);
     this.timeoutMs = timeoutMs;
     this.logger = logger;
+    this.language = language;
     this.pipeName = chromeNativePipeName(this.userDataPath);
     this.pipePath = process.platform === "win32" ? `\\\\.\\pipe\\${this.pipeName}` : path.join(this.userDataPath, `${this.pipeName}.sock`);
     this.token = null;
@@ -48,6 +50,19 @@ export class ChromeNativeBroker extends EventEmitter {
     this.clients = new Set();
     this.profiles = new Map();
     this.pending = new Map();
+  }
+
+  setLanguage(language) {
+    this.language = language;
+    for (const client of this.profiles.values()) {
+      writeLine(client.socket, createChromeEnvelope({
+        type: "extension.ready", requestId: crypto.randomUUID(),
+        sessionId: client.sessionId, profileId: client.profileId,
+        payload: { brokerVersion: HAOLO_CHROME_PROTOCOL_VERSION, language,
+          connected: client.compatibility.readEnabled && this.release.enabled,
+          compatibility: client.compatibility, release: this.release },
+      }));
+    }
   }
 
   async start() {
@@ -277,6 +292,7 @@ export class ChromeNativeBroker extends EventEmitter {
       profileId,
       payload: {
         brokerVersion: HAOLO_CHROME_PROTOCOL_VERSION,
+        language: this.language,
         connected: client.compatibility.readEnabled && this.release.enabled,
         compatibility: client.compatibility,
         release: this.release,

@@ -12,6 +12,7 @@ let connectionState = CONNECTION_STATES.DISCONNECTED;
 let connectionError = null;
 let profileId = null;
 let sessionId = null;
+let desktopLanguage = null;
 let reconnectTimer = null;
 let reconnectAttempt = 0;
 const listeners = new Set();
@@ -206,6 +207,7 @@ async function ensureNativeConnection(force = false) {
 
 function handleNativeMessage(message) {
   if (message?.type === "extension.ready") {
+    desktopLanguage = message.payload?.language || desktopLanguage;
     sessionId = message.sessionId;
     reconnectAttempt = 0;
     if (message.payload?.connected === false) {
@@ -918,6 +920,7 @@ function publicConnectionStatus() {
     sessionId,
     extensionVersion: chrome.runtime.getManifest().version,
     error: connectionError,
+    language: desktopLanguage,
   };
 }
 

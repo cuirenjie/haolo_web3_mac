@@ -154,6 +154,7 @@ export class YouleApiClient {
     this.storagePath = options.storagePath;
     this.authPath = options.authPath;
     this.logPath = options.logPath;
+    this.getLocale = typeof options.getLocale === "function" ? options.getLocale : () => "zh-CN";
     this.onAccountPnl = typeof options.onAccountPnl === "function" ? options.onAccountPnl : undefined;
     this.networkFetch = typeof options.networkFetch === "function"
       ? options.networkFetch
@@ -4387,9 +4388,14 @@ export class YouleApiClient {
   }
 
   async requestJson(url, init = {}) {
+    const locale = this.getLocale();
+    const headers = init.headers instanceof Headers || Array.isArray(init.headers)
+      ? Object.fromEntries(new Headers(init.headers).entries()) : {...init.headers};
+    if (!Object.keys(headers).some(key => key.toLowerCase() === 'accept-language')) headers['Accept-Language'] = locale;
+    init = {...init, headers};
     this.conditionalPollFetch ||= createConditionalPollFetch(
       (target, options) => this.serviceFetch(target, options),
-      () => `${this.baseUrl}:${this.authRevision}:${this.profile?.id || this.profile?.user_id || ''}:${this.token || ''}`,
+      () => `${this.baseUrl}:${this.authRevision}:${this.profile?.id || this.profile?.user_id || ''}:${this.token || ''}:${this.getLocale()}`,
       { changes: true },
     );
     const accountMutation = !["GET", "HEAD"].includes(String(init.method || "GET").toUpperCase())
@@ -4403,7 +4409,10 @@ export class YouleApiClient {
   }
 
   async requestBinary(url, init = {}) {
-    return requestBinary(url, { ...init, logPath: this.logPath, fetchImpl: this.serviceFetch });
+    const headers = init.headers instanceof Headers || Array.isArray(init.headers)
+      ? Object.fromEntries(new Headers(init.headers).entries()) : {...init.headers};
+    if (!Object.keys(headers).some(key => key.toLowerCase() === 'accept-language')) headers['Accept-Language'] = this.getLocale();
+    return requestBinary(url, { ...init, headers, logPath: this.logPath, fetchImpl: this.serviceFetch });
   }
 
   async load() {
@@ -7351,7 +7360,7 @@ function extractProviderChatText(payload, { allowEmpty = false } = {}) {
 }
 
 function normalizeConsumptionLanguage(value) {
-  return value === "en" || value === "zh-TW" ? value : "zh-CN";
+  return value === "ko" || value === "en" || value === "zh-TW" ? value : "zh-CN";
 }
 
 function fixedProviderReasoningEffort(params = {}) {

@@ -359,7 +359,9 @@
       "locale": "zh-CN",
       "status": "pending",
       "requires_login": false,
-      "platforms": ["windows"],
+      "platforms": [
+        "windows"
+      ],
       "actions": {},
       "sources": [
         "youle_desktop/src/main/deepseek-responses-adapter.mjs",
@@ -377,7 +379,9 @@
       "locale": "zh-Hant",
       "status": "pending",
       "requires_login": false,
-      "platforms": ["windows"],
+      "platforms": [
+        "windows"
+      ],
       "actions": {},
       "sources": [
         "youle_desktop/src/main/deepseek-responses-adapter.mjs",
@@ -395,7 +399,9 @@
       "locale": "en",
       "status": "pending",
       "requires_login": false,
-      "platforms": ["windows"],
+      "platforms": [
+        "windows"
+      ],
       "actions": {},
       "sources": [
         "youle_desktop/src/main/deepseek-responses-adapter.mjs",
@@ -403,6 +409,23 @@
         "youle_desktop/src/main/app-server-client.mjs",
         "youle_desktop/src/shared/model-protocol-text.mjs",
         "youle_desktop/docs/deepseek-protocol-compatibility-20261025.zh-CN.md"
+      ]
+    },
+    {
+      "id": "korean-interface",
+      "title": "四语言界面与专业韩语",
+      "body": "应用语言支持简体中文、English、繁體中文和한국어。Windows及移动端在设置的语言选项切换，官网通过语言菜单切换；邀请中心也支持한국어。业务界面、验证错误、日期格式和系统生成报告随所选语言变化。韩语模型回复使用专业韩语，保留市场代码、数值、接口字段、用户原文和第三方专有名词。切换语言不会修改账户、交易计划或行情数据。客服回复语言仍可按会话偏好独立选择。本功能以实际安装和已发布版本为准。",
+      "category": "settings",
+      "locale": "zh-CN",
+      "status": "approved",
+      "requires_login": false,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/app-language.mjs",
+        "youle_desktop/src/main/trading-analysis/model-output-language.mjs"
       ]
     }
   ]

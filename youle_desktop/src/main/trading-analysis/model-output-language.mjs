@@ -17,6 +17,12 @@ export function boundedTradingAnnotation(value, maximum = 120) {
 }
 
 export function tradingModelLanguageInstruction(language) {
+  if (language === "ko" || language === "ko-KR") return [
+    "OUTPUT LANGUAGE REQUIREMENT (overrides earlier prose-language examples):",
+    "Write every user-visible analysis, heading, summary, rationale, answer, risk condition and chart annotation in professional Korean (한국어). Use natural Hangul financial terminology and polite Korean sentences.",
+    "Translate source evidence and examples; preserve JSON keys, enum values, evidence IDs, instrument symbols, all numbers, units, uncertainty and confirmation/invalidation conditions exactly.",
+    "Do not omit findings or truncate an explanation to satisfy a Chinese-character limit. Use complete, concise Korean sentences; retain an empty report when required by the schema.",
+  ].join("\n");
   if (language === "en") return [
     "OUTPUT LANGUAGE REQUIREMENT (overrides earlier prose-language examples):",
     "The application language is English. Write all user-visible analysis, summaries, rationale, direct answers and annotation text in professional financial English.",
@@ -29,12 +35,14 @@ export function tradingModelLanguageInstruction(language) {
 }
 
 export function validateTradingModelLanguage(review, language, allowedLiterals = []) {
-  if (language !== "en") return review;
+  if (language !== "en" && language !== "ko" && language !== "ko-KR") return review;
+  const korean = language === "ko" || language === "ko-KR";
   const literals = allowedLiterals.filter((value) => typeof value === "string" && /\p{Script=Han}/u.test(value));
   function visit(value, key = "") {
     if (typeof value === "string" && PROSE_KEYS.has(key)) {
       const prose = literals.reduce((text, literal) => text.split(literal).join(""), value);
-      if (/\p{Script=Han}/u.test(prose)) throw new TypeError(`Output language mismatch in ${key}: rewrite the complete analysis in professional English; preserve all facts and numbers.`);
+      if (/\p{Script=Han}/u.test(prose) || (korean && /[A-Za-z]{3}/.test(prose) && !/\p{Script=Hangul}/u.test(prose) && prose.trim().split(/\s+/).length > 4))
+        throw new TypeError(`Output language mismatch in ${key}: rewrite the complete analysis in professional ${korean ? 'Korean' : 'English'}; preserve all facts and numbers.`);
     } else if (Array.isArray(value)) value.forEach((entry) => visit(entry, key));
     else if (value && typeof value === "object") Object.entries(value).forEach(([name, entry]) => visit(entry, name));
   }

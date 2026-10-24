@@ -391,7 +391,7 @@ export function ensureBrowserDesktopApi() {
     ],
   };
   let appTheme: "light" | "dark" = document.documentElement.dataset.theme === "dark" ? "dark" : "light";
-  let appLanguage: "en" | "zh-CN" | "zh-TW" = document.documentElement.dataset.language === "zh-CN"
+  let appLanguage: "en" | "zh-CN" | "zh-TW" | "ko" = document.documentElement.dataset.language === "ko" ? "ko" : document.documentElement.dataset.language === "zh-CN"
     ? "zh-CN"
     : document.documentElement.dataset.language === "zh-TW"
       ? "zh-TW"
@@ -501,7 +501,7 @@ export function ensureBrowserDesktopApi() {
       return { theme: appTheme };
     },
     async setAppLanguage(params: any) {
-      appLanguage = params?.language === "en" || params?.language === "zh-TW" ? params.language : "zh-CN";
+      appLanguage = params?.language === "ko" || params?.language === "en" || params?.language === "zh-TW" ? params.language : "zh-CN";
       return { language: appLanguage };
     },
     async checkWindowsUpdate() {

@@ -1,4 +1,6 @@
+import { withKoreanVariants } from '../shared/korean.mjs';
 import { CodexProviderConversations } from "./codex-provider-conversation.mjs";
+import { koreanText } from "../shared/korean.mjs";
 import { excludeCurrentThreadMemory } from "./group-memory-context.mjs";
 import { createSupportUploads } from "./native-support.mjs";
 import { channelCodexInput, CHANNEL_CODEX_INSTRUCTIONS } from "./channel-codex-input.mjs";
@@ -4378,6 +4380,7 @@ function getYouleApiClient() {
       logPath: path.join(app.getPath("userData"), "haolo-api-skills.log"),
       storagePath: youleSessionPath(),
       authPath: youleAuthPath(),
+      getLocale: appLanguage,
       safeStorage,
       networkFetch: appNetworkFetch,
       serviceFetch: haoloServiceFetch,
@@ -9597,7 +9600,8 @@ function normalizeAppTheme(value) {
 }
 
 function normalizeAppLanguage(value) {
-  return value === "en" || value === "zh-TW" ? value : "zh-CN";
+  if (value === "ko-KR" || value === "ko_KR") return "ko";
+  return value === "en" || value === "zh-TW" || value === "ko" ? value : "zh-CN";
 }
 
 function normalizeAppPreferences(value = {}) {
@@ -9633,7 +9637,7 @@ function appLanguagePreferenceStored() {
   return Boolean(source && typeof source === "object" && normalizeAppLanguage(source.language) === source.language);
 }
 
-const MAIN_UI_COPY = Object.freeze({
+const MAIN_UI_COPY = Object.freeze(withKoreanVariants({
   en: Object.freeze({
     settings: "Settings",
     close: "Close",
@@ -9736,10 +9740,11 @@ const MAIN_UI_COPY = Object.freeze({
     selectChromeUploadFile: "選擇要交給 Chrome 上傳的檔案",
     copy: "複製",
   }),
-});
+}));
 
 function mainUiText(key, language = appLanguage()) {
   const normalized = normalizeAppLanguage(language);
+  if (normalized === "ko") return koreanText(MAIN_UI_COPY["zh-CN"][key] || MAIN_UI_COPY.en[key] || key);
   return MAIN_UI_COPY[normalized]?.[key] || MAIN_UI_COPY.en[key] || key;
 }
 
@@ -9770,6 +9775,7 @@ const QUESTION_ANSWER_PROGRESS_COPY = Object.freeze({
 });
 
 function localizedQuestionAnswerProgressPayload(payload, language = appLanguage()) {
+  if (normalizeAppLanguage(language) === "ko") return { ...payload, title: koreanText(payload?.title), detail: koreanText(payload?.detail) };
   if (normalizeAppLanguage(language) !== "en") return payload;
   const status = payload?.status === "completed" || payload?.status === "failed"
     ? payload.status
@@ -9781,12 +9787,12 @@ function localizedQuestionAnswerProgressPayload(payload, language = appLanguage(
 
 function appLanguageLocale(language = appLanguage()) {
   const normalized = normalizeAppLanguage(language);
-  return normalized === "en" ? "en-US" : normalized;
+  return normalized === "en" ? "en-US" : normalized === "ko" ? "ko-KR" : normalized;
 }
 
 function userDataTransferCopy(language = appLanguage()) {
   const normalized = normalizeAppLanguage(language);
-  const copies = {
+  const copies = withKoreanVariants({
     en: {
       exportLocationTitle: "Choose user data export location",
       exportInsideUserDataError: "The export location cannot be inside the current user data directory. Choose another folder.",
@@ -9826,7 +9832,8 @@ function userDataTransferCopy(language = appLanguage()) {
       confirmLabel: "繼續匯入",
       cancelLabel: "取消",
     },
-  };
+  });
+  if (normalized === "ko") return Object.fromEntries(Object.entries(copies["zh-CN"]).map(([key, value]) => [key, koreanText(value)]));
   return copies[normalized] || copies.en;
 }
 
@@ -9874,10 +9881,12 @@ async function setAppTheme(theme) {
 }
 
 async function setAppLanguage(language) {
-  return writeAppPreferences({
+  const preferences = await writeAppPreferences({
     ...appPreferences(),
     language: normalizeAppLanguage(language),
   });
+  chromeNativeBroker?.setLanguage(preferences.language);
+  return preferences;
 }
 
 async function setLocalPluginEnabled(params = {}) {
@@ -12891,6 +12900,7 @@ ipcMain.handle("voice:startSession", async (event, params = {}) => {
     const sender = event.sender;
     const result = await getVoiceRecognizer().startSession({
       requestId,
+      language: appLanguage(),
       onResult(payload) {
         if (Number(payload?.serviceCode) === 4002) clearVoiceCredentialCache();
         if (payload?.final || payload?.ok === false) clearVoiceSessionOwner(sender.id, requestId);
@@ -22585,6 +22595,7 @@ app.whenReady().then(async () => {
     });
     if (process.platform === "win32") await chromeNativeHostManager.install();
     chromeNativeBroker = new ChromeNativeBroker({
+      language: appPreferences().language,
       userDataPath: app.getPath("userData"),
       extensionOrigins: chromeExtensionOrigins(chromeExtensionIds),
       desktopExecutable: app.getPath("exe") || process.execPath,

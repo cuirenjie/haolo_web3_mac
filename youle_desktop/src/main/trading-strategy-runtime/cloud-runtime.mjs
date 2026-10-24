@@ -250,7 +250,7 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
         visibleRange,analysisKind:params.analysisKind === 'general' ? 'general' : 'strategy',
         positionManagementRequested:params.positionManagementRequested===true,
         analysisContext:params.analysisContext || null,
-        locale:params.language === 'en' ? 'en' : ['zh-TW','zh-Hant'].includes(params.language) ? 'zh-Hant' : 'zh-CN',
+        locale:params.language === 'ko' ? 'ko' : params.language === 'en' ? 'en' : ['zh-TW','zh-Hant'].includes(params.language) ? 'zh-Hant' : 'zh-CN',
         modelId:params.model || params.modelId || params.model_id || null,
         modelDisplayAlias:params.modelDisplayAlias || params.__haoloModelDisplayAlias || params.model || params.modelId || null,
         explicitModelSelection:params.explicitModelSelection===true,

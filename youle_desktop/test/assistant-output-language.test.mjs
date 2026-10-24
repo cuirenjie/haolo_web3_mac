@@ -29,3 +29,16 @@ test("English output policy is prepended without changing user content", () => {
   assert.equal(normalizeAssistantOutputLanguage("unknown"), "en");
   assert.equal(withAssistantOutputLanguageMessage(messages, "zh-CN"), messages);
 });
+
+test("Korean output includes progress and finance copy while preserving user input and protocol data",()=>{
+  const messages=[{role:'user',content:'BTC 123.45，保留原文'}];
+  for(const locale of ['ko','ko-KR','ko_KR']) {
+    assert.equal(normalizeAssistantOutputLanguage(locale),'ko');
+    const result=withAssistantOutputLanguageMessage(messages,locale);
+    assert.equal(result[1],messages[0]);
+    assert.match(result[0].content,/professional Korean/);
+    assert.match(result[0].content,/progress updates/);
+    assert.match(result[0].content,/prices and units/);
+    assert.match(result[0].content,/JSON keys, enums/);
+  }
+});

@@ -1,3 +1,4 @@
+import { koreanText, localizedChoice } from '../shared/korean.mjs';
 const words={
   splitPane:['分屏 {count}','Chart {count}','分屏 {count}'],
   snapshotUnavailable:['此分屏的行情快照尚未就绪。','This chart snapshot is not ready.','此分屏的行情快照尚未就緒。'],
@@ -19,8 +20,7 @@ const words={
   cancelled:['分析已由用户停止。','Analysis was stopped by the user.','分析已由使用者停止。'],
 };
 export function cloudAnalysisText(key:keyof typeof words,language:string,values:Record<string,string|number>={}) {
-  const index=language==='en'||language==='en-US'?1:['zh-TW','zh-Hant'].includes(language)?2:0;
-  return words[key][index].replace(/\{(\w+)\}/g,(_match,name)=>String(values[name]??''));
+  return localizedChoice(words[key], language === "en-US" ? "en" : language).replace(/\{(\w+)\}/g,(_match,name)=>String(values[name]??''));
 }
 
 export function tradingAnalysisCompletionText(

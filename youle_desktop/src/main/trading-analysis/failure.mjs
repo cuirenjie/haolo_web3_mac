@@ -1,3 +1,4 @@
+import { koreanText } from '../../shared/korean.mjs';
 // Shared by the host and renderer. Only fixed descriptions cross into reports
 // or diagnostics; upstream messages can contain credentials or model output.
 import { modelFailureFacts } from "../model-failure-policy.mjs";
@@ -83,13 +84,14 @@ export function describeTradingAnalysisFailure(error, { stage = "analysis", lang
   else if (/INSUFFICIENT_DATA|SNAPSHOT|CANDLE/.test(code) || /candles?.*(?:invalid|required)|K 线.*(?:不足|至少需要|仅有)|行情加载失败/iu.test(message)) category = "data";
   return Object.freeze({
     category,
-    summary: LABELS[category][language === "en" ? 1 : ["zh-Hant", "zh-TW"].includes(language) && LABELS[category][2] ? 2 : 0],
+    summary: language === "ko" ? koreanText(LABELS[category][0]) : LABELS[category][language === "en" ? 1 : ["zh-Hant", "zh-TW"].includes(language) && LABELS[category][2] ? 2 : 0],
     cancelled: category === "cancelled",
     allowLocalRecovery: false,
   });
 }
 
 export function tradingAnalysisStoppedMessage(error, {language = 'zh-CN', strategyName = '', completedStrategyNames = []} = {}) {
+  if (language === 'ko') return koreanText(tradingAnalysisStoppedMessage(error, {language:'zh-CN',strategyName,completedStrategyNames}));
   const failure = describeTradingAnalysisFailure(error, {language});
   const reason = failure.summary;
   const completed = completedStrategyNames.filter(Boolean).join('、');
@@ -113,6 +115,7 @@ function pendingResultMessage(reason, name, language) {
 // An explicitly selected strategy owns the report, drawings and execution
 // plan for the whole request. Failure is not permission to run another engine.
 export function buildTradingStrategyFailureReport(strategy, error, { language = "zh-CN" } = {}) {
+  if (language === "ko") return koreanText(buildTradingStrategyFailureReport(strategy,error,{language:"zh-CN"}));
   if (language === "en-US") language = "en";
   const english = language === "en";
   const name = String(strategy?.display?.name || strategy?.id || (english ? "Selected strategy" : "所选策略"))

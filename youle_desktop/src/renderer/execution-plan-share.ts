@@ -1,3 +1,4 @@
+import { withKoreanVariants } from '../shared/korean.mjs';
 import QRCode from 'qrcode';
 import { cloudPlanCard } from '../main/cloud-plan-contract.mjs';
 import { executionPlanCardHeading, executionPlanCardBody } from '../main/execution-plan-card-view.mjs';
@@ -6,11 +7,11 @@ import { createPlanDialog, planMenuText } from './execution-plan-menu.ts';
 
 export type PlanShareSnapshot = { title: string; venue: string; badges: string[]; entry: string; stop: string; targets: Array<{price: string; ratio: string}>; expiresAt: number | null; long: boolean };
 type Invitation = {id: string; code: string; url: string};
-const copy = {
+const copy = withKoreanVariants({
   'zh-CN': ['入场触发价','止损价','第{n}止盈','盈亏比','有效至','交易迷茫用HaoLo','官网下载：haolo.com','邀请二维码','复制图片','保存图片','正在准备计划图片…','请先在邀请中心设置邀请链接。','打开邀请中心','重试','图片已复制','图片已保存','准备分享失败，请重试'],
   'zh-TW': ['入場觸發價','止損價','第{n}止盈','盈虧比','有效至','交易迷茫用HaoLo','官網下載：haolo.com','邀請二維碼','複製圖片','儲存圖片','正在準備計畫圖片…','請先在邀請中心設定邀請連結。','開啟邀請中心','重試','圖片已複製','圖片已儲存','準備分享失敗，請重試'],
   en: ['Entry trigger','Stop loss','Take profit {n}','R/R','Valid until','Trade with clarity. HaoLo.','Download: haolo.com','Invitation QR code','Copy image','Save image','Preparing plan image…','Set up an invitation link in the invitation center first.','Invitation center','Retry','Image copied','Image saved','Unable to prepare sharing. Try again.'],
-};
+});
 const words = (language: string) => copy[language as keyof typeof copy] || copy['zh-CN'];
 
 // Explicit presentation allowlist: never export account sizing, balances, PnL,
@@ -30,8 +31,8 @@ export function planShareSnapshot(candidate: ExecutionPlanCandidate, language: s
   const pair = symbol.replace(/(USDT|USDC|BUSD)$/, '/$1');
   const interval = text('.execution-plan-heading h2').split(' · ')[1] || /(?:永续|永續|perpetual)\s+(\d+[mhdw])/i.exec(candidate.title)?.[1] || '';
   const venue = market.startsWith('BINANCE:') ? (market.includes(':FUTURES:')
-    ? language === 'en' ? 'Binance Perpetual' : language === 'zh-TW' ? '幣安永續' : '币安永续'
-    : language === 'en' ? 'Binance Spot' : language === 'zh-TW' ? '幣安現貨' : '币安现货') : market.split(':')[0];
+    ? language === 'ko' ? '바이낸스 무기한 선물' : language === 'en' ? 'Binance Perpetual' : language === 'zh-TW' ? '幣安永續' : '币安永续'
+    : language === 'ko' ? '바이낸스 현물' : language === 'en' ? 'Binance Spot' : language === 'zh-TW' ? '幣安現貨' : '币安现货') : market.split(':')[0];
   return Object.freeze({ title: `${pair} · ${interval}`, venue,
     badges: [...host.querySelectorAll('.execution-plan-badge')].map(node => node.textContent?.trim() || ''),
     entry: prices[0], stop: prices[1], long: host.querySelector('.execution-plan-price')?.classList.contains('bullish') === true,

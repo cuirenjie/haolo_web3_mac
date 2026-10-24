@@ -1,3 +1,4 @@
+import { koreanText, localizedChoice } from '../shared/korean.mjs';
 import {cloudPlanCard,normalizeCloudReports,type CloudTradingReport} from '../main/cloud-plan-contract.mjs';
 import {createSavedExecutionPlan,type SavedExecutionPlan} from './execution-plans.ts';
 import {isGeneratedPlanRecord} from './saved-plan-source.ts';
@@ -72,8 +73,7 @@ export function createCloudPlanRefresher(options:{scope:()=>string|null;load:()=
 }
 
 export function cloudPlanSyncMessage(kind:'cache'|'failed',language:string,detail='') {
-  const index=language==='en'?1:['zh-TW','zh-Hant'].includes(language)?2:0;
   const words={cache:['已读取云端计划，本机缓存写入失败。','Cloud plans loaded; the local cache could not be saved.','已讀取雲端計畫，本機快取寫入失敗。'],
     failed:['云端计划同步失败','Cloud plan synchronization failed','雲端計畫同步失敗']};
-  return words[kind][index]+(detail?`: ${detail}`:'');
+  return localizedChoice(words[kind],language)+(detail?`: ${detail}`:'');
 }

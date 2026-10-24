@@ -27,13 +27,13 @@ const DRAWING_SECTION_LABELS = new Set([
   "视图与历史",
 ]);
 
-function auditTranslation(text, file) {
-  if (!DRAWING_SOURCE_FILES.has(path.basename(file))) return translateAppText(text, "en");
-  const whole = translateDrawingText(text, "en", DRAWING_SECTION_LABELS.has(text));
+function auditTranslation(text, file, locale = "en") {
+  if (!DRAWING_SOURCE_FILES.has(path.basename(file))) return translateAppText(text, locale);
+  const whole = translateDrawingText(text, locale, DRAWING_SECTION_LABELS.has(text));
   if (!HAN_TEXT_PATTERN.test(whole)) return whole;
   // Tables localize each default cell; status messages are delimited by middots.
   return text.split(/\s*\|\s*|(?:^|\s+)·\s*/u).map((part) =>
-    translateDrawingText(part, "en", DRAWING_SECTION_LABELS.has(part)),
+    translateDrawingText(part, locale, DRAWING_SECTION_LABELS.has(part)),
   ).join(" | ");
 }
 
@@ -51,6 +51,10 @@ function chineseLiteralFragments(source, file) {
   const fragments = [];
   const separator = "\n"; // DOM text nodes are localized independently.
   const append = (literal) => {
+    // Font probes and private model instructions are not rendered UI copy.
+    if (literal === 'Mg中文' || literal.startsWith('{"intent":') || /^(你正在代表当前桌面端|身份与品牌规则：|如果用户是在请求查找、读取|用户任务中的“你们”)/.test(literal)) return;
+    // A template boundary inside an HTML attribute is not a text node.
+    if (/^[^<>]*["']\s+(?:role|title|aria-label)=/.test(literal)) return;
     literal = literal.replace(/&#(x[\da-f]+|\d+);/giu, (entity, code) => {
       const point = code[0].toLowerCase() === "x" ? Number.parseInt(code.slice(1), 16) : Number(code);
       return point > 0 && point <= 0x10ffff ? String.fromCodePoint(point) : entity;
@@ -103,12 +107,12 @@ function chineseLiteralFragments(source, file) {
   return fragments;
 }
 
-test("every renderer-owned Chinese literal has a Han-free English presentation", () => {
+for (const locale of ["en", "ko"]) test(`every renderer-owned Chinese literal has a Han-free ${locale} presentation`, () => {
   const failures = [];
   for (const file of rendererSourceFiles()) {
     const source = fs.readFileSync(file, "utf8");
     for (const text of chineseLiteralFragments(source, file)) {
-      const translated = auditTranslation(text, file);
+      const translated = auditTranslation(text, file, locale);
       if (!HAN_TEXT_PATTERN.test(translated)) continue;
       failures.push({
         file: path.relative(RENDERER_ROOT, file),
@@ -116,6 +120,10 @@ test("every renderer-owned Chinese literal has a Han-free English presentation",
         translated,
       });
     }
+  }
+  if (process.env.HAOLO_I18N_MISSING_DIR) {
+    fs.mkdirSync(process.env.HAOLO_I18N_MISSING_DIR, {recursive:true});
+    fs.writeFileSync(path.join(process.env.HAOLO_I18N_MISSING_DIR, `renderer-${locale}.json`),JSON.stringify(failures,null,2));
   }
   assert.deepEqual(failures, []);
 });

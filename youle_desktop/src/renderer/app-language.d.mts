@@ -1,4 +1,4 @@
-export type AppLanguage = "en" | "zh-CN" | "zh-TW";
+export type AppLanguage = "en" | "zh-CN" | "zh-TW" | "ko";
 
 export const APP_LANGUAGE_STORAGE_KEY: "haolo.appearance.language";
 export const APP_LANGUAGES: readonly AppLanguage[];
@@ -13,7 +13,7 @@ export function resolveAppLanguagePreference(options?: {
   rendererLanguage?: unknown;
   userSelected?: boolean;
 }): AppLanguage;
-export function appLanguageLocale(language?: AppLanguage): "en-US" | "zh-CN" | "zh-TW";
+export function appLanguageLocale(language?: AppLanguage): "en-US" | "zh-CN" | "zh-TW" | "ko-KR";
 export function appLanguageOptions(): Array<{ value: AppLanguage; label: string }>;
 export function configureTraditionalCharacterMap(simplified: string, traditional: string): void;
 export function translateAppText(value: unknown, language?: AppLanguage): string;

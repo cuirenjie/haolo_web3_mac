@@ -1,3 +1,4 @@
+import { koreanText, localizedChoice } from '../../shared/korean.mjs';
 const messages = {
   CLOUD_TASK_REPLY_FAILED: ['本次回复未完成，原会话和已收到的内容已保留。','This reply did not complete. The conversation and received content were retained.','本次回覆未完成，原對話與已收到的內容已保留。'],
   CLOUD_TASK_BUSY: ['此会话正在回复，请稍候或先停止。','This conversation is replying. Wait or stop it first.','此對話正在回覆，請稍候或先停止。'],
@@ -49,8 +50,7 @@ export function cloudStrategyFailure(error, {language='zh-CN',aborted=false}={})
   const detail=error?.payload?.detail || error?.detail || {};
   let code=String(detail.code || error?.code || 'CLOUD_ANALYSIS_FAILED');
   if (aborted && !['CLOUD_CANCEL_PENDING','CLOUD_RUN_PENDING'].includes(code)) code='TRADING_ANALYSIS_CANCELLED';
-  const index=language==='en'?1:['zh-TW','zh-Hant'].includes(language)?2:0;
-  return {code,message:(messages[code] || messages.CLOUD_ANALYSIS_FAILED)[index],
+  return {code,message:localizedChoice(messages[code] || messages.CLOUD_ANALYSIS_FAILED,language),
     retryable:error?.retryable===true,status:error?.status,runId:error?.runId,
     category:code==='CLOUD_CANCEL_PENDING'?'cancellation_pending':code==='CLOUD_RUN_PENDING'?'pending':undefined};
 }

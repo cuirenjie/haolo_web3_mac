@@ -223,7 +223,8 @@
       "installerLanguages": [
         "en_US",
         "zh_CN",
-        "zh_TW"
+        "zh_TW",
+        "ko_KR"
       ],
       "perMachine": false,
       "installerIcon": "resources/haolo-logo.ico",

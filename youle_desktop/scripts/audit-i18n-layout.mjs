@@ -103,6 +103,7 @@ async function click(targetWindow, selector) {
   const clicked = await targetWindow.webContents.executeJavaScript(`(() => {
     const element = document.querySelector(${JSON.stringify(selector)});
     if (!element) return false;
+    element.focus({ preventScroll: true });
     element.click();
     return true;
   })()`, true);
@@ -132,7 +133,16 @@ async function switchLanguage(targetWindow, language) {
     await nativeClick(targetWindow, '[data-action="open-settings"]');
     await waitFor(targetWindow, ".settings-dialog");
   }
-  await nativeClick(targetWindow, ".settings-language-select [data-haolo-select-trigger]");
+  await nativeClick(targetWindow, '[data-settings-tab="general"]');
+  await waitFor(targetWindow, '.settings-general-list');
+  for (let attempt=0; attempt<6; attempt++) {
+    const opened=await targetWindow.webContents.executeJavaScript(`document.querySelector('.settings-language-select [data-haolo-select-trigger]')?.getAttribute('aria-expanded') === 'true'`,true);
+    if(opened) break;
+    if(process.env.HAOLO_I18N_QA_DOM_INPUT === "1") {
+      await targetWindow.webContents.executeJavaScript(`(() => { const trigger=document.querySelector('.settings-language-select [data-haolo-select-trigger]'); trigger.focus(); trigger.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true})); })()`,true);
+    } else await nativeClick(targetWindow, ".settings-language-select [data-haolo-select-trigger]");
+    await delay(200);
+  }
   await waitFor(targetWindow, ".settings-language-select [data-haolo-select-menu]");
   await nativeClick(targetWindow, `.settings-language-select [data-haolo-select-value="${language}"]`);
   await waitFor(targetWindow, `.settings-dialog`);
@@ -146,8 +156,8 @@ async function switchLanguage(targetWindow, language) {
   }))()`,
     true,
   );
-  const expectedLang = language === "en" ? "en-US" : language;
-  const nativeLabels = { en: "English", "zh-CN": "简体中文", "zh-TW": "繁體中文" };
+  const expectedLang = language === "en" ? "en-US" : language === "ko" ? "ko-KR" : language;
+  const nativeLabels = { en: "English", "zh-CN": "简体中文", "zh-TW": "繁體中文", ko: "한국어" };
   if (
     applied.selectedLabel !== nativeLabels[language] ||
     JSON.stringify(applied.optionLabels) !== JSON.stringify(Object.values(nativeLabels))
@@ -176,14 +186,14 @@ async function verifyLanguageSurvivesReload(targetWindow, language) {
     lang: document.documentElement.lang,
     storedValue: localStorage.getItem("haolo.appearance.language"),
   }))()`, true);
-  const expectedLang = language === "en" ? "en-US" : language;
+  const expectedLang = language === "en" ? "en-US" : language === "ko" ? "ko-KR" : language;
   if (restored.language !== language || restored.lang !== expectedLang || restored.storedValue !== language) {
     throw new Error(`Language did not survive reload: ${JSON.stringify(restored)}`);
   }
 }
 
 async function verifyLanguageTransitionMatrix(targetWindow) {
-  const languages = ["en", "zh-CN", "zh-TW"];
+  const languages = ["en", "zh-CN", "zh-TW", "ko"];
   for (const source of languages) {
     await switchLanguage(targetWindow, source);
     for (const target of languages) {
@@ -282,11 +292,16 @@ async function inspectSelectStates(targetWindow, name, capture) {
   if (!debuggerApi.isAttached()) debuggerApi.attach("1.3");
   await debuggerApi.sendCommand("DOM.enable");
   await debuggerApi.sendCommand("CSS.enable");
-  const { root } = await debuggerApi.sendCommand("DOM.getDocument");
   const triggerSelector = ".settings-language-select [data-haolo-select-trigger]";
   const optionSelector = '.settings-language-select [aria-selected="true"]';
-  const { nodeId: triggerId } = await debuggerApi.sendCommand("DOM.querySelector", { nodeId: root.nodeId, selector: triggerSelector });
-  const { nodeId: optionId } = await debuggerApi.sendCommand("DOM.querySelector", { nodeId: root.nodeId, selector: optionSelector });
+  // Settings can re-render after account sync. Resolve the current DOM node for
+  // each state instead of retaining a stale DevTools node ID across transitions.
+  const forceState = async (selector, forcedPseudoClasses) => {
+    const { root } = await debuggerApi.sendCommand("DOM.getDocument");
+    const { nodeId } = await debuggerApi.sendCommand("DOM.querySelector", {nodeId:root.nodeId,selector});
+    if (!nodeId) throw new Error(`Missing state audit control: ${selector}`);
+    await debuggerApi.sendCommand("CSS.forcePseudoState", {nodeId,forcedPseudoClasses});
+  };
   await debuggerApi.sendCommand("Input.dispatchMouseEvent", { type: "mouseMoved", x: 1, y: 1 });
   const states = [];
   const inspect = async (state, selector = triggerSelector) => {
@@ -307,26 +322,32 @@ async function inspectSelectStates(targetWindow, name, capture) {
   };
   try {
     for (const [state, forcedPseudoClasses] of [["default", []], ["hover", ["hover"]], ["active", ["hover", "active"]], ["focus", ["focus", "focus-visible"]]]) {
-      await debuggerApi.sendCommand("CSS.forcePseudoState", { nodeId: triggerId, forcedPseudoClasses });
+      await forceState(triggerSelector, forcedPseudoClasses);
       await inspect(state);
     }
-    await debuggerApi.sendCommand("CSS.forcePseudoState", { nodeId: triggerId, forcedPseudoClasses: [] });
+    await forceState(triggerSelector, []);
     await targetWindow.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(triggerSelector)}).disabled = true`, true);
     await inspect("disabled");
     await targetWindow.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(triggerSelector)}).disabled = false`, true);
     await nativeClick(targetWindow, triggerSelector);
+    // Account/settings hydration can replace the select between the disabled
+    // probe and the click. Re-read state and retry the normal control once.
+    if (await targetWindow.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(triggerSelector)})?.getAttribute('aria-expanded') !== 'true'`, true)) {
+      await delay(200);
+      await nativeClick(targetWindow, triggerSelector);
+    }
     await inspect("open");
     if (states.at(-1).expanded !== "true") throw new Error(`Language menu did not open at zoom ${targetWindow.webContents.getZoomFactor()}`);
     for (const [state, forcedPseudoClasses] of [["option-selected", []], ["option-hover", ["hover"]], ["option-focus", ["focus", "focus-visible"]]]) {
-      await debuggerApi.sendCommand("CSS.forcePseudoState", { nodeId: optionId, forcedPseudoClasses });
+      await forceState(optionSelector, forcedPseudoClasses);
       await inspect(state, optionSelector);
     }
-    await debuggerApi.sendCommand("CSS.forcePseudoState", { nodeId: optionId, forcedPseudoClasses: [] });
+    await forceState(optionSelector, []);
     await targetWindow.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(optionSelector)}).disabled = true`, true);
     await inspect("option-disabled", optionSelector);
   } finally {
-    await debuggerApi.sendCommand("CSS.forcePseudoState", { nodeId: triggerId, forcedPseudoClasses: [] });
-    await debuggerApi.sendCommand("CSS.forcePseudoState", { nodeId: optionId, forcedPseudoClasses: [] });
+    await forceState(triggerSelector, []);
+    await forceState(optionSelector, []);
     await targetWindow.webContents.executeJavaScript(`(() => {
       const trigger = document.querySelector(${JSON.stringify(triggerSelector)});
       trigger.disabled = false;
@@ -440,6 +461,18 @@ async function inspectLayout(targetWindow, scopeSelector) {
       node = walker.nextNode();
     }
     const overlaps = [];
+    // Also check whole theme controls: a label can overlap its sibling's icon
+    // without intersecting another text range.
+    for (const group of scope.querySelectorAll('.settings-theme-options')) {
+      const buttons = [...group.children].filter(shown);
+      for (let i = 1; i < buttons.length; i++) {
+        const left = buttons[i - 1].getBoundingClientRect();
+        const right = buttons[i].getBoundingClientRect();
+        const width = Math.min(left.right, right.right) - Math.max(left.left, right.left);
+        const height = Math.min(left.bottom, right.bottom) - Math.max(left.top, right.top);
+        if (width > 1 && height > 2) overlaps.push({left:compact(buttons[i - 1]),right:compact(buttons[i]),width,height});
+      }
+    }
     for (let leftIndex = 0; leftIndex < textRects.length; leftIndex += 1) {
       const left = textRects[leftIndex];
       for (let rightIndex = leftIndex + 1; rightIndex < textRects.length; rightIndex += 1) {
@@ -454,7 +487,7 @@ async function inspectLayout(targetWindow, scopeSelector) {
       if (overlaps.length >= 30) break;
     }
     const englishButtonIssues = [];
-    if (document.documentElement.dataset.language === "en") {
+    if (["en", "ko"].includes(document.documentElement.dataset.language)) {
       for (const button of scope.querySelectorAll("button")) {
         if (!shown(button)) continue;
         const labelNodes = [];
@@ -467,7 +500,7 @@ async function inspectLayout(targetWindow, scopeSelector) {
           if (labelNodes.length > 1) break;
           labelNode = labelWalker.nextNode();
         }
-        if (labelNodes.length !== 1 || !/[A-Za-z]/u.test(String(labelNodes[0].nodeValue || ""))) continue;
+        if (labelNodes.length !== 1 || !/[A-Za-z\uac00-\ud7a3]/u.test(String(labelNodes[0].nodeValue || ""))) continue;
         const range = document.createRange();
         range.selectNodeContents(labelNodes[0]);
         const rects = [...range.getClientRects()].filter((rect) => rect.width > 1 && rect.height > 1);
@@ -476,7 +509,18 @@ async function inspectLayout(targetWindow, scopeSelector) {
           if (!lines.some((top) => Math.abs(top - rect.top) <= 2)) lines.push(rect.top);
         }
         const bounds = button.getBoundingClientRect();
-        const escaped = rects.some((rect) => rect.left < bounds.left - 1 || rect.right > bounds.right + 1 || rect.top < bounds.top - 1 || rect.bottom > bounds.bottom + 1);
+        // Range includes text hidden by an intentional ellipsis (for example a
+        // long user nickname). Measure its painted horizontal extent; vertical
+        // glyph clipping remains checked independently below.
+        const owner = labelNodes[0].parentElement;
+        const ownerStyle = getComputedStyle(owner);
+        const ownerBounds = owner.getBoundingClientRect();
+        const ellipsis = ownerStyle.textOverflow === 'ellipsis' && ['hidden', 'clip'].includes(ownerStyle.overflowX);
+        const escaped = rects.some((rect) => {
+          const left = ellipsis ? Math.max(rect.left, ownerBounds.left) : rect.left;
+          const right = ellipsis ? Math.min(rect.right, ownerBounds.right) : rect.right;
+          return left < bounds.left - 1 || right > bounds.right + 1 || rect.top < bounds.top - 1 || rect.bottom > bounds.bottom + 1;
+        });
         const horizontalOverflow = button.scrollWidth > button.clientWidth + 1;
         const verticalOverflow = button.scrollHeight > button.clientHeight + 1;
         // Native language names skip the translation marker, but still need geometry checks.
@@ -503,7 +547,7 @@ async function inspectLayout(targetWindow, scopeSelector) {
       }
     }
     const languageResidue = [];
-    if (document.documentElement.dataset.language === "en") {
+    if (["en", "ko"].includes(document.documentElement.dataset.language)) {
       const han = /[\u3400-\u9fff]/u;
       const skipLanguageText = [
         "[data-i18n-skip]", "[contenteditable='true']", "textarea", "pre", "code",
@@ -586,12 +630,14 @@ async function main() {
     process.stdout.write(`Typography: ${typography.checks} samples, ${typography.issues.length} clipped\n`);
     if (typography.issues.length) failures.push({ name: "clipped-label-typography", issues: typography.issues.map((issue) => `glyph clipped: ${issue.selector} ${issue.fontSize} ${issue.text}`), result: { textClipping: typography.issues } });
     if (process.env.HAOLO_I18N_QA_SKIP_LANGUAGE_TRANSITIONS !== "1") {
-      for (const language of ["en", "zh-CN", "zh-TW"]) {
+      for (const language of ["en", "zh-CN", "zh-TW", "ko"]) {
         await verifyLanguageSurvivesReload(targetWindow, language);
       }
       await verifyLanguageTransitionMatrix(targetWindow);
     }
-    const languages = QUICK_ENGLISH_BUTTON_AUDIT ? ["en"] : ["en", "zh-CN", "zh-TW"];
+    const supportedLanguages = QUICK_ENGLISH_BUTTON_AUDIT ? ["en", "ko"] : ["en", "zh-CN", "zh-TW", "ko"];
+    const languages = supportedLanguages.filter(language => !process.env.HAOLO_I18N_QA_LANGUAGES || process.env.HAOLO_I18N_QA_LANGUAGES.split(',').includes(language));
+    if (!languages.length) throw new Error('No supported audit language selected');
     const zooms = QUICK_ENGLISH_BUTTON_AUDIT ? [1, 1.5] : [1, 1.25, 1.5];
     const fontSizes = QUICK_ENGLISH_BUTTON_AUDIT ? ["large"] : ["small", "default", "medium", "large"];
     // Scheduled-task creation is not exposed by current builds. Do not attempt
@@ -635,7 +681,7 @@ async function main() {
                 ...selectStates.flatMap((state) => state.textClipping.map((issue) => `glyph clipped (${state.state}): ${issue.element} ${issue.text}`)),
               ];
               if (issues.length) failures.push({ name, issues, result });
-              if (language === "en" && fontSize === "large" && zoom === 1.5) {
+              if ((language === "en" || language === "ko") && fontSize === "large" && zoom === 1.5) {
                 const image = await targetWindow.webContents.capturePage();
                 await writeFile(path.join(OUTPUT, `${name}.png`), image.toPNG());
               }

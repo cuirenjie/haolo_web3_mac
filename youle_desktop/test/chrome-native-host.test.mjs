@@ -107,6 +107,12 @@ test("Native broker authenticates the host and binds one profile session", async
     assert.equal(ready.payload.compatibility.readEnabled, true);
     assert.equal(ready.payload.compatibility.writeEnabled, true);
     assert.equal(broker.status().profileCount, 1);
+    broker.setLanguage("ko");
+    const localizedReady = await messages.next();
+    assert.equal(localizedReady.type, "extension.ready");
+    assert.equal(localizedReady.payload.language, "ko");
+    assert.equal(localizedReady.sessionId, ready.sessionId);
+    assert.deepEqual(localizedReady.payload.compatibility, ready.payload.compatibility);
 
     const call = broker.call("profile_12345678", "health.ping", { echo: "ok" });
     const outbound = await messages.next();

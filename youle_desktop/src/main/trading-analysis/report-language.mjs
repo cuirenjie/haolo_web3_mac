@@ -1,6 +1,7 @@
 import { ANALYSIS_ENGLISH } from "./report-language-en.mjs";
 import { boundedTradingAnnotation } from "./model-output-language.mjs";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { koreanText } from "../../shared/korean.mjs";
 
 const requestLanguage = new AsyncLocalStorage();
 export function withTradingReportLanguage(language, operation) {
@@ -10,6 +11,9 @@ export function withTradingReportLanguage(language, operation) {
 // Formatting at the source template keeps interpolation boundaries exact,
 // including nested semicolons, repeated numbers and Markdown emphasis.
 export function tradingReportText(source, ...values) {
+  if (requestLanguage.getStore() === "ko") {
+    return koreanText(source).replace(/\{(\d+)\}/g, (_, index) => koreanText(values[Number(index)] ?? ""));
+  }
   const english = requestLanguage.getStore() === "en";
   const prefix = markdownMarker.exec(source)?.[0] || "";
   const template = english ? ANALYSIS_ENGLISH[source] ||
@@ -35,6 +39,7 @@ export function englishTradingInterval(value) {
 
 export function tradingReportTime(milliseconds) {
   const date = new Date(milliseconds);
+  if (requestLanguage.getStore() === "ko") return date.toLocaleString("ko-KR", { hour12: false });
   return requestLanguage.getStore() === "en"
     ? date.toISOString().replace("T", " ").replace(/\.\d{3}Z$/, " UTC")
     : date.toLocaleString("zh-CN", { hour12: false });
@@ -96,6 +101,13 @@ export function englishAnalysisText(value, depth = 0) {
 }
 
 export function localizeTradingAnalysisResult(result, language) {
+  if (language === "ko" && result?.analysisPlan) {
+    const proseKeys = new Set(["report", "narrative", "summary", "rationale", "confirmation", "observeTrigger", "text", "label", "title", "description", "reason", "riskWarning"]);
+    const visit = (value, key = "") => typeof value === "string" ? (proseKeys.has(key) ? koreanText(value) : value)
+      : Array.isArray(value) ? value.map(item => visit(item, key))
+      : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).map(([name, item]) => [name, visit(item, name)])) : value;
+    return { ...result, analysisPlan: visit(result.analysisPlan) };
+  }
   if (language !== "en" || !result?.analysisPlan) return result;
   const plan = result.analysisPlan;
   const actionPlan = plan.actionPlan && { ...plan.actionPlan };

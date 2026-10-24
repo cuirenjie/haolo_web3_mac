@@ -1,15 +1,16 @@
+import { withKoreanVariants } from '../shared/korean.mjs';
 // Presentation only: keep the stored report and all plan/alert inputs untouched.
-const copy = {
+const copy = withKoreanVariants({
   "zh-CN": { entry: "入场触发价", stop: "止损价", long: "做多", short: "做空", target: (n) => `第${n}止盈`, ratio: "盈亏比", new: "建议开仓", existing: "现有仓位", reduce: "建议减仓至", amount: "止盈仓位", profit: "预计盈利", loss: "预计止损" },
   "zh-TW": { entry: "入場觸發價", stop: "止損價", long: "做多", short: "做空", target: (n) => `第${n}止盈`, ratio: "盈虧比", new: "建議開倉", existing: "現有倉位", reduce: "建議減倉至", amount: "止盈倉位", profit: "預計盈利", loss: "預計止損" },
   en: { entry: "Entry trigger", stop: "Stop loss", long: "Long", short: "Short", target: (n) => `Take profit ${n}`, ratio: "R/R", new: "Suggested position", existing: "Existing position", reduce: "Reduce position to", amount: "Target position", profit: "Est. profit", loss: "Est. loss" },
-};
+});
 const number = String.raw`\d+(?:,\d{3})*(?:\.\d+)?`;
-const actionCopy = {
+const actionCopy = withKoreanVariants({
   'zh-CN': {label: '当前动作：', wait: '等待条件触发', blocked: '暂不交易', long:'报价时满足做多条件', short:'报价时满足做空条件'},
   'zh-TW': {label: '當前動作：', wait: '等待條件觸發', blocked: '暫不交易', long:'報價時滿足做多條件', short:'報價時滿足做空條件'},
   en: {label: 'Current action: ', wait: 'Wait for the trigger', blocked: 'Do not trade', long:'Long conditions met at the quote', short:'Short conditions met at the quote'},
-};
+});
 const labelOf = (line) => String(line.label || "").replace(/[：:]\s*$/, "").trim();
 const escape = (value) => String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
 const matches = (line, pattern) => pattern.test(labelOf(line));
@@ -166,11 +167,11 @@ export function executionPlanStructuredCardBody({ entry, entryMode, stop, target
   const actions = actionCopy[language] || actionCopy['zh-CN'];
   const actionHtml = !hideAction && Object.hasOwn(actions, action) && action !== 'label' && action !== 'wait'
     ? `<div class="execution-plan-details">${lineHtml({label: actions.label, text: actions[action]})}</div>` : '';
-  const basisNotice = {
+  const basisNotice = withKoreanVariants({
     'zh-CN': '此计划使用旧入场口径，请重新分析以更新盈亏测算。',
     'zh-TW': '此計畫使用舊入場口徑，請重新分析以更新盈虧測算。',
     en: 'This plan uses the previous entry basis. Run a new analysis to update its risk and profit estimates.',
-  };
+  });
   const basisHtml = entryBasisMismatch ? `<div class="execution-plan-details">${lineHtml({label: '', text: basisNotice[language] || basisNotice['zh-CN']})}</div>` : '';
   return `<div class="execution-plan-metrics" data-conditional-plan>${priceMetricHtml(labels.entry, entryPrice, tone, amount)}${priceMetricHtml(labels.stop, priceText(stop), tone === "bullish" ? "bearish" : "bullish", loss)}</div>`
     + targetsHtml(rows, labels, { values }) + actionHtml + basisHtml;
