@@ -682,6 +682,26 @@ test("favorite market resolution preserves live prices over persisted metadata",
   assert.strictEqual(tradingMarketsPreferBinance([liveMarket, staleFavorite])[0], liveMarket);
 });
 
+test("lightweight quote refreshes retain known TradFi identity in favorites and search", async () => {
+  const { resolveTradingFavoriteMarkets, tradingMarketsPreferBinance } = await import("../src/renderer/trading-expert-market.ts");
+  for (const [asset, assetClass] of [["SNDK", "stock"], ["SKHYNIX", "stock"], ["CL", "commodity"]]) {
+    const catalog = { id: `BINANCE:FUTURES:${asset}USDT`, provider: "binance", symbol: `${asset}USDT`,
+      baseAsset: asset, quoteAsset: "USDT", displaySymbol: `${asset}/USDT`, assetClass,
+      venue: "币安", marketType: "perpetual", tag: "永续", description: asset,
+      markPrice: 100, changePercent: 1, volume24h: 1, quoteAvailable: true };
+    const ticker = { ...catalog, assetClass: "crypto", markPrice: 101 };
+    for (const resolved of [
+      resolveTradingFavoriteMarkets([catalog], [ticker])[0],
+      resolveTradingFavoriteMarkets([catalog], [catalog, ticker])[0],
+      tradingMarketsPreferBinance([catalog, ticker])[0],
+      tradingMarketsPreferBinance([ticker, { ...catalog, quoteAvailable: false }])[0],
+    ]) {
+      assert.equal(resolved.assetClass, assetClass);
+      assert.equal(resolved.markPrice, 101);
+    }
+  }
+});
+
 test("favorite ticker quotes update continuously through normalized Data Hub streams", async () => {
   const {
     applyTradingMarketTickerQuote,

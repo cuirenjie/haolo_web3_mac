@@ -12,7 +12,7 @@ import { isRecoverableAnalysisModelFailure } from "../src/main/analysis-model-re
 import { createAppServerTradingAnalysisProvider } from "../src/main/trading-analysis/app-server-provider.mjs";
 
 const runtime = fileURLToPath(new URL("../resources/bin/haolo_ai.exe", import.meta.url));
-test("production AppServerClient migrates a legacy task to max and makes exactly one request on 403", {
+test("production AppServerClient migrates a legacy task to low and makes exactly one request on 403", {
   skip: process.platform !== "win32" || !fs.existsSync(runtime), timeout: 30_000,
 }, async t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "haolo-deepseek-denial-"));
@@ -54,7 +54,7 @@ test("production AppServerClient migrates a legacy task to max and makes exactly
   await client.start();
   const provider = createAppServerTradingAnalysisProvider({ modelId: "deepseek-v4-flash", fixedReasoningEffort: "max", waitForRecovery: async () => assert.fail("403 must not retry"), invoke: async selection => {
     assert.equal(selection.modelId, "deepseek-flash");
-    assert.equal(selection.reasoningEffort, "max");
+    assert.equal(selection.reasoningEffort, "low");
     // Deliberately inject persisted legacy metadata at the RPC boundary.
     const { thread } = await client.request("thread/start", { cwd, model: "deepseek-v4-flash", modelProvider: "deepseek", approvalPolicy: "never", sandbox: "read-only", ephemeral: true });
     const { turn } = await client.request("turn/start", { threadId: thread.id, model: "deepseek-v4-flash", effort: selection.reasoningEffort, input: [{ type: "text", text: "Synthetic permission check. Do not use tools.", textElements: [] }] });
@@ -68,7 +68,7 @@ test("production AppServerClient migrates a legacy task to max and makes exactly
   await assert.rejects(provider.analyze({ task: "price-action-theory-review", requestId: "synthetic" }), /PERMISSION_DENIED|not enabled/i);
   assert.equal(calls.length, 1, "native retries and host fallback must both stop on 403");
   assert.equal(calls[0].body.model, "deepseek-flash");
-  assert.equal(calls[0].body.reasoning.effort, "max");
+  assert.equal(calls[0].body.reasoning.effort, "low");
   assert.equal(calls[0].headers["x-haolo-model-pool"], "execution");
   assert.equal(calls[0].headers["x-haolo-model-capability"], "root_execution");
 });

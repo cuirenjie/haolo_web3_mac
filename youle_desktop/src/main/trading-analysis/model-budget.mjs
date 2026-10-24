@@ -1,6 +1,6 @@
 import { ANALYSIS_RECOVERY_MODEL } from "../analysis-model-policy.mjs";
 
-export const TRADING_PRIMARY_MODEL_BUDGET_MS = 90_000;
+export const TRADING_PRIMARY_MODEL_BUDGET_MS = 900_000;
 export const TRADING_BACKUP_MODEL_BUDGET_MS = 90_000;
 
 export function tradingModelBudgetError(modelId, exhausted = false) {

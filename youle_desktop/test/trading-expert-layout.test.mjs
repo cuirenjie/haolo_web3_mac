@@ -31,6 +31,7 @@ const marketSource = readFile(new URL("../src/renderer/trading-expert-market.ts"
 const strategyCatalogSource = readFile(new URL("../src/renderer/trading-strategy-runtime/catalog.ts", import.meta.url), "utf8");
 const favoriteTickerSortSource = readFile(new URL("../src/renderer/trading-expert-favorite-ticker-sort.ts", import.meta.url), "utf8");
 const marketIdentitySource = readFile(new URL("../src/renderer/trading-expert-market-identity.ts", import.meta.url), "utf8");
+const marketLogosSource = readFile(new URL("../src/renderer/trading-market-logos.ts", import.meta.url), "utf8");
 const chartSettingsSource = readFile(new URL("../src/renderer/trading-expert-chart-settings.ts", import.meta.url), "utf8");
 const panelResizeSource = readFile(new URL("../src/renderer/trading-expert-panel-resize.ts", import.meta.url), "utf8");
 const splitPaneSource = readFile(new URL("../src/renderer/trading-expert-split-pane.ts", import.meta.url), "utf8");
@@ -560,7 +561,7 @@ test("Trading Expert keeps Sol as the default and exposes media models in the ex
   ]);
   assert.equal(TRADING_EXPERT_DEFAULT_MODEL_VALUE, "gpt-5.6-sol");
   assert.equal(TRADING_EXPERT_REASONING_EFFORT, "max");
-  assert.equal(TRADING_EXPERT_DEEPSEEK_REASONING_EFFORT, "max");
+  assert.equal(TRADING_EXPERT_DEEPSEEK_REASONING_EFFORT, "low");
   assert.equal(isTradingExpertModelValue("deepseek-flash"), true);
   assert.equal(tradingExpertReasoningEffort("gpt-5.6-sol"), "max");
   assert.equal(tradingExpertReasoningEffort("gpt-6-sol"), "max");
@@ -1685,6 +1686,7 @@ test("Trading Expert custom indicator dialog configures every existing study and
 test("Trading Expert market picker is compact, neutral-search, left-aligned, and themed", async () => {
   const source = await marketSource;
   const identity = await marketIdentitySource;
+  const logos = await marketLogosSource;
   const styles = await stylesSource;
 
   assert.match(source, /class="trading-market-picker-search"/);
@@ -1699,13 +1701,14 @@ test("Trading Expert market picker is compact, neutral-search, left-aligned, and
   assert.match(identity, /https:\/\/app\.hyperliquid\.xyz\/coins/);
   assert.match(source, /renderTradingMarketAssetLogo\(market\.baseAsset, market\.provider, false, market\.assetClass, market\.displaySymbol\)/);
   assert.match(identity, /data-market-logo-stage="binance"/);
-  assert.match(source, /addEventListener\("error", this\.handleMarketLogoError, true\)/);
+  assert.match(identity, /ensureTradingMarketLogos\(\)/);
+  assert.match(logos, /image\.addEventListener\("error", \(\) => failed\(image\)\)/);
   assert.match(source, /this\.marketList\.addEventListener\("scroll", this\.handleMarketListScroll, \{ passive: true \}\)/);
   assert.match(source, /const preservedScrollTop = options\.resetScroll[\s\S]*?Math\.max\(this\.marketList\.scrollTop, this\.marketListScrollTop\)/);
   assert.match(source, /this\.restoreMarketListScroll\(preservedScrollTop\)/);
   assert.match(source, /restorePreservedViewState\(\)/);
   assert.match(source, /activeWorkspace\.restorePreservedViewState\(\)/);
-  assert.match(source, /image\.dataset\.marketLogoStage = "hyperliquid"/);
+  assert.match(logos, /image\.dataset\.marketLogoStage = "hyperliquid"/);
   assert.match(source, /class="trading-market-contract-tag">\$\{escapeHtml\(market\.tag\)\}<\/span>/);
   assert.match(source, /class="trading-market-row-venue"[^>]*>\$\{escapeHtml\(market\.venue\)\}<\/span>/);
   assert.match(source, /TRADING_MARKET_CATEGORY_OPTIONS\.map\(\(option\) =>/);

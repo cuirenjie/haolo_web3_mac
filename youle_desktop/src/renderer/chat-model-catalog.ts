@@ -96,8 +96,8 @@ export const DEEPSEEK_EXECUTION_CHAT_MODEL_OPTION: Readonly<ChatModelOption> = {
   providerLabel: "DeepSeek",
   label: "GPT-6 Astra",
   description: "Latest frontier agentic coding model.",
-  reasoningEfforts: reasoningOptions(["low", "high", "max"]),
-  defaultReasoningEffort: "max",
+  reasoningEfforts: reasoningOptions(["low"]),
+  defaultReasoningEffort: "low",
   serviceTiers: [],
   inputModalities: providerModelInputCapabilities("deepseek", DEEPSEEK_EXECUTION_MODEL_VALUE)
     .modalities.filter((modality) => modality !== "file"),

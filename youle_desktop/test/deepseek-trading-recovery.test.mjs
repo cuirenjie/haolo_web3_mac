@@ -11,24 +11,23 @@ const candles = Array.from({ length: 100 }, (_, index) => {
 });
 const params = { marketId: "BINANCE:FUTURES:ETHUSDT", interval: "60", snapshotTime: 1_800_000_000_000, candles, instruction: "分析当前结构，并绘制真实支撑压力，不执行交易" };
 
-test("DeepSeek overload -> GPT high -> schema repair -> grounded price analysis and renderer-valid K-line drawings", async () => {
+test("DeepSeek schema repair -> grounded price analysis and renderer-valid K-line drawings", async () => {
   const calls = [];
   const provider = createAppServerTradingAnalysisProvider({
     waitForRecovery: async () => {},
     invoke: async (args) => {
       calls.push(args);
-      if (calls.length === 1) return { status: "failed", error: "Selected model is at capacity", retryable: false };
-      if (calls.length === 2) return { status: "success", text: "invalid JSON" };
+      if (calls.length === 1) return { status: "success", text: "invalid JSON" };
       return { status: "success", text: JSON.stringify({ schemaVersion: 1, verdict: "approve", summary: "价格结构来自已收盘 K 线。", answer: "等待价格触发后再确认。", marketBias: "bullish", rationale: "根据给定行情复核。", confidence: 0.8 }) };
     },
   });
   const result = await runTradingPriceActionAnalysisPipeline(params, { modelRegistry: createTradingAnalysisModelProviderRegistry([provider]), providerId: provider.providerId });
   assert.equal(result.ok, true);
-  assert.equal(result.model.modelId, "gpt-5.6-sol");
-  assert.equal(result.model.reasoningEffort, "high");
-  assert.equal(calls[1].modelProvider, "haolo_ai");
-  assert.equal(calls[2].modelProvider, "haolo_ai");
-  assert.deepEqual(calls.map((c) => [c.modelId, c.reasoningEffort]), [["deepseek-flash", "medium"], ["gpt-5.6-sol", "high"], ["gpt-5.6-sol", "high"]]);
+  assert.equal(result.model.modelId, "deepseek-flash");
+  assert.equal(result.model.reasoningEffort, "low");
+  assert.equal(calls[0].modelProvider, "deepseek");
+  assert.equal(calls[1].modelProvider, "deepseek");
+  assert.deepEqual(calls.map((c) => [c.modelId, c.reasoningEffort]), [["deepseek-flash", "low"], ["deepseek-flash", "low"]]);
   assert.ok(calls.every((c) => c.request.snapshotId === result.snapshot.snapshotId));
   assert.ok(calls.every((c) => c.request.prompt.startsWith(calls[0].request.prompt)));
   const patch = result.analysisPlan.drawingPatch;
@@ -42,10 +41,10 @@ test("DeepSeek overload -> GPT high -> schema repair -> grounded price analysis 
   }
 });
 
-test("an explicitly selected DeepSeek trading provider starts at max on the correct provider", async () => {
+test("an explicitly selected DeepSeek trading provider clamps stale max to low on the correct provider", async () => {
   let request;
   const provider = createAppServerTradingAnalysisProvider({ modelId: "deepseek-flash", fixedReasoningEffort: "max", invoke: async (args) => { request = args; return { status: "success", text: '{"valid":true}' }; } });
   await provider.analyze({ task: "wave-theory-review", requestId: "review", snapshotId: "candles", prompt: "frozen candles" }, { reasoningEffort: "medium" });
   assert.equal(request.modelProvider, "deepseek");
-  assert.equal(request.reasoningEffort, "max");
+  assert.equal(request.reasoningEffort, "low");
 });

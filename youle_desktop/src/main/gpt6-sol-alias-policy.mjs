@@ -9,7 +9,9 @@ export function isGpt6SolDisplayModel(value) {
 }
 
 export function displayModelAliasForSelection(value) {
-  return isGpt6SolDisplayModel(value) ? GPT_6_SOL_DISPLAY_MODEL : "";
+  // Capture the product selection before any runtime or recovery policy runs.
+  // This value is display metadata only, never a routing or pricing override.
+  return String(value || "").trim();
 }
 
 export function runtimeModelForSelection(value) {

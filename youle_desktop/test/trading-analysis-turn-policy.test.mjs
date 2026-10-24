@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { tradingAnalysisTurnPolicy } from "../src/main/trading-analysis-turn-policy.mjs";
 
-test("alert intent timeout is activity-based and recoverable", () => {
+test("alert intent uses a bounded long DeepSeek request", () => {
   assert.deepEqual(tradingAnalysisTurnPolicy("trading_alert_intent_compile"), {
     kind: "alert_intent",
-    reasoningEffort: "medium",
-    timeoutMs: 180_000,
-    resetTimeoutOnActivity: true,
-    timeoutRetryable: true,
+    reasoningEffort: "low",
+    timeoutMs: 900_000,
+    resetTimeoutOnActivity: false,
+    timeoutRetryable: false,
   });
 });
 
@@ -16,36 +16,36 @@ test("small request routers use low reasoning and remain hard-bounded", () => {
   assert.deepEqual(tradingAnalysisTurnPolicy("chan-request-routing"), {
     kind: "request_routing",
     reasoningEffort: "low",
-    timeoutMs: 30_000,
+    timeoutMs: 900_000,
     resetTimeoutOnActivity: false,
     timeoutRetryable: false,
   });
 });
 
-test("theory review uses the recoverable medium-effort policy", () => {
+test("theory review uses the long low-effort policy", () => {
   assert.deepEqual(tradingAnalysisTurnPolicy("trading_theory_review"), {
     kind: "theory_review",
-    reasoningEffort: "medium",
-    timeoutMs: 90_000,
+    reasoningEffort: "low",
+    timeoutMs: 900_000,
     resetTimeoutOnActivity: false,
-    timeoutRetryable: true,
+    timeoutRetryable: false,
   });
 });
 
-test("only theory reviews accept controlled high and max escalation overrides", () => {
+test("DeepSeek reviews and repairs cannot escalate above low", () => {
   assert.equal(tradingAnalysisTurnPolicy("wave-theory-review", {
     requestedReasoningEffort: "high",
-  }).reasoningEffort, "high");
+  }).reasoningEffort, "low");
   assert.equal(tradingAnalysisTurnPolicy("wave-theory-review", {
     requestedReasoningEffort: "max",
-  }).reasoningEffort, "max");
+  }).reasoningEffort, "low");
   assert.equal(tradingAnalysisTurnPolicy("wave-theory-review", {
     requestedReasoningEffort: "ultra",
-  }).reasoningEffort, "medium");
+  }).reasoningEffort, "low");
   assert.equal(tradingAnalysisTurnPolicy("chan-request-routing", {
     requestedReasoningEffort: "max",
   }).reasoningEffort, "low");
   assert.equal(tradingAnalysisTurnPolicy("trading_alert_intent_compile", {
     requestedReasoningEffort: "max",
-  }).reasoningEffort, "medium");
+  }).reasoningEffort, "low");
 });

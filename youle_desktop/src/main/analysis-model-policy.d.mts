@@ -1,5 +1,6 @@
 export type AnalysisModelRecoveryState = { version: 2; activatedAt: number; fallbackUntil: number };
 export const ANALYSIS_PRIMARY_MODEL: string;
+export const ANALYSIS_MODEL_FALLBACK_ENABLED: false;
 export const ANALYSIS_RECOVERY_MODEL: string;
 export const ANALYSIS_RECOVERY_EFFORT: string;
 export const ANALYSIS_RECOVERY_PROVIDER: string;

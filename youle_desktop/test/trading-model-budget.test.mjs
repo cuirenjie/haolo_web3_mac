@@ -45,12 +45,12 @@ test("incident replay: a valid 63-second ambiguous review completes without wast
     validateResponse: JSON.parse,
   });
   assert.equal(result.review.valid, true);
-  assert.deepEqual(calls, [{ model: "deepseek-flash", effort: "high", remaining: 90_000 }]);
+  assert.deepEqual(calls, [{ model: "deepseek-flash", effort: "low", remaining: 900_000 }]);
   assert.equal(clock, 63_018);
   assert.equal(result.attempts.length, 1);
 });
 
-test("exhausted fallback budget retains its actual model and terminal recovery through the registry", async () => {
+test("exhausted DeepSeek budget returns its actual model without GPT", async () => {
   let clock = 0;
   const calls = [];
   const provider = createAppServerTradingAnalysisProvider({
@@ -66,14 +66,13 @@ test("exhausted fallback budget retains its actual model and terminal recovery t
     request: reviewRequest, modelBudget: createTradingModelBudget({ now: () => clock }), validateResponse: JSON.parse,
   }), (error) => {
     assert.equal(error.code, "TRADING_ANALYSIS_MODEL_TIMEOUT");
-    assert.equal(error.modelId, "gpt-5.6-sol");
-    assert.equal(error.reasoningEffort, "high");
-    assert.equal(error.recovery.exhausted, true);
-    assert.equal(error.attempts.at(-1).modelId, "gpt-5.6-sol");
-    assert.equal(error.attempts.at(-1).effort, "high");
+    assert.equal(error.modelId, "deepseek-flash");
+    assert.equal(error.recovery, undefined);
+    assert.equal(error.attempts.at(-1).modelId, "deepseek-flash");
+    assert.equal(error.attempts.at(-1).effort, "medium");
     return true;
   });
-  assert.deepEqual(calls, ["deepseek-flash", "gpt-5.6-sol"]);
+  assert.deepEqual(calls, ["deepseek-flash"]);
 });
 
 test("model budgets are monotonic and shared across validation passes", () => {

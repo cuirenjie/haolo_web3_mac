@@ -54,7 +54,7 @@ const cases = [
   [22, "滚动到页面位置", () => assert.match(agent, /scrollTarget/)],
   [23, "跟踪动作创建的新标签页", () => assert.match(worker, /created_tabs/)],
   [24, "处理 SPA 路由变化", () => assert.match(agent, /before[\s\S]*after[\s\S]*changed/)],
-  [25, "处理同源 iframe", () => assert.equal(manifest.content_scripts[0].all_frames, true)],
+  [25, "处理同源 iframe", () => { assert.match(worker, /authorizedFrames\(tab\)/); assert.match(worker, /frameIds: \[frame.frameId\]/); }],
   [26, "跨域 iframe 需要独立站点权限", () => assert.match(worker, /permissions\.contains\(\{ origins: \[`\$\{origin\}\/\*`\] \}\)/)],
   [27, "页面刷新后失效目标安全失败", () => assert.match(agent, /CHROME_TARGET_NOT_FOUND/)],
   [28, "目标标签关闭后任务停止", () => assert.match(worker, /tabs\.onRemoved[\s\S]*activeTasks\.delete/)],
@@ -97,7 +97,7 @@ assert.equal(cases.length, 50);
 assert.equal(new Set(cases.map(([id]) => id)).size, 50);
 
 for (const [id, title, check] of cases) {
-  test(`Chrome E2E baseline ${String(id).padStart(2, "0")}: ${title}`, check);
+  test(`Chrome contract baseline ${String(id).padStart(2, "0")}: ${title}`, check);
 }
 
 test("Chrome plugin safety instructions require untrusted-content handling and approval", () => {

@@ -159,7 +159,7 @@ export function createTradingPreferenceSaver({ owner, store, analyze }) {
       if (pending.has(ownerId)) fail("", "交易偏好正在保存，请稍候。", "TRADING_PREFERENCE_SAVE_PENDING");
       pending.add(ownerId);
       try {
-        const compiled = await compileTradingPreferences(params, { analyze, signal: AbortSignal.timeout(90_000) });
+        const compiled = await compileTradingPreferences(params, { analyze, signal: AbortSignal.timeout(900_000) });
         if ((await owner()).ownerId !== ownerId) fail("", "登录账号已变化，请重新打开交易偏好。", "TRADING_PREFERENCE_OWNER_CHANGED");
         const saved = await store().upsert(ownerId, compiled.entries);
         const profile = await store().tradingRiskProfile(ownerId);

@@ -86,6 +86,7 @@ import {
   HAOLO_CHROME_DEVELOPMENT_EXTENSION_ID,
   ChromeNativeHostManager,
   chromeExtensionOrigins,
+  chromeRuntimePaths,
 } from "./chrome/native-host-manager.mjs";
 import {
   chromeReleaseExtensionIds,
@@ -2709,15 +2710,15 @@ function updateAppTrayIcon(icon = currentWindowIcon()) {
 }
 
 function chromeBundledExtensionDirectory() {
-  return app.isPackaged
-    ? path.join(process.resourcesPath, "chrome-extension")
-    : path.join(app.getAppPath(), "extensions", "haolo-chrome");
+  return currentChromeRuntimePaths().extensionDirectory;
 }
 
 function chromeReleasePolicyPath() {
-  return app.isPackaged
-    ? path.join(process.resourcesPath, "chrome-release-policy.json")
-    : path.join(app.getAppPath(), "resources", "chrome-release-policy.json");
+  return currentChromeRuntimePaths().releasePolicyPath;
+}
+
+function currentChromeRuntimePaths() {
+  return chromeRuntimePaths({ appPath: app.getAppPath(), resourcesPath: process.resourcesPath, isPackaged: app.isPackaged });
 }
 
 function currentChromeExtensionIds() {
@@ -12024,7 +12025,7 @@ function withThreadRuntimeSettings(result, settings = threadSettingsFromResumeRe
     thread: {
       ...threadWithoutDisplayAlias,
       model: alias || settings.model,
-      ...(alias ? { modelProvider: "haolo_ai" } : modelProvider ? { modelProvider } : {}),
+      ...(alias ? { modelProvider: alias === DEEPSEEK_EXECUTION_MODEL ? "deepseek" : alias.startsWith("gpt-") ? "haolo_ai" : modelProvider } : modelProvider ? { modelProvider } : {}),
       reasoningEffort: settings.effort ?? null,
       serviceTier: settings.serviceTier ?? null,
     },
@@ -17380,6 +17381,8 @@ ipcMain.handle("codex:deletePlugin", async (_event, params = {}) => {
 });
 
 ipcMain.handle("codex:startThread", async (_event, params = {}) => {
+  const selectedDisplayModel = firstString(params.modelDisplayAlias, params.__haoloModelDisplayAlias, params.model);
+  params = { ...params, modelDisplayAlias: selectedDisplayModel };
   params = withAnalysisModelRecoveryPolicy(
     String(params?.model || "").trim().toLowerCase() === "gpt-6-sol"
       ? {
@@ -18738,10 +18741,10 @@ ipcMain.handle("codex:sendMessage", async (_event, params = {}) => {
     fromGroupChat: Boolean(groupChatContext),
   });
   const billingModelAlias = firstString(
-    displayModelAliasForSelection(params.model),
     params.modelDisplayAlias,
     params.model_display_alias,
     params.__haoloModelDisplayAlias,
+    displayModelAliasForSelection(params.model),
     displayModelAliasForSelection(params.modelId),
     displayModelAliasForSelection(params.model_id),
   );
@@ -19275,6 +19278,16 @@ ipcMain.handle("chrome:selectArtifact", async (_event, params = {}) => {
       });
   appendChromeAudit("artifact_selected", { artifactId: artifact.id, name: artifact.name, size: artifact.size });
   return { cancelled: false, artifact };
+});
+
+ipcMain.handle("chrome:pendingTasks", () => chromeToolRuntime?.pendingTasks() || []);
+ipcMain.handle("chrome:taskStatus", (_event, params = {}) => {
+  if (!chromeToolRuntime) throw new Error("Haolo Chrome runtime is not ready.");
+  return chromeToolRuntime.reportTaskStatus(params);
+});
+ipcMain.handle("chrome:bindTask", (_event, params = {}) => {
+  if (!chromeToolRuntime) throw new Error("Haolo Chrome runtime is not ready.");
+  return chromeToolRuntime.bindTask(params);
 });
 
 ipcMain.handle("chrome:approve", async (_event, params = {}) => {
@@ -22504,9 +22517,7 @@ app.whenReady().then(async () => {
   try {
     chromeReleasePolicy = readChromeReleasePolicy(chromeReleasePolicyPath());
     const chromeExtensionIds = currentChromeExtensionIds();
-    const chromeHostExecutable = app.isPackaged
-      ? path.join(process.resourcesPath, "bin", "haolo-chrome-native-host.exe")
-      : path.join(app.getAppPath(), "resources", "bin", "haolo-chrome-native-host.exe");
+    const chromeHostExecutable = currentChromeRuntimePaths().hostExecutablePath;
     chromeNativeHostManager = new ChromeNativeHostManager({
       userDataPath: app.getPath("userData"),
       hostExecutablePath: chromeHostExecutable,
@@ -22531,6 +22542,7 @@ app.whenReady().then(async () => {
     chromeToolRuntime = new ChromeToolRuntime({ broker: chromeNativeBroker });
     chromeToolRuntime.on("task", (task) => {
       appendChromeAudit("task", { taskId: task.taskId, profileId: task.profileId, origin: task.origin });
+      if (task.prompt) restoreMainWindowFromSecondInstance();
       sendToRenderer("chrome:task", task);
     });
     chromeToolRuntime.on("sitePolicy", (policy) => {

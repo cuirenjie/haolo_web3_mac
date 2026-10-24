@@ -80,12 +80,12 @@ test("automatic target ignores user choices and maps to each model's supported t
     task: "把按钮文案改成保存，并更新对应测试",
     requestedEffort: "low",
     supportedReasoningEfforts: ["low", "high", "max"],
-  }), "high");
+  }), "low");
   assert.equal(adaptiveReasoningEffortForTask({
     model: "deepseek-flash",
     task: "全面重构认证系统并迁移数据库，完成安全审计和生产部署",
     supportedReasoningEfforts: ["low", "high", "max"],
-  }), "max");
+  }), "low");
 
   assert.equal(adaptiveReasoningEffortForTask({
     model: "claude-sonnet-5",
@@ -122,7 +122,7 @@ test("turn/start applies the policy centrally and strips private metadata", () =
     input: [{ type: "text", text: "把按钮文案改成保存，并更新对应测试" }],
     [HAOLO_REASONING_SUPPORT_FIELD]: ["low", "high", "max"],
   });
-  assert.equal(deepSeek.effort, "high");
+  assert.equal(deepSeek.effort, "low");
 
   const intensive = withAdaptiveTurnReasoning("turn/start", {
     model: "gpt-5.6-sol",
@@ -196,4 +196,20 @@ test("extracts the actual user task from internal planner envelopes", () => {
     reasoningTaskText("planner rules\n\n用户目标：\n\n把标题改短一点"),
     "把标题改短一点",
   );
+});
+
+
+test("DeepSeek low overrides saved, fixed and collaboration reasoning without mutating input", () => {
+  for (const model of ["deepseek-flash", "deepseek-v4-flash", "deepseek/deepseek-flash"]) {
+    const params = { model, effort: "max", reasoningEffort: "high", reasoning_effort: "ultra",
+      [HAOLO_REASONING_FIXED_EFFORT_FIELD]: "max",
+      [HAOLO_REASONING_SUPPORT_FIELD]: ["high", "max"],
+      collaborationMode: { settings: { model, reasoning_effort: "high" } } };
+    const next = withAdaptiveTurnReasoning("turn/start", params);
+    assert.equal(next.effort, "low");
+    assert.equal(next.reasoningEffort, "low");
+    assert.equal(next.reasoning_effort, "low");
+    assert.equal(next.collaborationMode.settings.reasoning_effort, "low");
+    assert.equal(params.collaborationMode.settings.reasoning_effort, "high");
+  }
 });

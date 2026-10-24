@@ -23,17 +23,9 @@ export class AnalysisModelRecoveryStore {
   snapshot() { return this.state ? { ...this.state } : null; }
   select(modelId) { return analysisModelPolicySelection(this.state, modelId, this.now()); }
 
-  activate(failedModelId) {
-    // Backup failures and ordinary backup traffic must not postpone the next
-    // primary attempt. A new primary failure after expiry starts a new window.
-    const model = String(failedModelId || "").toLowerCase();
-    if (!["deepseek-flash", "deepseek-v4-flash"].includes(model)) return false;
-    const now = this.now();
-    if (this.state && now < this.state.fallbackUntil) return false;
-    this.state = { version: 2, activatedAt: now, fallbackUntil: now + ANALYSIS_RECOVERY_WINDOW_MS };
-    this.persistState();
-    try { this.onChange(this.snapshot()); } catch { /* Observers cannot break recovery. */ }
-    return true;
+  activate(_failedModelId) {
+    // A failed DeepSeek request never opens a GPT cooldown window.
+    return false;
   }
 
   persistState() {

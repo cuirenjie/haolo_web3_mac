@@ -1,5 +1,6 @@
 import { ANALYSIS_RECOVERY_MODEL, ANALYSIS_RECOVERY_EFFORT, isRecoverableAnalysisModelFailure } from "./analysis-model-recovery.mjs";
 import { errorSignals } from "./error-signals.mjs";
+import { ANALYSIS_MODEL_FALLBACK_ENABLED } from "./analysis-model-policy.mjs";
 
 export const AUTOMATIC_TURN_RECOVERY_MARKER = "<haolo_automatic_turn_recovery>";
 
@@ -133,6 +134,7 @@ export class TurnAutoRecoveryCoordinator {
     willRetry = false,
     retryable,
   } = {}) {
+    if (!ANALYSIS_MODEL_FALLBACK_ENABLED) return { status: "ignored" };
     const root = this.rootThreadId(threadId);
     if (!root || !isRecoverableAutomaticTurnFailure({ errorClass, httpStatus, status, willRetry, retryable, detail })) {
       return { status: "ignored" };

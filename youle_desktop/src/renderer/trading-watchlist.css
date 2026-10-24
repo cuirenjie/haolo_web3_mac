@@ -221,7 +221,7 @@ html[data-theme="dark"]
 .trading-watchlist-head,
 .trading-watchlist-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(5.5em, 0.85fr) minmax(5.5em, 0.75fr);
+  grid-template-columns: minmax(0, 1.4fr) minmax(5.5em, 0.85fr) minmax(5.5em, 0.75fr);
   column-gap: 8px;
   align-items: center;
   padding: 0 12px 0 17px;
@@ -316,12 +316,25 @@ html[data-language="en"] .trading-watchlist .trading-watchlist-head button[data-
 .trading-watchlist .trading-watchlist-select:is(:hover, :active, :focus-visible) {
   background: transparent;
 }
+.trading-watchlist-market,
 .trading-watchlist-pair,
 .trading-watchlist-price,
 .trading-watchlist-change {
   position: relative;
   z-index: 1;
   pointer-events: none;
+}
+.trading-watchlist-market {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+.trading-watchlist-market > .trading-market-asset-logo {
+  --trading-market-logo-bg: var(--app-chrome-background);
+  --trading-market-logo-border: var(--watchlist-border);
+  --trading-market-muted: var(--text-secondary);
+  border-radius: 50%;
 }
 .trading-watchlist .trading-watchlist-pair {
   display: flex;

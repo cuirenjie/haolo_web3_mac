@@ -33,112 +33,11 @@ test("recovery prompt reconciles three parallel child agents without replaying t
   assert.doesNotMatch(prompt, /original secret user task/i);
 });
 
-test("three-agent disconnect recovery starts one deduplicated continuation with live child state", async () => {
-  const timers = fakeTimers();
-  const starts = [];
-  const events = [];
-  const coordinator = new TurnAutoRecoveryCoordinator({
-    setTimer: timers.setTimer,
-    clearTimer: timers.clearTimer,
-    startRecovery: async (request) => {
-      starts.push(request);
-      return { turn: { id: "recovery-turn-1" } };
-    },
-    onEvent: (event) => events.push(event),
-  });
 
-  coordinator.registerChild("root-thread", "child-a");
-  coordinator.registerChild("root-thread", "child-b");
-  coordinator.registerChild("root-thread", "child-c");
-  coordinator.noteChildStatus("child-a", "completed");
-  coordinator.noteChildStatus("child-b", "running");
-  coordinator.noteChildStatus("child-c", "failed");
 
-  const decision = coordinator.handleTerminalFailure({
-    threadId: "root-thread",
-    failedTurnId: "root-turn-1",
-    errorClass: "stream_disconnected",
-    detail: "ResponseStreamDisconnected after websocket closed",
-  });
-  const duplicate = coordinator.handleTerminalFailure({
-    threadId: "root-thread",
-    failedTurnId: "root-turn-1",
-    errorClass: "stream_disconnected",
-    detail: "ResponseStreamDisconnected after websocket closed",
-  });
 
-  assert.equal(decision.status, "scheduled");
-  assert.equal(decision.delayMs, 0);
-  assert.equal(duplicate.duplicate, true);
-  assert.equal(timers.pending().length, 1);
-  timers.runNext();
-  await drainMicrotasks();
 
-  assert.equal(starts.length, 1);
-  assert.deepEqual(starts[0].childSummary, {
-    total: 3,
-    running: 1,
-    completed: 1,
-    failed: 1,
-    unknown: 0,
-  });
-  assert.match(starts[0].prompt, /reconcile live state before acting/i);
-  assert.equal(events.some((event) => event.event === "started" && event.turnId === "recovery-turn-1"), true);
-});
 
-test("repeated failures cool down and stop after three model recovery attempts", async () => {
-  const timers = fakeTimers();
-  let startCount = 0;
-  const coordinator = new TurnAutoRecoveryCoordinator({
-    setTimer: timers.setTimer,
-    clearTimer: timers.clearTimer,
-    recoveryDelaysMs: [10, 20, 30], maxRecoveryAttempts: 3,
-    noProgressFailureLimit: 3,
-    startRecovery: async () => ({ turn: { id: `recovery-${++startCount}` } }),
-  });
-
-  const first = coordinator.handleTerminalFailure(disconnect("turn-1"));
-  assert.equal(first.status, "scheduled");
-  assert.equal(first.delayMs, 10);
-  timers.runNext();
-  await drainMicrotasks();
-
-  const second = coordinator.handleTerminalFailure(disconnect("turn-2"));
-  assert.equal(second.status, "scheduled");
-  assert.equal(second.delayMs, 20);
-  timers.runNext();
-  await drainMicrotasks();
-
-  const third = coordinator.handleTerminalFailure(disconnect("turn-3"));
-  assert.equal(third.status, "cooling_down");
-  assert.equal(third.delayMs, 60_000);
-  assert.equal(timers.pending().length, 1);
-  timers.runNext();
-  await drainMicrotasks();
-
-  const fourth = coordinator.handleTerminalFailure(disconnect("turn-4"));
-  assert.equal(fourth.status, "exhausted");
-  assert.equal(timers.pending().length, 0);
-  assert.equal(startCount, 3);
-});
-
-test("durable progress resets the no-progress backoff and a user turn cancels pending recovery", () => {
-  const timers = fakeTimers();
-  const coordinator = new TurnAutoRecoveryCoordinator({
-    setTimer: timers.setTimer,
-    clearTimer: timers.clearTimer,
-    recoveryDelaysMs: [10, 20, 30], maxRecoveryAttempts: 3,
-    startRecovery: async () => ({ turn: { id: "unused" } }),
-  });
-
-  coordinator.handleTerminalFailure(disconnect("turn-1"));
-  coordinator.noteProgress("root-thread");
-  const afterProgress = coordinator.handleTerminalFailure(disconnect("turn-2"));
-  assert.equal(afterProgress.noProgressFailures, 1);
-  assert.equal(afterProgress.delayMs, 10);
-  coordinator.noteUserTurn("root-thread");
-  assert.equal(timers.pending().length, 0);
-});
 
 test("overload and generic failed turns recover but hard failures override transient labels", () => {
   assert.equal(isRecoverableAutomaticTurnFailure({ errorClass: "overloaded", status: "failed", detail: "Selected model is at capacity" }), true);
@@ -146,58 +45,9 @@ test("overload and generic failed turns recover but hard failures override trans
   assert.equal(isRecoverableAutomaticTurnFailure({ errorClass: "stream_disconnected", detail: "INVALID_API_KEY", status: "failed" }), false);
 });
 
-test("late terminals, child activity, cancellation and a new user turn cannot revive old recovery", async () => {
-  const timers = fakeTimers();
-  const events = [];
-  let finishStart, activeCheck;
-  const coordinator = new TurnAutoRecoveryCoordinator({
-    setTimer: timers.setTimer, clearTimer: timers.clearTimer,
-    startRecovery: ({ isCurrent }) => { activeCheck = isCurrent; return new Promise((resolve) => { finishStart = resolve; }); },
-    onEvent: (event) => events.push(event),
-  });
-  coordinator.noteUserTurn("root-thread");
-  assert.equal(coordinator.handleTerminalFailure(disconnect("old-turn")).status, "ignored");
-  coordinator.noteTurnStarted("root-thread", "current-turn");
-  coordinator.registerChild("root-thread", "child");
-  coordinator.noteTurnStarted("child", "child-turn");
-  coordinator.noteSuccessfulTurn("child", "child-turn");
-  assert.equal(coordinator.handleTerminalFailure(disconnect("old-turn")).status, "ignored");
-  const decision = coordinator.handleTerminalFailure(disconnect("current-turn"));
-  assert.equal(decision.status, "scheduled");
-  assert.equal(decision.modelId, "gpt-5.6-sol");
-  assert.equal(decision.reasoningEffort, "high");
-  timers.runNext();
-  await drainMicrotasks();
-  assert.equal(activeCheck(), true);
-  coordinator.cancel("root-thread");
-  assert.equal(activeCheck(), false);
-  finishStart({ turn: { id: "late-recovery" } });
-  await drainMicrotasks();
-  assert.equal(events.some((event) => event.event === "started"), false);
-  assert.equal(coordinator.handleTerminalFailure(disconnect("late-recovery")).status, "ignored");
-  coordinator.noteUserTurn("root-thread");
-  coordinator.noteTurnStarted("root-thread", "new-turn");
-  coordinator.noteSuccessfulTurn("root-thread", "current-turn");
-  assert.equal(coordinator.handleTerminalFailure(disconnect("new-turn")).status, "scheduled");
-  coordinator.noteSuccessfulTurn("root-thread", "new-turn");
-  assert.equal(coordinator.handleTerminalFailure(disconnect("new-turn")).status, "ignored");
-  assert.equal(timers.pending().length, 0);
-});
 
-test("a hard recovery start failure ends the chain and publishes an honest terminal notice", async () => {
-  const timers = fakeTimers(), events = [];
-  const coordinator = new TurnAutoRecoveryCoordinator({
-    setTimer: timers.setTimer, clearTimer: timers.clearTimer,
-    startRecovery: async () => { throw Object.assign(new Error("request failed"), { code: "INVALID_API_KEY" }); },
-    onEvent: (event) => events.push(event),
-  });
-  coordinator.handleTerminalFailure(disconnect("first-turn"));
-  timers.runNext();
-  await drainMicrotasks();
-  assert.equal(timers.pending().length, 0);
-  assert.equal(events.at(-1).status, "exhausted");
-  assert.equal(events.at(-1).failedToStart, true);
-});
+
+
 
 function disconnect(failedTurnId) {
   return {
@@ -239,14 +89,14 @@ async function drainMicrotasks() {
   await new Promise((resolve) => setImmediate(resolve));
 }
 
-test("default policy falls back immediately once and never loops back", async () => {
- const timers = fakeTimers();
- let calls = 0;
- const coordinator = new TurnAutoRecoveryCoordinator({ setTimer: timers.setTimer, clearTimer: timers.clearTimer,
-   startRecovery: async () => { calls++; return { turn: { id: "backup" } }; } });
- assert.equal(coordinator.handleTerminalFailure(disconnect("primary")).delayMs, 0);
- timers.runNext(); await drainMicrotasks();
- assert.equal(coordinator.handleTerminalFailure(disconnect("backup")).status, "exhausted");
- assert.equal(calls, 1);
- assert.equal(timers.pending().length, 0);
+
+
+test('automatic GPT recovery is disabled across lifecycle and error states',async()=>{
+ const timers=fakeTimers();let starts=0;const c=new TurnAutoRecoveryCoordinator({setTimer:timers.setTimer,clearTimer:timers.clearTimer,startRecovery:async()=>{starts++}});
+ c.registerChild('root','child');c.noteTurnStarted('root','turn');
+ for(const errorClass of ['timeout','stream_disconnected','rate_limit','unknown','auth'])for(const threadId of ['root','child']){
+  for(let i=0;i<3;i++)assert.deepEqual(c.handleTerminalFailure({threadId,failedTurnId:'turn',status:'failed',errorClass}),{status:'ignored'});
+ }
+ c.noteProgress('root');c.noteUserTurn('root');c.cancel('root');c.shutdown();
+ await drainMicrotasks();assert.equal(starts,0);assert.equal(timers.pending().length,0);
 });

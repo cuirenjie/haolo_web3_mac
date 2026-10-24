@@ -1,3 +1,5 @@
+import { ensureTradingMarketLogos } from "./trading-market-logos.ts";
+
 export type TradingMarketIdentityProvider = "binance" | "finnhub" | "ifind";
 export type TradingMarketAssetClass = "crypto" | "commodity" | "etf" | "stock" | "preipo" | "index" | "forex" | "a-share";
 
@@ -93,21 +95,25 @@ export function renderTradingMarketAssetLogo(
   assetClass?: string,
   displayName = "",
 ) {
+  ensureTradingMarketLogos();
   const normalizedAsset = asset.trim().toUpperCase();
   const normalizedAssetClass = normalizeAssetClass(assetClass);
   const isAShare = provider === "ifind" || normalizedAssetClass === "a-share";
   const tradFiAssetClass = !isAShare && provider === "binance"
     ? inferredTradFiAssetClass(normalizedAsset, assetClass)
     : null;
+  const remote = provider === "binance" && !tradFiAssetClass && !isAShare;
+  const key = JSON.stringify([normalizedAsset, provider, current, normalizedAssetClass, displayName]);
   return `
-    <span class="trading-market-asset-logo provider-${provider}${isAShare ? " asset-class-a-share" : ""}${normalizedAssetClass === "index" ? " asset-class-index" : ""}${current ? " current" : ""}" data-market-logo-shell aria-hidden="true">
+    <span class="trading-market-asset-logo provider-${provider}${isAShare ? " asset-class-a-share" : ""}${normalizedAssetClass === "index" ? " asset-class-index" : ""}${current ? " current" : ""}" data-market-logo-shell data-market-logo-key="${escapeAttribute(key)}"${remote ? ' data-market-logo-state="pending"' : ''} aria-hidden="true">
       ${isAShare
         ? renderAShareAssetMark(normalizedAsset, displayName)
         : tradFiAssetClass
         ? renderTradFiAssetMark(normalizedAsset, tradFiAssetClass)
         : `<span data-market-logo-fallback>${escapeAttribute(tradingMarketAssetBadge(normalizedAsset))}</span>`}
-      ${provider === "binance" && !tradFiAssetClass ? `<img
-        src="${escapeAttribute(binanceTradingMarketAssetLogoUrl(normalizedAsset))}"
+      ${remote ? `<img
+        data-market-logo-src="${escapeAttribute(binanceTradingMarketAssetLogoUrl(normalizedAsset))}"
+        data-market-logo-backup-src="${escapeAttribute(hyperliquidTradingMarketAssetLogoUrl(normalizedAsset))}"
         alt=""
         loading="${current ? "eager" : "lazy"}"
         decoding="async"

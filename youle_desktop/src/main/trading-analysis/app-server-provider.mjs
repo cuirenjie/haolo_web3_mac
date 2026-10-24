@@ -1,6 +1,6 @@
 import { TradingAnalysisModelProviderError } from "./model-provider.mjs";
-import { ANALYSIS_RECOVERY_MODEL, ANALYSIS_RECOVERY_EFFORT, ANALYSIS_RECOVERY_PROVIDER, runWithAnalysisModelRecovery } from "../analysis-model-recovery.mjs";
-import { ANALYSIS_PRIMARY_MODEL } from "../analysis-model-policy.mjs";
+import { runWithAnalysisModelRecovery } from "../analysis-model-recovery.mjs";
+import { ANALYSIS_PRIMARY_MODEL, analysisModelPolicySelection } from "../analysis-model-policy.mjs";
 import { canonicalDeepSeekModel } from "../deepseek-model-policy.mjs";
 import { migrateRetiredModelSelection } from "../retired-model-policy.mjs";
 import { displayModelAliasForSelection } from "../gpt6-sol-alias-policy.mjs";
@@ -37,15 +37,16 @@ export function createAppServerTradingAnalysisProvider(options = {}) {
       const operation = async (selection) => {
         const remainingModelTime = recoverableReview ? modelBudget.begin(selection.modelId) : undefined;
         remainingModelTime?.();
-        const selectedReasoningEffort = fixedReasoningEffort || selection.reasoningEffort || reasoningEffort;
+        const selectedReasoningEffort = selection.modelId === ANALYSIS_PRIMARY_MODEL
+          ? "low" : fixedReasoningEffort || selection.reasoningEffort || reasoningEffort;
         const result = await invoke({
           providerId,
           modelId,
           modelProvider,
           request,
           signal,
-          reasoningEffort: selectedReasoningEffort,
           ...selection,
+          reasoningEffort: selectedReasoningEffort,
           remainingModelTime,
         });
         if (signal?.aborted) throw signal.reason || new DOMException("Analysis cancelled", "AbortError");
@@ -75,12 +76,9 @@ export function createAppServerTradingAnalysisProvider(options = {}) {
         };
       };
       const policy = recoverableReview ? options.selectModel?.(modelId) : null;
-      const selectedModel = canonicalDeepSeekModel(policy?.modelId || modelId);
-      const selection = recoverableReview && (selectedModel === ANALYSIS_RECOVERY_MODEL || canonicalDeepSeekModel(recoveryModel) === ANALYSIS_RECOVERY_MODEL || policy?.fallback)
-        ? { modelId: ANALYSIS_RECOVERY_MODEL, modelProvider: ANALYSIS_RECOVERY_PROVIDER, reasoningEffort: ANALYSIS_RECOVERY_EFFORT }
-        : { modelId: selectedModel, reasoningEffort: fixedReasoningEffort || reasoningEffort,
-          ...(selectedModel === ANALYSIS_PRIMARY_MODEL ? { modelProvider: "deepseek" } : {}) };
-      if (!recoverableReview) return operation(selection);
+      const selectedModel = analysisModelPolicySelection(null, policy?.modelId || modelId).modelId;
+      const selection = { modelId: selectedModel, reasoningEffort: fixedReasoningEffort || reasoningEffort,
+        ...(selectedModel === ANALYSIS_PRIMARY_MODEL ? { modelProvider: "deepseek" } : {}) };
       return runWithAnalysisModelRecovery({
         operation, ...selection, signal,
         onRecovery: (event) => options.onRecovery?.({ ...event, requestId: request.requestId, snapshotId: request.snapshotId }),

@@ -1,5 +1,7 @@
 # Haolo Chrome Phase 7 工程评测报告
 
+> 2026-10-24 复核：下文为历史报告，50 项属于静态/契约测试，不能解释为 50 次真实浏览器 E2E。最新代码恢复、92 项回归、11 项真实 Codex CLI + DeepSeek + Chrome 检查和 503 原因见[本次验收记录](chrome-recovery-and-chain-verification-20261024.zh-CN.md)。商店安装后的个人 Chrome 验收仍待完成。
+
 评测日期：2026-08-07
 
 状态：本地工程门槛通过；正式签名安装与干净 Windows 验收等待发布证书。

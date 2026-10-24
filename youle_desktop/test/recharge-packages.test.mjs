@@ -39,7 +39,7 @@ test("recharge page shows monthly and annual subscriptions, points packs, and cr
   );
   const paymentEvents = sourceBlock(
     renderer,
-    "function finishRechargeMarketLogoLoad",
+    "function hydrateRechargeMarketLogos",
     "function bindEvents",
   );
   const paymentDetails = sourceBlock(
@@ -164,7 +164,7 @@ test("recharge page shows monthly and annual subscriptions, points packs, and cr
   assert.doesNotMatch(page, /RECHARGE_ADDON_PRODUCTS|recharge-addon-section|积分加油包|临时不够/);
   assert.doesNotMatch(styles, /recharge-addon-|recharge-product-(?:grid\.addon|bonus)/);
   assert.doesNotMatch(productCard, /<button|data-action=|product\.cta/);
-  assert.match(paymentEvents, /hyperliquidTradingMarketAssetLogoUrl\(asset\)/);
+  assert.match(paymentEvents, /hydrateTradingMarketLogos\(scope\)/);
   assert.match(paymentEvents, /selectedRechargePaymentNetwork = network\.id/);
   assert.match(paymentEvents, /if \(!rechargePaymentViewActive\)[\s\S]*?rechargePaymentViewActive = true;[\s\S]*?activateRechargePaymentSelection\(\)/);
   assert.match(paymentEvents, /updateRechargePaymentDetails\(\)/);

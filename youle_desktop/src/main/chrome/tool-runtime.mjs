@@ -37,8 +37,10 @@ export class ChromeToolRuntime extends EventEmitter {
     this.effects = effectStore || new ChromeEffectStore();
     this.sessionOrigins = new Map();
     this.tasks = new Map();
+    this.taskBindings = new Map();
     this.artifacts = new Map();
     this.operationExecutions = new Map();
+    this.operationOwners = new Map();
     this.historyApprovals = new Map();
     this.approvedOperationTokens = new Map();
     this.approvalWaiters = new Map();
@@ -50,9 +52,11 @@ export class ChromeToolRuntime extends EventEmitter {
     this.broker.off?.("message", this.onBrokerMessage);
     this.removeAllListeners();
     this.tasks.clear();
+    this.taskBindings.clear();
     this.sessionOrigins.clear();
     this.artifacts.clear();
     this.operationExecutions.clear();
+    this.operationOwners.clear();
     this.historyApprovals.clear();
     this.approvedOperationTokens.clear();
     for (const waiters of this.approvalWaiters.values()) {
@@ -97,11 +101,16 @@ export class ChromeToolRuntime extends EventEmitter {
     const validated = validateChromeToolCall(name, args || {});
     if (!ENABLED_TOOLS.has(name)) throw runtimeError("CHROME_TOOL_NOT_ENABLED", `${name} is not enabled.`, "policy", false, 409);
     if (name === "chrome_status") return this.status();
-    if (name === "cancel_task") return this.cancelTask(validated.arguments.task_id);
-
-    const executionContext = this.#context(context);
+    const executionContext = this.#boundContext(validated.arguments, context);
+    if (name === "cancel_task") {
+      const task = this.tasks.get(validated.arguments.task_id);
+      if (task && (task.taskId !== executionContext.taskId || task.threadId !== executionContext.threadId)) {
+        throw runtimeError("CHROME_TASK_CONTEXT_MISMATCH", "Only the owning conversation can cancel this Chrome task.", "policy", false, 403);
+      }
+      return this.cancelTask(validated.arguments.task_id);
+    }
     if (name === "commit_external_action") return this.#commitExternalAction(validated.arguments, executionContext);
-    const profileId = await this.#selectProfile(name, validated.arguments, context);
+    const profileId = await this.#selectProfile(name, validated.arguments, executionContext);
     if (name === "list_tabs") {
       return this.broker.call(profileId, "tool.call", { tool: name, arguments: validated.arguments }, executionContext);
     }
@@ -112,7 +121,10 @@ export class ChromeToolRuntime extends EventEmitter {
     let tab = await this.#findTab(profileId, tabId, executionContext);
     let origin = normalizeChromeOrigin(tab.url);
     const siteDecision = this.sites.decide(origin, this.#sessionOriginList(profileId));
-    if (siteDecision.decision !== "allow") {
+    // Chrome is the authority for persisted grants after a desktop restart.
+    // A revoked grant must also override stale in-memory desktop permission.
+    if (siteDecision.decision === "block" || tab.authorized === false
+      || (siteDecision.decision !== "allow" && tab.authorized !== true)) {
       throw runtimeError(
         siteDecision.decision === "block" ? "CHROME_SITE_BLOCKED" : "CHROME_SITE_PERMISSION_REQUIRED",
         siteDecision.decision === "block"
@@ -124,7 +136,7 @@ export class ChromeToolRuntime extends EventEmitter {
       );
     }
 
-    let task = this.#taskFor(profileId, tabId, executionContext.taskId);
+    let task = this.#taskFor(profileId, tabId, executionContext);
     let taskSurface = null;
     if (!READ_ONLY_TOOLS.has(name) && task && task.tabId !== tabId) {
       tabId = task.tabId;
@@ -133,6 +145,9 @@ export class ChromeToolRuntime extends EventEmitter {
       if (taskOrigin !== task.origin) throw runtimeError("CHROME_TASK_TAB_ORIGIN_MISMATCH", "The isolated task tab has left its granted origin.", "policy", false, 409);
       origin = taskOrigin;
       executionArguments = { ...executionArguments, tab_id: tabId };
+      if (executionArguments.target?.element_id || Number.isFinite(executionArguments.target?.x)) {
+        return { action_required: "read_page", tab_id: tabId, message: "Read the isolated task tab and use a target from that tab before retrying." };
+      }
     }
     if (!READ_ONLY_TOOLS.has(name) && !task) {
       taskSurface = await this.broker.call(
@@ -163,6 +178,13 @@ export class ChromeToolRuntime extends EventEmitter {
       });
       this.tasks.set(task.taskId, task);
       this.emit("task", task);
+      if (executionArguments.target?.element_id || Number.isFinite(executionArguments.target?.x)) {
+        return {
+          action_required: "read_page",
+          message: "A separate task tab was created. Read that tab and choose a target from its fresh snapshot before retrying the action.",
+          task_surface: taskSurface,
+        };
+      }
     }
     const artifact = name === "upload_file"
       ? this.#artifactFor(executionArguments.artifact_id, executionContext, task, { required: false })
@@ -220,6 +242,7 @@ export class ChromeToolRuntime extends EventEmitter {
           origin,
           artifactId: artifact?.id || null,
         });
+        this.operationOwners.set(operation.id, { threadId: executionContext.threadId, taskId: executionContext.taskId });
         const pending = {
           approval_required: true,
           operation,
@@ -349,6 +372,7 @@ export class ChromeToolRuntime extends EventEmitter {
     const task = this.tasks.get(taskId);
     if (!task) return { task_id: taskId, cancelled: false };
     this.tasks.delete(taskId);
+    for (const [handle, binding] of this.taskBindings) if (binding.taskId === taskId) this.taskBindings.delete(handle);
     this.grants.revokeForTurn(task.turnId);
     for (const [operationId, execution] of this.operationExecutions) {
       if (execution.context.taskId !== taskId) continue;
@@ -361,8 +385,12 @@ export class ChromeToolRuntime extends EventEmitter {
     return { task_id: taskId, cancelled: true };
   }
 
-  async #commitExternalAction(args, _context) {
+  async #commitExternalAction(args, context) {
     const operation = this.effects.get(args.operation_id);
+    const owner = this.operationOwners.get(operation.id);
+    if (!owner || owner.threadId !== context.threadId || owner.taskId !== context.taskId) {
+      throw runtimeError("CHROME_OPERATION_CONTEXT_MISMATCH", "The prepared Chrome operation belongs to another task.", "policy", false, 403);
+    }
     const suppliedToken = args.approval_token === UI_APPROVAL_SENTINEL
       ? (this.approvedOperationTokens.get(operation.id) || await this.#waitForOperationApproval(operation.id, operation.expiresAt))
       : args.approval_token;
@@ -553,6 +581,8 @@ export class ChromeToolRuntime extends EventEmitter {
     const payload = envelope.payload || {};
     const tab = payload.tab || {};
     const taskId = String(payload.taskId || envelope.taskId || `chrome_task_${crypto.randomUUID()}`);
+    const existing = this.tasks.get(taskId);
+    if (existing?.profileId === profileId) return existing;
     const origin = normalizeChromeOrigin(tab.origin || tab.url || payload.snapshot?.url);
     const mode = payload.permissionMode === "site" ? "site" : "once";
     this.#recordSitePermission(profileId, { origin, mode, decision: "allow" });
@@ -595,13 +625,53 @@ export class ChromeToolRuntime extends EventEmitter {
     return tab;
   }
 
-  #taskFor(profileId, tabId, taskId) {
-    if (taskId) {
-      const exact = this.tasks.get(taskId);
+  pendingTasks() {
+    return [...this.tasks.values()].filter(task => task.prompt && !task.bound);
+  }
+
+  async reportTaskStatus({ taskId, state, error } = {}) {
+    const task = this.tasks.get(taskId);
+    if (!task) throw runtimeError("CHROME_TASK_MISSING", "The Chrome task no longer exists.", "routing", false, 404);
+    return this.broker.call(task.profileId, "task.status", { taskId, state: state === "accepted" ? "accepted" : "failed", ...(error ? { error: String(error).slice(0, 1000) } : {}) }, task);
+  }
+
+  bindTask({ taskId, threadId } = {}) {
+    const task = this.tasks.get(String(taskId || ""));
+    if (!task?.prompt || !String(threadId || "").trim()) throw runtimeError("CHROME_TASK_MISSING", "The Chrome task cannot be bound to a conversation.", "routing", false, 404);
+    if (task.bound) {
+      if (task.threadId !== threadId) throw runtimeError("CHROME_TASK_CONTEXT_MISMATCH", "The Chrome task is already bound to another conversation.", "policy", false, 403);
+      return { taskHandle: [...this.taskBindings].find(([, value]) => value.taskId === task.taskId)?.[0] };
+    }
+    const taskHandle = `chrome_context_${crypto.randomUUID()}`;
+    const bound = Object.freeze({ ...task, threadId, bound: true });
+    this.tasks.set(task.taskId, bound);
+    this.taskBindings.set(taskHandle, { taskId: task.taskId, threadId });
+    return { taskHandle };
+  }
+
+  #boundContext(args, context) {
+    if (!args.task_handle) return this.#context(context);
+    const binding = this.taskBindings.get(args.task_handle);
+    const task = binding && this.tasks.get(binding.taskId);
+    if (!task || (args.profile_id && args.profile_id !== task.profileId)
+      || (args.tab_id != null && ![task.tabId, task.sourceTabId].includes(args.tab_id))
+      || (args.task_id && args.task_id !== task.taskId)) {
+      throw runtimeError("CHROME_TASK_CONTEXT_MISMATCH", "The Chrome task handle does not authorize this task tab or profile.", "policy", false, 403);
+    }
+    return this.#context({ ...context, threadId: binding.threadId, taskId: binding.taskId, profileId: task.profileId });
+  }
+
+  #taskFor(profileId, tabId, context) {
+    if (context.taskId) {
+      const exact = this.tasks.get(context.taskId);
+      if (exact && exact.threadId !== context.threadId) {
+        throw runtimeError("CHROME_TASK_CONTEXT_MISMATCH", "The Chrome task belongs to another thread.", "policy", false, 403);
+      }
       if (exact?.profileId === profileId && (exact.tabId === tabId || exact.sourceTabId === tabId)) return exact;
     }
     for (const task of this.tasks.values()) {
-      if (task.profileId === profileId && (task.tabId === tabId || task.sourceTabId === tabId)) return task;
+      if (task.threadId === context.threadId && task.taskId === context.taskId
+        && task.profileId === profileId && (task.tabId === tabId || task.sourceTabId === tabId)) return task;
     }
     return null;
   }

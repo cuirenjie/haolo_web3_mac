@@ -129,6 +129,7 @@ export function adaptiveReasoningEffortForTask({
   supportedReasoningEfforts,
   assumeGptWhenMissing = false,
 } = {}) {
+  if (isDeepSeekTextModel(model)) return "low";
   const requested = normalizeReasoningEffort(requestedEffort);
   const adaptiveModel =
     isGptSeriesTextModel(model, { assumeGptWhenMissing })
@@ -156,6 +157,18 @@ export function withAdaptiveTurnReasoning(method, params = {}) {
   delete next[HAOLO_REASONING_SUPPORT_FIELD];
   delete next[HAOLO_REASONING_FIXED_EFFORT_FIELD];
   if (method !== "turn/start") return next;
+  if (isDeepSeekTextModel(next.model)) {
+    next.effort = "low";
+    for (const key of ["reasoningEffort", "reasoning_effort"]) {
+      if (key in next) next[key] = "low";
+    }
+    for (const key of ["collaborationMode", "collaboration_mode"]) {
+      if (next[key]?.settings) next[key] = {
+        ...next[key], settings: { ...next[key].settings, reasoning_effort: "low" },
+      };
+    }
+    return next;
+  }
   const fixedEffort = normalizeReasoningEffort(privateFixedEffort);
   if (fixedEffort) {
     next.effort = closestSupportedEffort(

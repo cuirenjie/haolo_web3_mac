@@ -8,7 +8,8 @@ import { fileURLToPath } from "node:url";
 const SERVER_NAME = "haolo-chrome-mcp";
 const SERVER_VERSION = "0.1.0";
 const DEFAULT_PROTOCOL_VERSION = "2025-03-26";
-const REQUEST_TIMEOUT_MS = 45_000;
+// Desktop approvals are valid for five minutes; transport must outlive them.
+const REQUEST_TIMEOUT_MS = 330_000;
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const tools = JSON.parse(await fs.promises.readFile(path.join(directory, "tools.json"), "utf8"));
 const knownTools = new Set(tools.map((tool) => tool.name));

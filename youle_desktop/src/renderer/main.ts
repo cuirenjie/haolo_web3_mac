@@ -2,6 +2,7 @@ import { alertConfirmationIntentPrompt, parseAlertConfirmationIntent } from "../
 import { CodexTradingWorkflowSteps } from "./codex-trading-workflows";
 import { CodexTradingTools } from "./codex-trading-tools";
 import { ExternalChannelRecoveryTurns } from "./external-channel-recovery.mjs";
+import { chromeTaskModelOptions, createChromeTaskReceiver } from "./chrome-task-receiver.mjs";
 import { businessPresentationItems, businessPresentationResult } from "../shared/codex-business-presentation.mjs";
 import { completedTradingAnalysisReport, isCompletedTradingAnalysisReport, tradingAnalysisDeliveryItems } from "./trading-analysis-completion";
 import { turnResultFoldTargets } from "./turn-result-fold";
@@ -159,9 +160,9 @@ import {
   renderTradingExpertPanelResizeHandles,
 } from "./trading-expert-panel-resize";
 import {
-  hyperliquidTradingMarketAssetLogoUrl,
   renderTradingMarketAssetLogo,
 } from "./trading-expert-market-identity";
+import { hydrateTradingMarketLogos } from "./trading-market-logos";
 import { reconcileTradingStrategyCatalog, tradingIndicatorCatalog, tradingIndicatorMentionOptions, tradingStrategyById, tradingStrategyByDisplayName, tradingStrategyCatalog, MAX_TRADING_STRATEGY_MENTIONS, tradingStrategyMentionOptions, type TradingStrategyCatalogItem, type TradingStrategyPublicManifest, type TradingStrategyRequest } from "./trading-strategy-runtime/catalog";
 import { type TradingGeneralRequest } from "./trading-expert-general-request";
 import {
@@ -2314,6 +2315,9 @@ type DesktopApi = {
   onChromeStatus?(callback: (payload: any) => void): () => void;
   onChromeIntegration?(callback: (payload: any) => void): () => void;
   onChromeTask?(callback: (payload: any) => void): () => void;
+  getPendingChromeTasks?(): Promise<any[]>;
+  bindChromeTask?(params: { taskId: string; threadId: string }): Promise<{ taskHandle: string }>;
+  reportChromeTaskStatus?(params: { taskId: string; state: string; error?: string }): Promise<unknown>;
   onChromeApproval?(callback: (payload: any) => void): () => void;
   onChromeApprovalUpdated?(callback: (payload: any) => void): () => void;
   onLocalArtifactsChanged?(callback: (payload: any) => void): () => void;
@@ -7252,6 +7256,37 @@ function wireDesktopEvents() {
     state.approvalRequest = request;
     scheduleRender({ protectComposer: true });
   });
+  const chromeTaskReceiver = createChromeTaskReceiver({
+    startThread: async () => {
+      if (!(await ensureServerReadyForComposerSend())) throw new Error("Haolo 运行时暂时不可用，请在 Chrome 侧边栏重试。");
+      const modelOptions = chromeTaskModelOptions(chatModelOptions);
+      rememberActiveComposerDraft();
+      const result = await api.startThread({ ...threadParams(null, { groupId: DEFAULT_THREAD_GROUP_ID }), ...modelOptions, conversationMode: "execution" });
+      const threadId = firstString(result?.thread?.id);
+      if (!threadId) throw new Error("无法创建 Chrome 任务会话。");
+      threadGroupByThreadId[threadId] = DEFAULT_THREAD_GROUP_ID;
+      saveThreadPreferences();
+      loadThread(result.thread, { activate: true });
+      return threadId;
+    },
+    bindTask: (params: { taskId: string; threadId: string }) => {
+      if (!api.bindChromeTask) throw new Error("Chrome 任务接口不可用，请重新启动 Haolo。");
+      return api.bindChromeTask(params);
+    },
+    sendTask: async (threadId: string, text: string, visibleQuestion: string) => {
+      upsertItem(threadId, { id: `chrome-user-${crypto.randomUUID()}`, type: "userMessage", createdAt: new Date().toISOString(), content: [{ text: visibleQuestion }], text: visibleQuestion });
+      render();
+      await sendAgentText(threadId, text, beginCodexSend(threadId), [], null, visibleQuestion, { throwOnFailure: true });
+    },
+    reportStatus: (params: { taskId: string; state: string; error?: string }) => api.reportChromeTaskStatus?.(params) || Promise.resolve(),
+    onError: (error: unknown) => {
+      showToast(`Chrome 任务启动失败：${errorMessage(error)}`, 8000);
+    },
+  });
+  api.onChromeTask?.((task) => { void chromeTaskReceiver.receive(task); });
+  void api.getPendingChromeTasks?.().then((tasks) => {
+    for (const task of tasks) void chromeTaskReceiver.receive(task);
+  }).catch((error) => showToast(`读取 Chrome 待处理任务失败：${errorMessage(error)}`, 6000));
   api.onChromeStatus?.(() => {
     if (state.chromeIntegration.open) void refreshChromeIntegration();
   });
@@ -22949,9 +22984,7 @@ function automaticTurnRecoveryIsQueued(meta: Record<string, unknown> | null | un
 }
 
 function automaticTurnRecoveryDisplayModelName(threadId: string) {
-  return isGpt6SolDisplayModel(selectedChatModelValue(threadId))
-    ? "GPT-6-Sol"
-    : "GPT-6 Astra";
+  return selectedChatModelOption(threadId).label;
 }
 
 function announceAutomaticTurnRecovery(
@@ -29553,6 +29586,7 @@ async function sendAgentText(
     contextWindowRecoveryReplayCount?: number;
     contextWindowRecoveryFailedTurnId?: string | null;
     localProxyRecoveryReplayCount?: number;
+    throwOnFailure?: boolean;
   } = {},
 ) {
   let activeThreadId = threadId;
@@ -29564,6 +29598,7 @@ async function sendAgentText(
     setCodexThreadBusy(activeThreadId, false);
     scheduleProtectedRender({ sourceThreadId: activeThreadId });
     void flushQueuedSend();
+    if (options.throwOnFailure) throw new Error("可用额度不足，Chrome 任务尚未启动。");
     return;
   }
   const businessContextId = options.businessContextId || codexTradingTools.capture(
@@ -29623,6 +29658,7 @@ async function sendAgentText(
       // HAOLO-TURN-DIAGNOSTICS-END: removable replacement correlation
     }
     const turnId = firstString(result?.turn?.id, result?.turnId, result?.turn_id);
+    if (!turnId && options.throwOnFailure) throw new Error("Chrome 任务消息未获得运行回执，请在 Haolo 中重试。");
     // HAOLO-TURN-DIAGNOSTICS-BEGIN: removable accepted-turn correlation
     const acceptedDiagnosticId = normalizeTurnDiagnosticId(result?.diagnosticId) || diagnosticId;
     if (turnId) rememberTurnDiagnosticId(activeThreadId, turnId, acceptedDiagnosticId);
@@ -29712,6 +29748,7 @@ async function sendAgentText(
     }
     scheduleProtectedRender({ sourceThreadId: activeThreadId });
     void flushQueuedSend();
+    if (options.throwOnFailure) throw error;
   }
 }
 
@@ -31841,6 +31878,7 @@ async function runTradingStrategyChartRequest(
       analysisId,
       analysisTarget,
       model: request.executionModel?.model ?? selectedChatModelValue(threadId),
+      modelDisplayAlias: request.executionModel?.model ?? selectedChatModelValue(threadId),
       explicitModelSelection: request.executionModel?.explicitModelSelection ?? (threadModelSelection(threadId)?.userSelected === true),
       reasoningEffort: "max",
       instruction: request.instruction,
@@ -54011,8 +54049,8 @@ function lockedExecutionModelForThread(
     return null;
   }
   const committedSettings =
-    threadModelSettings(id) ||
-    normalizeThreadModelSettings(threadModelSelectionsByThreadId[id]);
+    normalizeThreadModelSettings(threadModelSelectionsByThreadId[id]) ||
+    threadModelSettings(id);
   return committedSettings;
 }
 
@@ -54709,12 +54747,7 @@ function selectedChatModelOption(threadId: string | null | undefined = currentCo
   const knownSettings = threadModelSettings(threadId);
   let effectiveModel = canonicalDeepSeekModel(selectedSettings?.model || knownSettings?.model);
   if (isRetiredExecutionModel(effectiveModel)) effectiveModel = DEFAULT_CHAT_MODEL_VALUE;
-  if (
-    (isBlankNewThread(threadId) || isLocalBlankThreadId(threadId)) &&
-    !explicitModelSelectionForThread(threadId)
-  ) {
-    effectiveModel = analysisModelPolicySelection(analysisModelRecoveryState, effectiveModel || state.settings.model).modelId;
-  }
+  // Recovery controls execution only. The composer keeps the user's selection.
   const effectiveModelProvider = effectiveModel === DEEPSEEK_EXECUTION_MODEL_VALUE ? DEEPSEEK_EXECUTION_PROVIDER_ID
     : effectiveModel?.startsWith("gpt-") ? DEFAULT_EXECUTION_MODEL_PROVIDER_ID : executionModelProviderId(
     selectedSettings?.modelProvider,
@@ -54960,6 +54993,7 @@ function selectedChatModelRequestOptions(
     modelProvider === DEEPSEEK_EXECUTION_PROVIDER_ID ||
     selected.value.toLowerCase() === DEEPSEEK_EXECUTION_MODEL_VALUE;
   const request: ChatModelRequestOptions = {
+    modelDisplayAlias: selected.value,
     modelProvider: deepSeek ? DEEPSEEK_EXECUTION_PROVIDER_ID : modelProvider,
     model: isQuestionAnswerThreadId(threadId)
       ? selected.value
@@ -61782,12 +61816,6 @@ function bindTradingAlertEditorSelects() {
   editor.addEventListener("click", (event) => {
     if (!(event.target instanceof Element) || !event.target.closest("[data-trading-alert-select]")) closeAll();
   });
-  editor.addEventListener("error", (event) => {
-    const image = event.target;
-    if (!(image instanceof HTMLImageElement) || !image.matches("[data-market-logo]")) return;
-    image.hidden = true;
-    image.closest<HTMLElement>("[data-market-logo-shell]")?.classList.add("fallback");
-  }, true);
 }
 
 function bindBinanceAccountEvents(scope: ParentNode) {
@@ -61987,47 +62015,14 @@ function bindRechargeProductCardEvents() {
   });
 }
 
-function finishRechargeMarketLogoLoad(image: HTMLImageElement) {
-  image.hidden = false;
-  const shell = image.closest<HTMLElement>("[data-market-logo-shell]");
-  shell?.classList.remove("loading", "fallback");
-  shell?.classList.add("loaded");
-}
-
-function advanceRechargeMarketLogoFallback(image: HTMLImageElement) {
-  const asset = String(image.dataset.marketLogoAsset || "").trim().toUpperCase();
-  const shell = image.closest<HTMLElement>("[data-market-logo-shell]");
-  if (asset && image.dataset.marketLogoStage === "binance") {
-    image.dataset.marketLogoStage = "hyperliquid";
-    image.src = hyperliquidTradingMarketAssetLogoUrl(asset);
-    return;
-  }
-  image.hidden = true;
-  shell?.classList.remove("loading", "loaded");
-  shell?.classList.add("fallback");
-}
-
 function hydrateRechargeMarketLogos(scope: ParentNode) {
-  scope.querySelectorAll<HTMLImageElement>("[data-market-logo]").forEach((image) => {
-    image.closest<HTMLElement>("[data-market-logo-shell]")?.classList.add("loading");
-    if (!image.complete) return;
-    if (image.naturalWidth > 0) finishRechargeMarketLogoLoad(image);
-    else advanceRechargeMarketLogoFallback(image);
-  });
+  hydrateTradingMarketLogos(scope);
 }
 
 function bindRechargePaymentMethodEvents() {
   const page = root.querySelector<HTMLElement>(".recharge-page");
   const section = page?.querySelector<HTMLElement>(".recharge-payment-methods");
   if (!page || !section) return;
-  page.addEventListener("load", (event) => {
-    const image = event.target;
-    if (image instanceof HTMLImageElement && image.matches("[data-market-logo]")) finishRechargeMarketLogoLoad(image);
-  }, true);
-  page.addEventListener("error", (event) => {
-    const image = event.target;
-    if (image instanceof HTMLImageElement && image.matches("[data-market-logo]")) advanceRechargeMarketLogoFallback(image);
-  }, true);
   hydrateRechargeMarketLogos(section);
   section.querySelectorAll<HTMLInputElement>('input[name="recharge-payment-network"]').forEach((input) => {
     input.addEventListener("change", () => {

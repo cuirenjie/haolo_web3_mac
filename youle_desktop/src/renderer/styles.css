@@ -34749,6 +34749,12 @@ html[data-theme="dark"] .trading-market-favorite-ticker-drag-ghost {
   object-fit: cover;
 }
 
+/* Keep the local mark visible until remote pixels are ready, also on slow or
+   offline connections. No opacity transition: refreshing quotes must not flash. */
+.trading-market-asset-logo[data-market-logo-state="pending"] > img {
+  opacity: 0;
+}
+
 .trading-market-asset-logo > .trading-market-asset-mark {
   display: grid;
   place-items: center;

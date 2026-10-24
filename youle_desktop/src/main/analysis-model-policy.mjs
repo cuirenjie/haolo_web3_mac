@@ -6,29 +6,24 @@ export const ANALYSIS_RECOVERY_MODEL = "gpt-5.6-sol";
 export const ANALYSIS_RECOVERY_EFFORT = "high";
 export const ANALYSIS_RECOVERY_PROVIDER = "haolo_ai";
 export const ANALYSIS_RECOVERY_WINDOW_MS = 60_000;
+// Product inference is DeepSeek-only. Keep legacy names for saved envelopes
+// and billing compatibility; none of them may enable another model.
+export const ANALYSIS_MODEL_FALLBACK_ENABLED = false;
 
 export function normalizeAnalysisModelRecoveryState(value) {
-  // v1 meant GPT -> DeepSeek. Never reinterpret an old window in reverse.
-  if (value?.version !== 2) return null;
-  const { activatedAt, fallbackUntil } = value;
-  if (!Number.isSafeInteger(activatedAt) || activatedAt <= 0
-    || !Number.isSafeInteger(fallbackUntil)
-    || fallbackUntil !== activatedAt + ANALYSIS_RECOVERY_WINDOW_MS) return null;
-  return { version: 2, activatedAt, fallbackUntil };
+  // Both historical directions (v1/v2) are retired, including unexpired v2.
+  return null;
 }
 
 export function analysisModelPolicySelection(state, modelId, now = Date.now()) {
   const model = String(migrateRetiredModelSelection({ model: canonicalDeepSeekModel(modelId) }).model || ANALYSIS_PRIMARY_MODEL).trim();
-  const managed = [ANALYSIS_PRIMARY_MODEL, ANALYSIS_RECOVERY_MODEL, "gpt-6-sol"].includes(model.toLowerCase());
-  const valid = normalizeAnalysisModelRecoveryState(state);
-  const fallback = Boolean(managed && valid && now < valid.fallbackUntil);
-  return { modelId: managed ? fallback ? ANALYSIS_RECOVERY_MODEL : ANALYSIS_PRIMARY_MODEL : model, fallback };
+  const managed = [ANALYSIS_PRIMARY_MODEL, ANALYSIS_RECOVERY_MODEL, "gpt-6-sol", "gpt-6-astra"].includes(model.toLowerCase());
+  return { modelId: managed ? ANALYSIS_PRIMARY_MODEL : model, fallback: false };
 }
 
 export function withAnalysisModelRecoveryPolicy(params, state, now = Date.now()) {
   params = migrateDeepSeekModelSelection(migrateRetiredModelSelection(params));
-  if (params.explicitModelSelection === true
-    || ["image-generation", "video-generation"].includes(params.conversationMode || params.conversation_mode)) return params;
+  if (["image-generation", "video-generation"].includes(params.conversationMode || params.conversation_mode)) return params;
   const selection = analysisModelPolicySelection(state, params.model, now);
   if (![ANALYSIS_PRIMARY_MODEL, ANALYSIS_RECOVERY_MODEL].includes(selection.modelId)) return params;
   const next = { ...params, model: selection.modelId,
@@ -38,9 +33,7 @@ export function withAnalysisModelRecoveryPolicy(params, state, now = Date.now())
   if (selection.modelId !== params.model || (oldProvider && oldProvider !== next.modelProvider)) {
     for (const key of ["reasoningEffort", "reasoning_effort", "effort", "reasoningEffortPolicy", "reasoning_effort_policy", "supportedReasoningEfforts", "supported_reasoning_efforts"]) delete next[key];
   }
-  if (selection.fallback) Object.assign(next, {
-    reasoningEffort: ANALYSIS_RECOVERY_EFFORT, reasoningEffortPolicy: "fixed",
-    supportedReasoningEfforts: ["low", "medium", "high"],
-  });
+  Object.assign(next, { reasoningEffort: "low", reasoningEffortPolicy: "fixed", supportedReasoningEfforts: ["low"] });
+  for (const key of ["reasoning_effort", "effort"]) if (key in next) next[key] = "low";
   return next;
 }

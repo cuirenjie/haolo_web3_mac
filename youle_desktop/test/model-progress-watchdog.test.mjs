@@ -6,7 +6,7 @@ import { ModelRequestRelay } from "../src/main/model-request-relay.mjs";
 
 const frame = (type, fields = {}) => `data: ${JSON.stringify({ type, ...fields })}\n\n`;
 
-test("only content, reasoning and tool progress reset the exact 20 second idle deadline", (t) => {
+test("queued keepalives and empty events do not abort DeepSeek at the old deadline", (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const controller = new AbortController();
   const watch = createModelProgressWatchdog(controller);
@@ -19,7 +19,11 @@ test("only content, reasoning and tool progress reset the exact 20 second idle d
   t.mock.timers.tick(4_999);
   assert.equal(controller.signal.aborted, false);
   t.mock.timers.tick(1);
-  assert.equal(controller.signal.reason.code, "MODEL_NO_PROGRESS_TIMEOUT");
+  assert.equal(controller.signal.aborted, false);
+  t.mock.timers.tick(879_999);
+  assert.equal(controller.signal.aborted, false);
+  t.mock.timers.tick(1);
+  assert.equal(controller.signal.reason.code, "MODEL_GENERATION_TIMEOUT");
 });
 
 for (const type of ["response.output_text.delta", "response.reasoning_text.delta", "response.function_call_arguments.delta"]) {
@@ -37,7 +41,7 @@ for (const type of ["response.output_text.delta", "response.reasoning_text.delta
       watch.stream.write(bytes.subarray(bytes.length - 4));
       assert.equal(controller.signal.aborted, false);
     }
-    t.mock.timers.tick(10_000);
+    t.mock.timers.tick(820_000);
     assert.equal(controller.signal.reason.code, "MODEL_GENERATION_TIMEOUT");
   });
 }
