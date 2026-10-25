@@ -13,12 +13,12 @@ test("traffic labels are bounded, invalid counters ignored, and wire deltas coun
   metrics.record({ tier: "user-123", market: "token", transport: "url", family: "symbol", codec: "token", bytes: 12 });
   metrics.record({ bytes: NaN });
   let output = metrics.prometheus();
-  assert.match(output, /socket_bytes_total\{node="shared",tier="paid",transport="ws",market="futures"\} 400/);
+  assert.match(output, /socket_bytes_total\{node="shared",tier="paid",transport="ws",market="futures",classification="paid_or_gift_v1",payer="unknown",entitlement="unknown",activity="unknown"\} 400/);
   assert.match(output, /family="other",codec="json"/);
   assert.doesNotMatch(output, /user-123|token|symbol|untrusted|NaN/);
   assert.equal(metrics.prometheus(), output);
   socket.bytesWritten += 25; release(); release();
-  assert.match(metrics.prometheus(), /market="futures"\} 425/);
+  assert.match(metrics.prometheus(), /market="futures",[^\n]+\} 425/);
   assert.equal(metrics.sockets.size, 0); assert.equal(metrics.timer, null);
 });
 

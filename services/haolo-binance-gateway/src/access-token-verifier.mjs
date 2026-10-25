@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { GatewayAuthError } from "./auth.mjs";
 import { profileMarketEntitlement } from "./market-routing.mjs";
+import { TrafficIdentityObserver } from "./traffic-identity.mjs";
 
 function tokenCacheKey(token) {
   return `auth-token:${crypto.createHash("sha256").update(token).digest("hex")}`;
@@ -33,6 +34,7 @@ export class HaoloAccessTokenVerifier {
     this.config = config;
     this.cache = cache;
     this.fetchImpl = fetchImpl;
+    this.trafficIdentity = new TrafficIdentityObserver({ origin: config.authApiOrigin, fetchImpl });
   }
 
   async verify(token) {
@@ -40,10 +42,16 @@ export class HaoloAccessTokenVerifier {
     if (!compact) throw new GatewayAuthError("authentication required");
     const key = tokenCacheKey(compact);
     const cached = await this.cache.get(key);
-    if (cached?.fresh && cached.value?.userId) return Object.freeze(cached.value);
+    if (cached?.fresh && cached.value?.userId) {
+      this.trafficIdentity.observe(cached.value.userId, compact);
+      return Object.freeze(cached.value);
+    }
     return this.cache.singleFlight(key, async () => {
       const secondRead = await this.cache.get(key);
-      if (secondRead?.fresh && secondRead.value?.userId) return Object.freeze(secondRead.value);
+      if (secondRead?.fresh && secondRead.value?.userId) {
+        this.trafficIdentity.observe(secondRead.value.userId, compact);
+        return Object.freeze(secondRead.value);
+      }
       const controller = new AbortController();
       const startedAt = Date.now();
       let timeout;
@@ -92,6 +100,7 @@ export class HaoloAccessTokenVerifier {
       const userId = String(profile?.id || profile?.user_id || profile?.userId || profile?.user?.id || "").trim();
       if (!userId || userId.length > 128) throw authenticationUnavailable("invalid-profile", response.status);
       const identity = Object.freeze({ userId, payload: null, ...profileMarketEntitlement(profile) });
+      this.trafficIdentity.observe(userId, compact);
       const remainingMs = tokenRemainingLifetimeMs(compact);
       const ttlMs = Math.min(this.config.authCacheTtlMs, remainingMs,
         identity.membershipExpiresAt ? Math.max(0, identity.membershipExpiresAt - Date.now()) : Infinity);

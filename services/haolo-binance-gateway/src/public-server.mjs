@@ -12,6 +12,7 @@ import { marketTier, requireMarketRoute } from "./market-routing.mjs";
 import { TrafficMetrics, streamFamily, restFamily } from "./traffic-metrics.mjs";
 import { negotiateMarketTransport } from "./market-binary-codec.mjs";
 import { MarketTicketStore } from "./market-tickets.mjs";
+import { TrafficActivity, trafficActivity, candleState } from "./traffic-activity.mjs";
 
 // A browser that cannot consume the feed must not turn the gateway into an
 // unbounded memory queue. Quote-like streams are latest-value state, so under
@@ -175,6 +176,10 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
   const encodeMarketFrame = createMarketFrameEncoder();
   const trafficMetrics = new TrafficMetrics(config.marketNodeTier);
   const websocketServer = new WebSocketServer({ noServer: true, perMessageDeflate: compressionOptions(config), maxPayload: 64 * 1024 });
+  // Capability negotiation prevents new clients sending commands to an old
+  // gateway or directly to Binance. This capability is observation only.
+  websocketServer.on("headers", headers => headers.push("X-Haolo-Traffic-Telemetry: 1"));
+  const observeIdentity = identity => accessTokenVerifier?.trafficIdentity?.get(identity?.userId) || {};
   const metrics = {
     httpRequests: 0,
     httpErrors: 0,
@@ -375,6 +380,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       if (responseBytes === 0 && etagEligible) metrics.restNotModified += 1;
       metrics.restPayloadBytes += responseBytes;
       trafficMetrics.record({ tier: marketTier(identity), transport: "rest", market: result.marketType,
+        ...observeIdentity(identity), activity: trafficActivity(request.headers["x-haolo-market-activity"]),
         family: restFamily(request.url),
         legacy: request.headers["x-haolo-market-routing"] !== "1", bytes: responseBytes,
         jsonBytes: etagEligible ? sent.jsonBytes : responseBytes });
@@ -500,9 +506,11 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
     if (compressed) metrics.websocketCompressedClients += 1;
     const disposers = new Map();
     const { route } = context;
-    const releaseTraffic = trafficMetrics.trackSocket(_request.socket, {
+    const activity = new TrafficActivity();
+    const releaseTraffic = trafficMetrics.trackSocket(_request.socket, () => ({
       tier: marketTier(context.identity), transport: "ws", market: route.marketType,
-    });
+      ...observeIdentity(context.identity), activity: activity.combined(disposers.keys()),
+    }));
     const sessionId = crypto.randomUUID();
     const userRef = userReference(context.identity);
     const connectedAt = Date.now();
@@ -549,13 +557,15 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
     }
     let backpressureTimer = null;
     const pendingMarketFrames = new Map();
-    const sendFrame = (frame) => {
+    const pendingCandleStates = new Map();
+    const sendFrame = (frame, candle = "other") => {
       websocket.send(frame.text, { binary: !!frame.binary,
         compress: !frame.binary && frame.bytes >= (config.wsCompressionThreshold || 1024) });
       metrics.websocketMarketFrames += 1;
       // Application bytes before compression, NOT wire/billing bytes.
       metrics.websocketMarketPayloadBytes += frame.bytes;
       trafficMetrics.record({ tier: marketTier(context.identity), transport: "ws", market: route.marketType,
+        ...observeIdentity(context.identity), activity: activity.get(frame.stream), candle,
         family: streamFamily(frame.stream), codec: frame.codec, legacy: !context.identity.marketRouting,
         bytes: frame.bytes, jsonBytes: frame.jsonBytes ?? frame.bytes });
     };
@@ -563,6 +573,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       if (backpressureTimer !== null) clearTimeout(backpressureTimer);
       backpressureTimer = null;
       pendingMarketFrames.clear();
+      pendingCandleStates.clear();
     };
     const scheduleBackpressureFlush = () => {
       if (backpressureTimer !== null || websocket.readyState !== 1) return;
@@ -579,23 +590,25 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
         return;
       }
       for (const [stream, frame] of pendingMarketFrames) {
-        if (!disposers.has(stream)) { pendingMarketFrames.delete(stream); continue; }
+        if (!disposers.has(stream)) { pendingMarketFrames.delete(stream); pendingCandleStates.delete(stream); continue; }
         if (Number(websocket.bufferedAmount || 0) > WS_SOFT_BUFFER_BYTES) break;
         try {
-          sendFrame(frame);
+          sendFrame(frame, pendingCandleStates.get(stream) || "other");
           pendingMarketFrames.delete(stream);
+          pendingCandleStates.delete(stream);
         } catch {
           break;
         }
       }
       if (pendingMarketFrames.size) scheduleBackpressureFlush();
     };
-    const sendMarketEvent = (stream, frame) => {
+    const sendMarketEvent = (stream, frame, candle = "other") => {
       if (websocket.readyState !== 1) return;
       const buffered = Number(websocket.bufferedAmount || 0);
       if (buffered <= WS_SOFT_BUFFER_BYTES) {
         if (pendingMarketFrames.has(stream)) {
           pendingMarketFrames.set(stream, frame);
+          pendingCandleStates.set(stream, candle);
           metrics.websocketCoalescedFrames += 1;
           flushBackpressureFrames();
           return;
@@ -603,7 +616,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
         // Flush an older pending quote first, so it cannot follow this newer
         // frame when a slow connection recovers.
         flushBackpressureFrames();
-        try { sendFrame(frame); } catch {}
+        try { sendFrame(frame, candle); } catch {}
         return;
       }
       if (buffered >= WS_HARD_BUFFER_BYTES) {
@@ -613,13 +626,14 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       }
       if (coalescableMarketStream(stream)) {
         pendingMarketFrames.set(stream, frame);
+        pendingCandleStates.set(stream, candle);
         metrics.websocketCoalescedFrames += 1;
         scheduleBackpressureFlush();
         return;
       }
       // Keep trade events ordered while there is still bounded headroom. Once
       // the hard limit is reached the branch above closes the slow client.
-      try { sendFrame(frame); } catch {}
+      try { sendFrame(frame, candle); } catch {}
     };
     const release = () => {
       if (released) return;
@@ -646,7 +660,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       const dispose = streamPool.subscribe(route.marketType, stream, (event) => {
         if (websocket.readyState !== 1) return;
         if (released || sessionExpired) return;
-        sendMarketEvent(event.stream, encodeMarketFrame(event, route.mode === "stream", context.identity.codec));
+        sendMarketEvent(event.stream, encodeMarketFrame(event, route.mode === "stream", context.identity.codec), candleState(event));
       });
       disposers.set(stream, dispose);
     };
@@ -655,6 +669,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       disposers.get(stream)?.();
       disposers.delete(stream);
       pendingMarketFrames.delete(stream);
+      pendingCandleStates.delete(stream);
     };
     try {
       for (const stream of route.initialStreams) subscribe(stream);
@@ -671,6 +686,10 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
         return;
       }
       const method = String(command?.method || "").toUpperCase();
+      if (method === "HAOLO_TRAFFIC_CONTEXT") {
+        activity.update(command, disposers);
+        return; // No market frame, subscription, limit, heartbeat or ack changes.
+      }
       const params = Array.isArray(command?.params) ? command.params : [];
       try {
         if (method === "SUBSCRIBE") for (const stream of params) subscribe(stream);

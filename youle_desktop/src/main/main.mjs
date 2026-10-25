@@ -257,6 +257,7 @@ import { BinanceNetworkRouter } from "./binance-network-router.mjs";
 import { BinanceRoutePreferenceStore } from "./binance-route-preference-store.mjs";
 import { createBinanceGatewayNetworkFetch } from "./binance-gateway-network.mjs";
 import { TradingMarketDataHub } from "./trading-market-data-hub.mjs";
+import { windowTrafficActivity, watchTrafficWindow } from "./market-traffic-activity.mjs";
 import { HyperliquidPublicMarketService } from "./hyperliquid-public-market-service.mjs";
 import { normalizeExternalModelProviderId } from "./external-agent/provider-registry.mjs";
 import { ExternalAgentRuntime, externalAgentPublicEvent } from "./external-agent/runtime.mjs";
@@ -13348,13 +13349,14 @@ ipcMain.handle("binanceMarket:publicGet", async (event, params = {}) => {
   assertExternalModelsIpcSender(event);
   await waitForAuthChangeRestart();
   const requestId = String(params.requestId || "").trim();
-  if (!requestId) return getBinancePublicMarketService().request(params);
+  const activity = windowTrafficActivity(BrowserWindow.fromWebContents(event.sender));
+  if (!requestId) return getBinancePublicMarketService().request(params, { activity });
   const ownerId = event.sender.id;
   const operation = binancePublicRequestCoordinator.begin(ownerId, requestId);
   const abortOwner = () => binancePublicRequestCoordinator.cancelOwner(ownerId);
   event.sender.once("destroyed", abortOwner);
   try {
-    return await getBinancePublicMarketService().request(params, { signal: operation.signal });
+    return await getBinancePublicMarketService().request(params, { signal: operation.signal, activity });
   } finally {
     operation.finish();
     event.sender.removeListener("destroyed", abortOwner);
@@ -13377,7 +13379,9 @@ ipcMain.handle("binanceMarket:streamSubscribe", async (event, params = {}) => {
     return { subscriptionId };
   }
   const subscription = getTradingMarketDataHub().subscribe(
-    { marketType: params.marketType, streams: params.streams },
+    { marketType: params.marketType, streams: params.streams,
+      activityProvider: () => windowTrafficActivity(BrowserWindow.fromWebContents(event.sender)),
+    },
     (marketEvent) => {
       if (!event.sender.isDestroyed()) event.sender.send("binanceMarket:streamEvent", { subscriptionId, event: marketEvent });
     },
@@ -13385,6 +13389,8 @@ ipcMain.handle("binanceMarket:streamSubscribe", async (event, params = {}) => {
       if (!event.sender.isDestroyed()) event.sender.send("binanceMarket:streamEvent", { subscriptionId, event: healthEvent });
     },
   );
+  const stopTrafficWatch = watchTrafficWindow(BrowserWindow.fromWebContents(event.sender), subscription.refreshActivity);
+  const disposeSubscription = () => { stopTrafficWatch(); return subscription.dispose(); };
   const cleanup = () => {
     const current = binanceMarketRendererSubscriptions.get(subscriptionId);
     if (!current) return;
@@ -13396,7 +13402,7 @@ ipcMain.handle("binanceMarket:streamSubscribe", async (event, params = {}) => {
     ownerId: event.sender.id,
     sender: event.sender,
     cleanup,
-    dispose: subscription.dispose,
+    dispose: disposeSubscription,
   });
   return { subscriptionId };
 });

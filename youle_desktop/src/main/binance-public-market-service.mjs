@@ -323,7 +323,7 @@ export class BinancePublicMarketService {
     while (this.cache.size > MAX_CACHE_ENTRIES) this.cache.delete(this.cache.keys().next().value);
   }
 
-  request(value = {}, { signal: callerSignal } = {}) {
+  request(value = {}, { signal: callerSignal, activity = "service" } = {}) {
     const lifecycleSignal = this.lifecycleController.signal;
     if (lifecycleSignal.aborted) return Promise.reject(lifecycleSignal.reason);
     if (callerSignal?.aborted) return Promise.reject(callerSignal.reason);
@@ -338,7 +338,7 @@ export class BinancePublicMarketService {
       const controller = new AbortController();
       flight = { controller, consumers: 0, settled: false };
       const signal = AbortSignal.any([controller.signal, lifecycleSignal]);
-      flight.promise = this.requestInternal(value, { signal });
+      flight.promise = this.requestInternal(value, { signal, activity });
       this.flights.set(key, flight);
       this.pendingRequests.add(flight.promise);
       const done = () => {
@@ -375,7 +375,7 @@ export class BinancePublicMarketService {
     return this.closePromise;
   }
 
-  async requestInternal(value = {}, { signal: callerSignal } = {}) {
+  async requestInternal(value = {}, { signal: callerSignal, activity = "service" } = {}) {
     let request;
     try {
       request = normalizeBinancePublicMarketRequest(value, { baseUrls: this.baseUrls });
@@ -423,6 +423,7 @@ export class BinancePublicMarketService {
     try {
       response = await fetchBinanceResponse(this.fetch, request.url, {
         method: "GET",
+        haoloTrafficActivity: activity,
         cache: "no-store",
         headers: {
           ...(validator ? { "if-none-match": validator } : {}),

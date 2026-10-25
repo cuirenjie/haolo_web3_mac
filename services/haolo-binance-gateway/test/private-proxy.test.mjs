@@ -113,7 +113,7 @@ test("private proxy authenticates, enforces host allowlist and opens an opaque t
   const attribution = await (await fetch(`http://127.0.0.1:${port}/metrics`, {
     headers: { authorization: `Bearer ${config.metricsToken}` },
   })).text();
-  assert.match(attribution, /haolo_market_socket_bytes_total\{node="shared",tier="unknown",transport="private_client",market="futures"\} [1-9]\d*/);
+  assert.match(attribution, /haolo_market_socket_bytes_total\{node="shared",tier="unknown",transport="private_client",market="futures",classification="paid_or_gift_v1",payer="unknown",entitlement="unknown",activity="unknown"\} [1-9]\d*/);
   assert.doesNotMatch(attribution, /00000000-0000|permitToken|Proxy-Authorization/);
 });
 

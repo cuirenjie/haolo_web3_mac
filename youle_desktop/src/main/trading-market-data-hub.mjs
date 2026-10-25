@@ -1,5 +1,6 @@
 import WebSocket from "ws";
 import { decodeMarketWireFrame } from "./market-binary-codec.mjs";
+import { aggregateTrafficActivity, encodeTrafficContext } from "./market-traffic-activity.mjs";
 
 const STREAM_PATTERN = /^[a-z0-9_\p{Script=Han}]{2,40}@(kline_(?:1s|[1-9]\d*[mhdwM])|ticker|miniTicker|aggTrade|bookTicker|markPrice(?:@1s)?)$/u;
 
@@ -103,6 +104,27 @@ export class TradingMarketDataHub {
     return socket?.readyState === (this.WebSocketImpl.OPEN ?? 1);
   }
 
+  reportTrafficActivity(channel) {
+    if (!channel.trafficTelemetry || !this.isOpen(channel.socket) || channel.trafficReportTimer) return;
+    channel.trafficReportTimer = setTimeout(() => {
+      channel.trafficReportTimer = null;
+      if (!channel.trafficTelemetry || !this.isOpen(channel.socket)) return;
+      const streams = [...channel.streamSubscriptions].map(([stream, ids]) => ({
+        stream, activity: aggregateTrafficActivity([...ids].map(id => channel.subscriptions.get(id)?.activityProvider)),
+      }));
+      try { channel.socket.send(encodeTrafficContext(streams)); }
+      catch { /* Observation must never fail a healthy market subscription. */ }
+    }, 250);
+    channel.trafficReportTimer.unref?.();
+  }
+
+  clearTrafficTelemetry(channel) {
+    clearInterval(channel.trafficHeartbeat);
+    clearTimeout(channel.trafficReportTimer);
+    channel.trafficReportTimer = null;
+    channel.trafficTelemetry = false;
+  }
+
   sendCommand(channel, method, streams) {
     if (!this.isOpen(channel.socket) || !streams.length) return;
     const socket = channel.socket;
@@ -150,6 +172,7 @@ export class TradingMarketDataHub {
 
   retireIdleChannel(channel) {
     if (channel.subscriptions.size) return;
+    this.clearTrafficTelemetry(channel);
     channel.generation += 1;
     clearTimeout(channel.reconnectTimer);
     clearTimeout(channel.commandTimer);
@@ -269,6 +292,12 @@ export class TradingMarketDataHub {
       return;
     }
     channel.socket = socket;
+    this.clearTrafficTelemetry(channel);
+    socket.on("upgrade", response => {
+      if (channel.socket === socket && endpointContext.route === "gateway") {
+        channel.trafficTelemetry = response.headers?.["x-haolo-traffic-telemetry"] === "1";
+      }
+    });
     channel.normalClose = false;
     channel.failureReason = null;
     channel.connecting = false;
@@ -308,6 +337,10 @@ export class TradingMarketDataHub {
       channel.pendingCommands = [];
       this.sendCommand(channel, "SUBSCRIBE", [...channel.streamSubscriptions.keys()]);
       this.armHeartbeat(channel, socket);
+      if (channel.trafficTelemetry) {
+        channel.trafficHeartbeat = setInterval(() => this.reportTrafficActivity(channel), 15_000);
+        channel.trafficHeartbeat.unref?.();
+      }
       this.reportEndpointOutcome({ ...endpointContext, outcome: "connected", connectedDurationMs: 0 });
     });
     socket.on("pong", () => {
@@ -334,6 +367,7 @@ export class TradingMarketDataHub {
           if (acknowledgement.method === "SUBSCRIBE") channel.acknowledgedStreams.add(stream);
           else channel.acknowledgedStreams.delete(stream);
         }
+        this.reportTrafficActivity(channel);
         if ([...channel.streamSubscriptions.keys()].every(stream => channel.acknowledgedStreams.has(stream)) && channel.subscriptions.size) {
           channel.ready = true;
           channel.reconnectAttempt = 0;
@@ -361,6 +395,7 @@ export class TradingMarketDataHub {
     socket.on("close", () => {
       if (channel.socket !== socket) return;
       channel.socket = null;
+      this.clearTrafficTelemetry(channel);
       this.clearAcknowledgements(channel);
       clearTimeout(channel.handshakeTimer);
       channel.handshakeTimer = null;
@@ -397,7 +432,7 @@ export class TradingMarketDataHub {
     } catch {}
   }
 
-  subscribe({ marketType, streams } = {}, onEvent, onHealth = () => {}) {
+  subscribe({ marketType, streams, activityProvider = null } = {}, onEvent, onHealth = () => {}) {
     if (this.closed) throw new Error("TradingMarketDataHub is closed");
     if (typeof onEvent !== "function") throw new TypeError("onEvent is required");
     const normalizedStreams = [...new Set((Array.isArray(streams) ? streams : []).map(streamValue))];
@@ -415,7 +450,7 @@ export class TradingMarketDataHub {
       clearTimeout(channel.idleTimer);
       channel.idleTimer = null;
       const addedStreams = [];
-      const subscription = { id: subscriptionId, streams: groupedStreams, onEvent, onHealth };
+      const subscription = { id: subscriptionId, streams: groupedStreams, onEvent, onHealth, activityProvider };
       channel.subscriptions.set(subscriptionId, subscription);
       for (const stream of groupedStreams) {
         let ids = channel.streamSubscriptions.get(stream);
@@ -427,6 +462,7 @@ export class TradingMarketDataHub {
         ids.add(subscriptionId);
       }
       this.queueCommand(channel, "SUBSCRIBE", addedStreams);
+      this.reportTrafficActivity(channel);
       if (this.isOpen(channel.socket) && channel.ready && groupedStreams.every(stream => channel.acknowledgedStreams.has(stream))) onHealth(Object.freeze({ type: "health", status: "connected", at: Date.now() }));
       else void this.connect(channel);
     }
@@ -446,12 +482,15 @@ export class TradingMarketDataHub {
           }
         }
         this.queueCommand(channel, "UNSUBSCRIBE", removedStreams);
+        this.reportTrafficActivity(channel);
         if (channel.subscriptions.size) continue;
         channel.idleTimer = setTimeout(() => { channel.idleTimer = null; this.retireIdleChannel(channel); }, this.idleCloseMs);
         channel.idleTimer.unref?.();
       }
     };
-    return Object.freeze({ subscriptionId, dispose });
+    return Object.freeze({ subscriptionId, dispose,
+      refreshActivity: () => { for (const { channel } of channels.values()) this.reportTrafficActivity(channel); },
+    });
   }
 
   stats() {
@@ -472,6 +511,7 @@ export class TradingMarketDataHub {
     const closing = [];
     for (const channel of this.channels.values()) {
       channel.generation += 1;
+      this.clearTrafficTelemetry(channel);
       clearTimeout(channel.idleTimer);
       clearTimeout(channel.reconnectTimer);
       clearTimeout(channel.handshakeTimer);
