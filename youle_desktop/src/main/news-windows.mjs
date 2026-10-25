@@ -3,6 +3,7 @@ import { newsArticleUrl } from './news-feed.mjs';
 export function createNewsWindows({ BrowserWindow, screen, html, theme, language, openExternal, dismiss }) {
   const windows = new Map();
   let shuttingDown = false;
+  let pending = [];
   function layout() {
     const area = screen.getPrimaryDisplay().workArea;
     [...windows.values()].forEach((window, index) => {
@@ -11,9 +12,13 @@ export function createNewsWindows({ BrowserWindow, screen, html, theme, language
   }
   function update(items) {
     if (shuttingDown) return;
-    for (const [id, window] of windows) if (!items.some(item => item.id === id)) { windows.delete(id); if (!window.isDestroyed()) window.close(); }
+    pending = [...items];
     const capacity = Math.max(1, Math.min(3, Math.floor((screen.getPrimaryDisplay().workArea.height - 20) / 244)));
-    for (const item of items.slice(0, capacity)) {
+    const visible = pending.slice(0, capacity);
+    // A smaller primary screen must hide excess windows without dismissing
+    // their durable queue entries. They return when there is room again.
+    for (const [id, window] of windows) if (!visible.some(item => item.id === id)) { windows.delete(id); if (!window.isDestroyed()) window.close(); }
+    for (const item of visible) {
       if (windows.has(item.id)) continue;
       const window = new BrowserWindow({ width: 392, height: 236, frame: false, transparent: true, alwaysOnTop: true, skipTaskbar: true, resizable: false, movable: false, minimizable: false, maximizable: false, fullscreenable: false, show: false, webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true } });
       windows.set(item.id, window);
@@ -33,6 +38,8 @@ export function createNewsWindows({ BrowserWindow, screen, html, theme, language
     }
     layout();
   }
-  screen.on('display-metrics-changed', layout);
-  return { update, stop() { shuttingDown = true; screen.removeListener('display-metrics-changed', layout); for (const window of windows.values()) if (!window.isDestroyed()) window.close(); windows.clear(); } };
+  const refreshLayout = () => update(pending);
+  const displayEvents = ['display-metrics-changed', 'display-added', 'display-removed'];
+  for (const event of displayEvents) screen.on(event, refreshLayout);
+  return { update, stop() { shuttingDown = true; for (const event of displayEvents) screen.removeListener(event, refreshLayout); for (const window of windows.values()) if (!window.isDestroyed()) window.close(); windows.clear(); } };
 }
