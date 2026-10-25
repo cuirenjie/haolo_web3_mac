@@ -1,9 +1,8 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import {
-  verifyMacUpdateArtifactArchitecture,
-} from "../src/main/mac-update-artifact.mjs";
+import { verifyDmgContents } from "./finalize-mac-dmg.mjs";
+import { verifyMacPackages } from "./verify-mac-package.mjs";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const projectRoot = path.resolve(path.dirname(scriptPath), "..");
@@ -31,13 +30,35 @@ export function parseMacUpdateArtifactVerificationArgs(args) {
     }
   }
   if (!options.artifactPath) {
-    throw new Error("缺少 --artifact <DMG或ZIP路径>。");
+    throw new Error("缺少 --artifact <DMG路径>。");
   }
   if (!options.expectedArch) {
     throw new Error("缺少 --arch <x64|arm64|universal>。");
   }
   options.artifactPath = path.resolve(projectRoot, options.artifactPath);
   return options;
+}
+
+export function verifyMacUpdateArtifactArchitecture(artifactPath, options = {}) {
+  const architectures = { x64: ["x64"], arm64: ["arm64"], universal: ["arm64", "x64"] };
+  if (!Object.hasOwn(architectures, options.expectedArch)
+    || (options.declaredArch && !Object.hasOwn(architectures, options.declaredArch))) {
+    throw new Error("架构必须为 x64、arm64 或 universal。");
+  }
+  const expected = architectures[options.expectedArch];
+  const declared = options.declaredArch ? architectures[options.declaredArch] : expected;
+  if (!expected.every((arch) => declared.includes(arch))) {
+    throw new Error("声明架构未包含要求验证的架构。");
+  }
+  if (path.extname(artifactPath).toLowerCase() !== ".dmg") {
+    throw new Error("此命令验证本地构建的 DMG；ZIP 不是当前 Mac 交付格式。");
+  }
+  const target = options.declaredArch || options.expectedArch;
+  // Reuse the shipping verifier: validate the mounted app, then compare its
+  // version, ASAR and per-architecture CDHash with the local signed build.
+  const [{ appPath }] = verifyMacPackages({ target });
+  const identities = verifyDmgContents(artifactPath, appPath, target);
+  return { artifactPath, requiredArchitectures: declared, ...identities };
 }
 
 export function verifyMacUpdateArtifactFromCli(args, options = {}) {
