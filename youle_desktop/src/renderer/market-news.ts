@@ -7,13 +7,17 @@ export type NewsItem = { id: string; title: string; content: string; timestamp: 
 export type NewsPage = { items: NewsItem[]; nextCursor: string | null; status: string; fetchedAt: number | null };
 export type NewsQuery = { day?: string; cursor?: string; language?: string };
 const messages = {
-  'zh-CN': ['K线','快讯','浏览器','正在开发中，还未上线','选择日期','取消','确定','今','利好','利空','分享','加载中…','暂无快讯','加载失败，请重试','重试','加载更多','最新快讯','数据更新暂时延迟','关闭','复制图片','X','Telegram','下载','链接','图片已复制，可粘贴分享','链接已复制','图片已保存','操作失败，请重试','查看原文','来源','扫码阅读原文','该交易对暂未提供行情','打开K线失败，请重试','群聊','上一年','上个月','下个月','下一年','日,一,二,三,四,五,六'],
-  'zh-TW': ['K線','快訊','瀏覽器','正在開發中，尚未上線','選擇日期','取消','確定','今','利好','利空','分享','載入中…','暫無快訊','載入失敗，請重試','重試','載入更多','最新快訊','資料更新暫時延遲','關閉','複製圖片','X','Telegram','下載','連結','圖片已複製，可貼上分享','連結已複製','圖片已儲存','操作失敗，請重試','查看原文','來源','掃碼閱讀原文','此交易對暫未提供行情','開啟K線失敗，請重試','群聊','上一年','上個月','下個月','下一年','日,一,二,三,四,五,六'],
-  en: ['Candlestick chart','News flashes','Browser','In development. Not yet available.','Choose date','Cancel','Confirm','Today','Bullish','Bearish','Share','Loading…','No news flashes','Unable to load. Try again.','Retry','Load more','Latest news','Updates are temporarily delayed','Close','Copy image','X','Telegram','Download','Link','Image copied. Paste to share.','Link copied','Image saved','Something went wrong. Try again.','Read original','Source','Scan to read the original','Market data is unavailable for this pair','Unable to open chart. Try again.','Chat','Previous year','Previous month','Next month','Next year','Su,Mo,Tu,We,Th,Fr,Sa'],
-  ko: ['캔들 차트','속보','브라우저','개발 중이며 아직 출시되지 않았습니다.','날짜 선택','취소','확인','오늘','호재','악재','공유','불러오는 중…','속보가 없습니다','불러오지 못했습니다. 다시 시도해 주세요.','다시 시도','더 보기','최신 속보','업데이트가 지연되고 있습니다','닫기','이미지 복사','X','Telegram','다운로드','링크','이미지가 복사되었습니다. 붙여넣어 공유하세요.','링크가 복사되었습니다','이미지가 저장되었습니다','실패했습니다. 다시 시도해 주세요.','원문 보기','출처','스캔하여 원문 읽기','이 거래쌍의 시세를 제공하지 않습니다','차트를 열 수 없습니다. 다시 시도해 주세요.','채팅','이전 연도','이전 달','다음 달','다음 연도','일,월,화,수,목,금,토'],
+  'zh-CN': ['K线','快讯','浏览器','正在开发中，还未上线','选择日期','取消','确定','今','利好','利空','分享','加载中…','暂无快讯','加载失败，请重试','重试','加载更多','最新快讯','数据更新暂时延迟','关闭','复制图片','X','Telegram','下载','链接','图片已复制，可粘贴分享','链接已复制','图片已保存','操作失败，请重试','查看详情','来源','扫码阅读快讯','该交易对暂未提供行情','打开K线失败，请重试','群聊','上一年','上个月','下个月','下一年','日,一,二,三,四,五,六'],
+  'zh-TW': ['K線','快訊','瀏覽器','正在開發中，尚未上線','選擇日期','取消','確定','今','利好','利空','分享','載入中…','暫無快訊','載入失敗，請重試','重試','載入更多','最新快訊','資料更新暫時延遲','關閉','複製圖片','X','Telegram','下載','連結','圖片已複製，可貼上分享','連結已複製','圖片已儲存','操作失敗，請重試','查看詳情','來源','掃碼閱讀快訊','此交易對暫未提供行情','開啟K線失敗，請重試','群聊','上一年','上個月','下個月','下一年','日,一,二,三,四,五,六'],
+  en: ['Candlestick chart','News flashes','Browser','In development. Not yet available.','Choose date','Cancel','Confirm','Today','Bullish','Bearish','Share','Loading…','No news flashes','Unable to load. Try again.','Retry','Load more','Latest news','Updates are temporarily delayed','Close','Copy image','X','Telegram','Download','Link','Image copied. Paste to share.','Link copied','Image saved','Something went wrong. Try again.','Read details','Source','Scan to read the news','Market data is unavailable for this pair','Unable to open chart. Try again.','Chat','Previous year','Previous month','Next month','Next year','Su,Mo,Tu,We,Th,Fr,Sa'],
+  ko: ['캔들 차트','속보','브라우저','개발 중이며 아직 출시되지 않았습니다.','날짜 선택','취소','확인','오늘','호재','악재','공유','불러오는 중…','속보가 없습니다','불러오지 못했습니다. 다시 시도해 주세요.','다시 시도','더 보기','최신 속보','업데이트가 지연되고 있습니다','닫기','이미지 복사','X','Telegram','다운로드','링크','이미지가 복사되었습니다. 붙여넣어 공유하세요.','링크가 복사되었습니다','이미지가 저장되었습니다','실패했습니다. 다시 시도해 주세요.','속보 보기','출처','스캔하여 속보 읽기','이 거래쌍의 시세를 제공하지 않습니다','차트를 열 수 없습니다. 다시 시도해 주세요.','채팅','이전 연도','이전 달','다음 달','다음 연도','일,월,화,수,목,금,토'],
 };
 const language = () => { const l = appLanguageLocale(); return l === 'zh-CN' || l === 'zh-TW' ? l : l === 'ko-KR' ? 'ko' : 'en'; };
 const words = () => messages[language()];
+const NEWS_BRAND = 'Haolo';
+const brandedText = (value: string) => value.replace(/aicoin/gi, NEWS_BRAND);
+const newsShareUrl = (id: string) => 'https://haolo.com/api/market-data/news/share/' + encodeURIComponent(id);
+const brandedItem = (item: NewsItem): NewsItem => ({...item, title:brandedText(item.title), content:brandedText(item.content), source:NEWS_BRAND, url:newsShareUrl(item.id)});
 const escape = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
 export const newsDay = (stamp = Date.now()) => new Intl.DateTimeFormat('en-CA', {timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(stamp);
 const dateLabel = (day: string, options: Intl.DateTimeFormatOptions) => new Date(day + 'T12:00:00+08:00').toLocaleDateString(appLanguageLocale(), {...options, timeZone:'Asia/Shanghai'});
@@ -97,6 +101,7 @@ export class MarketNewsController {
       const result = await window.codexDesktop?.getMarketNews?.({day:this.day || undefined,cursor:more ? this.cursor || undefined : undefined,language:language() === 'en' ? 'en' : 'cn'});
       if (this.disposed || generation !== this.generation) return;
       if (!result || result.status === 'unavailable') throw Error('NEWS_UNAVAILABLE');
+      result.items = result.items.map(brandedItem);
       if (voteRevision !== this.voteRevision || this.voteBusy.size) {
         for (const item of result.items) {
           const previous = this.items.find(row => row.id === item.id);
@@ -183,7 +188,7 @@ export class MarketNewsController {
     dialog.addEventListener('close',()=>{if(this.shareDialog===dialog)this.shareDialog=null;dialog.remove();if(opener.isConnected)opener.focus();});
     const status=dialog.querySelector<HTMLElement>('[data-share-status]')!;
     let image='';
-    const copyImage=async()=>{const api=window.codexDesktop?.copyAttachmentToClipboard;if(!api)throw Error('COPY_UNAVAILABLE');const response=await api({kind:'image',name:`HaoLo-news-${item.id}.png`,mime:'image/png',base64:image.split(',')[1]});if(response?.ok===false)throw Error('COPY_FAILED');status.textContent=t[24];};
+    const copyImage=async()=>{const api=window.codexDesktop?.copyAttachmentToClipboard;if(!api)throw Error('COPY_UNAVAILABLE');const response=await api({kind:'image',name:`Haolo-news-${item.id}.png`,mime:'image/png',base64:image.split(',')[1]});if(response?.ok===false)throw Error('COPY_FAILED');status.textContent=t[24];};
     try {
       // Use the same localized article shown in the timeline, never a different language from detail.
       image=await renderNewsShareImage(item);
@@ -211,6 +216,7 @@ export class MarketNewsController {
 }
 
 export async function renderNewsShareImage(item: NewsItem) {
+  item = brandedItem(item);
   const t=words(),canvas=document.createElement('canvas'),ctx=canvas.getContext('2d')!;
   const wrap=(value:string,size:number,width:number,bold=false)=>{
     ctx.font=`${bold ? 700 : 400} ${size}px "Segoe UI", "Microsoft YaHei", sans-serif`;
@@ -225,7 +231,7 @@ export async function renderNewsShareImage(item: NewsItem) {
   const title=wrap(item.title,32,536,true),body=wrap(item.content,26,536);
   canvas.width=640;canvas.height=320+title.length*44+body.length*38+180;
   const gradient=ctx.createLinearGradient(0,0,0,canvas.height);gradient.addColorStop(0,'#eaf8ff');gradient.addColorStop(1,'#ffffff');ctx.fillStyle=gradient;ctx.fillRect(0,0,640,canvas.height);
-  ctx.fillStyle='#111';ctx.font='700 44px "Segoe UI", "Microsoft YaHei", sans-serif';ctx.fillText(`HaoLo · ${t[1]}`,36,84);
+  ctx.fillStyle='#111';ctx.font='700 44px "Segoe UI", "Microsoft YaHei", sans-serif';ctx.fillText(`${NEWS_BRAND} · ${t[1]}`,36,84);
   ctx.fillStyle='#fff';ctx.beginPath();ctx.roundRect(24,120,592,canvas.height-144,22);ctx.fill();ctx.strokeStyle='#dedede';ctx.stroke();
   ctx.fillStyle='#888';ctx.font='20px "Segoe UI", "Microsoft YaHei", sans-serif';ctx.fillText(`${newsDay(item.timestamp*1000)} ${timeLabel(item.timestamp)}`,52,165);
   ctx.fillText(`${t[29]}: ${item.source}`,52,195,536);
@@ -234,6 +240,6 @@ export async function renderNewsShareImage(item: NewsItem) {
   draw(title,32,44,'#171717',true);y+=24;draw(body,26,38,'#777');y+=35;
   ctx.strokeStyle='#ececec';ctx.beginPath();ctx.moveTo(52,y);ctx.lineTo(588,y);ctx.stroke();y+=30;
   const qr=await QRCode.toDataURL(item.url,{width:130,margin:1,errorCorrectionLevel:'M'});const img=new Image();img.src=qr;await img.decode();ctx.drawImage(img,458,y,130,130);
-  ctx.fillStyle='#777';ctx.font='23px "Segoe UI", "Microsoft YaHei", sans-serif';ctx.fillText(t[30],52,y+35,380);ctx.font='21px "Segoe UI", sans-serif';ctx.fillText('aicoin.com',52,y+76);
+  ctx.fillStyle='#777';ctx.font='23px "Segoe UI", "Microsoft YaHei", sans-serif';ctx.fillText(t[30],52,y+35,380);ctx.font='21px "Segoe UI", sans-serif';ctx.fillText('haolo.com',52,y+76);
   return canvas.toDataURL('image/png');
 }

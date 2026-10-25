@@ -36,6 +36,8 @@ async function main(){try{
   await click('[data-news-action="browser"]');assert.match(await js('return document.querySelector(".market-news-toast").textContent'),/正在开发中/);
   await click('[data-news-action="menu"]');await click('[data-news-action="news"]');await until('document.querySelectorAll(".market-news-row").length===30');
   await screenshot('03-news-light.png');
+  assert.doesNotMatch(await js('return document.querySelector("[data-market-news]").innerText'), /aicoin/i);
+  await js('window.shareCanvasText=[];window.originalFillText=CanvasRenderingContext2D.prototype.fillText;CanvasRenderingContext2D.prototype.fillText=function(text,...args){shareCanvasText.push(String(text));return originalFillText.call(this,text,...args)}');
   const id=fixtures.latest.items[0].id, selector=`[data-news-id="${id}"]`;
   const state=()=>js(`const row=document.querySelector('${selector}');return [...row.querySelectorAll('[data-news-action="vote"]')].map(b=>({pressed:b.getAttribute('aria-pressed'),count:Number(b.querySelector('span').textContent),disabled:b.disabled}))`);
   const baseline=await state();
@@ -47,9 +49,14 @@ async function main(){try{
   await js('voteFailure=true');await click(selector+' [data-direction="-1"]');await until(`!document.querySelector('${selector} [data-direction="-1"]').disabled`);assert.equal((await state())[1].pressed,'true');await js('voteFailure=false');
   report.checks.push('vote/cancel/switch/failure rollback');
   await click(selector+' [data-news-action="share"]');await until('!!window.copiedImage');assert.match(await js('return copiedImage.base64'),/^iVBOR/);
+  assert.doesNotMatch(await js('return shareCanvasText.join(" ")'), /aicoin/i);
+  assert.match(await js('return shareCanvasText.join(" ")'), /Haolo/);
+  await js('CanvasRenderingContext2D.prototype.fillText=originalFillText');
   await screenshot('04-share-light.png');await click('[data-share="3"]');await until('!!window.savedImage');
   await writeFile(path.join(output,'share-card.png'),Buffer.from(await js('return copiedImage.base64'),'base64'));
   await click('[data-share="1"]');assert.match(await js('return openedUrl'),/^https:\/\/x.com\/intent\/tweet/);
+  assert.match(new URL(await js('return openedUrl')).searchParams.get('url'), /^https:\/\/haolo.com\/api\/market-data\/news\/share\/\d+$/);
+  report.checks.push('Haolo-only page/poster/share-link branding');
   await click('.market-news-share-close');report.checks.push('share PNG/copy/download/social URL');
   await click('.market-news-date');await screenshot('05-calendar-light.png');
   const day=fixtures.history.items[0] && new Date(fixtures.history.items[0].timestamp*1000+8*3600_000).toISOString().slice(0,10);
@@ -62,6 +69,7 @@ async function main(){try{
   assert.match(await js('return workspace.selectedMarketId'),/BTCUSDT/);assert.equal(await js('return workspace.chart===originalChart&&workspace.chartElement.querySelector("canvas")===originalCanvas'),true);report.checks.push('pair navigation preserves chart/canvas');
   for(const locale of ['zh-CN','zh-TW','en','ko'])for(const theme of ['light','dark']){
     await js(`qaSetLanguage('${locale}');document.documentElement.dataset.theme='${theme}';workspace.newsController.setMode('news')`);await until('!workspace.newsController.loading');
+    assert.doesNotMatch(await js('return document.querySelector("[data-market-news]").innerText'), /aicoin/i);
     await screenshot(`news-${locale}-${theme}.png`);
     await click('.market-news-date');await screenshot(`calendar-${locale}-${theme}.png`);await click('[data-news-action="cancel-date"]');
   }
