@@ -474,7 +474,8 @@ export class TradingExpertSplitPane {
     this.priceAlertControl = new TradingPriceAlertControl(this.crosshairPriceElement, () =>
       this.loadedMarketId === this.market.id && this.loadedInterval === this.interval
         ? { marketId: this.market.id, interval: this.interval, referencePrice: this.candles.at(-1)?.close || 0 }
-        : null);
+        : null, { root: this.viewportElement, chartElement: this.chartElement,
+          getChart: () => this.chart, getSeries: () => this.series });
     this.ohlcElement = this.requireElement("[data-split-ohlc]");
     this.ohlcTimeElement = this.requireElement<HTMLTimeElement>("[data-split-ohlc-time]");
     this.ohlcValueElements = Array.from(this.ohlcElement.querySelectorAll<HTMLElement>("[data-split-ohlc-value]"));
@@ -1030,6 +1031,7 @@ export class TradingExpertSplitPane {
         this.renderVolumeProfile(false);
         this.drawingController?.redraw();
         this.extremaOverlay?.update();
+        this.priceAlertControl.updateMarkers();
       },
       {
         onRemoveAllDrawings: () => this.drawingController?.clearAllDrawings({ allScopes: true }),
@@ -1880,6 +1882,7 @@ export class TradingExpertSplitPane {
       window.requestAnimationFrame(() => {
         this.drawingController?.redraw();
         this.extremaOverlay?.update();
+        this.priceAlertControl.updateMarkers();
       });
       return true;
     } catch {
@@ -1922,6 +1925,7 @@ export class TradingExpertSplitPane {
     this.updateIndicatorData();
     });
     this.extremaOverlay?.schedule();
+    this.priceAlertControl.scheduleMarkers();
   }
 
   private renderOhlc(candle: TradingChartCandle, displayTime: number) {

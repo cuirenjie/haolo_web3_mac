@@ -7,6 +7,7 @@
 .native-support-panel .native-support-exit:focus-visible { outline: 2px solid var(--brand-blue); outline-offset: 2px; }
 .native-support-welcome { color: var(--sub); font-size: 12px; line-height: 1.6; }
 .native-support-messages { flex: 1; min-height: 0; overflow: auto; padding: 18px 16px; overscroll-behavior: contain; }
+.native-support-message-content { display: flow-root; }
 .native-support-message { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; margin-bottom: 20px; }
 .native-support-message.is-user { align-items: flex-end; }
 .native-support-message small, .native-support-message time { color: var(--sub); font-size: 11px; }

@@ -1,3 +1,5 @@
+import { applyCustomTheme, decodeCustomTheme, encodeCustomTheme, DEFAULT_CUSTOM_THEME } from './custom-theme.ts';
+import { openColorPicker, splitColor, withOpacity } from './color-picker.ts';
 import {createCloudTaskChatController} from './cloud-task-chat.ts';
 import { alertConfirmationIntentPrompt, parseAlertConfirmationIntent } from "../main/trading-confirmation-intent.mjs";
 import { NativeSupport, type SupportResult } from "./native-support";
@@ -2145,7 +2147,7 @@ type DesktopApi = {
   saveAutoTasks?(params: { tasks: AutoTaskItem[] }): Promise<any>;
   runAutoTask?(params: { taskId: string }): Promise<any>;
   tradingAlertsSnapshot?(): Promise<any>;
-  tradingAlertsCreateCloudPriceAlert?(params: { requestId: string; confirmed: true; marketId: string; interval: string; price: number; referencePrice: number; locale?: string }): Promise<any>;
+  tradingAlertsCreateCloudPriceAlert?(params: { requestId: string; confirmed: true; marketId: string; interval: string; price: number; referencePrice: number; locale?: string; replacesAlertId?: string; replacesVersion?: number }): Promise<any>;
   tradingAlertsGetSimulation?(params: { simulationId: string }): Promise<any>;
   tradingAlertsCompile?(params: any): Promise<any>;
   tradingAlertsResumeDraft?(params: { draftId: string }): Promise<any>;
@@ -4372,6 +4374,8 @@ const INITIAL_APP_LANGUAGE = INITIAL_STORED_APP_LANGUAGE || loadAppLanguage();
 applyAppLanguage(INITIAL_APP_LANGUAGE);
 const INITIAL_APP_THEME = loadAppTheme();
 applyAppTheme(INITIAL_APP_THEME);
+let customThemeSelection = (() => { try { return decodeCustomTheme(localStorage.getItem(APP_THEME_STORAGE_KEY)); } catch { return null; } })();
+applyCustomTheme(customThemeSelection);
 const INITIAL_APP_FONT_SIZE = loadAppFontSize();
 applyAppFontSize(INITIAL_APP_FONT_SIZE);
 
@@ -36380,7 +36384,7 @@ function normalizeExternalModelProviderStatuses(value: unknown): ExternalModelPr
 }
 
 const sharedFontScales = { small: 0.9, default: 1, medium: 1.1, large: 1.2 };
-let sharedThemePreference: string = INITIAL_APP_THEME;
+let sharedThemePreference: string = customThemeSelection ? encodeCustomTheme(customThemeSelection) : INITIAL_APP_THEME;
 let sharedAppSettingsRegistered = false;
 function sharedAppSettings(): SettingValues {
   return {
@@ -36394,6 +36398,9 @@ function sharedAppSettings(): SettingValues {
 function applySharedAppSettings(values: SettingValues) {
   const before = JSON.stringify(sharedAppSettings());
   sharedThemePreference = String(values['app.theme'] || 'light');
+  const nextCustom = decodeCustomTheme(sharedThemePreference);
+  const customChanged = JSON.stringify(nextCustom) !== JSON.stringify(customThemeSelection);
+  customThemeSelection = nextCustom;
   const theme = sharedThemePreference === 'system'
     ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
     : sharedThemePreference === 'dark' ? 'dark' : 'light';
@@ -36403,6 +36410,8 @@ function applySharedAppSettings(values: SettingValues) {
   if (state.settings.theme !== theme) {
     state.settings.theme = theme; applyAppTheme(theme, true); syncAppThemePreference(theme);
   }
+  if (customChanged) applyCustomTheme(customThemeSelection);
+  try { localStorage.setItem(APP_THEME_STORAGE_KEY, sharedThemePreference); } catch {}
   if (state.settings.language !== language) {
     state.settings.language = language;
     applyAppLanguage(language, { persist: true, root: document.body });
@@ -36439,6 +36448,8 @@ function activateAccountSettingsSync() {
 function selectAppTheme(theme: AppTheme) {
   accountSettingsSync().edit({ 'app.theme': sharedThemePreference }, { 'app.theme': theme });
   sharedThemePreference = theme;
+  customThemeSelection = null;
+  applyCustomTheme(null);
   state.settings.theme = theme;
   applyAppTheme(theme, true);
   syncAppThemePreference(theme);
@@ -61121,7 +61132,7 @@ function renderSettingsLanguageRow() {
 }
 
 function renderSettingsThemeRow() {
-  const theme = state.settings.theme;
+  const theme = customThemeSelection ? "custom" : state.settings.theme;
   return `
     <div class="settings-theme-row">
       <span>主题外观</span>
@@ -61151,6 +61162,7 @@ function renderSettingsThemeRow() {
           </svg>
           <span>夜间模式</span>
         </button>
+        <button type="button" class="settings-theme-option ${theme === 'custom' ? 'active' : ''}" data-settings-theme="custom" role="radio" aria-checked="${theme === 'custom'}" aria-haspopup="dialog"><span>自定义</span></button>
       </div>
     </div>
   `;
@@ -63259,6 +63271,31 @@ function bindEvents() {
       button.addEventListener("click", () => {
         const theme = button.dataset.settingsTheme;
         if (theme === "light" || theme === "dark") selectAppTheme(theme);
+        if (theme === "custom") {
+          const selected = customThemeSelection ?? DEFAULT_CUSTOM_THEME;
+          const appearanceOwner = state.auth.profile?.id;
+          openColorPicker({ anchor: button, value: withOpacity(selected.color, selected.opacity), excludeWhite: true,
+            resolveAnchor: () => appearanceOwner === state.auth.profile?.id
+              ? root.querySelector<HTMLElement>('.settings-dialog [data-settings-theme="custom"]')
+              : null,
+            onChange: value => {
+              if (appearanceOwner !== state.auth.profile?.id) return;
+              const { hex: color, opacity } = splitColor(value);
+              const next = { color, opacity };
+              const encoded = encodeCustomTheme(next);
+              accountSettingsSync().edit({ 'app.theme': sharedThemePreference }, { 'app.theme': encoded });
+              sharedThemePreference = encoded; customThemeSelection = next;
+              state.settings.theme = 'light'; applyAppTheme('light'); syncAppThemePreference('light');
+              applyCustomTheme(next);
+              try { localStorage.setItem(APP_THEME_STORAGE_KEY, encoded); } catch {}
+              // Update the controls immediately; later background renders reattach the picker.
+              root.querySelectorAll<HTMLElement>('[data-settings-theme]').forEach(option => {
+                const chosen = option.dataset.settingsTheme === 'custom';
+                option.classList.toggle('active', chosen); option.setAttribute('aria-checked', String(chosen));
+              });
+            },
+          });
+        }
       });
     });
   root.querySelector<HTMLInputElement>("[data-settings-language]")?.addEventListener("change", (event) => {

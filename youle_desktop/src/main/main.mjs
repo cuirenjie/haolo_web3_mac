@@ -1,4 +1,6 @@
 import { withKoreanVariants } from '../shared/korean.mjs';
+import { createNewsFeed } from './news-feed.mjs';
+import { createNewsWindows } from './news-windows.mjs';
 import { CodexProviderConversations } from "./codex-provider-conversation.mjs";
 import { koreanText } from "../shared/korean.mjs";
 import { excludeCurrentThreadMemory } from "./group-memory-context.mjs";
@@ -966,6 +968,8 @@ let runtimePrepareStatus = null;
 let windowsNotificationShortcutPromise = null;
 let desktopNotificationWindow = null;
 let desktopNotificationTimer = null;
+let newsFeed = null;
+let newsWindows = null;
 const AUTOMATION_BACKGROUND = process.argv.includes("--automation-worker") || process.argv.includes("--background");
 
 if (process.platform === "win32") {
@@ -8692,7 +8696,7 @@ function closeDesktopNotificationWindow() {
   desktopNotificationWindow = null;
 }
 
-function desktopNotificationHtml({ title, body, theme, language = appLanguage() }) {
+function desktopNotificationHtml({ title, body, theme, language = appLanguage(), news = false }) {
   const icon = desktopNotificationIconDataUrl();
   const normalizedTheme = normalizeAppTheme(theme);
   const normalizedLanguage = normalizeAppLanguage(language);
@@ -8722,10 +8726,11 @@ function desktopNotificationHtml({ title, body, theme, language = appLanguage() 
   html[data-theme="dark"] .notification-close-button { color: #aeb6c2; }
   html[data-theme="dark"] .notification-settings-button { border-color: rgba(255, 255, 255, 0.14); background: #222428; color: #d7dce4; }
   html[data-theme="dark"] .notification-close-button:hover, html[data-theme="dark"] .notification-settings-button:hover { background: #2c3036; color: #f3f4f6; }
+  ${news ? '.card { cursor:pointer; height:100%; } .notification-settings-button { display:none; } p { display:-webkit-box; -webkit-line-clamp:6; -webkit-box-orient:vertical; overflow:hidden; } p strong { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; } .card:focus-visible { outline:2px solid currentColor; outline-offset:-3px; }' : ''}
 </style>
 </head>
 <body>
-  <section class="card">
+  <section class="card" tabindex="0" role="link">
     <div class="head">${icon ? `<img src="${htmlEscape(icon)}" alt="" />` : ""}<strong>${htmlEscape(YOULE_DISPLAY_NAME)}</strong></div>
     <p><strong>${htmlEscape(title)}</strong><br />${htmlEscape(body)}</p>
     <button class="notification-settings-button" type="button" data-action="settings" aria-label="${htmlEscape(settingsLabel)}">${htmlEscape(settingsLabel)}</button>
@@ -8733,6 +8738,7 @@ function desktopNotificationHtml({ title, body, theme, language = appLanguage() 
   </section>
   <script>
     document.querySelector(".card").addEventListener("click", () => { location.href = "youle-notification://open"; });
+    document.querySelector(".card").addEventListener("keydown", (event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); location.href = "youle-notification://open"; } });
     document.querySelector('[data-action="settings"]').addEventListener("click", (event) => { event.stopPropagation(); location.href = "youle-notification://settings"; });
     document.querySelector('[data-action="close"]').addEventListener("click", (event) => { event.stopPropagation(); location.href = "youle-notification://close"; });
   </script>
@@ -22316,6 +22322,8 @@ function normalizeSandboxPolicy(value) {
 }
 
 function clearScheduledWork() {
+  newsFeed?.stop();
+  newsWindows?.stop();
   if (youleSessionMaintenanceTimer) {
     clearInterval(youleSessionMaintenanceTimer);
     youleSessionMaintenanceTimer = null;
@@ -22715,6 +22723,16 @@ app.whenReady().then(async () => {
     void startAutomationBackgroundMode();
     return;
   }
+  newsWindows = createNewsWindows({ BrowserWindow, screen, html: desktopNotificationHtml, theme: appTheme,
+    language: () => appLanguageLocale(appLanguage()), openExternal: url => shell.openExternal(url),
+    dismiss: id => newsFeed.dismiss(id) });
+  newsFeed = createNewsFeed({ file: path.join(app.getPath('userData'), 'news-notifications.json'),
+    fetchFeed: async after => {
+      const response = await net.fetch(`https://haolo.com/api/news/desktop-feed?after=${after}`, { signal: AbortSignal.timeout(15000), cache: 'no-store' });
+      if (!response.ok) throw new Error('NEWS_UNAVAILABLE');
+      return response.json();
+    }, changed: items => newsWindows.update(items) });
+  newsFeed.start();
   await startWechatExternalChannelBackend().catch((error) => {
     console.warn("[wechat-external-channel] failed to start", error?.message || error);
     startWechatExternalChannelBackendPolling(error?.message || "startup failed");
@@ -22766,6 +22784,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", (event) => {
+  newsFeed?.stop();
   cloudAlertFeed?.stop();
   if (appCleanupStarted) {
     event.preventDefault();

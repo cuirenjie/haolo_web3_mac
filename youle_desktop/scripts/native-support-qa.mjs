@@ -38,6 +38,7 @@ async function installFixture() {
       const qa = window.supportQa; qa.calls.push(params);
       if (qa.fail) return { ok: false, status: 503 };
       if (params.action === "send") {
+        if (!qa.replies.some(message => message.support_event === "joined")) qa.replies.push({ id: "joined", role: "human_support", sender_type: "ai", support_event: "joined", text: "客服 haolo 加入会话", created_at: new Date().toISOString() });
         if (!qa.replies.some((message) => message.id === params.client_message_id)) qa.replies.push({ id: params.client_message_id, role: "user", text: params.content, attachments: params.attachments, created_at: new Date().toISOString() });
         return { ok: true, data: {} };
       }
@@ -94,6 +95,29 @@ try {
   await wait(() => document.querySelector(".native-support-messages")?.textContent.includes("QA reply delivered"));
   assert.equal(await run(() => document.querySelector(".native-support textarea").value), "客服独立草稿");
   assert.equal(await run(() => window.supportQa.modelCalls.length), 0);
+  // Reproduce the old same-transaction ordering, including an older user turn.
+  await run(() => {
+    const firstUser = window.supportQa.replies.find(message => message.role === "user");
+    window.supportQa.replies.find(message => message.support_event === "joined").created_at = firstUser.created_at;
+    window.supportQa.replies.push(...Array.from({ length: 35 }, (_, index) => ({ id: `long-${index}`, role: index % 2 ? "user" : "human_support", text: `Long history ${index}\n${"客服历史内容 ".repeat(20)}`, created_at: new Date().toISOString() })));
+  });
+  await wait(() => document.querySelector(".native-support-messages")?.textContent.includes("Long history 34"));
+  await delay(350);
+  const atBottom = () => { const el = document.querySelector(".native-support-messages"); return el.scrollHeight > el.clientHeight && el.scrollHeight - el.scrollTop - el.clientHeight <= 2; };
+  assert.equal(await run(atBottom), true, "long history stays at bottom after main renderer remount");
+  assert.equal(await run(() => { const rows = [...document.querySelectorAll(".native-support-message")]; return rows.indexOf(rows.find(el => el.textContent.includes("Native support QA message"))) < rows.indexOf(rows.find(el => el.classList.contains("is-system"))); }), true);
+  for (const sender of ["ai", "human"]) {
+    // A new answer must be visible even if the user was reading older history.
+    await run(() => { document.querySelector(".native-support-messages").scrollTop = 10; });
+    await delay(100);
+    await run(sender => window.supportQa.replies.push({ id: `bottom-${sender}`, role: "human_support", sender_type: sender, text: `${sender} bottom reply\n${"详细回复 ".repeat(40)}`, created_at: new Date().toISOString() }), sender);
+    await wait(() => document.querySelector(".native-support-messages")?.textContent.includes("bottom reply"));
+    await wait(atBottom);
+    await delay(500);
+    assert.equal(await run(atBottom), true, `${sender} reply survives read acknowledgement and remount`);
+  }
+  await writeFile(path.join(output, "reply-scroll.png"), (await win.webContents.capturePage()).toPNG());
+  records.push({ check: "legacy joined order, long history, AI/human replies stay at bottom after remount", passed: true });
   await click("[data-support-exit]");
   await wait(() => !!document.querySelector("#composerInput"));
   assert.equal(await run(() => document.querySelector("#composerInput").value), "模型原始草稿 — DO NOT CHANGE");

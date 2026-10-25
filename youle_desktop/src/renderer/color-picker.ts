@@ -43,9 +43,13 @@ export function colorPickerInput(value: string, attributes: string) {
   const color = normalizeColor(value) ?? '#2962ff';
   return `<input type="text" data-color-picker-input readonly role="button" aria-haspopup="dialog" aria-expanded="false" ${attributes} value="${color}" style="--color-value:${color}"/>`;
 }
-type Options = { anchor: HTMLElement; value: string; onChange: (color: string) => void; onClose?: () => void;
+type Options = {
+  excludeWhite?: boolean; anchor: HTMLElement; value: string; onChange: (color: string) => void; onClose?: () => void;
+  // Opt in for non-modal owners whose DOM is replaced by background renders.
+  // Return null when the owner closes or its account/context changes.
+  resolveAnchor?: () => HTMLElement | null;
   line?: { width: number; style: 'solid' | 'dashed' | 'dotted'; onChange: (width: number, style: 'solid' | 'dashed' | 'dotted') => void } };
-type PickerState = { active: { anchor: HTMLElement; popup: HTMLElement; close: (focus?: boolean) => void } | null; installed: boolean };
+type PickerState = { active: { anchor: HTMLElement; popup: HTMLElement; close: (focus?: boolean) => void; refreshAnchor?: () => boolean } | null; installed: boolean };
 // One owner even when development modules are imported under multiple URLs.
 const pickerGlobal = globalThis as typeof globalThis & { __haoloColorPicker?: PickerState };
 const pickerState = pickerGlobal.__haoloColorPicker ??= { active: null, installed: false };
@@ -58,7 +62,9 @@ export function colorPickerContainsTarget(owner: HTMLElement, target: Node) {
   return Boolean(active && owner.contains(active.anchor) && active.popup.contains(target));
 }
 export function openColorPicker(options: Options) {
-  const { anchor, onChange } = options;
+  let { anchor } = options;
+  const { onChange } = options;
+  pickerState.active?.refreshAnchor?.();
   if (pickerState.active?.anchor === anchor) { pickerState.active.close(true); return; }
   pickerState.active?.close();
   const initial = splitColor(options.value);
@@ -67,6 +73,7 @@ export function openColorPicker(options: Options) {
   try { saved = customColors(JSON.parse(localStorage.getItem(CUSTOM_COLORS_KEY) ?? '[]')); } catch { /* Storage can be unavailable. */ }
   const popup = document.createElement('div');
   popup.className = 'haolo-color-picker';
+  popup.dataset.customThemeExempt = '';
   popup.popover = 'manual';
   popup.dataset.i18nDrawing = '';
   popup.setAttribute('role', 'dialog');
@@ -81,8 +88,16 @@ export function openColorPicker(options: Options) {
     <div class="haolo-color-editor"><div class="haolo-color-plane" data-color-plane tabindex="0" role="slider" aria-label="饱和度和明度"><i></i></div><input class="haolo-color-hue" data-color-hue type="range" min="0" max="360" step="1" aria-label="色相"></div>
     <button class="haolo-color-back" type="button" data-color-back>返回色板</button>
   </div>`;
-  (anchor.closest('dialog') ?? document.body).append(popup);
+  // Keep the same editor (including unfinished HEX input/focus) outside the
+  // replaceable settings tree. Modal drawing dialogs retain their existing host.
+  (options.resolveAnchor ? document.body : anchor.closest('dialog') ?? document.body).append(popup);
   popup.showPopover();
+  // Keep this editor in the light/dark palette it opened with, even while its
+  // selection changes the surrounding app. Swatches remain live color samples.
+  const pickerStyle = getComputedStyle(popup);
+  for (const name of ['--picker-bg', '--picker-ink', '--picker-muted', '--picker-border', '--interaction-accent']) {
+    popup.style.setProperty(name, pickerStyle.getPropertyValue(name));
+  }
   anchor.setAttribute('aria-expanded', 'true');
   const get = <T extends HTMLElement>(selector: string) => popup.querySelector<T>(selector)!;
   const palette = get('[data-color-palette-view]'), custom = get('[data-color-custom-view]');
@@ -105,11 +120,22 @@ export function openColorPicker(options: Options) {
   const plane = get('[data-color-plane]'), hue = get<HTMLInputElement>('[data-color-hue]');
   const hexInput = get<HTMLInputElement>('[data-color-hex]');
   const range = get<HTMLInputElement>('[data-color-opacity]'), percent = get<HTMLInputElement>('[data-color-percent]');
-  const swatches = (colors: readonly string[]) => colors.map(color => `<button type="button" data-color-swatch="${color}" aria-label="${color}" title="${color}" aria-pressed="false" style="--swatch:${color}"></button>`).join('');
+  const swatches = (colors: readonly string[]) => colors.filter(color => !options.excludeWhite || color !== '#ffffff').map(color => `<button type="button" data-color-swatch="${color}" aria-label="${color}" title="${color}" aria-pressed="false" style="--swatch:${color}"></button>`).join('');
   get('[data-color-presets]').innerHTML = swatches(COLOR_PALETTE);
   const renderSaved = () => { get('[data-color-custom]').innerHTML = swatches(saved); };
+  const refreshAnchor = () => {
+    const next = options.resolveAnchor ? options.resolveAnchor() : anchor;
+    if (!next?.isConnected || !next.checkVisibility()) return false;
+    if (next !== anchor) {
+      anchor.setAttribute('aria-expanded', 'false');
+      anchor = next;
+      anchor.setAttribute('aria-expanded', 'true');
+      if (pickerState.active?.popup === popup) pickerState.active.anchor = anchor;
+    }
+    return true;
+  };
   const position = () => {
-    if (!anchor.isConnected || !anchor.checkVisibility()) { close(); return; }
+    if (!refreshAnchor()) { close(); return; }
     const r = anchor.getBoundingClientRect(), box = popup.getBoundingClientRect();
     const width = document.documentElement.clientWidth, height = document.documentElement.clientHeight;
     popup.style.left = `${Math.max(8, Math.min(r.left - 12, width - box.width - 8))}px`;
@@ -122,7 +148,7 @@ export function openColorPicker(options: Options) {
     popup.querySelectorAll<HTMLElement>('[data-color-swatch]').forEach(el => el.setAttribute('aria-pressed', String(el.dataset.colorSwatch === hex)));
     hexInput.value = hex;
     hexInput.setAttribute('aria-invalid', 'false');
-    get<HTMLButtonElement>('[data-color-save]').disabled = false;
+    get<HTMLButtonElement>('[data-color-save]').disabled = Boolean(options.excludeWhite && hex === '#ffffff');
     get('[data-color-preview]').style.background = hex;
     plane.style.setProperty('--hue', hsvToHex(hsv.h, 1, 1));
     plane.style.setProperty('--saturation', `${hsv.s * 100}%`);
@@ -131,7 +157,7 @@ export function openColorPicker(options: Options) {
     hue.value = String(hsv.h);
   };
   let appliedHex = hex;
-  const apply = () => { appliedHex = hex; render(); onChange(withOpacity(hex, opacity)); };
+  const apply = () => { if (options.excludeWhite && hex === '#ffffff') return; appliedHex = hex; render(); onChange(withOpacity(hex, opacity)); };
   const switchView = (editing: boolean) => {
     palette.hidden = editing; custom.hidden = !editing;
     if (editing) { hsv = hexToHsv(hex); render(); hexInput.focus(); hexInput.select(); }
@@ -159,7 +185,7 @@ export function openColorPicker(options: Options) {
   percent.addEventListener('blur', render);
   hexInput.addEventListener('input', () => {
     const value = normalizeColor(hexInput.value);
-    get<HTMLButtonElement>('[data-color-save]').disabled = !value;
+    get<HTMLButtonElement>('[data-color-save]').disabled = !value || Boolean(options.excludeWhite && value === '#ffffff');
     hexInput.setAttribute('aria-invalid', String(!value));
     if (value) { hex = value; hsv = hexToHsv(hex); render(); }
   });
@@ -179,7 +205,10 @@ export function openColorPicker(options: Options) {
     hsv.v = Math.max(0, Math.min(1, hsv.v + (event.key === 'ArrowUp' ? .01 : event.key === 'ArrowDown' ? -.01 : 0)));
     hex = hsvToHex(hsv.h, hsv.s, hsv.v); render();
   });
-  const outside = (event: PointerEvent) => { if (event.target instanceof Node && !popup.contains(event.target) && !anchor.contains(event.target)) close(); };
+  const outside = (event: PointerEvent) => {
+    if (!refreshAnchor()) { close(); return; }
+    if (event.target instanceof Node && !popup.contains(event.target) && !anchor.contains(event.target)) close();
+  };
   const keyboard = (event: KeyboardEvent) => {
     if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); if (!custom.hidden) switchView(false); else close(true); }
     if (event.key === 'Enter' && event.target === hexInput) { event.preventDefault(); get<HTMLButtonElement>('[data-color-save]').click(); }
@@ -195,7 +224,7 @@ export function openColorPicker(options: Options) {
     options.onClose?.();
     if (focus && anchor.isConnected) anchor.focus({ preventScroll: true });
   };
-  pickerState.active = { anchor, popup, close };
+  pickerState.active = { anchor, popup, close, refreshAnchor };
   document.addEventListener('pointerdown', outside, true);
   document.addEventListener('keydown', keyboard, true);
   renderSaved(); render(); localizeAppTree(popup); position();

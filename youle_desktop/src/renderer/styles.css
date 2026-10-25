@@ -25163,10 +25163,11 @@ html[data-theme="dark"] .settings-trading-actions {
 
 .settings-theme-options {
   display: grid;
-  width: 196px;
+  width: max-content;
+  min-width: 260px;
   height: 36px;
   flex: 0 0 auto;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, max-content);
   align-items: center;
   gap: 2px;
   border: 1px solid #dde1e7;
@@ -25180,6 +25181,7 @@ html[data-theme="dark"] .settings-trading-actions {
   align-items: center;
   justify-content: center;
   gap: 6px;
+  padding-inline: 8px;
   height: 28px;
   border: 1px solid transparent;
   border-radius: 7px;
@@ -25199,7 +25201,7 @@ html[data-theme="dark"] .settings-trading-actions {
 html[data-language="ko"] .settings-theme-options {
   width: max-content;
   min-width: 196px;
-  grid-template-columns: repeat(2, max-content);
+  grid-template-columns: repeat(3, max-content);
 }
 
 html[data-language="ko"] .settings-theme-option {

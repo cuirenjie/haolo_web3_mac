@@ -4,6 +4,43 @@
   "surface": "windows",
   "features": [
     {
+      "id": "news-notifications",
+      "title": "桌面新闻通知与文章阅读",
+      "body": "配套版本上线后，超级管理员发布并选择同步到桌面端的新闻，会以标题和摘要在桌面右下角显示持续浮窗。点击在系统浏览器打开官网对应文章，关闭按钮仅关闭该通知。浮窗不会按任务完成通知的定时器自动消失，未处理通知保留到客户端下次启动。客户端运行并联网时自动检查新消息；离线后恢复联网可补收最近30天的新闻。Windows/macOS使用同一实现，macOS尚需原生验收。",
+      "category": "news",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": false,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/news-feed.mjs",
+        "youle_desktop/src/main/news-windows.mjs"
+      ]
+    },
+    {
+      "id": "chart-price-alert-markers",
+      "title": "图表价格预警线、拖动与删除",
+      "body": "Windows 图表价格标签左侧加号可创建云端价格预警。确认创建后，主图及同交易对分屏在目标价格显示虚线和右向三角；悬浮显示交易对、触发条件、价格和删除按钮，鼠标显示上下拖动箭头。删除须经弹窗确认。拖动时隐藏说明框，松开后确认新价格；取消保留原预警，确认后先验证新预警创建成功，再自动删除原预警。创建失败不会删除原预警；替换未完成时按弹窗提示重试，不应重复点击加号另建。已暂停、触发完成或删除的预警不再显示有效预警线。支持币安现货和永续，到价发送一次邮件至绑定邮箱，监控不依赖电脑在线。需核对实际安装版本；源码与候选知识包不代表已上线。客服可说明操作，不能代用户创建、移动或删除预警。",
+      "category": "alerts",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-price-alert.ts",
+        "youle_desktop/src/renderer/trading-price-alert-markers.ts",
+        "youle_desktop/src/renderer/trading-price-alert-store.ts",
+        "youle_desktop/src/main/trading-alerts/cloud-price-alerts.mjs",
+        "youle_desktop/docs/chart-price-alert-markers-20261025.zh-CN.md"
+      ]
+    },
+    {
       "id": "saved-plan-menu",
       "title": "计划卡片菜单与来源跳转",
       "body": "Windows 计划页的卡片右上角有右箭头，点击卡片可结束、重新打开或删除计划，也可跳转K线画线或相关会话。弹窗样式与会话中的计划卡一致，点击空白处或按Escape关闭；删除仍需确认。跳转优先打开原始会话，恢复计划对应的原市场、分析周期和已保存画线。没有本机来源时按计划的 runId 和云端 taskId 读取原始历史会话，保留原任务身份、标题、各轮提问和回复；打开后可继续发送文字追问，新回复追加到同一原任务，重新打开仍保留完整历史。发送中可停止，网络结果不确定时重试原消息沿用同一提交标识，避免重复追加。不会新建恢复记录或插入恢复说明气泡；仅打开会话不会重新分析。原历史不存在时提示无法读取，不伪造替代会话。来源关联按账号及计划唯一标识保存，重启后可继续使用。客服可解释这些入口，不能代用户执行交易或删除计划。",
@@ -28,7 +65,7 @@
     {
       "id": "support-service",
       "title": "客服 haolo 的范围、费用与身份",
-      "body": "客服 haolo 是智能客服，处理 Haolo 安装、账号、页面操作、图表功能、积分会员、邀请与产品故障；客服本身免费且不扣用户积分。行情预测、通用写作等独立任务不在客服范围。用户询问如何使用产品的分析功能属于产品咨询。模糊表述先追问，不能仅因出现BTC等币种名称而拒答。",
+      "body": "客服 haolo 是智能客服，处理 Haolo 安装、账号、页面操作、图表功能、积分会员、邀请与产品故障；客服本身免费且不扣用户积分。行情预测、通用写作等独立任务不在客服范围。用户询问如何使用产品的分析功能属于产品咨询。模糊表述先追问，不能仅因出现BTC等币种名称而拒答。配套客户端与后端发布后，加入会话提示位于触发它的用户消息下方；AI和人工新回复会定位到会话底部，界面刷新保持位置。AI回复以收到消息后10至20秒呈现为目标，计入生成时间，较慢的模型不再额外等待；人工回复不增加节奏延迟。源码修改不代表线上已生效。",
       "category": "support-service",
       "locale": "zh-CN",
       "status": "approved",
@@ -38,7 +75,9 @@
       ],
       "actions": {},
       "sources": [
-        "youle_desktop/docs/native-support.zh-CN.md"
+        "youle_desktop/docs/native-support.zh-CN.md",
+        "youle_desktop/src/renderer/native-support.ts",
+        "youle_desktop/src/renderer/native-support-view.ts"
       ]
     },
     {
@@ -426,6 +465,25 @@
       "sources": [
         "youle_desktop/src/renderer/app-language.mjs",
         "youle_desktop/src/main/trading-analysis/model-output-language.mjs"
+      ]
+    },
+    {
+      "id": "custom-appearance-sync",
+      "title": "自定义主题与双端同步",
+      "body": "Windows 通用设置→主题外观→自定义；Android/iOS 个人设置→外观→自定义。复用颜色选择器，可选择非纯白颜色和0–100%不透明度。自定义弹窗保持标准配色，后台刷新不会关闭弹窗或丢失输入中的颜色；点击外部、再次点击自定义或按 Esc 可关闭，离开设置或切换账号也会关闭。半透明遮罩保持默认黑色和原透明度；仅非白控件和原灰色区域按白天模式的明暗层次换色，包含对应边框与渐变。原白色区域及原有透明度不变，文字、行情涨跌、彩色装饰及色板样本不变。同一账号使用一份颜色与不透明度配置，前台轮询同步，离线修改保留待重试，账号切换隔离。需要支持自定义主题协议的业务后端与双端客户端。客服可讲解步骤，现有代操作只支持浅色/深色，不宣称可代选自定义颜色。",
+      "category": "settings",
+      "locale": "zh-CN",
+      "status": "approved",
+      "requires_login": false,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/custom-theme.ts",
+        "youle_desktop/src/renderer/color-picker.ts",
+        "youle_desktop/src/renderer/main.ts",
+        "youle_desktop/src/renderer/account-settings-sync.ts"
       ]
     }
   ]

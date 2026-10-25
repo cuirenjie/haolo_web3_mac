@@ -5,6 +5,7 @@ import {parsePriceAlertInput} from '../src/main/trading-alerts/price-alert.mjs';
 import {cloudPriceAlertFixture} from './helpers/cloud-price-alert-fixture.mjs';
 import {applyTradingAlertsSnapshot,createTradingAlertsUiState,renderTradingAlertsPage} from '../src/renderer/trading-alerts-ui.ts';
 import {formatPriceAlertLabel,priceAlertInterval} from '../src/renderer/trading-price-alert.ts';
+import {chartPriceAlerts} from '../src/renderer/trading-price-alert-store.ts';
 const owner = {ownerId:'host::user',accountId:'user',email:'fixture@example.invalid',baseUrl:'host'};
 const input = (patch={}) => ({requestId:'price-alert-00000001',confirmed:true,marketId:'BINANCE:FUTURES:BTCUSDT',interval:'1h',price:120,referencePrice:100,...patch});
 const setup = () => {const api=cloudPriceAlertFixture(); const create=()=>createCloudPriceAlerts({owner:async()=>owner,api:()=>api});return {api,create,service:create()};};
@@ -63,4 +64,90 @@ test('cloud card summaries follow the current UI language after switching locale
       assert.ok(renderTradingAlertsPage(state).includes(label));
     }
   } finally {if(original)globalThis.document=original;else delete globalThis.document;}
+});
+
+test('chart markers include only active cloud price alerts and preserve exact market/level/version',async()=>{
+  const {service,api}=setup(); const {alert}=await service.create(input());
+  const snapshot={...await service.snapshot(),cloudLoaded:true};
+  assert.deepEqual(chartPriceAlerts(snapshot),[{alertId:alert.alertId,marketId:input().marketId,interval:'1h',price:120,version:2,operator:'gte'}]);
+  assert.deepEqual(chartPriceAlerts({...snapshot,cloudLoaded:false}),[]);
+  for(const status of ['paused','completed','deleted','error']) {
+    assert.deepEqual(chartPriceAlerts({...snapshot,alerts:[{...alert,status}]}),[]);
+  }
+  assert.deepEqual(chartPriceAlerts({...snapshot,alerts:[{...alert,enabled:false}]}),[]);
+  api.items[0].rule.marketKey='binance:spot:BTCUSDT';
+  assert.equal(chartPriceAlerts({...await service.snapshot(),cloudLoaded:true})[0].marketId,'BINANCE:SPOT:BTCUSDT');
+});
+
+test('drag replacement verifies the new alert before deleting the old one and is retry-safe',async()=>{
+  const {service,create,api}=setup(); const {alert}=await service.create(input());
+  const replacement=input({requestId:'replacement-00000001',price:90,replacesAlertId:alert.alertId,replacesVersion:alert.cloud.version});
+  const moved=await service.create(replacement);
+  assert.notEqual(moved.alert.alertId,alert.alertId);
+  assert.equal(moved.alert.cloud.threshold,90);
+  assert.equal(moved.alert.cloud.operator,'lte');
+  assert.deepEqual((await service.snapshot()).alerts.map(a=>a.alertId),[moved.alert.alertId]);
+  const deletion=api.calls.findIndex(c=>c.operation==='priceAlertAction');
+  const confirmation=api.calls.findLastIndex(c=>c.operation==='confirmPriceAlert');
+  assert.ok(confirmation<deletion);
+  assert.ok(api.calls.slice(confirmation+1,deletion).some(c=>c.operation==='priceAlerts'));
+  assert.equal((await create().create(replacement)).alert.alertId,moved.alert.alertId);
+  assert.equal(api.items.length,2);
+});
+
+test('a failed replacement save keeps the original alert active',async()=>{
+  const {service,api}=setup(); const {alert}=await service.create(input());
+  api.available=false;
+  await assert.rejects(service.create(input({requestId:'replacement-00000002',price:90,replacesAlertId:alert.alertId,replacesVersion:2})),{code:'PRICE_ALERT_CLOUD_UNAVAILABLE'});
+  assert.equal(api.items.length,1);assert.equal(api.items[0].enabled,true);
+  assert.equal(api.calls.some(c=>c.operation==='priceAlertAction'),false);
+});
+
+test('failed old-alert deletion retries the same replacement without duplicating it',async()=>{
+  const {service,create,api}=setup(); const {alert}=await service.create(input());
+  const original=api.tradingCloudRequest;
+  let failDelete=true;
+  api.tradingCloudRequest=async(...args)=>{
+    if(failDelete&&args[0]==='priceAlertAction')throw Object.assign(Error('offline'),{code:'NETWORK_ERROR'});
+    return original(...args);
+  };
+  const replacement=input({requestId:'replacement-00000003',price:95,replacesAlertId:alert.alertId,replacesVersion:2});
+  await assert.rejects(service.create(replacement),{code:'PRICE_ALERT_REPLACEMENT_INCOMPLETE'});
+  assert.equal((await service.snapshot()).alerts.length,2);
+  failDelete=false;
+  const moved=await create().create(replacement);
+  assert.equal(api.items.length,2);
+  assert.deepEqual((await service.snapshot()).alerts.map(a=>a.alertId),[moved.alert.alertId]);
+});
+
+test('replacement rejects stale versions, different markets and unverified readback',async()=>{
+  const {service,api}=setup(); const {alert}=await service.create(input());
+  const replacement=input({requestId:'replacement-00000004',price:95,replacesAlertId:alert.alertId,replacesVersion:2});
+  await assert.rejects(service.create({...replacement,replacesVersion:1}),{code:'VERSION_CONFLICT'});
+  await assert.rejects(service.create({...replacement,marketId:'BINANCE:SPOT:BTCUSDT'}),{code:'CLOUD_RESULT_CONTEXT_INVALID'});
+  assert.equal(api.items.length,1);
+  const original=api.tradingCloudRequest;
+  api.tradingCloudRequest=async(...args)=>{
+    const result=await original(...args);
+    if(args[0]==='priceAlerts'&&api.items.length>1)result.items=result.items.filter(a=>a.id===alert.cloud.id);
+    return result;
+  };
+  await assert.rejects(service.create(replacement),{code:'PRICE_ALERT_READBACK_FAILED'});
+  assert.equal(api.items[0].state,'arming');
+  assert.equal(api.calls.some(c=>c.operation==='priceAlertAction'),false);
+});
+
+test('an account switch between replacement save and delete prevents cross-account mutation',async()=>{
+  const {api,service}=setup(); const {alert}=await service.create(input());
+  let changed=false;
+  const original=api.tradingCloudRequest;
+  api.tradingCloudRequest=async(...args)=>{
+    const result=await original(...args);
+    if(args[0]==='confirmPriceAlert')changed=true;
+    return result;
+  };
+  const guarded=createCloudPriceAlerts({owner:async()=>({...owner,ownerId:changed?'another':owner.ownerId}),api:()=>api});
+  await assert.rejects(guarded.create(input({requestId:'replacement-00000005',price:95,replacesAlertId:alert.alertId,replacesVersion:2})),{code:'TRADING_PREFERENCE_OWNER_CHANGED'});
+  assert.equal(api.items[0].state,'arming');
+  assert.equal(api.calls.some(c=>c.operation==='priceAlertAction'),false);
 });

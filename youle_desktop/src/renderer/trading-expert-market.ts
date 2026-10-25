@@ -1,3 +1,4 @@
+import { customChartSurface } from './custom-theme.ts';
 import { requestIndexChart, INDEX_RESOLUTIONS, indexPeriodFor } from "./trading-index-chart.ts";
 import { deferInteractionRender } from "./interaction-render-guard.ts";
 import { openBoundAnalysisChart } from "./trading-analysis-chart-context.ts";
@@ -5234,7 +5235,8 @@ class TradingExpertMarketWorkspace {
     this.priceAlertControl = new TradingPriceAlertControl(this.crosshairPriceElement, () =>
       this.loadedMarketId === this.selectedMarketId && this.loadedInterval === this.activeInterval && !this.selectedIndex
         ? { marketId: this.selectedMarketId, interval: this.activeInterval, referencePrice: this.candles.at(-1)?.close || 0 }
-        : null);
+        : null, { root: this.viewport, chartElement: this.chartElement,
+          getChart: () => this.chart, getSeries: () => this.candleSeries });
     this.currentPriceElement = this.requireElement("[data-market-current-price]");
     this.candleCountdownElement = this.requireElement<HTMLTimeElement>("[data-market-candle-countdown]");
     this.picker = this.requireElement("[data-market-picker]");
@@ -5452,7 +5454,7 @@ class TradingExpertMarketWorkspace {
     });
     this.themeObserver.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ["data-theme", "lang"],
+      attributeFilter: ["data-theme", "data-custom-theme", "lang"],
     });
   }
 
@@ -12616,7 +12618,7 @@ class TradingExpertMarketWorkspace {
       width: Math.max(this.chartElement.clientWidth, 1),
       height: Math.max(this.chartElement.clientHeight, 1),
       layout: {
-        background: { type: ColorType.Solid, color: chartTheme.backgroundColor },
+        background: { type: ColorType.Solid, color: customChartSurface(chartTheme.backgroundColor) },
         textColor: theme.text,
         fontSize: 11,
         fontFamily: MARKET_FONT_FAMILY,
@@ -12680,8 +12682,8 @@ class TradingExpertMarketWorkspace {
       crosshairMarkerVisible: false,
     });
     this.bandLowerSeries = this.chart.addSeries(AreaSeries, {
-      topColor: chartTheme.backgroundColor,
-      bottomColor: chartTheme.backgroundColor,
+      topColor: customChartSurface(chartTheme.backgroundColor),
+      bottomColor: customChartSurface(chartTheme.backgroundColor),
       lineColor: theme.bandLine,
       lineWidth: 1,
       priceFormat: { ...MARKET_PRICE_FORMAT },
@@ -13388,7 +13390,7 @@ class TradingExpertMarketWorkspace {
     const chartTheme = this.chartSettings.themes[themeName];
     this.chart.applyOptions({
       layout: {
-        background: { type: ColorType.Solid, color: chartTheme.backgroundColor },
+        background: { type: ColorType.Solid, color: customChartSurface(chartTheme.backgroundColor) },
         textColor: theme.text,
         fontFamily: MARKET_FONT_FAMILY,
         panes: {
@@ -13449,8 +13451,8 @@ class TradingExpertMarketWorkspace {
       lineColor: theme.bandLine,
     });
     this.bandLowerSeries?.applyOptions({
-      topColor: chartTheme.backgroundColor,
-      bottomColor: chartTheme.backgroundColor,
+      topColor: customChartSurface(chartTheme.backgroundColor),
+      bottomColor: customChartSurface(chartTheme.backgroundColor),
       lineColor: theme.bandLine,
     });
     const simulationColors = isDarkTheme()
@@ -13752,6 +13754,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private updateCurrentPriceLabel() {
+    this.priceAlertControl.updateMarkers();
     const candle = this.chartCandles[this.chartCandles.length - 1];
     const y = candle && this.candleSeries
       ? Number(this.candleSeries.priceToCoordinate(candle.close))

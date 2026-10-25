@@ -14,6 +14,7 @@ export const APP_LANGUAGE_STORAGE_KEY = "haolo.appearance.language";
 export const APP_LANGUAGES = Object.freeze(["en", "zh-CN", "zh-TW", "ko"]);
 
 const ENGLISH_UI_PHRASES = Object.freeze({
+  "自定义": "Custom",
   "更新中": "Updating",
   "等待更新": "Waiting for update",
   "桌面快捷方式": "Desktop shortcut",
