@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
+import { testPython } from '../scripts/test-python.mjs';
 import { HAOLO_GATEWAY_BASE_URL, migrateHaoloGatewayAuth, migrateHaoloGatewayConfig, normalizeHaoloGatewayBaseUrl } from "../src/main/haolo-gateway.mjs";
 import { buildAppServerEnv, defaultCodexConfigArgs, loadDefaultCodexAuthEnv, syncDefaultCodexResources } from "../src/main/app-server-client.mjs";
 import { YouleApiClient } from "../src/main/youle-api-client.mjs";
@@ -202,7 +203,7 @@ with tempfile.TemporaryDirectory() as temporary:
     video.download_video(canonical_result, 'sk-fixture', 'https://haolo.pro/v1', Path(temporary) / 'video.mp4')
 print(json.dumps({'ok': True}))
 `;
-  const result = spawnSync(process.env.PYTHON || (process.platform === "win32" ? "python" : "python3"), ["-c", script, skillRoot], { encoding: "utf8" });
+  const result = spawnSync(testPython(), ["-X", "utf8", "-c", script, skillRoot], { encoding: "utf8", windowsHide: true });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.equal(JSON.parse(result.stdout).ok, true);
 });

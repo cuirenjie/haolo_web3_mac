@@ -113,7 +113,7 @@ test("expanded trading conversations expose media models without enabling other 
   assert.equal(fixture.newThreadModeForThread("trading-existing"), "execution");
 });
 
-test("an established trading conversation switches image/video/execution in place and keeps its draft and GPT media routing", async () => {
+test("an established trading conversation keeps its draft and display alias while media execution uses DeepSeek", async () => {
   const fixture = expandedComposerHarness();
   fixture.modes.set("trading-existing","image-generation");
   const draft = structuredClone(fixture.state);
@@ -126,7 +126,10 @@ test("an established trading conversation switches image/video/execution in plac
     assert.deepEqual(fixture.state.composerQuote, draft.composerQuote);
     assert.deepEqual(fixture.state.composerThreadReferences, draft.composerThreadReferences);
     assert.equal(fixture.isTradingExpertExecutionThreadId("trading-existing"), false);
-    assert.deepEqual(fixture.selectedChatModelRequestOptions("trading-existing"), { model: fixture.deepSeek.value, modelProvider: "deepseek", serviceTier: null });
+    assert.deepEqual(fixture.selectedChatModelRequestOptions("trading-existing"), {
+      model: fixture.deepSeek.value, modelProvider: "deepseek", modelDisplayAlias: fixture.gpt.value,
+      serviceTier: null, reasoningEffort: "low", reasoningEffortPolicy: "fixed", supportedReasoningEfforts: ["low"],
+    });
     assert.equal(fixture.selected, fixture.deepSeek, "media execution routing must not overwrite the execution preference");
     assert.equal(fixture.persisted.at(-1).mode, mode);
   }

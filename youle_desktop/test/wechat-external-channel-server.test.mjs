@@ -984,7 +984,10 @@ test("local external channel backend restores Feishu session from secure credent
       feishuReconnectMinIntervalMs: 0,
     });
     await restored.start();
-    await waitFor(async () => restored.feishuConnection.connected === true && channels.length >= 2, 1000);
+    // The transport connects before credential restoration finishes. Await the
+    // public ready state as well, instead of racing the asynchronous restore.
+    await waitFor(async () => restored.feishuConnection.connected === true
+      && restored.feishuConnection.status === "online" && channels.length >= 2, 1000);
     assert.equal(restored.feishuConnection.status, "online");
     assert.equal(restored.feishuConnection.appId, "cli_feishu_restore");
     assert.equal(restored.feishuConnection.appSecret, "secret-feishu-restore");

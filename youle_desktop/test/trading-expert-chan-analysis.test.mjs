@@ -218,8 +218,8 @@ test("model provider registry keeps the Chan pipeline independent from a concret
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].modelId, DEFAULT_TRADING_ANALYSIS_MODEL_ID);
-  assert.equal(calls[0].reasoningEffort, "medium");
-  assert.equal(result.model.reasoningEffort, "medium");
+  assert.equal(calls[0].reasoningEffort, "low");
+  assert.equal(result.model.reasoningEffort, "low");
   assert.equal(result.model.reviewAttempts, 1);
   assert.equal(result.model.providerId, DEFAULT_TRADING_ANALYSIS_PROVIDER_ID);
   assert.equal(result.model.modelId, DEFAULT_TRADING_ANALYSIS_MODEL_ID);

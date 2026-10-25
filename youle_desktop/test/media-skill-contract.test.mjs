@@ -5,8 +5,9 @@ import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import test from "node:test";
+import { testPython } from '../scripts/test-python.mjs';
 
-const python=process.env.PYTHON || (process.platform==="win32"?"python":"python3");
+const python=testPython();
 const root=path.resolve("resources/default-haolo-ai/skills/.system");
 const image=path.join(root,"imagegen/scripts/generate_openai_image.py");
 const video=path.join(root,"videogen/scripts/generate_seedance_video.py");

@@ -887,8 +887,13 @@ test("only the top-level new task composer renders the group picker", async () =
     composerBlock,
     /\$\{groupPicker\}\s*\n\s*\$\{renderWorkflowComposerInputSlots\(thread\.id,\s*workflowInputContract\)\}\s*\n\s*\$\{renderPendingAttachmentsRail\(\s*thread\.id,\s*`\$\{renderWorkflowComposerUploadGuideSlots\(thread\.id, workflowInputContract\)\}\$\{renderMediaInputGuideSlots\(thread\.id\)\}`,\s*\)\}/,
   );
+  // Each return renders its own form. A source-wide match must not run from
+  // the cloud form's tools into the ordinary form's top-level group picker.
+  const ordinaryStart = composerBlock.indexOf('  if (isVideoExpertThread(thread))');
+  assert.ok(ordinaryStart > 0);
+  assert.doesNotMatch(composerBlock.slice(0, ordinaryStart), /\$\{groupPicker\}/);
   assert.doesNotMatch(
-    composerBlock,
+    composerBlock.slice(ordinaryStart),
     /<div class="composer-tools">[\s\S]*\$\{groupPicker\}[\s\S]*<\/div>/,
   );
   assert.doesNotMatch(composerBlock, /renderReadonlyThreadGroupPill/);
