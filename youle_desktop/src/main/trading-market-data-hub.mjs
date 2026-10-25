@@ -1,6 +1,6 @@
 import WebSocket from "ws";
 import { createConnectionLookup } from "./connection-route-lookup.mjs";
-import { decodeMarketPayload } from "./market-wire-codec.mjs";
+import { decodeMarketWireFrame } from "./market-binary-codec.mjs";
 
 const STREAM_PATTERN = /^[a-z0-9_\p{Script=Han}]{2,40}@(kline_(?:1s|[1-9]\d*[mhdwM])|ticker|miniTicker|aggTrade|bookTicker|markPrice(?:@1s)?)$/u;
 
@@ -314,11 +314,11 @@ export class TradingMarketDataHub {
     socket.on("pong", () => {
       if (channel.socket === socket) channel.alive = true;
     });
-    socket.on("message", (payload) => {
+    socket.on("message", (payload, binary) => {
       if (channel.socket !== socket || this.closed || routeChanged) return;
       channel.alive = true;
       let message;
-      try { message = decodeMarketPayload(JSON.parse(String(payload))); } catch {
+      try { message = decodeMarketWireFrame(payload, binary); } catch {
         // A malformed negotiated frame must cause recovery, not silent data loss.
         try { socket.close(1002, "invalid_market_frame"); } catch {}
         return;

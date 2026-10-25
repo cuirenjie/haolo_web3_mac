@@ -37,7 +37,7 @@ export class TrafficMetrics {
   record({ tier, transport, market, family = "other", codec = "json", legacy = false, bytes, jsonBytes = bytes }) {
     if (!Number.isFinite(bytes) || bytes < 0 || !Number.isFinite(jsonBytes) || jsonBytes < 0) return;
     family = families.has(family) ? family : "other";
-    codec = codec === "hmc1" ? "hmc1" : "json";
+    codec = ["hmc1", "hmc2", "hmz1"].includes(codec) ? codec : "json";
     const labels = `${scope(this.node, tier, transport, market)},family="${family}",codec="${codec}",legacy="${Boolean(legacy)}"`;
     let counter = this.counters.get(labels);
     if (!counter) this.counters.set(labels, counter = { payload_bytes_total: 0, json_bytes_total: 0, messages_total: 0 });

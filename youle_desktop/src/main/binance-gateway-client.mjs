@@ -1,6 +1,6 @@
 import { withMarketTicket } from "./binance-gateway-config.mjs";
 import { withAbort } from "./system-proxy-fetch.mjs";
-import { MARKET_WIRE_CODEC } from "./market-wire-codec.mjs";
+import { MARKET_TRANSPORT_CODECS } from "./market-binary-codec.mjs";
 
 const HAOLO_DESKTOP_CLIENT_ID = process.platform === "darwin"
   ? "macos-desktop"
@@ -118,7 +118,7 @@ export function createBinanceGatewayClient({ config, apiClient, fetchImpl = glob
     const requestedAt = Date.now();
     const { response, payload, origin } = await controlJson(config.ticketUrl, {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ codecs: [MARKET_WIRE_CODEC], ticketProtocol: 2 }), cache: "no-store",
+      body: JSON.stringify({ codecs: MARKET_TRANSPORT_CODECS, ticketProtocol: 2 }), cache: "no-store",
     }, true);
     if (!response.ok || !payload?.ticket) throw new Error(`Haolo market ticket failed: HTTP ${response.status}`);
     const advertisedTtl = Number(payload.expiresInMs ?? 30_000);

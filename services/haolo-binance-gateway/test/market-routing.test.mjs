@@ -59,10 +59,10 @@ test("strict paid/free nodes enforce REST, tickets and direct WS; identity is au
   }
 });
 
-test("one-use negotiated socket delivers ordered exact frames and bounded traffic attribution", async (t) => {
+for (const requestedCodec of ["hmc1", "hmc2"]) test(`one-use ${requestedCodec} socket delivers ordered exact frames and bounded traffic attribution`, async (t) => {
   const { request, origin, listeners, gateway } = await fixture(t);
-  const { ticket, codec } = await (await request("trial", undefined, { body: JSON.stringify({ codecs: ["hmc1"] }) })).json();
-  assert.equal(codec, "hmc1");
+  const { ticket, codec } = await (await request("trial", undefined, { body: JSON.stringify({ codecs: [requestedCodec] }) })).json();
+  assert.equal(codec, requestedCodec);
   const client = new WebSocket(origin.replace("http", "ws") + `/stream/futures?streams=btcusdt@aggTrade&ticket=${ticket}`);
   t.after(() => client.terminate());
   const received = [];
@@ -71,14 +71,15 @@ test("one-use negotiated socket delivers ordered exact frames and bounded traffi
   const expected = [];
   for (let a = 0; a < 100; a++) {
     const event = { stream: "btcusdt@aggTrade", data: { e: "aggTrade", E: 1790908800001, s: "BTCUSDT", a, p: "0.0000000012345678", q: "0.10000000", T: 1790908800000, m: false } };
+    if (requestedCodec === "hmc2") Object.assign(event.data, { nq: "0.00000000000001", st: 1, future: [null, false, "001"] });
     expected.push(event);
     for (const listener of listeners) listener(event);
   }
   await done;
-  assert.equal(received[0][0], "hmc1");
+  assert.equal(received[0][0], requestedCodec);
   assert.deepEqual(received.map(decodeMarketPayload), expected);
   const metrics = await (await fetch(origin + "/metrics", { headers: { authorization: `Bearer ${gateway ? "test-metrics-token-at-least-long-enough" : ""}` } })).text();
-  assert.match(metrics, /tier="paid".*family="aggTrade".*codec="hmc1".*legacy="false"/);
+  assert.match(metrics, new RegExp(`tier="paid".*family="aggTrade".*codec="${requestedCodec}".*legacy="false"`));
   assert.doesNotMatch(metrics, /BTCUSDT|btcusdt|trial|ticket=/);
   const replay = new WebSocket(origin.replace("http", "ws") + `/ws/futures?ticket=${ticket}`);
   replay.on("error", () => {});
