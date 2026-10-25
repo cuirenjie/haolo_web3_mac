@@ -4,6 +4,130 @@
   "surface": "windows",
   "features": [
     {
+      "id": "analysis-request-priority-zh-cn",
+      "title": "本轮分析要求优先",
+      "body": "策略及指标分析保留本轮完整输入；明确要求做多或做空时，只发布对应方向的计划。本轮方向、入场方式、风险及附加要求优先于冲突的已保存交易偏好，其余偏好保留，长期设置不变。模型先核对原生候选，未满足时继续搜索冻结行情内更宽窗口的条件入场方案；条件未触发不等于立即交易。缺少真实依据、条件矛盾或模型校验失败时说明原因，不编造价格或用反方向替代。需配套API、独立Worker及客户端版本启用，本条为未发布源码候选。",
+      "category": "trading-preferences",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/shared/analysis-request-contract.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs"
+      ]
+    },
+    {
+      "id": "analysis-request-priority-en",
+      "title": "Current analysis instructions take priority",
+      "body": "Strategy and indicator analysis preserves the full current request. An explicit long or short request permits plans only on that side. Current direction, entry mode, risk limits and other requirements override conflicting saved trading preferences for this analysis; other preferences and saved settings remain unchanged. The model reviews native candidates and searches wider frozen-history windows for conditional entries when needed. Pending conditions are not immediate trades. Missing evidence, conflicting conditions or invalid model output is explained without fabricated prices or opposite-side substitution. Requires matching API, independent worker and client releases; this is an unpublished source candidate.",
+      "category": "trading-preferences",
+      "locale": "en",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/shared/analysis-request-contract.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs"
+      ]
+    },
+    {
+      "id": "analysis-request-priority-zh-hant",
+      "title": "本輪分析要求優先",
+      "body": "策略及指標分析保留本輪完整輸入；明確要求做多或做空時，只發布對應方向的計畫。本輪方向、入場方式、風險及附加要求優先於衝突的已儲存交易偏好，其餘偏好保留，長期設定不變。模型先核對原生候選，未滿足時繼續搜尋凍結行情內較寬視窗的條件入場方案；條件未觸發不等於立即交易。缺少真實依據、條件矛盾或模型驗證失敗時說明原因，不編造價格或用反方向替代。需配套API、獨立Worker及用戶端版本啟用，本條為未發布原始碼候選。",
+      "category": "trading-preferences",
+      "locale": "zh-Hant",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/shared/analysis-request-contract.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs"
+      ]
+    },
+    {
+      "id": "analysis-request-priority-ko",
+      "title": "이번 분석 요청 우선 적용",
+      "body": "전략 및 지표 분석에 이번 요청의 전체 내용을 전달합니다. 롱 또는 숏을 명시하면 해당 방향의 계획만 제공합니다. 이번 요청의 방향, 진입 방식, 위험 한도 및 추가 조건이 저장된 거래 선호와 충돌하면 이번 분석에서는 요청을 우선하며 나머지 선호와 저장된 설정은 유지합니다. 모델은 원래 전략 후보를 검토하고 필요한 경우 고정된 과거 시세의 더 넓은 구간에서 조건부 진입 대안을 찾습니다. 대기 조건은 즉시 거래 신호가 아닙니다. 근거 부족, 조건 충돌 또는 모델 검증 실패 시 이유를 설명하며 가격을 꾸며 내거나 반대 방향으로 대체하지 않습니다. API, 독립 작업 처리기와 클라이언트의 대응 버전이 필요하며 아직 출시하지 않은 소스 후보입니다.",
+      "category": "trading-preferences",
+      "locale": "ko",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/shared/analysis-request-contract.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs"
+      ]
+    },
+    {
+      "id": "expanded-conversation-header",
+      "title": "展开会话的标题栏与交易对列表",
+      "body": "Windows 展开任务会话后隐藏左上角的左侧栏控件，顶部交易对列表也同时隐藏，恢复左侧K线图加右侧会话后再显示。收起会话恢复图表布局时，左侧栏按钮回到图表工具栏上方。hao宝 完整会话同样隐藏左上角控件，并统一标题字体、高度和间距；右上角自定义改为会话展开/收起控件，可切换完整会话与左侧K线图加右侧hao宝会话。hao宝 首次有效发送后自动显示左侧K线图加右侧会话；后续每次进入及重启后打开均默认这个布局。右上角提供与新任务相同的展开/收起自选，展开时显示已有自选列表，收起后返回消息；切换保留消息和草稿，仍可点击会话标题或 hao宝 消息头像修改头像和昵称。顶部交易对区域只挂载当前有效图表的一份列表，旧图表销毁后的延迟回调不会追加重复列表。客服可说明入口，无新增代操作协议；以实际安装版本为准。",
+      "category": "workspace",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/main.ts",
+        "youle_desktop/src/renderer/styles.css",
+        "youle_desktop/src/renderer/haobao.ts",
+        "youle_desktop/src/renderer/haobao.css",
+        "youle_desktop/src/renderer/trading-expert-market.ts",
+        "youle_desktop/src/renderer/trading-watchlist-ui.ts"
+      ]
+    },
+    {
+      "id": "plan-probability-reply",
+      "title": "计划卡片下方的模型概率评估",
+      "body": "配套客户端和云端版本启用后，左右侧策略或指标分析生成正式计划时，可在卡片下方追加模型概率评估。基于已收盘历史行情和冻结计划，盈利概率按100%减止损概率计算，仅严格大于50%才展示；小于或等于50%、依据不足或评估失败时不追加回复，计划卡片照常保留。结果明确标识为未经过历史回测校准的条件模型估算：仅表示入场后、有效期内第1止盈或止损至少触达一个时，第1止盈先触达的概率，不是分批交易的最终净胜率。不会随机抬高结果，不修改计划价格，不自动交易。重新打开历史沿用原结果，不重新估算。客服可说明功能，不能代为分析行情或调整概率。源码候选尚不代表发布。",
+      "category": "plans",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": ["windows"],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/plan-probability-view.mjs",
+        "youle_desktop/src/main/cloud-plan-contract.mjs",
+        "youle_desktop/src/renderer/plan-probability-reply.css"
+      ]
+    },
+    {
+      "id": "haobao-preview",
+      "title": "你的 hao宝、策略广场与指标广场入口",
+      "body": "Windows 新任务下方新增固定悬浮入口“你的 hao宝”。首次进入展示介绍，点击继续进入欢迎页；点击顶部头像、名称或“自定义你的 hao宝”可选择云朵颜色、角色、表情及1–5字符名称，侧栏与消息头像同步更新；保存昵称后，侧栏入口同步显示“你的 新昵称”，重新打开时恢复当前账户已保存的名称。首条消息发出后切换为左侧K线图加右侧会话，之后每次进入均默认此布局；可通过右上角控件展开完整会话。欢迎大头像、名称、待命状态及欢迎内容收起，重新进入也不再出现；完整会话标题行与新任务展开后的标题行统一高度、字体和间距，展开时隐藏左上角控件；右上角自定义替换为展开/收起控件，可切换完整会话与左侧K线图加右侧hao宝会话。可通过会话标题继续修改外观。悬停在会话中的 hao宝 消息头像上，右上角显示铅笔图标，点击头像或铅笔打开同一头像和昵称设置弹窗；键盘聚焦头像也会显示，保存或取消后焦点返回原头像。消息左右排列并显示双方头像名称，鼠标悬停在气泡时，右下角显示灰色时间、复制和引用，用户消息另有本地收藏及编辑；移开自动隐藏，键盘聚焦操作时也会显示。外观、聊天状态、最近200条演示消息及其引用和收藏标记按账户保存在本机，草稿仅保留于当前会话。欢迎页无常驻创建成功或前端体验提示。当前仅为前端体验：不上传消息或文件、不执行监控、不创建云电脑、不发送主动消息，语音尚未接入，收藏不与云端收藏夹同步。侧栏原策略入口移至输入框加号→策略的选项框顶部，名称为“策略广场”，进入原策略页面；加号→指标的选项框顶部新增“指标广场”，直接进入策略页面的指标分类。客服只能说明操作，尚无 hao宝 代操作协议；代码候选不代表正式发布。",
+      "category": "haobao",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/haobao.ts",
+        "youle_desktop/src/renderer/haobao-avatar.ts",
+        "youle_desktop/src/renderer/haobao.css",
+        "youle_desktop/src/renderer/main.ts"
+      ]
+    },
+    {
       "id": "news-notifications",
       "title": "桌面新闻通知与文章阅读",
       "body": "配套版本上线后，超级管理员发布并选择同步到桌面端的新闻，会以标题和摘要在桌面右下角显示持续浮窗。点击在系统浏览器打开官网对应文章，关闭按钮仅关闭该通知。浮窗不会按任务完成通知的定时器自动消失，未处理通知保留到客户端下次启动。客户端运行并联网时自动检查新消息；离线后恢复联网可补收最近30天的新闻。Windows/macOS使用同一实现，macOS尚需原生验收。",
@@ -484,6 +608,74 @@
         "youle_desktop/src/renderer/color-picker.ts",
         "youle_desktop/src/renderer/main.ts",
         "youle_desktop/src/renderer/account-settings-sync.ts"
+      ]
+    },
+    {
+      "id": "right-target-bands-zh-cn",
+      "title": "右侧三档止盈强制区间",
+      "body": "配套后端上线后，新右侧计划三档净盈亏比固定为1:0.3–1:0.5、1:0.6–1:0.8、1:0.9–1:1.3。优先保留符合区间的原结构目标；缺失档位按对应区间随机生成有效精度价格，不再因结构目标不足而取消计划，也不压缩档位。价格计入费用并在生成后固定，重试、保存和历史恢复不重新随机；报告标明生成档位，不把它们作为结构预测。谐波保留原形态入场和止损。账户、交易精度及个人硬风控仍需通过。左侧及旧历史保持原规则；上线后重新分析生效。当前为源码候选，需核对后端实际版本。客服不能代用户调整风控、下单或激活计划。",
+      "category": "analysis",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/docs/right-target-bands-20261025.zh-CN.md",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs"
+      ]
+    },
+    {
+      "id": "right-target-bands-zh-hant",
+      "title": "右側三檔止盈強制區間",
+      "body": "配套後端上線後，新右側計畫三檔淨盈虧比固定為1:0.3–1:0.5、1:0.6–1:0.8、1:0.9–1:1.3。優先保留符合區間的原結構目標；缺失檔位按對應區間隨機產生有效精度價格，不再因結構目標不足而取消計畫，也不壓縮檔位。價格計入費用並在產生後固定，重試、儲存和歷史恢復不重新隨機；報告標明產生檔位，不將其作為結構預測。諧波保留原形態入場和止損。帳戶、交易精度及個人硬風控仍須通過。左側及舊歷史保持原規則；上線後重新分析生效。目前為原始碼候選，須核對後端實際版本。客服不能代使用者調整風控、下單或啟用計畫。",
+      "category": "analysis",
+      "locale": "zh-Hant",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/docs/right-target-bands-20261025.zh-CN.md",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs"
+      ]
+    },
+    {
+      "id": "right-target-bands-en",
+      "title": "Mandatory right-side profit-target bands",
+      "body": "After the matching backend release, new right-side plans require net reward:risk bands of 1:0.3–1:0.5, 1:0.6–1:0.8 and 1:0.9–1:1.3. Matching structural prices take priority. Missing exits are sampled randomly from valid price ticks within their bands, so insufficient structural targets no longer cancel a plan or compress its bands. Costs are included. Prices stay fixed across retries, saving and restoration; generated exits are labelled and are not predictive evidence. Harmonic entry and stop keep their native geometry. Account, precision and explicit risk limits still apply. Left-side and old saved plans retain their rules. Reanalyse after deployment. This is a source candidate; verify the deployed backend version. Support cannot change risk settings, place orders or activate plans.",
+      "category": "analysis",
+      "locale": "en",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/docs/right-target-bands-20261025.zh-CN.md",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs"
+      ]
+    },
+    {
+      "id": "right-target-bands-ko",
+      "title": "우측 진입 익절 목표의 필수 구간",
+      "body": "해당 백엔드 배포 후 새 우측 진입 계획의 순손익비 구간은 1:0.3–1:0.5, 1:0.6–1:0.8, 1:0.9–1:1.3입니다. 구간에 맞는 기존 구조 가격을 우선 보존하고, 없는 목표는 해당 구간의 유효한 가격 단위에서 무작위로 생성합니다. 구조 목표 부족으로 계획을 취소하거나 구간을 압축하지 않습니다. 비용을 반영하고 생성 가격을 고정하여 재시도, 저장 및 복원 시 다시 추출하지 않습니다. 생성한 목표는 보고서에 표시하며 예측 근거로 사용하지 않습니다. 하모닉 진입가와 손절가는 기존 패턴을 유지합니다. 계좌, 가격 정밀도 및 사용자 위험 한도 검증은 계속 적용됩니다. 좌측 진입과 과거 계획은 기존 규칙을 유지하며 배포 후 재분석해야 적용됩니다. 현재 소스 후보이므로 실제 배포 버전을 확인하세요. 고객지원은 위험 설정 변경, 주문 또는 계획 활성화를 대신할 수 없습니다.",
+      "category": "analysis",
+      "locale": "ko",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/docs/right-target-bands-20261025.zh-CN.md",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs"
       ]
     }
   ]

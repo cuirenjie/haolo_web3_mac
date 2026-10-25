@@ -28,6 +28,7 @@ import {showPlanShare} from './execution-plan-share.ts';
 import { createExternalTradingReplyPlanAttachments } from './external-trading-plan-images.ts';
 import './execution-plan-menu.css';
 import "./styles.css";
+import { createHaoBaoUi } from "./haobao";
 import { installInteractionRenderGuard, deferInteractionRender } from "./interaction-render-guard.ts";
 import {
   TRADING_PREFERENCE_CHOICE_FIELDS,
@@ -39,6 +40,8 @@ import {
 } from "./trading-preference-choices";
 import { createTradingPreferenceSettings } from "./trading-preference-settings.ts";
 import "../main/execution-plan-card.css";
+import "./plan-probability-reply.css";
+import { renderPlanProbabilityReply } from "../main/plan-probability-view.mjs";
 import { executionPlanStickyLayout } from "./execution-plan-card-layout.ts";
 import { executionPlanCardHeading, executionPlanCardBody, executionPlanCardFooter, executionPlanCardAction } from "../main/execution-plan-card-view.mjs";
 import "./trading-watchlist.css";
@@ -3184,6 +3187,7 @@ type LoginState = {
 
 type ViewId =
   | "chat"
+  | "haobao"
   | "account"
   | "contacts"
   | "results"
@@ -5268,6 +5272,12 @@ const CONTACT_REQUESTS: ContactRequestItem[] = [
 
 let cachedLoginIdentity = loadCachedLoginIdentity();
 
+const haoBaoUi = createHaoBaoUi(() => render());
+let haoBaoChartCollapsed = false;
+
+function haoBaoMarketSessionId() {
+  return `haobao-market-workspace:${String(state.auth.profile?.id || "guest")}`;
+}
 const state: UiState = {
   activeView: "chat",
   serverReady: false,
@@ -34091,6 +34101,17 @@ function renderComposerMentionSearchUpdate(selector: string, cursor: number) {
 }
 
 function bindComposerSkillMentionItemEvents(container: ParentNode) {
+  container.querySelectorAll<HTMLButtonElement>("[data-open-strategy-plaza], [data-open-indicator-plaza]").forEach(button => {
+    const open = (event: Event) => {
+      if (!state.composerSkillMention.open) return;
+      event.preventDefault();
+      event.stopPropagation();
+      dismissComposerSkillMentionPopover();
+      openMyConfigPage(button.hasAttribute("data-open-indicator-plaza") ? "indicators" : "mySkills");
+    };
+    button.addEventListener("pointerdown", open);
+    button.addEventListener("click", open);
+  });
   container
     .querySelectorAll<HTMLButtonElement>("[data-trading-expert-mention-option]")
     .forEach((button) => {
@@ -35447,11 +35468,13 @@ function restorePreservedPreviewVideo(preserved: PreservedPreviewVideo | null) {
 
 function preserveTradingExpertMarketWorkspace(): PreservedTradingExpertMarketWorkspace | null {
   const host = root.querySelector<HTMLElement>("[data-trading-market-workspace]");
-  const threadId = lastRenderedThreadId ?? state.currentThreadId;
-  if (!host || !host.parentElement || !threadId || !isTradingExpertSurfaceThreadId(threadId)) {
+  const haoBaoSessionId = host?.closest<HTMLElement>("[data-haobao-market-panel]")?.dataset.haobaoMarketPanel;
+  const haoBaoWorkspace = Boolean(haoBaoSessionId);
+  const threadId = haoBaoSessionId || lastRenderedThreadId || state.currentThreadId;
+  if (!host || !host.parentElement || !threadId || (!haoBaoWorkspace && !isTradingExpertSurfaceThreadId(threadId))) {
     return parkedTradingExpertMarketWorkspace;
   }
-  const storageSessionId = tradingExpertMarketWorkspaceStorageSessionId() || threadId;
+  const storageSessionId = haoBaoSessionId || tradingExpertMarketWorkspaceStorageSessionId() || threadId;
   const dialogs = captureTradingWorkspaceDialogs(host);
   const focus = captureTradingWorkspaceFocus(host);
   // Keep the chart connected outside the shell's innerHTML replacement. Removing
@@ -35544,7 +35567,7 @@ function restorePreservedTradingExpertMarketWorkspace(
     if (sourceStorageSessionId !== targetStorageSessionId) {
       forgetTradingExpertWorkspaceSessionAlias(sourceStorageSessionId);
     }
-    applyTradingExpertCustomIndicatorMentions(state.composerText);
+    if (state.activeView === "chat") applyTradingExpertCustomIndicatorMentions(state.composerText);
     restoreTradingWorkspaceDialogs(preserved.dialogs);
     restoreTradingWorkspaceFocus(preserved.host, preserved.focus);
     return;
@@ -35613,6 +35636,7 @@ function renderPerformancePayload(mode: string): Record<string, unknown> {
 }
 
 function render() {
+  if (haoBaoUi.composing) return;
   if (nativeSupportView?.composing) return;
   nativeSupportView?.captureFocus();
   if (nativeSupportController?.active && state.activeView !== "chat" && !nativeSupportController.assisting && !nativeSupportController.assistPinned) leaveNativeSupport(false);
@@ -35650,6 +35674,8 @@ function render() {
     return;
   }
   const renderStartedAt = rendererPerformanceTimingStart();
+  haoBaoUi.useAccount(String(state.auth.profile?.id || "guest"));
+  haoBaoUi.capture(root);
   formFieldFocusRestoreToken += 1;
   const hadTextFieldFocusBeforeRender = isTextFieldElement(document.activeElement);
   const hadTitlebarChannelTriggerFocus = document.activeElement instanceof HTMLElement
@@ -35701,6 +35727,8 @@ function render() {
     state.activeView === "chat" &&
     !state.chatPreview &&
     isTradingExpertSurfaceThreadId(thread?.id);
+  const haoBaoLayout = state.activeView === "haobao" && haoBaoUi.conversationStarted;
+  const marketLayout = tradingExpertLayout || haoBaoLayout;
   if (!tradingExpertLayout && state.tradingExpertChartFocusMode) {
     restoreTradingExpertChartFocusLayout();
   }
@@ -35708,6 +35736,7 @@ function render() {
     tradingExpertLayout && state.tradingExpertChartFocusMode;
   const workspaceHasConversationList =
     state.activeView === "chat" ||
+    state.activeView === "haobao" ||
     state.activeView === "account" ||
     state.activeView === "plans" ||
     state.activeView === "autoTasks" ||
@@ -35720,6 +35749,8 @@ function render() {
         ${renderChatPanel(thread)}
         ${state.chatPreview ? renderChatPreviewPanel() : renderAgentPanel(thread)}
       `
+      : state.activeView === "haobao"
+        ? `${renderChatList()}${haoBaoLayout ? `<main class="chat-panel trading-expert-chat-panel" data-haobao-market-panel="${escapeAttr(haoBaoMarketSessionId())}">${renderTradingExpertMarketWorkspace()}</main>` : ""}${haoBaoUi.renderPage({ name: currentProfileName(), avatar: renderRoleAvatar("user") }, renderHaoBaoPanelToggle())}`
       : state.activeView === "account"
         ? `
           ${renderChatList()}
@@ -35759,7 +35790,7 @@ function render() {
   const shellClasses = [
     "desktop-shell",
     isChatLeftCollapsed ? "left-panel-collapsed" : "",
-    tradingExpertLayout ? "trading-expert-shell" : "",
+    marketLayout ? "trading-expert-shell" : "",
     tradingExpertChartFocusMode ? "trading-expert-chart-focus-mode" : "",
   ]
     .filter(Boolean)
@@ -35777,8 +35808,8 @@ function render() {
     state.activeView === "chat" && state.rightCollapsed && !state.chatPreview
       ? "right-panel-collapsed"
       : "",
-    tradingExpertLayout ? "trading-expert-layout" : "",
-    tradingExpertLayout && state.tradingExpertChartCollapsed
+    marketLayout ? "trading-expert-layout" : "",
+    (tradingExpertLayout && state.tradingExpertChartCollapsed) || (haoBaoLayout && haoBaoChartCollapsed)
       ? "trading-expert-chart-collapsed"
       : "",
     tradingExpertChartFocusMode ? "trading-expert-chart-focus-mode" : "",
@@ -35806,11 +35837,12 @@ function render() {
       <div class="${bodyClasses}"${bodyStyle}>
         ${workspaceHasConversationList && !tradingExpertLayout ? renderLeftPanelToggle() : ""}
         ${tradingExpertLayout ? renderTradingExpertCollapseControls() : ""}
-        ${tradingExpertLayout ? renderTradingExpertPanelResizeHandles() : ""}
+        ${marketLayout ? renderTradingExpertPanelResizeHandles() : ""}
         ${mainContent}
       </div>
     </div>
     ${renderThreadHistoryPopover()}
+    ${state.activeView === "haobao" ? haoBaoUi.renderDialog() : ""}
     ${renderThreadContextMenuWithGroups()}
     ${renderThreadGroupContextMenu()}
     ${renderContactContextMenu()}
@@ -35855,7 +35887,7 @@ function render() {
   bindTradingExpertPanelResize(root);
   restorePreservedTradingExpertMarketWorkspace(
     preservedTradingExpertMarketWorkspace,
-    tradingExpertLayout ? thread?.id : null,
+    haoBaoLayout ? haoBaoMarketSessionId() : tradingExpertLayout ? thread?.id : null,
   );
   syncTradingExpertOrderLineSnapshot(state.binanceAccount.snapshot);
   if (
@@ -36103,11 +36135,12 @@ function showToast(message: string, timeoutMs = 3000) {
   }, timeoutMs);
 }
 
-function openMyConfigPage() {
+function openMyConfigPage(tab: "mySkills" | "indicators" = "mySkills") {
   if (state.activeView === "chat") rememberCurrentChatThreadSelection();
   state.activeView = "skillsPlaza";
-  state.skillsPlazaTab = "mySkills";
+  state.skillsPlazaTab = tab;
   state.skillCategory = "all";
+  state.skillSearch = "";
   state.contactChat.open = false;
   state.profileMenuOpen = false;
   state.externalChannels.menuOpen = false;
@@ -36993,14 +37026,12 @@ function renderWindowControls() {
   const avatarUrl = currentProfileAvatar();
   const profileName = currentProfileName();
   const showTradingExpertLeftPanelToggle =
-    state.activeView === "chat"
-    && !state.chatPreview
-    && isTradingExpertSurfaceThreadId(state.currentThreadId);
-  const showTradingExpertFavoriteTickers =
-    state.activeView === "chat"
+    (state.activeView === "chat"
     && !state.chatPreview
     && !state.tradingExpertChartCollapsed
-    && isTradingExpertSurfaceThreadId(state.currentThreadId);
+    && isTradingExpertSurfaceThreadId(state.currentThreadId))
+    || (state.activeView === "haobao" && haoBaoUi.conversationStarted && !haoBaoChartCollapsed);
+  const showTradingExpertFavoriteTickers = showTradingExpertLeftPanelToggle;
   return `
     <header class="app-titlebar" aria-label="应用标题栏">
       <div class="titlebar-sidebar-controls">
@@ -37033,6 +37064,7 @@ function renderWindowControls() {
 }
 
 function renderLeftPanelToggle(placement: "body" | "titlebar" = "body") {
+  if (placement === "body" && state.activeView === "haobao") return "";
   const collapsed = state.leftCollapsed;
   const label = collapsed ? "展开左侧栏" : "收起左侧栏";
   return `
@@ -37070,7 +37102,7 @@ function renderPanelLayoutIcon(side: "left" | "right") {
 }
 
 function toggleLeftPanelCollapsed() {
-  if (state.activeView !== "chat" && state.activeView !== "account" && state.activeView !== "plans" && state.activeView !== "autoTasks" && state.activeView !== "alerts" && state.activeView !== "skillsPlaza") return;
+  if (state.activeView !== "chat" && state.activeView !== "haobao" && state.activeView !== "account" && state.activeView !== "plans" && state.activeView !== "autoTasks" && state.activeView !== "alerts" && state.activeView !== "skillsPlaza") return;
   if (state.tradingExpertChartFocusMode && isTradingExpertSurfaceThreadId(state.currentThreadId)) {
     restoreTradingExpertChartFocusLayout();
     state.leftCollapsed = false;
@@ -39186,7 +39218,7 @@ function renderMessageExecutionPlan(
           <button type="button" data-message-execution-plan-action="increase"${fontSize>=MESSAGE_EXECUTION_PLAN_FONT_SIZES.at(-1)!?' disabled':''}>放大</button>
           <button type="button" data-message-execution-plan-action="decrease"${fontSize<=MESSAGE_EXECUTION_PLAN_FONT_SIZES[0]?' disabled':''}>缩小</button>
           ${card.readOnly?'':'<button type="button" data-message-execution-plan-action="sticky">便利贴</button>'}
-        </footer></div></section>`;
+        </footer></div></section>${options.allowPlanAction ? renderPlanProbabilityReply(report,state.settings.language) : ''}`;
     }).join('');
     return {bubbleContent:formatMessageText(text,options),cards:cards?`<div class="message-execution-plan-list">${cards}</div>`:''};
   }
@@ -39233,7 +39265,7 @@ function renderMessageExecutionPlan(
         <button type="button" data-message-execution-plan-action="sticky">便利贴</button>
       </footer>
       </div>
-    </section>`;
+    </section>${options.allowPlanAction ? renderPlanProbabilityReply(candidate.cloudReport,state.settings.language) : ''}`;
   }).join("");
   const after = partitions.after
     ? `<div class="message-execution-plan-context after">${formatMessageText(partitions.after, options)}</div>`
@@ -43151,7 +43183,6 @@ function renderConversationListActions() {
   const newConversationActive = !nativeSupportController?.active && state.activeView === "chat" && isBlankNewThread(state.currentThreadId);
   const accountActive = state.activeView === "account";
   const planningActive = state.activeView === "plans" || state.activeView === "alerts";
-  const skillsActive = state.activeView === "skillsPlaza";
   return `
     <div class="conversation-list-new-sticky">
       <div class="conversation-list-new-row">
@@ -43160,6 +43191,10 @@ function renderConversationListActions() {
           <span>新任务</span>
         </button>
       </div>
+      <button type="button" class="conversation-list-action ${state.activeView === "haobao" ? "active" : ""}" data-conversation-static-action="haobao" ${state.activeView === "haobao" ? 'aria-current="page"' : ""}>
+        ${haoBaoUi.sidebarIcon()}
+        <span>你的 ${escapeHtml(haoBaoUi.name)}</span>
+      </button>
     </div>
     <section class="conversation-list-secondary-actions" aria-label="任务分类">
       <button type="button" class="conversation-list-action ${accountActive ? "active" : ""}" data-conversation-static-action="account" ${accountActive ? 'aria-current="page"' : ""}>
@@ -43169,10 +43204,6 @@ function renderConversationListActions() {
       <button type="button" class="conversation-list-action ${planningActive ? "active" : ""}" data-conversation-static-action="plans" ${planningActive ? 'aria-current="page"' : ""}>
         ${renderConversationListIcon("plans")}
         <span>计划</span>
-      </button>
-      <button type="button" class="conversation-list-action ${skillsActive ? "active" : ""}" data-conversation-static-action="skills" ${skillsActive ? 'aria-current="page"' : ""}>
-        ${renderConversationListIcon("skills")}
-        <span>策略</span>
       </button>
     </section>
   `;
@@ -46802,6 +46833,11 @@ function renderChatPanel(thread: ConversationSummary | null) {
 
 function tradingExpertPanelToggleLabel(expanded: boolean) {
   return expanded ? "收起会话" : "展开会话";
+}
+
+function renderHaoBaoPanelToggle() {
+  const label = tradingExpertPanelToggleLabel(haoBaoChartCollapsed);
+  return `${renderTradingWatchlistToggle()}<button type="button" class="small-icon-button panel-toggle trading-expert-panel-header-toggle haobao-panel-toggle ${haoBaoChartCollapsed ? "expanded" : "collapsed"}" data-action="toggle-haobao-chart" title="${label}" aria-label="${label}" aria-expanded="${haoBaoChartCollapsed}">${renderPanelLayoutIcon("right")}</button>`;
 }
 
 function renderTradingExpertConversationHeader(thread: ConversationSummary) {
@@ -57288,6 +57324,8 @@ function renderTradingExpertMentionMenu(open: boolean) {
                       ${
                         item.options.length
                           ? `<div class="composer-mention-submenu trading-expert-mention-submenu" role="menu" aria-label="${item.label}选项">
+                              ${item.label === "策略" ? `<button type="button" class="trading-expert-mention-option haobao-strategy-plaza" role="menuitem" data-open-strategy-plaza>${renderConversationListIcon("skills")}<span>策略广场</span></button>` : ""}
+                              ${item.label === "指标" ? `<button type="button" class="trading-expert-mention-option haobao-strategy-plaza" role="menuitem" data-open-indicator-plaza><svg class="conversation-list-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4v16h16M7 14l4-5 4 3 5-7"/></svg><span>指标广场</span></button>` : ""}
                               ${item.options
                                 .map((option) => {
                                   const strategy = item.label === "策略" ? tradingStrategyByDisplayName(option) : null;
@@ -62283,6 +62321,18 @@ function handleRightPanelToggle(event: MouseEvent) {
 }
 
 function bindEvents() {
+  haoBaoUi.bind(root);
+  root.querySelector<HTMLButtonElement>('[data-conversation-static-action="haobao"]')?.addEventListener("click", () => {
+    if (state.activeView === "chat") rememberCurrentChatThreadSelection();
+    haoBaoChartCollapsed = false;
+    collapseTradingExpertWatchlist(tradingExpertFavoriteStorageAccountIdentity());
+    state.activeView = "haobao";
+    state.contactChat.open = false;
+    state.profileMenuOpen = false;
+    state.externalChannels.menuOpen = false;
+    dismissComposerSkillMentionPopover();
+    render();
+  });
   bindWindowControls();
   bindNativeSupportEvents();
   bindWebsiteSupportEvents();
@@ -65026,6 +65076,13 @@ function bindEvents() {
         state.officeActiveSheets[key] = index;
         render();
       });
+    });
+  root
+    .querySelector<HTMLButtonElement>('[data-action="toggle-haobao-chart"]')
+    ?.addEventListener("click", () => {
+      haoBaoChartCollapsed = !haoBaoChartCollapsed;
+      render();
+      root.querySelector<HTMLButtonElement>('[data-action="toggle-haobao-chart"]')?.focus({ preventScroll: true });
     });
   root
     .querySelectorAll<HTMLButtonElement>('[data-action="toggle-right-panel"]')

@@ -1,0 +1,20 @@
+.plan-probability-reply {
+  margin: 8px 0 20px;
+  padding: 16px;
+  border-radius: 16px;
+  background: var(--bubble-agent);
+  border: 1px solid var(--line);
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.plan-probability-reply p { margin: 8px 0 0; }
+.plan-probability-heading { color: var(--sub); font-size: 12px; }
+.plan-probability-value strong { font-size: 22px; white-space: nowrap; }
+.plan-probability-formula, .plan-probability-history, .plan-probability-basis { color: var(--sub); font-size: 12px; }
+.plan-probability-basis { margin-top: 10px; }
+.plan-probability-basis summary { cursor: pointer; }
+.plan-probability-basis summary:hover { color: var(--fg); }
+.plan-probability-basis summary:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+.plan-probability-summary { white-space: pre-line; }

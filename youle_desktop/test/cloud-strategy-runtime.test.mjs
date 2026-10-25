@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {createHash} from 'node:crypto';
+import {OFFICIAL_TRADING_CATALOG} from '../src/shared/official-trading-catalog.mjs';
 import {createCloudStrategyRuntime,cloudMarketContext,cloudAccountConnection} from '../src/main/trading-strategy-runtime/cloud-runtime.mjs';
 
 test('account selection consumes server effective consent and excludes missing or revoked bindings', () => {
@@ -20,6 +21,19 @@ test('account selection consumes server effective consent and excludes missing o
 const configHash='a'.repeat(64);
 const account={ownerId:'account@service',accountId:'account',baseUrl:'https://haolo.example'};
 const params={analysisJobId:'job-1',marketId:'BINANCE:FUTURES:BTCUSDT',interval:'60',preferencesRevision:3,preferencesHash:configHash};
+for(const strategy of OFFICIAL_TRADING_CATALOG)for(const side of ['做多策略','做空策略'])test(`request text reaches admission intact: ${strategy.id} ${side}`,async()=>{
+  const instruction=`@策略:${strategy.id} 本次左侧${side}，风险1%，不保本`;
+  const s=setup(({operation})=>{
+    if(operation==='capabilities')return {windowsWorkerReady:true,entryV2WorkerReady:true,windowsContract:'windows-v1',strategies:[{id:strategy.id,legacyWindows:true,entryModes:['left','right']}]};
+    if(operation==='createRun')throw Object.assign(Error('controlled admission stop'),{code:'TEST_STOP'});
+  });
+  await assert.rejects(s.runtime.run(strategy.id,{...params,instruction,
+    ...(strategy.id==='vpvr-analysis'?{visibleRange:{visibleFrom:1700000000000,visibleTo:1700100000000}}:{})}));
+  const body=s.calls.find(c=>c.operation==='createRun')?.payload;
+  assert.equal(body?.prompt,instruction);
+  assert.equal(body?.executionPolicy,'entry-v2');
+  assert.equal(body?.preferencesRevision,3);
+});
 function setup(handler, overrides={}) {
   const records=new Map(),calls=[];
   let current=account;

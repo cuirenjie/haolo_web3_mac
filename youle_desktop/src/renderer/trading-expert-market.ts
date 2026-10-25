@@ -5974,11 +5974,15 @@ class TradingExpertMarketWorkspace {
   };
 
   syncTitlebarFavoriteTickerHost() {
+    if (this.disposed || !this.host.isConnected) return;
     const titlebarHost = document.querySelector<HTMLElement>(
       "[data-titlebar-market-favorites-host]",
     );
-    if (!titlebarHost || this.favoriteTickerBar.parentElement === titlebarHost) return;
-    titlebarHost.append(this.favoriteTickerBar);
+    if (!titlebarHost) return;
+    if (this.favoriteTickerBar.parentElement === titlebarHost && titlebarHost.childElementCount === 1) return;
+    // This slot belongs to the current workspace, including after a delayed
+    // callback from a replaced chart or a renderer refresh.
+    titlebarHost.replaceChildren(this.favoriteTickerBar);
   }
 
   private persistAndApplyChartSettings(options: { rebuildSeries?: boolean } = {}) {
@@ -6959,12 +6963,15 @@ class TradingExpertMarketWorkspace {
   }
 
   private async syncFavoriteServer(force = false) {
+    if (this.disposed) return;
     const client = (window as any).codexDesktop;
     if (!this.favoriteStorageAccountIdentity || typeof client?.listTradingFavorites !== "function") return;
     if (!force && Date.now() - this.favoriteServerLastSyncAt < 10_000) return;
     return this.queueFavoriteServer(async () => {
+      if (this.disposed) return;
       try {
         let response = await client.listTradingFavorites();
+        if (this.disposed) return;
         const initialized = response?.initialized === true;
         // Initialize from the local default list before flushing changes: an
         // add can itself initialize the server and must not drop existing rows.
@@ -6973,12 +6980,16 @@ class TradingExpertMarketWorkspace {
           for (const record of localRecords) {
             const market = marketFromFavoriteRecord(record);
             if (market) await client.addTradingFavorite(tradingFavoriteApiPayload(market));
+            if (this.disposed) return;
           }
           response = await client.listTradingFavorites();
+          if (this.disposed) return;
         }
         if (this.watchlist.pendingMemberships.size) {
           await this.flushFavoriteServerMemberships();
+          if (this.disposed) return;
           response = await client.listTradingFavorites();
+          if (this.disposed) return;
         }
         const remoteRecords = Array.isArray(response?.items)
           ? response.items.map(tradingFavoriteRecordFromApi).filter(Boolean) as TradingFavoriteMarketRecord[]
@@ -7099,6 +7110,7 @@ class TradingExpertMarketWorkspace {
   }
 
   syncWatchlistHost() {
+    if (this.disposed || !this.host.isConnected) return;
     this.watchlistPanel.attach();
     this.syncWatchlistPicker();
     if (this.watchlistQuoteTimer === null && this.visibleWatchlistRecords().some((record) => record.provider !== "binance")) {
@@ -7226,6 +7238,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private renderFavoriteTickerBar() {
+    if (this.disposed) return;
     if (deferInteractionRender(this.favoriteTickerBar, () => this.renderFavoriteTickerBar())) return;
     this.watchlistPanel.paintQuotes();
     this.favoriteTickerSortController.cancel();
@@ -14042,6 +14055,8 @@ class TradingExpertMarketWorkspace {
   }
 
   destroy() {
+    if (this.disposed) return;
+    this.disposed = true;
     this.priceAlertControl.destroy();
     this.drawingVisibilitySettings.destroy();
     this.unregisterSettingsSync?.();
@@ -14049,8 +14064,6 @@ class TradingExpertMarketWorkspace {
     this.pickerPriceFlash.clear();
     this.watchlistPanel.destroy();
     if (this.watchlistQuoteTimer !== null) window.clearInterval(this.watchlistQuoteTimer);
-    if (this.disposed) return;
-    this.disposed = true;
     if (this.taskbarQuoteTimer !== null) window.clearInterval(this.taskbarQuoteTimer);
     this.taskbarQuoteTimer = null;
     void window.codexDesktop?.setTaskbarMarketQuote?.(null).catch(() => {});

@@ -5,6 +5,7 @@ import ts from 'typescript';
 import * as plans from '../../src/renderer/execution-plans.ts';
 import * as view from '../../src/main/execution-plan-card-view.mjs';
 import * as cloud from '../../src/main/cloud-plan-contract.mjs';
+import {renderPlanProbabilityReply} from '../../src/main/plan-probability-view.mjs';
 
 const names=['renderMessageExecutionPlan','renderExecutionPlanCardContent','renderAddToPlanAction','executionPlanCandidateKey'];
 function compile(file,functionNames=names) {
@@ -17,7 +18,7 @@ const savedRenderer=compile(new URL('../../src/renderer/main.ts',import.meta.url
 const original=process.env.HAOLO_RIGHT_BASELINE_ROOT?compile(path.join(process.env.HAOLO_RIGHT_BASELINE_ROOT,'youle_desktop/src/renderer/main.ts')):null;
 function harness(source,language) {
   const candidates=new Map(),escape=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const deps={...plans,...view,...cloud,state:{settings:{language},executionPlans:[]},executionPlanCandidatesBySource:candidates,executionPlanAlertSyncBusyIds:new Set(),
+  const deps={...plans,...view,...cloud,renderPlanProbabilityReply,state:{settings:{language},executionPlans:[]},executionPlanCandidatesBySource:candidates,executionPlanAlertSyncBusyIds:new Set(),
     escapeHtml:escape,escapeAttr:escape,formatMessageText:escape,syncExecutionPlansForCurrentAccount:()=>{},
     loadMessageExecutionPlanFontSize:()=>13,MESSAGE_EXECUTION_PLAN_FONT_SIZES:[11,12,13,14,16,18,20]};
   return Function(...Object.keys(deps),source+`;return {${names.join(',')},candidates:executionPlanCandidatesBySource};`)(...Object.values(deps));
