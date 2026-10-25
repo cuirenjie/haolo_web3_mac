@@ -3532,6 +3532,25 @@ export class YouleApiClient {
     });
   }
 
+  async marketNewsRequest(params = {}, operation = 'list') {
+    await this.load(); this.requireAuth();
+    const revision = this.authRevision;
+    const id = String(params.id || '');
+    if (operation !== 'list' && !/^\d{1,20}$/.test(id)) throw Error('INVALID_NEWS_ID');
+    if (params.day && !/^\d{4}-\d{2}-\d{2}$/.test(params.day)) throw Error('INVALID_NEWS_DATE');
+    if (params.cursor && !/^\d{1,20}$/.test(params.cursor)) throw Error('INVALID_NEWS_CURSOR');
+    if (operation === 'vote' && ![-1,0,1].includes(params.direction)) throw Error('INVALID_NEWS_VOTE');
+    const endpoint = '/api/market-data/news' + (operation === 'list' ? '' : `/${id}${operation === 'vote' ? '/vote' : ''}`);
+    const target = operation === 'list' ? appendQuery(endpoint, {day:params.day,cursor:params.cursor,language:params.language === 'en' ? 'en' : 'cn'}) : endpoint;
+    const response = await this.requestJson(joinUrl(this.baseUrl, target), {
+      method: operation === 'vote' ? 'PUT' : 'GET', headers: this.clientHeaders({auth:true,json:operation === 'vote'}),
+      ...(operation === 'vote' ? {body:JSON.stringify({direction:params.direction})} : {}),
+      timeoutMs: 25_000, timeoutMessage:'NEWS_UNAVAILABLE',
+    });
+    if (revision !== this.authRevision) throw Error('SESSION_CHANGED');
+    this.requireAuth(); return response;
+  }
+
   async searchFinnhubMarkets(params = {}) {
     await this.load();
     this.requireAuth();

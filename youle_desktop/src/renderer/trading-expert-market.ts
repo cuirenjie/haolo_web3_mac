@@ -1,4 +1,5 @@
 import { customChartSurface } from './custom-theme.ts';
+import { MarketNewsController, renderMarketPageSwitch, type NewsMarket } from './market-news.ts';
 import { requestIndexChart, INDEX_RESOLUTIONS, indexPeriodFor } from "./trading-index-chart.ts";
 import { deferInteractionRender } from "./interaction-render-guard.ts";
 import { openBoundAnalysisChart } from "./trading-analysis-chart-context.ts";
@@ -4825,6 +4826,7 @@ export function renderTradingExpertMarketWorkspace() {
   return `
     <section class="trading-expert-market" data-trading-market-workspace aria-label="实时交易行情">
       <div class="trading-market-workspace-body">
+        ${renderMarketPageSwitch()}
         ${renderTradingDrawingToolbar()}
         <div class="trading-market-content">
           <div class="trading-market-overview">
@@ -5080,6 +5082,7 @@ class TradingExpertMarketWorkspace {
   private openIndicatorWidthMenuKey: string | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private themeObserver: MutationObserver | null = null;
+  private newsController: MarketNewsController;
   private marketStreamSubscriptionId: string | null = null;
   private marketSocketLastActivityAt = 0;
   private marketKlineLastActivityAt = 0;
@@ -5217,6 +5220,7 @@ class TradingExpertMarketWorkspace {
     newTaskWorkspace = false,
   ) {
     this.host = host;
+    this.newsController = new MarketNewsController(host, (market) => this.openNewsMarket(market));
     this.newTaskWorkspace = newTaskWorkspace;
     this.favoriteStorageAccountIdentity = favoriteStorageAccountIdentity;
     this.indexFavorites = new TradingIndexFavorites(window.localStorage, favoriteStorageAccountIdentity);
@@ -9483,6 +9487,16 @@ class TradingExpertMarketWorkspace {
       const context = this.alertContextSnapshot();
       void window.codexDesktop.tradingAlertsSyncDrawings?.({ marketId: context.marketId, interval: context.interval, drawings: context.drawings });
     }, 180);
+  }
+
+  private async openNewsMarket(market: NewsMarket) {
+    if (!this.markets.length) await this.loadMarkets();
+    const matches = this.markets.filter(row => row.symbol.toUpperCase() === market.symbol.toUpperCase());
+    const target = matches.find(row => row.provider === market.venue && row.marketType === market.marketType)
+      || matches.find(row => row.provider === 'binance' && row.marketType === market.marketType)
+      || matches.find(row => row.provider === 'binance');
+    if (!target) throw new Error('NEWS_MARKET_UNAVAILABLE');
+    await this.prepareAlertContext(target.id, null, {strictMarketId:true, assertActive:()=> { if(this.disposed)throw Error('WORKSPACE_CLOSED'); }});
   }
 
   async prepareAlertContext(
@@ -14057,6 +14071,7 @@ class TradingExpertMarketWorkspace {
   destroy() {
     if (this.disposed) return;
     this.disposed = true;
+    this.newsController.destroy();
     this.priceAlertControl.destroy();
     this.drawingVisibilitySettings.destroy();
     this.unregisterSettingsSync?.();

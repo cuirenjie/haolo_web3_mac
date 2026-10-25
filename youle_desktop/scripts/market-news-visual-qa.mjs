@@ -1,0 +1,76 @@
+import {app,BrowserWindow} from 'electron/main';
+import {createServer} from 'vite';
+import assert from 'node:assert/strict';
+import {readFile,writeFile,mkdir} from 'node:fs/promises';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
+const output=path.join(root,'output/flash-news-20261025');
+app.setPath('userData',path.join(output,'qa-profile'));app.disableHardwareAcceleration();
+let server,win;const report={checks:[],screenshots:[],errors:[]};
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+async function main(){try{
+  console.log('news QA: preparing');
+  await mkdir(output,{recursive:true});
+  const fixtures=JSON.parse(await readFile(path.join(output,'provider-fixtures.json'),'utf8'));
+  for(const page of [fixtures.latest,fixtures.older,fixtures.history,fixtures.english])for(const row of page.items)Object.assign(row,{bullish:row.upstreamBullish,bearish:row.upstreamBearish,vote:0});
+  server=await createServer({configFile:false,root:path.join(root,'src/renderer'),server:{host:'127.0.0.1',port:5198,strictPort:true,hmr:false,fs:{allow:[root]}},clearScreen:false});console.log('news QA: server created');await server.listen();console.log('news QA: listening');await app.whenReady();console.log('news QA: electron ready');
+  win=new BrowserWindow({show:false,width:1500,height:1040,webPreferences:{partition:'news-qa',offscreen:true,backgroundThrottling:false,sandbox:true,contextIsolation:true}});
+  win.webContents.on('console-message',(_event,_level,message)=>{if(/Uncaught|ResizeObserver loop/.test(message))report.errors.push(message);});
+  const js=source=>win.webContents.executeJavaScript(`(async()=>{${source}})()`,true);
+  const until=async expression=>{for(let n=0;n<160;n++){if(await js(`return ${expression}`))return;await sleep(80);}throw Error('Timeout: '+expression+'; '+await js('return window.qaError'));};
+  const click=selector=>js(`document.querySelector(${JSON.stringify(selector)}).click()`);
+  const screenshot=async name=>{await js('document.querySelector(".market-news-toast")?.remove()');await sleep(150);await writeFile(path.join(output,name),(await win.webContents.capturePage()).toPNG());report.screenshots.push(name);};
+  await win.loadURL(`${server.resolvedUrls.local[0]}@fs/${path.join(root,'test/fixtures/trading-watchlist.html').replaceAll('\\','/')}`);await until('window.ready');
+  await js(`window.fixtures=${JSON.stringify(fixtures)};window.newsCalls=[];window.votes=new Map();window.newsFailure=false;window.voteFailure=false;window.copiedImage=null;window.savedImage=null;
+    window.codexDesktop.getMarketNews=async p=>{newsCalls.push(p);if(newsFailure)throw Error('offline');const page=structuredClone(p.day?fixtures.history:p.cursor?fixtures.older:p.language==='en'?fixtures.english:fixtures.latest);for(const row of page.items){const vote=votes.get(row.id)||0;Object.assign(row,{vote,bullish:row.upstreamBullish+(vote===1?1:0),bearish:row.upstreamBearish+(vote===-1?1:0)});}return page;};
+    window.codexDesktop.voteMarketNews=async p=>{await new Promise(r=>setTimeout(r,50));if(voteFailure)throw Error('offline');votes.set(p.id,p.direction);const row=fixtures.latest.items.find(r=>r.id===p.id);return {id:p.id,vote:p.direction,bullish:row.upstreamBullish+(p.direction===1?1:0),bearish:row.upstreamBearish+(p.direction===-1?1:0)};};
+    window.codexDesktop.copyAttachmentToClipboard=async p=>{copiedImage=p;return {ok:true};};
+    window.codexDesktop.saveMarketNewsImage=async p=>{savedImage=p;return {saved:true};};
+    window.codexDesktop.openExternal=async url=>{window.openedUrl=url;};
+    window.originalChart=workspace.chart;window.originalCanvas=workspace.chartElement.querySelector('canvas');`);
+  await screenshot('01-chart-switch.png');
+  const geometry=await js(`const a=document.querySelector('[data-market-page-switch]').getBoundingClientRect(),b=document.querySelector('.trading-drawing-group').getBoundingClientRect();return {bottom:a.bottom,toolTop:b.top}`);
+  assert.ok(geometry.toolTop>=geometry.bottom,'drawing tools must move down');
+  await click('[data-news-action="menu"]');await screenshot('02-page-menu.png');
+  await click('[data-news-action="browser"]');assert.match(await js('return document.querySelector(".market-news-toast").textContent'),/正在开发中/);
+  await click('[data-news-action="menu"]');await click('[data-news-action="news"]');await until('document.querySelectorAll(".market-news-row").length===30');
+  await screenshot('03-news-light.png');
+  const id=fixtures.latest.items[0].id, selector=`[data-news-id="${id}"]`;
+  const state=()=>js(`const row=document.querySelector('${selector}');return [...row.querySelectorAll('[data-news-action="vote"]')].map(b=>({pressed:b.getAttribute('aria-pressed'),count:Number(b.querySelector('span').textContent),disabled:b.disabled}))`);
+  const baseline=await state();
+  await click(selector+' [data-direction="1"]');await until(`!document.querySelector('${selector} [data-direction="1"]').disabled`);
+  assert.equal((await state())[0].count,baseline[0].count+1);
+  await click(selector+' [data-direction="1"]');await until(`!document.querySelector('${selector} [data-direction="1"]').disabled`);assert.equal((await state())[0].count,baseline[0].count);
+  await click(selector+' [data-direction="1"]');await until(`!document.querySelector('${selector} [data-direction="1"]').disabled`);
+  await click(selector+' [data-direction="-1"]');await until(`!document.querySelector('${selector} [data-direction="-1"]').disabled`);assert.deepEqual((await state()).map(x=>x.count),[baseline[0].count,baseline[1].count+1]);
+  await js('voteFailure=true');await click(selector+' [data-direction="-1"]');await until(`!document.querySelector('${selector} [data-direction="-1"]').disabled`);assert.equal((await state())[1].pressed,'true');await js('voteFailure=false');
+  report.checks.push('vote/cancel/switch/failure rollback');
+  await click(selector+' [data-news-action="share"]');await until('!!window.copiedImage');assert.match(await js('return copiedImage.base64'),/^iVBOR/);
+  await screenshot('04-share-light.png');await click('[data-share="3"]');await until('!!window.savedImage');
+  await writeFile(path.join(output,'share-card.png'),Buffer.from(await js('return copiedImage.base64'),'base64'));
+  await click('[data-share="1"]');assert.match(await js('return openedUrl'),/^https:\/\/x.com\/intent\/tweet/);
+  await click('.market-news-share-close');report.checks.push('share PNG/copy/download/social URL');
+  await click('.market-news-date');await screenshot('05-calendar-light.png');
+  const day=fixtures.history.items[0] && new Date(fixtures.history.items[0].timestamp*1000+8*3600_000).toISOString().slice(0,10);
+  await click(`[data-news-action="day"][data-day="${day}"]`);await click('[data-news-action="confirm-date"]');await until(`newsCalls.at(-1).day==='${day}'&&!workspace.newsController.loading`);
+  assert.equal(await js('return document.querySelector(".market-news-row").dataset.newsId'),fixtures.history.items[0].id);report.checks.push('calendar date query');
+  await click('[data-news-action="latest"]');await until(`!workspace.newsController.loading`);
+  await click('[data-news-action="more"]');await until('document.querySelectorAll(".market-news-row").length===60');report.checks.push('exclusive pagination');
+  const btc=fixtures.latest.items.find(row=>row.markets.some(m=>m.coin==='BTC'));
+  await click(`[data-news-id="${btc.id}"] [data-news-action="market"]`);await until(`!document.querySelector('[data-market-news]').hidden===false`);
+  assert.match(await js('return workspace.selectedMarketId'),/BTCUSDT/);assert.equal(await js('return workspace.chart===originalChart&&workspace.chartElement.querySelector("canvas")===originalCanvas'),true);report.checks.push('pair navigation preserves chart/canvas');
+  for(const locale of ['zh-CN','zh-TW','en','ko'])for(const theme of ['light','dark']){
+    await js(`qaSetLanguage('${locale}');document.documentElement.dataset.theme='${theme}';workspace.newsController.setMode('news')`);await until('!workspace.newsController.loading');
+    await screenshot(`news-${locale}-${theme}.png`);
+    await click('.market-news-date');await screenshot(`calendar-${locale}-${theme}.png`);await click('[data-news-action="cancel-date"]');
+  }
+  report.checks.push('four locales/two themes');
+  await js("qaSetLanguage('zh-CN')");await until('!workspace.newsController.loading');win.setSize(850,760);await screenshot('06-narrow.png');
+  await js('newsFailure=true');await click('[data-news-action="latest"]');await until('!workspace.newsController.loading');assert.ok(await js('return !!document.querySelector(".market-news-notice")'));report.checks.push('error/retry state');
+  await js('workspace.destroy()');assert.equal(await js('return workspace.newsController.disposed'),true);report.checks.push('lifecycle disposal');
+  assert.deepEqual(report.errors,[]);report.status='passed';
+}catch(error){report.status='failed';report.error=String(error.stack||error);process.exitCode=1;}
+finally{await writeFile(path.join(output,'visual-report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report));win?.destroy();await server?.close();app.exit(process.exitCode||0);}
+}
+void main();

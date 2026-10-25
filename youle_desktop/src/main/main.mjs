@@ -11,6 +11,7 @@ import { CodexTradingArtifacts } from "./codex-trading-artifacts.mjs";
 import { withBusinessPresentationHistory } from "./business-presentation-history.mjs";
 import { cloudReportFromResponse } from "./cloud-plan-contract.mjs";
 import { savePlanShareImage } from './execution-plan-share.mjs';
+import { saveNewsImage } from './market-news-share.mjs';
 import { workflowCodexIntakeHooks } from "./codex-workflow-intake.mjs";
 import { withModelToolNetwork } from "./model-tool-network.mjs";
 import { errorSignals } from "./error-signals.mjs";
@@ -13349,6 +13350,20 @@ ipcMain.handle("marketData:getIndexChart", async (event, params = {}) => {
   assertExternalModelsIpcSender(event);
   await waitForAuthChangeRestart();
   return getYouleApiClient().getIndexChart(params);
+});
+
+for (const operation of ['list','detail','vote']) {
+  ipcMain.handle(`marketNews:${operation}`, async (event, params = {}) => {
+    assertExternalModelsIpcSender(event);
+    await waitForAuthChangeRestart();
+    return getYouleApiClient().marketNewsRequest(params, operation);
+  });
+}
+ipcMain.handle('marketNews:saveImage', async (event, params = {}) => {
+  assertExternalModelsIpcSender(event);
+  const client=getYouleApiClient(), revision=client.authRevision;
+  client.requireAuth();
+  return saveNewsImage({dataUrl:params.dataUrl,window:BrowserWindow.fromWebContents(event.sender),dialog,language:appLanguage(),valid:()=>revision===client.authRevision});
 });
 
 ipcMain.handle("binanceMarket:publicGet", async (event, params = {}) => {

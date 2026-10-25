@@ -2044,6 +2044,10 @@ type DesktopApi = {
   getFinnhubMarketQuotes?(params: { symbols: string[] }): Promise<any>;
   getPublicMarketIndices?(): Promise<import("./trading-public-indices.ts").PublicIndicesSnapshot>;
   getIndexChart?(params: {indexId: string; period?: string; before?: number}): Promise<import("./trading-index-chart.ts").IndexChartResponse>;
+  getMarketNews?(params: import('./market-news.ts').NewsQuery): Promise<import('./market-news.ts').NewsPage>;
+  getMarketNewsDetail?(params: {id:string}): Promise<{item:import('./market-news.ts').NewsItem;status:string}>;
+  voteMarketNews?(params: {id:string;direction:number}): Promise<{id:string;vote:number;bullish:number;bearish:number}>;
+  saveMarketNewsImage?(params: {dataUrl:string}): Promise<{saved:boolean}>;
   getFinnhubMarketSnapshot?(params: {
     symbol: string;
     assetClass?: string;

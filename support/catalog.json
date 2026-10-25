@@ -677,6 +677,74 @@
         "youle_desktop/docs/right-target-bands-20261025.zh-CN.md",
         "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs"
       ]
+    },
+    {
+      "id": "market-news-zh-cn",
+      "title": "K线、快讯与浏览器入口",
+      "body": "K线左侧工具栏顶部可切换K线与快讯，绘图工具下移。快讯来自AiCoin，可按日期查看、分页、点击已支持的交易对打开K线、复制或下载分享图片及链接。每个账号每条快讯只能投利好或利空一票，再次点击取消；统计包含上游票数与HaoLo账号票数。浏览器提示正在开发中，还未上线。需配套客户端与业务API版本，本条为发布候选。",
+      "category": "market-news",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/market-news.ts",
+        "youle_desktop/src/main/youle-api-client.mjs"
+      ]
+    },
+    {
+      "id": "market-news-zh-hant",
+      "title": "K線、快訊與瀏覽器入口",
+      "body": "K線左側工具列頂部可切換K線與快訊，繪圖工具下移。快訊來自AiCoin，可按日期查看、分頁、點擊已支援的交易對開啟K線、複製或下載分享圖片及連結。每個帳號每條快訊只能投利好或利空一票，再次點擊取消；統計包含上游票數與HaoLo帳號票數。瀏覽器提示正在開發中，尚未上線。需配套用戶端與業務API版本，本條為發布候選。",
+      "category": "market-news",
+      "locale": "zh-Hant",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/market-news.ts",
+        "youle_desktop/src/main/youle-api-client.mjs"
+      ]
+    },
+    {
+      "id": "market-news-en",
+      "title": "Charts, news flashes and browser entry",
+      "body": "Switch between charts and AiCoin news using the button above the drawing toolbar. Browse by date, load older items, open supported trading pairs, and copy or download a share image or link. Each account has one bullish or bearish vote per item; clicking the selected vote cancels it. Counts combine upstream votes with HaoLo votes. The browser entry displays an in-development notice. Requires matching client and API releases; this entry is a release candidate.",
+      "category": "market-news",
+      "locale": "en",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/market-news.ts",
+        "youle_desktop/src/main/youle-api-client.mjs"
+      ]
+    },
+    {
+      "id": "market-news-ko",
+      "title": "차트, 속보 및 브라우저 메뉴",
+      "body": "그리기 도구 위 버튼에서 차트와 AiCoin 속보를 전환합니다. 날짜별 조회, 이전 속보, 지원 거래쌍 차트, 공유 이미지 복사 및 다운로드와 링크를 제공합니다. 계정마다 속보당 호재 또는 악재 한 표만 가능하며 다시 누르면 취소됩니다. 원본 집계와 HaoLo 투표가 합산됩니다. 브라우저는 개발 중 안내를 표시합니다. 클라이언트 및 API 배포가 필요한 후보 기능입니다.",
+      "category": "market-news",
+      "locale": "ko",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/market-news.ts",
+        "youle_desktop/src/main/youle-api-client.mjs"
+      ]
     }
   ]
 }
