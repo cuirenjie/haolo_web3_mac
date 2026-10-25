@@ -7,6 +7,19 @@ export const HAOLO_CHROME_NATIVE_HOST_NAME = "com.haolo.chrome";
 export const HAOLO_CHROME_DEVELOPMENT_EXTENSION_ID = "eigggpflnllomdeppbengffgoealckcb";
 const execFile = promisify(execFileCallback);
 
+export function chromeRuntimePaths({ appPath, resourcesPath, isPackaged, env = process.env }) {
+  // The branded Windows dev executable can report isPackaged=true. Resolve
+  // its host, release policy and extension together from the actual app root.
+  const developmentRuntime = Boolean(env.HAOLO_DESKTOP_DEV_SERVER_URL || env.CODEX_DESKTOP_DEV_SERVER_URL || env.YOULE_DESKTOP_DEV_SERVER_URL);
+  const packaged = isPackaged && !developmentRuntime;
+  const resources = packaged ? resourcesPath : path.join(appPath, "resources");
+  return {
+    hostExecutablePath: path.join(resources, "bin", "haolo-chrome-native-host.exe"),
+    releasePolicyPath: path.join(resources, "chrome-release-policy.json"),
+    extensionDirectory: packaged ? path.join(resources, "chrome-extension") : path.join(appPath, "extensions", "haolo-chrome"),
+  };
+}
+
 export class ChromeNativeHostManager {
   constructor({
     userDataPath,
@@ -97,8 +110,8 @@ export class ChromeNativeHostManager {
     }
     if (queryRegistry) {
       try {
-        const query = await this.commandRunner("reg.exe", ["QUERY", this.registryKey(), "/ve"]);
-        result.registryRegistered = normalizeWindowsPath(query.stdout).includes(normalizeWindowsPath(manifestPath));
+        const registeredPath = await readChromeNativeHostRegistration(this.commandRunner);
+        result.registryRegistered = normalizeWindowsPath(registeredPath) === normalizeWindowsPath(manifestPath);
       } catch {
         result.registryRegistered = false;
       }
@@ -118,6 +131,17 @@ export class ChromeNativeHostManager {
 }
 export function chromeExtensionOrigins(extensionIds = [HAOLO_CHROME_DEVELOPMENT_EXTENSION_ID]) {
   return normalizeExtensionIds(extensionIds).map((id) => `chrome-extension://${id}/`);
+}
+
+// reg.exe emits the Windows console code page, not necessarily UTF-8. Read the
+// Unicode registry value directly and transport it as ASCII base64 instead of
+// parsing localized reg.exe output (which corrupts Chinese user directories).
+export async function readChromeNativeHostRegistration(commandRunner = runCommand) {
+  const script = `[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes([string][Microsoft.Win32.Registry]::GetValue('HKEY_CURRENT_USER\\Software\\Google\\Chrome\\NativeMessagingHosts\\${HAOLO_CHROME_NATIVE_HOST_NAME}', '', '')))`;
+  const result = await commandRunner("powershell.exe", [
+    "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64"),
+  ]);
+  return Buffer.from(String(result.stdout || "").trim(), "base64").toString("utf16le");
 }
 
 async function runCommand(command, args, options = {}) {

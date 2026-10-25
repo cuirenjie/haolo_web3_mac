@@ -31,7 +31,7 @@ test("legacy model IDs migrate while old recovery windows cannot reverse the new
   assert.equal(saved.model, oldModel);
   assert.equal(migrateDeepSeekModelSelection(migrated), migrated);
   const state = { version: 1, activatedAt: 1000, fallbackUntil: 1000 + ANALYSIS_RECOVERY_WINDOW_MS };
-  assert.equal(withAnalysisModelRecoveryPolicy(saved, state, 1001).effort, "max");
+  assert.equal(withAnalysisModelRecoveryPolicy(saved, state, 1001).effort, "low");
   assert.equal(withAnalysisModelRecoveryPolicy(saved, state, 1001).model, model);
   assert.equal(withAnalysisModelRecoveryPolicy(saved, state, state.fallbackUntil).model, model);
   assert.equal(normalizeRuntimeThreadModelSettings(saved).model, model);
@@ -46,27 +46,27 @@ test("model lists deduplicate aliases while execution permissions require the au
   const options = executionChatModelOptions(state);
   assert.equal(options.length, 1);
   assert.equal(options[0].value, model);
-  assert.ok(options[0].reasoningEfforts.some(e => e.value === "max"));
+  assert.deepEqual(options[0].reasoningEfforts.map(e => e.value), ["low"]);
   const client = new YouleApiClient();
   client.businessModelPoolsCache = { result: state };
   client.modelKeys = [{ groupId: 15, provider: "deepseek", apiKey: "synthetic-test-key" }];
   assert.equal(client.businessModelCredential("execution", "root_execution", oldModel, "deepseek").model.id, model);
 });
 
-test("a legacy DeepSeek selection follows the current GPT fallback with its credential route", async () => {
+test("a legacy DeepSeek selection ignores a stale GPT fallback and keeps its DeepSeek credential route", async () => {
   const calls = [];
   const provider = createAppServerTradingAnalysisProvider({ modelId: oldModel, modelProvider: "deepseek",
     selectModel: () => ({ modelId: "gpt-5.6-sol", fallback: false }),
     invoke: async selection => { calls.push(selection); return { status: "success", text: "completed" }; },
   });
   await provider.analyze({ task: "price-action-theory-review" }, { reasoningEffort: "medium" });
-  assert.equal(calls[0].modelId, "gpt-5.6-sol");
-  assert.equal(calls[0].modelProvider, "haolo_ai");
-  // Repairing the current fallback review keeps GPT/high and its credential route.
+  assert.equal(calls[0].modelId, "deepseek-flash");
+  assert.equal(calls[0].modelProvider, "deepseek");
+  // Stale recovery metadata cannot change the inference model or effort.
   await provider.analyze({ task: "price-action-theory-review" }, { recoveryModel: "gpt-5.6-sol" });
-  assert.equal(calls[1].modelId, "gpt-5.6-sol");
-  assert.equal(calls[1].modelProvider, "haolo_ai");
-  assert.equal(calls[1].reasoningEffort, "high");
+  assert.equal(calls[1].modelId, "deepseek-flash");
+  assert.equal(calls[1].modelProvider, "deepseek");
+  assert.equal(calls[1].reasoningEffort, "low");
 });
 
 test("old runtime settings cannot be mistaken for confirmation of the migrated target", async () => {

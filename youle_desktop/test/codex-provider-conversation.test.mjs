@@ -128,60 +128,18 @@ test("isolated channel messages create fresh roots and never submit stored trans
   assert.match(starts[1].params.input[0].text, /second message only/);
 });
 
-test("isolated channel recovery continues the same current request and ignores duplicate failed terminals", async t => {
-  const f = fixture(t, { complete: false });
-  let recoveryParams;
-  f.runner.recoverTurn = async params => { recoveryParams = params; return { model: "recovery-model" }; };
-  const pending = f.runner.run({ client: f.client, params: { ...f.params, provider: "channel-codex" }, isolated: true });
-  await new Promise(r => setImmediate(r));
-  const first = f.calls.find(c => c.method === "turn/start");
-  const firstContext = f.broker.contexts.get(first.params.threadId);
-  const previousToken = firstContext.token;
-  const failedId = firstContext.turnId;
-  const failed = { method: "turn/completed", params: { threadId: first.params.threadId,
-    turn: { id: failedId, status: "failed", error: { message: "stream disconnected before completion" } } } };
-  f.client.emit("notification", failed);
-  f.client.emit("notification", failed);
-  await new Promise(r => setImmediate(r));
-  assert.equal(recoveryParams.threadId, first.params.threadId);
-  const starts = f.calls.filter(c => c.method === "turn/start");
-  assert.equal(starts.length, 2);
-  assert.equal(starts[1].params.model, "recovery-model");
-  assert.match(starts[1].params.input[0].text, /logical continuation/);
-  const resumed = f.broker.contexts.get(first.params.threadId);
-  assert.notEqual(resumed.token, previousToken);
-  assert.equal(resumed.userText, "question");
-  f.client.emit("notification", { method: "item/completed", params: { threadId: first.params.threadId, turnId: resumed.turnId,
-    item: { type: "agentMessage", phase: "final_answer", text: "recovered answer" } } });
-  f.client.emit("notification", { method: "item/completed", params: { threadId: first.params.threadId, turnId: failedId,
-    item: { type: "agentMessage", phase: "final_answer", text: "stale answer" } } });
-  f.client.emit("notification", { method: "turn/completed", params: { threadId: first.params.threadId, turn: { id: resumed.turnId, status: "completed" } } });
-  assert.equal((await pending).text, "recovered answer");
-  assert.equal(f.calls.filter(c => c.method === "thread/start").length, 1);
-  assert.equal(f.calls.filter(c => c.method === "thread/delete").length, 1);
-});
-
-test("cancel during channel recovery cannot launch a delayed continuation", async t => {
-  const f = fixture(t, { complete: false });
-  let release;
-  f.runner.recoverTurn = () => new Promise(resolve => { release = resolve; });
-  const controller = new AbortController();
-  const pending = f.runner.run({ client: f.client, params: f.params, isolated: true, signal: controller.signal });
-  pending.catch(() => {});
-  await new Promise(r => setImmediate(r));
-  const context = [...f.broker.contexts.values()][0];
-  f.client.emit("notification", { method: "turn/completed", params: { threadId: context.threadId,
-    turn: { id: context.turnId, status: "failed", error: { message: "HTTP 503 service unavailable" } } } });
-  assert.equal(typeof release, "function");
-  controller.abort();
-  await assert.rejects(pending, /cancelled/);
-  release({ model: "recovery" });
-  await new Promise(r => setImmediate(r));
-  assert.equal(f.calls.filter(c => c.method === "turn/start").length, 1);
+test("duplicate channel failures never launch a GPT continuation",async t=>{
+ const f=fixture(t,{complete:false});let recoveries=0;f.runner.recoverTurn=async()=>{recoveries++;return {model:'gpt-5.6-sol'}};
+ const pending=f.runner.run({client:f.client,params:f.params,isolated:true});pending.catch(()=>{});
+ await new Promise(r=>setImmediate(r));const context=[...f.broker.contexts.values()][0];
+ const failed={method:'turn/completed',params:{threadId:context.threadId,turn:{id:context.turnId,status:'failed',error:{message:'HTTP 503 service unavailable'}}}};
+ f.client.emit('notification',failed);f.client.emit('notification',failed);
+ await assert.rejects(pending,/503/);assert.equal(recoveries,0);assert.equal(f.calls.filter(c=>c.method==='turn/start').length,1);
+ assert.equal(f.calls.filter(c=>c.method==='thread/delete').length,1);assert.equal(f.broker.contexts.size,0);
 });
 
 test("isolated recovery is bounded and never retries account/permission failures", async t => {
-  for (const [message, expectedRecoveries] of [["HTTP 503 service unavailable", 1], ["authentication failed HTTP 401", 0]]) {
+  for (const [message, expectedRecoveries] of [["HTTP 503 service unavailable", 0], ["authentication failed HTTP 401", 0]]) {
     const f = fixture(t, { complete: false });
     let recoveries = 0, cleanup;
     f.runner.configure = async () => ({ cwd: f.dir, model: "selected", effort: "max" });

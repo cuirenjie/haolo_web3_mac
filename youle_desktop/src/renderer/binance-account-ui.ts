@@ -13,6 +13,7 @@ export type BinanceAccountStatus = {
   localBound?: boolean;
   remoteBound?: boolean;
   remoteOnly?: boolean;
+  bindingIncomplete?: boolean;
   serverCredentialsBound?: boolean;
   serverConnectionId?: string | null;
   connectionId?: string | null;
@@ -244,10 +245,10 @@ export function renderBinanceAccountPage(state: BinanceAccountUiState) {
         ? renderBinanceAccountLoading()
         : state.error && !state.loaded && !status?.bound
           ? renderBinanceAccountLoadError(state.error)
-          : status?.bound
-            ? status.remoteOnly && !status.serverCredentialsBound
-              ? renderRemoteOnlyBinanceAccount(state)
-              : renderBoundBinanceAccount(state)
+          : status?.bindingIncomplete || (status?.remoteOnly && !status.serverCredentialsBound)
+            ? renderIncompleteBinanceAccount(state)
+            : status?.bound
+              ? renderBoundBinanceAccount(state)
             : renderUnboundBinanceAccount(state)}
     </section>
   `;
@@ -361,13 +362,18 @@ function renderUnboundBinanceAccount(state: BinanceAccountUiState) {
   `;
 }
 
-function renderRemoteOnlyBinanceAccount(state: BinanceAccountUiState) {
+function renderIncompleteBinanceAccount(state: BinanceAccountUiState) {
+  const secureStorageAvailable = state.status?.secureStorageAvailable !== false;
   return `
     <div class="binance-account-unbound-wrap binance-account-remote-only-wrap">
       <article class="binance-account-unbound-card binance-account-remote-only-card">
         <div class="binance-account-unbound-copy">
-          <h2>账户已绑定</h2>
-          <p>当前绑定设备不在 Windows，本机没有保存账户密钥。请在绑定设备刷新账户数据。</p>
+          <h2>账户绑定未完成</h2>
+          <p>${secureStorageAvailable ? "尚未保存可用的 API 密钥，请重新绑定只读 API。" : "系统安全存储当前不可用，暂时无法安全保存 API 凭据"}</p>
+          <div>
+            <button type="button" class="binance-account-bind-button" data-binance-account-action="rebind" ${secureStorageAvailable ? "" : "disabled"}>重新绑定</button>
+            <button type="button" class="binance-account-tutorial-button" data-binance-account-action="open-tutorial">查看教程</button>
+          </div>
         </div>
         <div class="binance-account-unbound-icon" aria-hidden="true">
           <svg viewBox="0 0 120 120">

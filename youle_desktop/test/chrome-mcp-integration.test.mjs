@@ -41,23 +41,26 @@ test("Chrome runtime fails closed, isolates writes, and sanitizes authorized rea
       arguments: { tab_id: 7, target: { element_id: "he_1" } },
       context: fixedContext(),
     });
-    assert.equal(click.ok, true);
+    assert.equal(click.action_required, "read_page");
     assert.equal(click.task_surface.tab.tab_id, 8);
     assert.equal(broker.calls.some((call) => call.type === "task.tab.create"), true);
-    assert.equal(broker.calls.at(-1).payload.arguments.tab_id, 8);
+    assert.equal(broker.calls.some((call) => call.payload?.tool === "click"), false);
 
     const secondClick = await runtime.invoke({
       tool: "click",
       arguments: { tab_id: 7, target: { element_id: "he_1" } },
       context: fixedContext(),
     });
-    assert.equal(secondClick.ok, true);
+    assert.equal(secondClick.action_required, "read_page");
+    await runtime.invoke({ tool: "read_page", arguments: { tab_id: 8 }, context: fixedContext() });
+    const taskClick = await runtime.invoke({ tool: "click", arguments: { tab_id: 8, target: { element_id: "he_1" } }, context: fixedContext() });
+    assert.equal(taskClick.ok, true);
     assert.equal(broker.calls.filter((call) => call.type === "task.tab.create").length, 1);
     assert.equal(broker.calls.at(-1).payload.arguments.tab_id, 8);
 
     const prepared = await runtime.invoke({
       tool: "prepare_external_action",
-      arguments: { tab_id: 7, action: "send", target: { element_id: "he_send" }, summary: "Send the prepared reply" },
+      arguments: { tab_id: 8, action: "send", target: { element_id: "he_send" }, summary: "Send the prepared reply" },
       context: fixedContext(),
     });
     assert.equal(prepared.approval_required, true);
@@ -123,7 +126,7 @@ test("Chrome runtime binds uploads to registered artifacts and history approval 
     });
     const upload = await runtime.invoke({
       tool: "upload_file",
-      arguments: { tab_id: 7, target: { element_id: "he_upload" }, artifact_id: "chrome_artifact_abcdefgh" },
+      arguments: { tab_id: 7, target: { role: "button", name: "Attachment" }, artifact_id: "chrome_artifact_abcdefgh" },
       context: fixedContext(),
     });
     assert.equal(upload.approval_required, true);
@@ -210,6 +213,56 @@ test("bundled tools JSON, plugin manifest, marketplace, and managed MCP config s
   }
 });
 
+test("side panel tasks bind once, reuse their isolated tab and reject handles for other tabs", async () => {
+  const broker = new MockChromeBroker();
+  broker.taskTabCreated = true;
+  const runtime = new ChromeToolRuntime({ broker });
+  try {
+    broker.emit("message", { profileId: "profile_abcdefgh", envelope: { type: "extension.task.start", taskId: "sidebar-task", payload: {
+      prompt: "Read this page", permissionMode: "site", tab: { tabId: 8, sourceTabId: 7, url: "https://example.test/page" },
+    } } });
+    assert.equal(runtime.pendingTasks().length, 1);
+    const { taskHandle } = runtime.bindTask({ taskId: "sidebar-task", threadId: "desktop-thread" });
+    assert.equal(runtime.pendingTasks().length, 0);
+    assert.equal(runtime.bindTask({ taskId: "sidebar-task", threadId: "desktop-thread" }).taskHandle, taskHandle);
+    assert.throws(() => runtime.bindTask({ taskId: "sidebar-task", threadId: "another-thread" }), { code: "CHROME_TASK_CONTEXT_MISMATCH" });
+    await runtime.invoke({ tool: "click", arguments: { task_handle: taskHandle, tab_id: 8, target: { role: "button", name: "Details" } }, context: fixedContext() });
+    assert.equal(broker.calls.some(call => call.type === "task.tab.create"), false);
+    assert.equal(broker.calls.at(-1).context.threadId, "desktop-thread");
+    assert.equal(broker.calls.at(-1).context.taskId, "sidebar-task");
+    await assert.rejects(runtime.invoke({ tool: "read_page", arguments: { task_handle: taskHandle, tab_id: 99 }, context: fixedContext() }), { code: "CHROME_TASK_CONTEXT_MISMATCH" });
+    await runtime.reportTaskStatus({ taskId: "sidebar-task", state: "accepted" });
+    assert.equal(broker.calls.at(-1).type, "task.status");
+    await assert.rejects(runtime.invoke({ tool: "cancel_task", arguments: { task_id: "sidebar-task" }, context: fixedContext() }), { code: "CHROME_TASK_CONTEXT_MISMATCH" });
+    assert.equal((await runtime.invoke({ tool: "cancel_task", arguments: { task_id: "sidebar-task", task_handle: taskHandle }, context: fixedContext() })).cancelled, true);
+    await assert.rejects(runtime.invoke({ tool: "read_page", arguments: { task_handle: taskHandle, tab_id: 8 } }), { code: "CHROME_TASK_CONTEXT_MISMATCH" });
+  } finally { runtime.dispose(); }
+});
+
+test("persisted Chrome grants survive runtime restart while revocation overrides old desktop grants", async () => {
+  const broker = new MockChromeBroker();
+  broker.tabAuthorization = true;
+  const runtime = new ChromeToolRuntime({ broker });
+  try {
+    await runtime.invoke({ tool: "read_page", arguments: { tab_id: 7 }, context: fixedContext() });
+    broker.emit("message", { profileId: "profile_abcdefgh", envelope: { type: "extension.site.permission", payload: { origin: "https://example.test", mode: "site", decision: "allow" } } });
+    broker.tabAuthorization = false;
+    await assert.rejects(runtime.invoke({ tool: "read_page", arguments: { tab_id: 7 }, context: fixedContext() }), { code: "CHROME_SITE_PERMISSION_REQUIRED" });
+  } finally { runtime.dispose(); }
+});
+
+test("external operation approval cannot be consumed by a different task", async () => {
+  const broker = new MockChromeBroker();
+  broker.tabAuthorization = true;
+  const runtime = new ChromeToolRuntime({ broker });
+  try {
+    const prepared = await runtime.invoke({ tool: "prepare_external_action", arguments: { tab_id: 7, action: "send", summary: "Send fixture", target: { role: "button", name: "Send" } }, context: fixedContext() });
+    runtime.approveOperation(prepared.operation.id);
+    await assert.rejects(runtime.invoke({ tool: "commit_external_action", arguments: prepared.commit_after_approval, context: { ...fixedContext(), taskId: "another-task" } }), { code: "CHROME_OPERATION_CONTEXT_MISMATCH" });
+    assert.equal(broker.calls.some(call => call.payload.tool === "commit_external_action"), false);
+  } finally { runtime.dispose(); }
+});
+
 class MockChromeBroker extends EventEmitter {
   constructor() {
     super();
@@ -243,7 +296,7 @@ class MockChromeBroker extends EventEmitter {
     if (payload.tool === "list_tabs") {
       const tabs = [{ tab_id: 7, title: "Example", url: "https://example.test/page", origin: "https://example.test" }];
       if (this.taskTabCreated) tabs.push({ tab_id: 8, title: "Example task", url: "https://example.test/page", origin: "https://example.test" });
-      return { profile_id: profileId, tabs };
+      return { profile_id: profileId, tabs: tabs.map(tab => ({ ...tab, ...(this.tabAuthorization === undefined ? {} : { authorized: this.tabAuthorization }) })) };
     }
     if (payload.tool === "read_page") {
       return {

@@ -5,7 +5,7 @@ import {
 
 export const TRADING_EXPERT_DEFAULT_MODEL_VALUE = "gpt-5.6-sol";
 export const TRADING_EXPERT_REASONING_EFFORT = "max";
-export const TRADING_EXPERT_DEEPSEEK_REASONING_EFFORT = "max";
+export const TRADING_EXPERT_DEEPSEEK_REASONING_EFFORT = "low";
 
 export const TRADING_EXPERT_MODEL_VALUES = [
   TRADING_EXPERT_DEFAULT_MODEL_VALUE,
@@ -57,7 +57,8 @@ export function tradingExpertModelOptions<T extends { value: unknown }>(
 }
 
 export function tradingExpertReasoningEffort(model: unknown) {
-  return TRADING_EXPERT_REASONING_EFFORT;
+  return String(model ?? "").trim().toLowerCase().startsWith("deepseek-")
+    ? TRADING_EXPERT_DEEPSEEK_REASONING_EFFORT : TRADING_EXPERT_REASONING_EFFORT;
 }
 
 export function defaultTradingExpertModelOption<T extends { value: unknown }>(

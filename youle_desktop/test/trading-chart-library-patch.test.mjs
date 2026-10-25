@@ -1,15 +1,48 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync, unlinkSync, rmdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { patchTradingChartLibrary } from '../scripts/trading-chart-library-patch.mjs';
+import { patchTradingChartLibrary, tradingChartLibraryPlugin } from '../scripts/trading-chart-library-patch.mjs';
 
 const require=createRequire(import.meta.url);
-const source=readFileSync(path.join(path.dirname(require.resolve('lightweight-charts/package.json')),'dist/lightweight-charts.development.mjs'),'utf8');
+const libraryPath=path.join(path.dirname(require.resolve('lightweight-charts/package.json')),'dist/lightweight-charts.development.mjs');
+const source=readFileSync(libraryPath,'utf8');
 const patched=patchTradingChartLibrary(source);
 const start=patched.indexOf('_haoloMapRenderPoints(createItem) {')+'_haoloMapRenderPoints(createItem) {'.length;
 const map=new Function('createItem',patched.slice(start,patched.indexOf('\n    }',start)));
+
+test('chart resource URL identifies the actual patched bytes and stays stable across restarts',()=>{
+  const plugin=tradingChartLibraryPlugin(libraryPath);
+  const alias=plugin.config().resolve.alias[0];
+  assert.ok(alias.find.test('lightweight-charts'));
+  assert.equal(alias.find.test('lightweight-charts/other'),false);
+  assert.equal(alias.replacement,`${libraryPath.replaceAll('\\','/')}?haolo_chart=${createHash('sha256').update(patched).digest('hex')}`);
+  assert.equal(tradingChartLibraryPlugin(libraryPath).config().resolve.alias[0].replacement,alias.replacement);
+  assert.equal(plugin.transform(source,alias.replacement+'&v=unchanged-vite-hash').code,patched);
+  assert.equal(plugin.transform(source,'unrelated.mjs'),null);
+  assert.throws(()=>plugin.transform(source+'\n',alias.replacement),/source changed/);
+});
+
+test('an adapter-only update gets a new URL without changing upstream, plugin name or package version',async()=>{
+  const directory=mkdtempSync(path.join(tmpdir(),'haolo-chart-adapter-test-'));
+  const filename=path.join(directory,'future-adapter.mjs');
+  try {
+    const adapter=readFileSync(new URL('../scripts/trading-chart-library-patch.mjs',import.meta.url),'utf8');
+    const future=adapter.replace('  return source;','  return source + "\\n// future chart adapter";');
+    assert.notEqual(future,adapter);
+    writeFileSync(filename,future);
+    const next=(await import(pathToFileURL(filename).href)).tradingChartLibraryPlugin(libraryPath);
+    const current=tradingChartLibraryPlugin(libraryPath);
+    assert.equal(next.name,current.name);
+    const nextUrl=next.config().resolve.alias[0].replacement;
+    assert.notEqual(nextUrl,current.config().resolve.alias[0].replacement);
+    assert.equal(new URL('http://localhost/'+nextUrl).searchParams.get('haolo_chart'),createHash('sha256').update(next.transform(source,nextUrl).code).digest('hex'));
+  } finally { unlinkSync(filename);rmdirSync(directory); }
+});
 
 test('library patch fails closed on dependency changes and covers line/histogram and candle/bar renderers',()=>{
   assert.throws(()=>patchTradingChartLibrary(source+'\n'),/source changed/);

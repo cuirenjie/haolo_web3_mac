@@ -26,190 +26,70 @@ function fixture(t) {
   return { store, options, filePath, get now() { return now; }, advance(ms) { now += ms; } };
 }
 
-test("new tasks use fallback for exactly one minute, then restore DeepSeek including stale saved fallback selections", (t) => {
-  assert.equal(HOUR, 60_000);
-  const f = fixture(t);
-  assert.deepEqual(f.store.select("deepseek-flash"), { modelId: "deepseek-flash", fallback: false });
-  assert.equal(f.store.activate("deepseek-flash"), true);
-  assert.equal(f.store.select("deepseek-flash").modelId, "gpt-5.6-sol");
-  f.advance(HOUR - 1);
-  assert.equal(f.store.select("deepseek-flash").fallback, true);
-  f.advance(1);
-  assert.deepEqual(f.store.select("gpt-5.6-sol"), { modelId: "deepseek-flash", fallback: false });
-  assert.equal(f.store.select("deepseek-flash").fallback, false);
-});
 
-test("ordinary traffic and backup failures do not slide the deadline; a failed primary retry opens another minute", (t) => {
-  const f = fixture(t);
-  f.store.activate("deepseek-flash");
-  const first = f.store.snapshot();
-  f.advance(HOUR / 2);
-  for (let i = 0; i < 10; i++) f.store.select("deepseek-flash");
-  assert.equal(f.store.activate("gpt-5.6-sol"), false);
-  assert.equal(f.store.activate("deepseek-flash"), false);
-  assert.deepEqual(f.store.snapshot(), first);
-  f.advance(HOUR / 2);
-  assert.equal(f.store.activate("gpt-5.6-sol"), false);
-  assert.equal(f.store.activate("deepseek-flash"), true);
-  assert.equal(f.store.snapshot().fallbackUntil, first.fallbackUntil + HOUR);
-});
-
-test("restart preserves both the remaining window and expiry without rewriting account/model preferences", (t) => {
-  const f = fixture(t);
-  f.store.activate("deepseek-flash");
-  const persisted = fs.readFileSync(f.filePath, "utf8");
-  assert.deepEqual(Object.keys(JSON.parse(persisted)).sort(), ["activatedAt", "fallbackUntil", "version"]);
-  f.advance(HOUR / 3);
-  let restarted = new AnalysisModelRecoveryStore(f.options);
-  assert.equal(restarted.select("deepseek-flash").fallback, true);
-  assert.deepEqual(restarted.snapshot(), f.store.snapshot());
-  f.advance(HOUR);
-  restarted = new AnalysisModelRecoveryStore(f.options);
-  assert.equal(restarted.select("gpt-5.6-sol").modelId, "deepseek-flash");
-  assert.equal(fs.readFileSync(f.filePath, "utf8"), persisted);
-});
-
-test("old reverse-policy state is ignored without rewriting it", (t) => {
-  const f = fixture(t);
-  for (const duration of [HOUR, 3_600_000, 86_400_000]) {
-    const legacy = { version: 1, activatedAt: f.now, fallbackUntil: f.now + duration };
-    fs.writeFileSync(f.filePath, JSON.stringify(legacy));
-    const restarted = new AnalysisModelRecoveryStore(f.options);
-    assert.equal(restarted.snapshot(), null);
-    assert.equal(restarted.select("gpt-5.6-sol").modelId, "deepseek-flash");
-    assert.equal(normalizeAnalysisModelRecoveryState(legacy), null);
-    assert.deepEqual(JSON.parse(fs.readFileSync(f.filePath, "utf8")), legacy);
-  }
-});
-
-test("malformed persisted state does not create an indefinite fallback window", (t) => {
-  const f = fixture(t);
-  for (const value of [null, {}, { version: 2 }, { version: 1, activatedAt: f.now, fallbackUntil: f.now + 10 * HOUR }]) {
-    assert.equal(normalizeAnalysisModelRecoveryState(value), null);
-  }
-  fs.writeFileSync(f.filePath, "broken JSON");
-  const errors = [];
-  const store = new AnalysisModelRecoveryStore({ ...f.options, onError: (error) => errors.push(error) });
-  assert.equal(store.select("deepseek-flash").fallback, false);
-  assert.equal(errors.length, 1);
-  assert.doesNotThrow(() => store.activate("deepseek-flash"));
-});
-
-test("host policy forces max over stale picker effort/support and restores normal reasoning after expiry", (t) => {
-  const f = fixture(t);
-  f.store.activate("deepseek-flash");
-  const params = { model: "deepseek-flash", reasoningEffort: "low", supportedReasoningEfforts: ["low", "medium"] };
-  const selected = withAnalysisModelRecoveryPolicy(params, f.store.snapshot(), f.now);
-  assert.equal(selected.model, "gpt-5.6-sol");
-  assert.equal(selected.reasoningEffort, "high");
-  const wire = withAdaptiveTurnReasoning("turn/start", { ...selected, effort: selected.reasoningEffort, [HAOLO_REASONING_FIXED_EFFORT_FIELD]: selected.reasoningEffort, input: [{ type: "text", text: "你好" }] });
-  assert.equal(wire.effort, "high");
-  assert.equal(params.model, "deepseek-flash");
-  f.advance(HOUR);
-  const restored = withAnalysisModelRecoveryPolicy(selected, f.store.snapshot(), f.now);
-  assert.equal(restored.model, "deepseek-flash");
-  assert.equal(restored.reasoningEffortPolicy, undefined);
-  assert.equal(restored.supportedReasoningEfforts, undefined);
-});
-
-test("an explicit composer model choice bypasses the temporary recovery window", (t) => {
-  const f = fixture(t);
-  f.store.activate("deepseek-flash");
-  const params = {
-    model: "deepseek-flash",
-    modelProvider: "haolo_ai",
-    reasoningEffort: "low",
-    explicitModelSelection: true,
-  };
-  assert.deepEqual(
-    withAnalysisModelRecoveryPolicy(params, f.store.snapshot(), f.now),
-    params,
-  );
-});
-
-test("third-party and separately selected models keep their explicit selection", (t) => {
-  const f = fixture(t);
-  assert.equal(f.store.activate("gpt-5.6-sol"), false);
-  f.store.activate("deepseek-flash");
-  for (const model of ["claude-sonnet-5", "custom-model"]) {
-    const params = { model, reasoningEffort: "high" };
-    assert.equal(withAnalysisModelRecoveryPolicy(params, f.store.snapshot(), f.now), params);
-  }
-});
-
-const request = { schemaVersion: 1, requestId: "task", snapshotId: "snapshot", task: "wave-review", theoryId: "wave", prompt: "frozen question and candles", responseFormat: "json" };
-const success = { status: "success", text: '{"valid":true}' };
-const failure = { status: "failed", error: "Selected model is at capacity", retryable: false };
-
-test("provider integration spans original failure, new tasks, restart, successful retry and a later failed retry", async (t) => {
-  const f = fixture(t), calls = [];
-  let failPrimary = true, store = f.store;
-  const provider = createAppServerTradingAnalysisProvider({
-    selectModel: (model) => store.select(model),
-    onRecovery: (event) => store.activate(event.failedModelId),
-    waitForRecovery: async () => {},
-    invoke: async (args) => { calls.push(args); return failPrimary && args.modelId === "deepseek-flash" ? failure : success; },
+for (const version of [1, 2]) {
+  test('persisted v' + version + ' cooldown is ignored before and after expiry, including restart', t => {
+    const f=fixture(t);
+    const state={version,activatedAt:f.now,fallbackUntil:f.now+HOUR};
+    fs.writeFileSync(f.filePath,JSON.stringify(state));
+    for (const advance of [0,HOUR/2,HOUR]) {
+      f.advance(advance);
+      const store=new AnalysisModelRecoveryStore(f.options);
+      for (const model of [undefined,'deepseek-flash','deepseek-v4-flash','gpt-5.6-sol','gpt-6-sol','gpt-6-astra']) {
+        assert.deepEqual(store.select(model),{modelId:'deepseek-flash',fallback:false});
+        assert.equal(store.activate(model),false);
+      }
+      assert.equal(store.snapshot(),null);
+      assert.deepEqual(JSON.parse(fs.readFileSync(f.filePath,'utf8')),state);
+    }
   });
-  await provider.analyze(request, { reasoningEffort: "medium" });
-  assert.deepEqual(calls.map((c) => c.modelId), ["deepseek-flash", "gpt-5.6-sol"]);
-  const deadline = store.snapshot().fallbackUntil;
-  store = new AnalysisModelRecoveryStore(f.options);
-  f.advance(HOUR / 2);
-  await provider.analyze({ ...request, requestId: "new-task" }, { reasoningEffort: "medium" });
-  assert.equal(calls.at(-1).modelId, "gpt-5.6-sol");
-  assert.equal(calls.at(-1).reasoningEffort, "high");
-  assert.equal(store.snapshot().fallbackUntil, deadline);
-  f.advance(HOUR / 2);
-  failPrimary = false;
-  await provider.analyze(request, { reasoningEffort: "medium" });
-  assert.equal(calls.at(-1).modelId, "deepseek-flash");
-  assert.equal(calls.at(-1).reasoningEffort, "medium");
-  assert.equal(store.select("deepseek-flash").fallback, false);
-  failPrimary = true;
-  await provider.analyze(request, { reasoningEffort: "medium" });
-  assert.deepEqual(calls.slice(-2).map((c) => c.modelId), ["deepseek-flash", "gpt-5.6-sol"]);
-  assert.equal(store.snapshot().fallbackUntil, f.now + HOUR);
-  await provider.analyze(request, { reasoningEffort: "medium" });
-  assert.equal(calls.at(-1).modelId, "gpt-5.6-sol");
+}
+test('old GPT settings are normalized before dispatch and stale effort is cleared',t=>{
+  const f=fixture(t);
+  const result=withAnalysisModelRecoveryPolicy({model:'gpt-5.6-sol',modelProvider:'haolo_ai',effort:'high'},null);
+  assert.equal(result.model,'deepseek-flash');
+  assert.equal(result.modelProvider,'deepseek');
+  assert.equal(result.effort,undefined);
+  const ds=withAnalysisModelRecoveryPolicy({model:'deepseek-flash',modelProvider:'deepseek',effort:'low'},null);
+  assert.equal(ds.effort,'low');
+  assert.equal(f.store.activate('deepseek-flash'),false);
 });
-
-test("expiry cannot switch an in-flight fallback review or its validation repair to another model", async (t) => {
-  const f = fixture(t);
-  f.store.activate("deepseek-flash");
-  const calls = [];
-  let release;
-  const provider = createAppServerTradingAnalysisProvider({
-    selectModel: (model) => f.store.select(model),
-    invoke: async (args) => { calls.push(args); if (calls.length === 1) return new Promise((resolve) => { release = resolve; }); return success; },
-  });
-  const pending = provider.analyze(request, { reasoningEffort: "medium" });
-  f.advance(HOUR);
-  release(success);
-  const result = await pending;
-  assert.equal(result.modelId, "gpt-5.6-sol");
-  await provider.analyze(request, { reasoningEffort: "high", recoveryModel: result.recovery.modelId });
-  assert.equal(calls.at(-1).modelId, "gpt-5.6-sol");
-  assert.equal(calls.at(-1).reasoningEffort, "high");
+test('explicit dedicated models and media modes preserve their capability selection',()=>{
+  for(const params of [{model:'custom-model'},{model:'image-model',conversationMode:'image-generation'}]) {
+    assert.deepEqual(withAnalysisModelRecoveryPolicy(params,{version:2}),params);
+  }
 });
-
-test("routing and alert compilation are not silently upgraded by the minute model window", async (t) => {
-  const f = fixture(t); f.store.activate("deepseek-flash");
-  const calls = [];
-  const provider = createAppServerTradingAnalysisProvider({ selectModel: (model) => f.store.select(model), invoke: async (args) => { calls.push(args); return success; } });
-  await provider.analyze({ ...request, task: "chan-request-routing" }, { reasoningEffort: "low" });
-  await provider.analyze({ ...request, task: "trading_alert_intent_compile" }, { reasoningEffort: "medium" });
-  assert.deepEqual(calls.map((c) => [c.modelId, c.reasoningEffort]), [["gpt-5.6-sol", "high"], ["gpt-5.6-sol", "high"]]);
+test('malformed state is reported without enabling fallback',t=>{
+  const f=fixture(t), errors=[];
+  fs.writeFileSync(f.filePath,'broken JSON');
+  const store=new AnalysisModelRecoveryStore({...f.options,onError:e=>errors.push(e)});
+  assert.equal(errors.length,1);
+  assert.equal(store.select().modelId,'deepseek-flash');
+  assert.equal(store.activate('deepseek-flash'),false);
+});
+test('failed calls and later requests all remain on DeepSeek',async t=>{
+  const f=fixture(t),calls=[];
+  let fails=true;
+  const provider=createAppServerTradingAnalysisProvider({selectModel:m=>f.store.select(m),onRecovery:()=>assert.fail('fallback forbidden'),invoke:async args=>{
+    calls.push(args); return fails?{status:'failed',error:'server_is_overloaded',retryable:true}:{status:'success',text:'verified'};
+  }});
+  for(let i=0;i<2;i++) await assert.rejects(provider.analyze({task:'wave-review'}));
+  fails=false;
+  assert.equal((await provider.analyze({task:'wave-review'})).modelId,'deepseek-flash');
+  assert.ok(calls.every(c=>c.modelId==='deepseek-flash'&&c.modelProvider==='deepseek'));
+  assert.equal(f.store.snapshot(),null);
 });
 
 const main = fs.readFileSync(new URL("../src/main/main.mjs", import.meta.url), "utf8");
 const renderer = fs.readFileSync(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
 const block = (source, from, to) => source.slice(source.indexOf(from), source.indexOf(to, source.indexOf(from) + from.length));
 
-test("production host new-thread handler overrides stale client settings with durable fallback", async (t) => {
+test("production host new-thread handler overrides stale client settings with DeepSeek", async (t) => {
   const f = fixture(t); f.store.activate("deepseek-flash");
   const source = block(main, 'ipcMain.handle("codex:startThread"', 'ipcMain.handle("codex:persistTradingTranscript"');
   let handler, sent;
   const deps = {
+    firstString: (...values) => values.find(v => typeof v === "string" && v.trim()) || "",
     ipcMain: { handle(_method, callback) { handler = callback; } },
     withAnalysisModelRecoveryPolicy: (params, state) => withAnalysisModelRecoveryPolicy(params, state, f.now), getAnalysisModelRecoveryStore: () => f.store,
     desktopWorkspace: () => "workspace", getClientForCwd: () => ({}), ensureThreadGroupWorkspaceDirectory() {},
@@ -219,8 +99,8 @@ test("production host new-thread handler overrides stale client settings with du
   };
   new Function(...Object.keys(deps), source)(...Object.values(deps));
   await handler({}, { model: "deepseek-flash", reasoningEffort: "low", activate: false });
-  assert.equal(sent.model, "gpt-5.6-sol");
-  assert.equal(sent.reasoningEffort, "high");
+  assert.equal(sent.model, "deepseek-flash");
+  assert.equal(sent.reasoningEffort, "low");
   f.advance(HOUR);
   await handler({}, { model: "gpt-5.6-sol", reasoningEffort: "high", activate: false });
   assert.equal(sent.model, "deepseek-flash");
@@ -231,18 +111,18 @@ test("renderer bootstrap and policy notifications preserve the newest state; bot
   const source = block(renderer, "function acceptAnalysisModelRecoveryState", "\n}") + "\n}";
   const js = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
   const apply = new Function("normalizeAnalysisModelRecoveryState", `let analysisModelRecoveryState = null; ${js}; return (value) => { acceptAnalysisModelRecoveryState(value); return analysisModelRecoveryState; };`)(normalizeAnalysisModelRecoveryState);
-  const current = f.store.snapshot();
-  assert.deepEqual(apply(current), current);
-  assert.deepEqual(apply({ ...current, activatedAt: current.activatedAt - HOUR, fallbackUntil: current.fallbackUntil - HOUR }), current);
-  assert.deepEqual(apply(null), current);
+  const current = { version:2, activatedAt:f.now, fallbackUntil:f.now+HOUR };
+  assert.equal(apply(current), null);
+  assert.equal(apply({ ...current, activatedAt: current.activatedAt - HOUR, fallbackUntil: current.fallbackUntil - HOUR }), null);
+  assert.equal(apply(null), null);
   assert.match(renderer, /acceptAnalysisModelRecoveryState\(defaults.analysisModelRecovery\)/);
   assert.match(renderer, /message.method === "haolo\/modelRecoveryState"/);
   const picker = block(renderer, "function selectedChatModelOption", "function chatModelOptionsForThread");
-  assert.match(picker, /analysisModelPolicySelection/);
+  assert.match(picker, /DEEPSEEK_EXECUTION_PROVIDER_ID/);
   assert.doesNotMatch(picker, /#[0-9a-f]{3,8}\b|background\s*:/i);
 });
 
-test("actual renderer new-task initialization follows the window and restores DeepSeek reasoning after expiry", (t) => {
+test("actual renderer new tasks use low before and after obsolete policy expiry", (t) => {
   const f = fixture(t); f.store.activate("deepseek-flash");
   const source = block(renderer, "function initializeTradingExpertTaskThread", "function providerFromThreadId");
   const js = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
@@ -258,17 +138,17 @@ test("actual renderer new-task initialization follows the window and restores De
   };
   const initialize = new Function(...Object.keys(deps), `${js}; return initializeTradingExpertTaskThread;`)(...Object.values(deps));
   initialize("new-1");
-  assert.equal(selected.model, "gpt-5.6-sol");
-  assert.equal(selected.reasoningEffort, "max");
-  assert.equal(selected.modelProvider, "haolo_ai");
+  assert.equal(selected.model, "deepseek-flash");
+  assert.equal(selected.reasoningEffort, "low");
+  assert.equal(selected.modelProvider, "deepseek");
   f.advance(HOUR);
   initialize("new-2");
   assert.equal(selected.model, "deepseek-flash");
-  assert.equal(selected.reasoningEffort, "max");
+  assert.equal(selected.reasoningEffort, "low");
   assert.equal(selected.modelProvider, "deepseek");
 });
 
-test("production root terminal recovery activates the minute policy once and respects cancellation", (t) => {
+test("production root terminal recovery stays disabled and respects cancellation", (t) => {
   const f = fixture(t);
   const coordinator = new TurnAutoRecoveryCoordinator({ startRecovery: async () => ({}), setTimer: () => ({}), clearTimer() {} });
   const source = block(main, "function automaticTurnRecoveryDecision", "function isMeaningfulAutomaticTurnRecoveryProgress");
@@ -286,11 +166,21 @@ test("production root terminal recovery activates the minute policy once and res
   assert.equal(decide(message, { threadId: "root", turnId: "first" }), null);
   assert.equal(f.store.snapshot(), null);
   interruptedCodexThreadIds.clear();
-  assert.equal(decide(message, { threadId: "root", turnId: "first" }).status, "scheduled");
+  assert.equal(decide(message, { threadId: "root", turnId: "first" }).status, "ignored");
   const first = f.store.snapshot();
   f.advance(1_000);
-  assert.equal(decide(message, { threadId: "root", turnId: "first" }).duplicate, true);
+  assert.equal(decide(message, { threadId: "root", turnId: "first" }).status, "ignored");
   rootRecoveryModelsByThread.set("root", "gpt-5.6-sol");
   decide(message, { threadId: "root", turnId: "backup" });
   assert.deepEqual(f.store.snapshot(), first);
+});
+
+
+test("every managed product tier, including explicit flagship selection, uses DeepSeek low", () => {
+  for (const model of ["gpt-5.6-sol", "gpt-6-sol", "gpt-6-astra", "deepseek-flash"]) {
+    const selected = withAnalysisModelRecoveryPolicy({model, explicitModelSelection:true, reasoningEffort:"max"}, null);
+    assert.equal(selected.model,"deepseek-flash");
+    assert.equal(selected.modelProvider,"deepseek");
+    assert.equal(selected.reasoningEffort,"low");
+  }
 });

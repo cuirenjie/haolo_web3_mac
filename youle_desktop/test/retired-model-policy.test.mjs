@@ -36,7 +36,7 @@ test("retired defaults use DeepSeek and old reverse-policy windows are ignored",
  const active = withAnalysisModelRecoveryPolicy({ model: "gpt-5.5", modelProvider: "haolo_ai", effort: "xhigh" }, state, now);
  assert.equal(active.model, "deepseek-flash");
  assert.equal(active.modelProvider, "deepseek");
- assert.equal(active.reasoningEffortPolicy, undefined);
+ assert.equal(active.reasoningEffortPolicy, "fixed");
  assert.equal(withAnalysisModelRecoveryPolicy(active, state, state.fallbackUntil).model, "deepseek-flash");
 });
 

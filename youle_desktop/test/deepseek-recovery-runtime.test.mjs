@@ -15,7 +15,7 @@ import { createProviderSendHost } from "./helpers/provider-send-host.mjs";
 import { ANALYSIS_RECOVERY_WINDOW_MS } from "../src/main/analysis-model-policy.mjs";
 
 const runtime = fileURLToPath(new URL(process.platform === "darwin" ? `../resources/bin/darwin-${process.arch}/haolo_ai` : "../resources/bin/haolo_ai.exe", import.meta.url));
-test("bundled runtime changes DeepSeek to Sol in the same task, sends high and completes a market-tool round trip", {
+test("bundled runtime retains DeepSeek after failure and completes a tool round trip on the next user turn", {
   skip: !["win32", "darwin"].includes(process.platform) || !fs.existsSync(runtime), timeout: 45_000,
 }, async (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "haolo-deepseek-runtime-"));
@@ -119,22 +119,13 @@ test("bundled runtime changes DeepSeek to Sol in the same task, sends high and c
   const threadId = started.thread.id;
   const first = await rpc("turn/start", { threadId, input: [{ type: "text", text: "Analyze these ETH candles and retain this task", textElements: [] }], model: "deepseek-flash" });
   assert.equal((await terminal(first.turn.id)).status, "failed");
-  let restarts = 0;
-  const switched = await applyThreadProviderSwitch({
-    request: rpc, baseParams: { threadId, cwd },
-    targetSettings: { model: "gpt-5.6-sol", modelProvider: "haolo_ai", effort: "high" },
-    providerOf: (result) => result.modelProvider,
-    restartIdleRuntime: async () => { restarts += 1; await stop(); await start(); },
-  });
-  assert.equal(restarts, 1);
-  assert.equal(switched.thread.id, threadId);
-  assert.equal(switched.modelProvider, "haolo_ai");
-  const second = await rpc("turn/start", { threadId, model: "gpt-5.6-sol", effort: "high", input: [{ type: "text", text: "Continue the same analysis using the market tool", textElements: [] }] });
+  overloadPrimary = false;
+  const second = await rpc("turn/start", { threadId, model: "deepseek-flash", effort: "high", input: [{ type: "text", text: "Continue the same analysis using the market tool", textElements: [] }] });
   assert.equal((await terminal(second.turn.id)).status, "completed");
   assert.equal(toolCalls.length, 1);
   assert.equal(toolCalls[0].threadId, threadId);
-  assert.deepEqual(calls.map((c) => c.payload.model), ["deepseek-flash", "gpt-5.6-sol", "gpt-5.6-sol"]);
-  assert.ok(calls.slice(1).every((c) => c.provider === "haolo_ai" && c.payload.reasoning.effort === "high"));
+  assert.deepEqual(calls.map((c) => c.payload.model), ["deepseek-flash", "deepseek-flash", "deepseek-flash"]);
+  assert.ok(calls.slice(1).every((c) => c.provider === "deepseek"));
   assert.ok(JSON.stringify(calls.at(-1).payload.input).includes("closed-eth-1h"));
   assert.ok(JSON.stringify(calls[1].payload.input).includes("retain this task"));
   overloadPrimary = false;
@@ -144,8 +135,8 @@ test("bundled runtime changes DeepSeek to Sol in the same task, sends high and c
   // these ordinary sends changed the model but kept the other provider's key.
   for (const [now, rememberedModel, expectedModel, expectedProvider] of [
     [state.fallbackUntil, "gpt-5.6-sol", "deepseek-flash", "deepseek"],
-    [activatedAt, "deepseek-flash", "gpt-5.6-sol", "haolo_ai"],
-    [activatedAt, "gpt-5.6-sol", "gpt-5.6-sol", "haolo_ai"],
+    [activatedAt, "deepseek-flash", "deepseek-flash", "deepseek"],
+    [activatedAt, "gpt-5.6-sol", "deepseek-flash", "deepseek"],
     [state.fallbackUntil, "gpt-5.6-sol", "deepseek-flash", "deepseek"],
   ]) {
     const host = createProviderSendHost({ request: rpc, cwd, state, now, stop, start });

@@ -60,7 +60,7 @@ export function validateCloudResult(run, record) {
   return {...result,cloud:{...result.cloud,...(record.origin ? {origin:record.origin} : {})}};
 }
 
-export function createCloudStrategyRuntime({owner, api, journal, connection, wait=delay, pollMs=1000, timeoutMs=600000, now=Date.now, random=Math.random}) {
+export function createCloudStrategyRuntime({owner, api, journal, connection, wait=delay, pollMs=1000, timeoutMs=1860000, now=Date.now, random=Math.random}) {
   const active = new Set();
   const assertOwner = async captured => {
     const current = await owner();
@@ -252,6 +252,7 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
         analysisContext:params.analysisContext || null,
         locale:params.language === 'en' ? 'en' : ['zh-TW','zh-Hant'].includes(params.language) ? 'zh-Hant' : 'zh-CN',
         modelId:params.model || params.modelId || params.model_id || null,
+        modelDisplayAlias:params.modelDisplayAlias || params.__haoloModelDisplayAlias || params.model || params.modelId || null,
         explicitModelSelection:params.explicitModelSelection===true,
         preferencesRevision:params.preferencesRevision, preferencesHash:params.preferencesHash,
         responseMode:params.responseMode === 'direct' ? 'direct' : 'combined'};
@@ -260,9 +261,14 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
       record = await journal.get(captured.ownerId,key);
       // An interrupted pre-upgrade job retains its frozen protocol. Never
       // replay a legacy admission as a new V2 run or charge for the same job twice.
-      if (record && record.inputHash !== fingerprint(input)
-        && !(input.requestedEntryMode==='right' && record.body.executionPolicy==='right-legacy-v1'
-          && record.inputHash===fingerprint({...input,executionPolicy:'right-legacy-v1'}))) throw fail('CLOUD_RUN_ID_REUSED');
+      const compatibleInputs = [input];
+      if (record && !Object.hasOwn(record.body, 'modelDisplayAlias')) {
+        const {modelDisplayAlias, ...legacyInput} = input;
+        compatibleInputs.push(legacyInput);
+      }
+      if (record && !compatibleInputs.some(candidate => record.inputHash === fingerprint(candidate)
+        || (input.requestedEntryMode==='right' && record.body.executionPolicy==='right-legacy-v1'
+          && record.inputHash===fingerprint({...candidate,executionPolicy:'right-legacy-v1'})))) throw fail('CLOUD_RUN_ID_REUSED');
       options.signal?.throwIfAborted();
       if (record?.cancelRequested && record.state !== 'succeeded') { await cancelRecord(captured,record); if(record.state!=='succeeded')throw fail('TRADING_ANALYSIS_CANCELLED'); }
       if (!record) {
@@ -306,6 +312,7 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
             strategy:strategyId,prompt:input.instruction,locale:input.locale,preferencesRevision:input.preferencesRevision,analysisKind:input.analysisKind,
             positionManagementRequested:input.positionManagementRequested,analysisContext:input.analysisContext,
             responseMode:input.responseMode,explicitModelSelection:input.explicitModelSelection,...(input.modelId ? {modelId:input.modelId} : {}),
+            ...(input.modelDisplayAlias ? {modelDisplayAlias:input.modelDisplayAlias} : {}),
             ...(account?.id ? {connectionId:account.id} : {}),accountBindingUnavailable:account?.unavailable===true}};
         await journal.put(captured.ownerId,key,record);
       }

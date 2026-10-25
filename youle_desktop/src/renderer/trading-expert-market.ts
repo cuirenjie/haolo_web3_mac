@@ -120,7 +120,6 @@ import {
 } from "./trading-expert-split-pane.ts";
 import {
   binanceTradingMarketAssetLogoUrl,
-  hyperliquidTradingMarketAssetLogoUrl,
   renderTradingMarketAssetLogo,
 } from "./trading-expert-market-identity.ts";
 import { TradingFavoriteTickerSortController } from "./trading-expert-favorite-ticker-sort.ts";
@@ -520,6 +519,7 @@ export interface TradingExecutionModelSelection {
   drawingTurnId?: string;
   sourceThreadId?: string;
   model?: string | null;
+  modelDisplayAlias?: string | null;
   modelId?: string | null;
   modelProvider?: string | null;
   reasoningEffort?: "max";
@@ -2401,10 +2401,14 @@ function preferTradingMarketQuote(
   current: TradingMarket | undefined,
   candidate: TradingMarket,
 ) {
-  if (!current || tradingMarketHasUsableQuote(candidate) || !tradingMarketHasUsableQuote(current)) {
-    return candidate;
-  }
-  return current;
+  if (!current) return candidate;
+  const quoted = tradingMarketHasUsableQuote(candidate) || !tradingMarketHasUsableQuote(current)
+    ? candidate : current;
+  // Lightweight ticker snapshots default to crypto before exchange metadata
+  // arrives. They may update the price, but must not erase a known asset class.
+  const classified = candidate.assetClass !== "crypto" ? candidate : current;
+  return quoted.assetClass === "crypto" && classified.assetClass !== "crypto"
+    ? { ...quoted, assetClass: classified.assetClass } : quoted;
 }
 
 export function resolveTradingFavoriteMarkets(
@@ -2418,7 +2422,11 @@ export function resolveTradingFavoriteMarkets(
       preferTradingMarketQuote(liveMarketById.get(market.id), market),
     );
   });
-  return records.map((record) => liveMarketById.get(record.id) || marketFromFavoriteRecord(record));
+  return records.map((record) => {
+    const live = liveMarketById.get(record.id);
+    const stored = marketFromFavoriteRecord(record);
+    return live ? preferTradingMarketQuote(stored, live) : stored;
+  });
 }
 
 export function normalizeFinnhubTradingMarket(value: unknown): TradingMarket | null {
@@ -4656,10 +4664,6 @@ export function binanceAssetLogoUrl(asset: string) {
   return binanceTradingMarketAssetLogoUrl(asset);
 }
 
-function hyperliquidAssetLogoUrl(asset: string) {
-  return hyperliquidTradingMarketAssetLogoUrl(asset);
-}
-
 function renderMarketFavoriteIcon() {
   return `
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -5481,7 +5485,6 @@ class TradingExpertMarketWorkspace {
     this.host.addEventListener("change", this.handleIndicatorEditorInput);
     this.host.addEventListener("input", this.handleChartSettingsInput);
     this.host.addEventListener("change", this.handleChartSettingsInput);
-    this.host.addEventListener("error", this.handleMarketLogoError, true);
     this.periodItems.addEventListener("pointerdown", this.handlePeriodPointerDown);
     this.periodTimes.addEventListener("pointerdown", this.handlePeriodScrollPointerDown);
     this.periodTimes.addEventListener("pointermove", this.handlePeriodScrollPointerMove);
@@ -6562,21 +6565,6 @@ class TradingExpertMarketWorkspace {
     this.indicatorScrollTimers.delete(scroller);
     scroller.classList.remove("scrolling");
   }
-  private readonly handleMarketLogoError = (event: Event) => {
-    const image = event.target instanceof HTMLImageElement
-      && event.target.matches("[data-market-logo]")
-      ? event.target
-      : null;
-    if (!image) return;
-    const asset = String(image.dataset.marketLogoAsset || "").trim().toUpperCase();
-    if (asset && image.dataset.marketLogoStage === "binance") {
-      image.dataset.marketLogoStage = "hyperliquid";
-      image.src = hyperliquidAssetLogoUrl(asset);
-      return;
-    }
-    image.hidden = true;
-    image.closest<HTMLElement>("[data-market-logo-shell]")?.classList.add("fallback");
-  };
   private readonly handleViewportLeave = () => {
     if (this.priceAlertControl.interacting) return;
     this.crosshairFrame.cancel();
@@ -7248,8 +7236,13 @@ class TradingExpertMarketWorkspace {
       this.finnhubFavoriteMarkets.get(record.id),
       this.ifindFavoriteMarkets.get(record.id),
     ];
-    return candidates.reduce<TradingMarket>((current, candidate) => candidate
+    const quoted = candidates.reduce<TradingMarket>((current, candidate) => candidate
       ? preferTradingMarketQuote(current, candidate) : current, marketFromFavoriteRecord(record));
+    // Cached quotes may predate the full catalog and still classify TradFi as
+    // crypto. Choose price and identity independently so local marks stay local.
+    const catalogMarket = candidates.slice(0, 3).find((market) => market !== undefined);
+    return catalogMarket && catalogMarket.assetClass !== "crypto"
+      ? { ...quoted, ...tradingFavoriteRecord(catalogMarket) } : quoted;
   }
 
   private visibleWatchlistRecords() {
@@ -11180,6 +11173,7 @@ class TradingExpertMarketWorkspace {
         ...(request.pureReferenceAnalysis === true ? { pureReferenceAnalysis: true } : {}),
         sourceThreadId: request.sourceThreadId, storageSessionId: job.storageSessionId,
         ...(request.model ? { model: request.model } : {}),
+        ...(request.modelDisplayAlias ? { modelDisplayAlias: request.modelDisplayAlias } : {}),
         ...(request.modelId ? { modelId: request.modelId } : {}),
         ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
         ...(request.explicitModelSelection ? { explicitModelSelection: true } : {}),
@@ -11261,6 +11255,7 @@ class TradingExpertMarketWorkspace {
             ...(request.pureReferenceAnalysis === true ? { pureReferenceAnalysis: true } : {}),
             sourceThreadId: request.sourceThreadId, storageSessionId: job.storageSessionId,
             ...(request.model ? { model: request.model } : {}),
+            ...(request.modelDisplayAlias ? { modelDisplayAlias: request.modelDisplayAlias } : {}),
             ...(request.modelId ? { modelId: request.modelId } : {}),
             ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
             ...(request.explicitModelSelection ? { explicitModelSelection: true } : {}),
@@ -14266,7 +14261,6 @@ class TradingExpertMarketWorkspace {
     this.host.removeEventListener("change", this.handleIndicatorEditorInput);
     this.host.removeEventListener("input", this.handleChartSettingsInput);
     this.host.removeEventListener("change", this.handleChartSettingsInput);
-    this.host.removeEventListener("error", this.handleMarketLogoError, true);
     this.periodItems.removeEventListener("pointerdown", this.handlePeriodPointerDown);
     this.periodTimes.removeEventListener("pointerdown", this.handlePeriodScrollPointerDown);
     this.periodTimes.removeEventListener("pointermove", this.handlePeriodScrollPointerMove);

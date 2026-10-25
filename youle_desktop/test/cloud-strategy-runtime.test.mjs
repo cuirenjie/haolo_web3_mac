@@ -53,6 +53,22 @@ function setup(handler, overrides={}) {
   return {runtime,journal,calls,records,api,setOwner(value){current=value;}};
 }
 
+test('cloud admission freezes the selected label independently from the DeepSeek runtime',async()=>{
+  for (const modelDisplayAlias of ['gpt-5.6-sol','gpt-6-astra','gpt-6-sol']) {
+    const s=setup();
+    const input={...params,model:'deepseek-flash',modelDisplayAlias};
+    await s.runtime.run('moving-average-analysis',input);
+    const admission=s.calls.find(c=>c.operation==='createRun').payload;
+    assert.equal(admission.modelId,'deepseek-flash');
+    assert.equal(admission.modelDisplayAlias,modelDisplayAlias);
+    assert.equal((await s.journal.get(account.ownerId,params.analysisJobId)).body.modelDisplayAlias,modelDisplayAlias);
+    await s.runtime.run('moving-average-analysis',input);
+    assert.equal(s.calls.filter(c=>c.operation==='createRun').length,1);
+    await assert.rejects(s.runtime.run('moving-average-analysis',{...input,modelDisplayAlias:'deepseek-flash'}),
+      e=>e.code==='CLOUD_RUN_ID_REUSED');
+  }
+});
+
 test('429 progress reads back off on the original run and still deliver the validated result',async()=>{
   const waits=[];let reads=0;
   const s=setup(({operation,run})=>{

@@ -1,8 +1,10 @@
 import { Transform } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 
-export const MODEL_IDLE_TIMEOUT_MS = 20_000;
-export const MODEL_GENERATION_TIMEOUT_MS = 90_000;
+// DeepSeek may queue with only SSE keep-alives. Silence in model text is not
+// a failure. Retain a generous per-request resource bound and user cancellation.
+export const MODEL_IDLE_TIMEOUT_MS = 0;
+export const MODEL_GENERATION_TIMEOUT_MS = 900_000;
 
 export function meaningfulModelProgress(event) {
   if (!event || typeof event !== "object") return false;
@@ -31,7 +33,7 @@ export function createModelProgressWatchdog(controller, {
   };
   const progress = () => {
     clearTimeout(idleTimer);
-    if (!disposed) idleTimer = setTimeout(() => expire("MODEL_NO_PROGRESS_TIMEOUT"), idleMs);
+    if (!disposed && idleMs > 0) idleTimer = setTimeout(() => expire("MODEL_NO_PROGRESS_TIMEOUT"), idleMs);
     idleTimer?.unref?.();
   };
   const totalTimer = setTimeout(() => expire("MODEL_GENERATION_TIMEOUT"), totalMs);

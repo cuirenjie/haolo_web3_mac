@@ -2,7 +2,11 @@
 
 2026-09-19 已从旧新加坡边缘迁移到香港 **`ecs-user@8.217.125.71`**（4 核 16 GiB）。本服务同时提供公共 REST/WS 和私有 HTTPS CONNECT，属于 Windows 仓库中的服务器组件；部署它不构建或发布桌面安装包。
 
-## 当前活动版本（2026-10-21 12:41核验）
+## 当前活动版本（2026-10-24 13:50 核验）
+
+共享行情刷新整体 deadline / fencing 修复已切流并验收：`haolo-binance-gateway-xau-20261024`，公共/私有端口 `51087/51088`，来源 `fb7a3258501c2c79c0b75da7431cacca45bf31fd`，镜像 `sha256:608517bec6f006084507de9c1fca40750df5288b8f03a64da545ed5f0248800d`。精确镜像 104 项回归、21 文件校验、34038 组合代码矩阵和 53 项真实接口检查通过；正式 Windows 0.1.180 经物理 WLAN 国内直连，XAU 15m REST、实时帧及实际图表显示通过，VPN 未变。约 662.6 秒 32594 次新请求零 5xx，4xx/429 单独记录。状态仍为 **`accepted_retirement_pending`**：旧 efficiency 实例有 295 条连接，由 `haolo-market-xau-20261024-drain-watch.service` 自然退役，不能叠加下一发布或称整个批次完成。历史 53badfa 空连接卡死进程经本轮用户单独授权终止，例外不能扩展。见[发布记录](xau-release-20261024.zh-CN.md)和[机器回执](verification/xau-release-20261024.json)。
+
+## 历史活动版本（2026-10-21 12:41核验）
 
 行情归因／hmc1优化已切换新连接：`haolo-binance-gateway-efficiency-1fe4546`，公共／私有端口50987／50988，源码 `1fe454602616a45bb46783ddbe3e8c7f9c1065ee`，镜像 `sha256:35a7ed199ca6e84fbf9895a8ca029eb88031e67021037e234416eb5164f114a7`。12:32:58切流、12:35:33 accept，运行配置enabled=true／percent=10。95项真实Redis测试及6项回收测试通过，19个运行源码与package核对、实际REST／WS／CONNECT通过；最终389.7秒15,259请求零5xx／429。用户本次明确允许保留旧连接自然排空，状态仍 `accepted_retirement_pending`，专用守护器active，不能称旧实例已退役。持久采集已覆盖新旧实例。真实混合行情旁路编码仅减少0.18%～0.38%，K线约25.2%；截至12:39尚无实际线上hmc1帧，未声称CDT已下降。Windows／移动源码推送，安装包渠道未发布。见[完整记录](market-efficiency-release-20261021.zh-CN.md)和[机器回执](verification/market-efficiency-release-20261021.json)。后续必须刷新实时活动指针，不重复使用历史候选或把本次例外视为长期许可。
 

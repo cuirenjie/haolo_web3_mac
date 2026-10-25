@@ -5,6 +5,7 @@ import type {
   TradingFavoriteMarketRecord,
 } from "./trading-expert-market.ts";
 import { TradingFavoriteTickerSortController } from "./trading-expert-favorite-ticker-sort.ts";
+import { renderTradingMarketAssetLogo } from "./trading-expert-market-identity.ts";
 import { TradingPriceFlash } from "./trading-price-flash.ts";
 import { TradingPublicIndices, indexValue, indexFullValue, indexChange, indexName, indexCopy, indexStatus, indexTiming, indexPeriodNote, type PublicMarketIndex } from "./trading-public-indices.ts";
 import {
@@ -356,7 +357,10 @@ export class TradingWatchlistPanel {
     return `<div class="trading-watchlist-row" data-watchlist-row="${id}" data-market-id="${id}" ${editable ? 'data-watchlist-sort-item' : ''} role="listitem">
       ${editable ? `<button type="button" class="trading-watchlist-drag" data-watchlist-drag aria-label="拖动调整 ${escape(market.displaySymbol)} 顺序，Alt+上下键可移动" title="拖动调整顺序，Alt+上下键可移动">⠿</button>` : ""}
       <button type="button" class="trading-watchlist-select" data-watchlist-action="select" data-market-id="${id}" aria-current="${market.id === this.options.selectedMarketId()}" aria-label="切换至 ${escape(`${market.displaySymbol} ${market.venue} ${market.tag}`)}" title="${escape(`${market.displaySymbol} ${market.venue} ${market.tag}`)}"></button>
-      <span class="trading-watchlist-pair"><span>${escape(market.displaySymbol)}</span><small>${escape(`${market.venue} ${market.tag}`)}</small></span>
+      <span class="trading-watchlist-market">
+        ${renderTradingMarketAssetLogo(market.baseAsset, market.provider, false, market.assetClass, market.displaySymbol)}
+        <span class="trading-watchlist-pair"><span>${escape(market.displaySymbol)}</span><small>${escape(`${market.venue} ${market.tag}`)}</small></span>
+      </span>
       <span class="trading-watchlist-price" data-watchlist-price>${market.quoteAvailable ? escape(this.options.formatPrice(market.markPrice)) : "--"}</span>
       <span class="trading-watchlist-change ${market.quoteAvailable ? (market.changePercent >= 0 ? "positive" : "negative") : ""}" data-watchlist-change>${market.quoteAvailable ? `${market.changePercent.toFixed(2)}%` : "--"}</span>
       ${editable ? `<button type="button" class="trading-watchlist-remove" data-market-favorite-sort-ignore data-watchlist-action="remove" data-market-id="${id}" aria-label="${escape(`${uiText("从").trim()} ${displayGroupName(this.options.store.activeGroup)} ${uiText("移除")} ${market.displaySymbol}`)}" title="${escape(uiText("从当前分组移除"))}"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="m3 3 6 6m0-6-6 6"/></svg></button>` : ""}

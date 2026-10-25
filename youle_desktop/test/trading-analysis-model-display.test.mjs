@@ -23,7 +23,11 @@ test("display alias respects the analysis language and retains unrelated model n
   const model = { modelId: "deepseek-flash" };
   assert.equal(tradingAnalysisModelDisplayName(model, "en"), "GPT-6 Astra model");
   assert.equal(tradingAnalysisModelDisplayName(model, "zh-TW"), "GPT-6 Astra 大模型");
-  for (const modelId of ["gpt-5.6-sol", "gpt-6-astra", "deepseek-v4-pro", "deepseek-flash-custom"]) {
+  for (const language of ["zh-CN", "en", "zh-TW"]) {
+    assert.equal(tradingAnalysisModelDisplayName({ modelId: "gpt-5.6-sol", providerId: "deepseek" }, language), "GPT-5.6-Sol");
+    assert.equal(tradingAnalysisModelDisplayName({ modelId: "gpt-6-astra", providerId: "deepseek" }, language), "GPT-6 Astra");
+  }
+  for (const modelId of ["deepseek-v4-pro", "deepseek-flash-custom"]) {
     assert.equal(tradingAnalysisModelDisplayName({ modelId, providerId: "deepseek" }, "zh-CN"), modelId);
   }
   assert.equal(tradingAnalysisModelDisplayName({ providerId: "test-provider" }), "test-provider");

@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { ChromeNativeBroker } from "../src/main/chrome/native-broker.mjs";
 import { HAOLO_CHROME_DEVELOPMENT_EXTENSION_ID } from "../src/main/chrome/native-host-manager.mjs";
 
@@ -12,7 +13,7 @@ test("compiled Native Host bridges Chrome frames to the authenticated broker", a
     t.skip("Windows Native Messaging Host test");
     return;
   }
-  const hostPath = path.resolve("resources/bin/haolo-chrome-native-host.exe");
+  const hostPath = fileURLToPath(new URL("../resources/bin/haolo-chrome-native-host.exe", import.meta.url));
   if (!fs.existsSync(hostPath)) {
     t.skip("Compile the Chrome Native Host before running this test");
     return;

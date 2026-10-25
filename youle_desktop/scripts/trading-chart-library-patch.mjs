@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 
 // Lightweight Charts 5.1.0 (Apache-2.0), unminified ESM distribution. Keep the
 // installed package intact; Vite applies this same guarded patch in dev/build.
@@ -124,8 +125,21 @@ export function patchTradingChartLibrary(source) {
 
 export function tradingChartLibraryPlugin(libraryPath) {
   const normalized = libraryPath.replaceAll('\\', '/');
+  // Vite's dependency hash does not include plugin implementation changes. Its
+  // node_modules URLs can stay immutable in Chromium for a year, even when this
+  // adapter changed. Version the actual patched bytes, for both dev and build.
+  // A dedicated query also keeps Vite's no-cache/revalidation policy, so later
+  // changes to rewritten dependency imports cannot reuse immutable old output.
+  const patched = patchTradingChartLibrary(readFileSync(libraryPath, 'utf8'));
+  const version = createHash('sha256').update(patched).digest('hex');
   return {
     name: 'haolo-retained-chart-render-points', enforce: 'pre',
+    config() {
+      return { resolve: { alias: [{
+        find: /^lightweight-charts$/,
+        replacement: `${normalized}?haolo_chart=${version}`,
+      }] } };
+    },
     transform(source, id) {
       if (id.replaceAll('\\', '/').split('?')[0] !== normalized) return null;
       return { code: patchTradingChartLibrary(source), map: null };

@@ -19,6 +19,8 @@ const temporaryOrigins = new Map();
 const activeTasks = new Map();
 const completedToolRequests = new Map();
 const inFlightToolRequests = new Map();
+// onInstalled and sidepanel reconnect can run while storage is still loading.
+const profileReady = extensionProfileId().then((value) => { profileId = value; });
 
 void initialize();
 
@@ -32,10 +34,14 @@ chrome.runtime.onStartup.addListener(() => {
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (!changeInfo.url || !temporaryOrigins.has(tabId)) return;
-  const previousOrigin = temporaryOrigins.get(tabId);
-  if (httpOrigin(tab.url) !== previousOrigin) void revokeTemporaryAccess(tabId, previousOrigin);
+  if (changeInfo.url && temporaryOrigins.has(tabId)) {
+    const previousOrigin = temporaryOrigins.get(tabId);
+    if (httpOrigin(tab.url) !== previousOrigin) void revokeTemporaryAccess(tabId, previousOrigin);
+  }
+  if (tab.active && (changeInfo.url || changeInfo.status === "complete")) void broadcastTabStatus();
 });
+chrome.tabs.onActivated.addListener(() => void broadcastTabStatus());
+chrome.windows.onFocusChanged.addListener(() => void broadcastTabStatus());
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   const origin = temporaryOrigins.get(tabId);
@@ -77,7 +83,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 });
 
 async function initialize() {
-  profileId = await extensionProfileId();
+  await profileReady;
   await configureChromeSurface();
   await ensureNativeConnection();
 }
@@ -132,7 +138,7 @@ async function handleSidePanelMessage(port, message) {
   }
   if (message?.type === "permission.request") {
     try {
-      const status = await requestCurrentSiteAccess(message.payload?.mode);
+      const status = await requestCurrentSiteAccess(message.payload?.mode, message.payload || {});
       port.postMessage({ type: "tab.status", payload: status });
     } catch (error) {
       port.postMessage({ type: "permission.error", payload: safeError(error, "无法授权当前网站。") });
@@ -168,6 +174,7 @@ async function handleSidePanelMessage(port, message) {
 }
 
 async function ensureNativeConnection(force = false) {
+  await profileReady;
   if (nativePort && !force) return;
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
@@ -209,6 +216,7 @@ function handleNativeMessage(message) {
       return;
     }
     setConnectionState(CONNECTION_STATES.CONNECTED);
+    void synchronizeSitePermissions();
     return;
   }
   if (message?.type === "host.error") {
@@ -217,6 +225,11 @@ function handleNativeMessage(message) {
   }
   if (message?.type === "health.ping") {
     sendToolResult(message, { ok: true, profileId, extensionVersion: chrome.runtime.getManifest().version });
+    return;
+  }
+  if (message?.type === "task.status") {
+    broadcast({ type: "task.status", payload: message.payload });
+    sendToolResult(message, { received: true });
     return;
   }
   if (message?.type === "tool.call") {
@@ -483,7 +496,9 @@ async function pageRequest(tabId, message) {
   if (message.type === "read.page") return readAllFrames(tab, message);
   if (message.type === "read.selection") return readSelectionFromFrames(tab, message);
   const frameId = frameIdFromMessage(message);
-  const response = await chrome.tabs.sendMessage(tab.id, { source: "haolo-extension", ...message }, frameId === null ? undefined : { frameId });
+  // Without a frame selector Chrome broadcasts to every frame; the first
+  // iframe error could incorrectly win over a successful top-frame action.
+  const response = await chrome.tabs.sendMessage(tab.id, { source: "haolo-extension", ...message }, { frameId: frameId ?? 0 });
   if (!response?.ok) throw extensionError(
     response?.error?.code || "CHROME_PAGE_AGENT_ERROR",
     response?.error?.message || "The page agent could not complete the request.",
@@ -552,7 +567,10 @@ function frameIdFromMessage(message) {
 
 async function captureView(tabId) {
   const tab = await requireAuthorizedTab(tabId);
+  if (!tab.active) throw extensionError("CHROME_CAPTURE_TAB_NOT_ACTIVE", "Select the authorized tab before capturing it.", "policy", true);
   const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" });
+  const current = await requireAuthorizedTab(tabId);
+  if (!current.active || current.url !== tab.url) throw extensionError("CHROME_CAPTURE_TAB_CHANGED", "The active page changed during capture. Please retry.", "policy", true);
   if (!dataUrl || dataUrl.length > 12 * 1024 * 1024) {
     throw extensionError("CHROME_SCREENSHOT_TOO_LARGE", "The visible page capture exceeds the 12 MiB limit.", "execution", false);
   }
@@ -620,6 +638,7 @@ async function createTaskTab(sourceTab) {
     }
     await chrome.tabs.update(duplicate.id, { active: true });
     const ready = await waitForTabReady(duplicate.id, 30_000);
+    await ensurePageAgent(duplicate.id, { timeoutMs: 10_000 });
     const groupId = await chrome.tabs.group({ tabIds: [duplicate.id] });
     await chrome.tabGroups.update(groupId, { title: "Haolo", color: "purple", collapsed: false });
     return { tab: ready, groupId, isolated: true };
@@ -707,23 +726,27 @@ async function requestCapability(capabilityValue) {
   return true;
 }
 
-async function requestCurrentSiteAccess(modeValue) {
+async function requestCurrentSiteAccess(modeValue, expected = {}) {
   const mode = modeValue === "once" ? "once" : modeValue === "site" ? "site" : null;
   if (!mode) throw extensionError("CHROME_PERMISSION_MODE_INVALID", "Unknown site permission mode.", "validation", false);
   const tab = await activeTab();
   const origin = httpOrigin(tab?.url);
   if (!tab?.id || !origin) throw extensionError("CHROME_URL_UNSUPPORTED", "Haolo 只能访问 HTTP 或 HTTPS 页面。", "policy", false);
+  if (expected.tabId !== tab.id || expected.origin !== origin) {
+    throw extensionError("CHROME_PERMISSION_TAB_CHANGED", "当前标签页已变化，请重新授权。", "policy", true);
+  }
   const pattern = `${origin}/*`;
   const alreadyGranted = await chrome.permissions.contains({ origins: [pattern] });
-  if (!alreadyGranted) {
-    const granted = await chrome.permissions.request({ origins: [pattern] });
-    if (!granted) throw extensionError("CHROME_SITE_PERMISSION_DENIED", "你没有授予当前网站的访问权限。", "policy", false);
-  }
-  if (mode === "once" && (!alreadyGranted || hasTemporaryOrigin(origin))) temporaryOrigins.set(tab.id, origin);
+  if (!alreadyGranted) throw extensionError("CHROME_SITE_PERMISSION_DENIED", "请在侧栏点击授权按钮以授予网站访问权限。", "policy", false);
+  if (mode === "once" && (expected.previousMode !== "site" || hasTemporaryOrigin(origin))) temporaryOrigins.set(tab.id, origin);
   if (mode === "site") clearTemporaryOrigin(origin);
   await ensurePageAgent(tab.id);
   void notifySitePermission({ tabId: tab.id, origin, mode, decision: "allow" });
   return currentTabStatus();
+}
+
+async function broadcastTabStatus() {
+  try { broadcast({ type: "tab.status", payload: await currentTabStatus() }); } catch {}
 }
 
 async function hasTabAccess(tab) {
@@ -763,6 +786,19 @@ async function notifySitePermission({ tabId, origin, mode, decision }) {
   }).catch(() => {});
 }
 
+async function synchronizeSitePermissions() {
+  // The desktop stores permissions in memory; rebuild them from Chrome's
+  // current grants after a desktop restart, without requesting new access.
+  const tabs = await chrome.tabs.query({});
+  for (const tab of tabs) {
+    const origin = httpOrigin(tab.url);
+    if (origin && await hasTabAccess(tab)) {
+      await notifySitePermission({ tabId: tab.id, origin,
+        mode: temporaryOrigins.get(tab.id) === origin ? "once" : "site", decision: "allow" });
+    }
+  }
+}
+
 async function requireAuthorizedTab(tabIdValue) {
   const tabId = Number(tabIdValue);
   if (!Number.isInteger(tabId) || tabId < 0) throw extensionError("CHROME_TAB_INVALID", "A valid tab id is required.", "validation", false);
@@ -773,12 +809,31 @@ async function requireAuthorizedTab(tabIdValue) {
   return tab;
 }
 
-async function ensurePageAgent(tabId) {
+async function ensurePageAgent(tabId, { timeoutMs = 3000 } = {}) {
   try {
-    const response = await chrome.tabs.sendMessage(tabId, { source: "haolo-extension", type: "read.selection" });
+    const response = await chrome.tabs.sendMessage(tabId, { source: "haolo-extension", type: "read.selection" }, { frameId: 0 });
     if (response?.ok) return;
   } catch {}
-  await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: ["page-agent.js"] });
+  // A duplicated tab can report complete before its document is injectable.
+  // Retry injection only; never replay an action. Recheck grants on each try.
+  const deadline = Date.now() + timeoutMs;
+  while (true) {
+    const tab = await requireAuthorizedTab(tabId);
+    const frames = await authorizedFrames(tab);
+    try {
+      for (const frame of frames) {
+        try {
+          await chrome.scripting.executeScript({ target: { tabId, frameIds: [frame.frameId] }, files: ["page-agent.js"] });
+        } catch (error) {
+          if (frame.frameId === 0) throw error;
+        }
+      }
+      return;
+    } catch (error) {
+      if (Date.now() >= deadline) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+  }
 }
 
 async function activeTab() {
@@ -827,33 +882,6 @@ function extensionError(code, message, category, retryable) {
   error.retryable = retryable;
   return error;
 }
-
-Object.defineProperty(globalThis, "__haoloReadOnlyDiagnostics", {
-  configurable: false,
-  enumerable: false,
-  writable: false,
-  value: Object.freeze({
-    readPage,
-    invoke(tool, args = {}) {
-      return dispatchToolCall({ payload: { tool: String(tool || ""), arguments: args } });
-    },
-    invokePrepared(preparedTool, originalArguments, preparedPreview, authorizedArtifact = null) {
-      return dispatchToolCall({
-        payload: {
-          tool: "commit_external_action",
-          arguments: { operation_id: "diagnostic", approval_token: "diagnostic" },
-          prepared_tool: preparedTool,
-          original_arguments: originalArguments,
-          prepared_preview: preparedPreview,
-          authorized_artifact: authorizedArtifact,
-        },
-      });
-    },
-    authorizeTemporaryTab(tabId, origin) {
-      temporaryOrigins.set(Number(tabId), String(origin));
-    },
-  }),
-});
 
 function sendNative(message) {
   if (!nativePort || connectionState !== CONNECTION_STATES.CONNECTED) {

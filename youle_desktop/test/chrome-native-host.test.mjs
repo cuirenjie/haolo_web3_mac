@@ -10,7 +10,25 @@ import {
   ChromeNativeHostManager,
   HAOLO_CHROME_DEVELOPMENT_EXTENSION_ID,
   HAOLO_CHROME_NATIVE_HOST_NAME,
+  readChromeNativeHostRegistration,
+  chromeRuntimePaths,
 } from "../src/main/chrome/native-host-manager.mjs";
+
+test("branded Windows development resolves Chrome resources from the repo despite isPackaged", () => {
+  const appPath = path.join(os.tmpdir(), "中文工作区", "youle_desktop");
+  const resourcesPath = path.join(appPath, "node_modules", "electron", "dist", "resources");
+  const expected = chromeRuntimePaths({ appPath, resourcesPath, isPackaged: false, env: {} });
+  for (const key of ["HAOLO_DESKTOP_DEV_SERVER_URL", "CODEX_DESKTOP_DEV_SERVER_URL", "YOULE_DESKTOP_DEV_SERVER_URL"]) {
+    assert.deepEqual(chromeRuntimePaths({ appPath, resourcesPath, isPackaged: true, env: { [key]: "http://127.0.0.1:5177" } }), expected);
+  }
+  assert.equal(expected.hostExecutablePath, path.join(appPath, "resources", "bin", "haolo-chrome-native-host.exe"));
+  assert.equal(expected.releasePolicyPath, path.join(appPath, "resources", "chrome-release-policy.json"));
+  assert.equal(expected.extensionDirectory, path.join(appPath, "extensions", "haolo-chrome"));
+  const installed = chromeRuntimePaths({ appPath, resourcesPath, isPackaged: true, env: {} });
+  assert.equal(installed.hostExecutablePath, path.join(resourcesPath, "bin", "haolo-chrome-native-host.exe"));
+  assert.equal(installed.releasePolicyPath, path.join(resourcesPath, "chrome-release-policy.json"));
+  assert.equal(installed.extensionDirectory, path.join(resourcesPath, "chrome-extension"));
+});
 
 test("Native Host manager writes a locked extension manifest and supports precise repair", async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "haolo-chrome-host-"));
@@ -19,7 +37,7 @@ test("Native Host manager writes a locked extension manifest and supports precis
   const commands = [];
   const runner = async (command, args) => {
     commands.push({ command, args });
-    if (args[0] === "QUERY") return { stdout: `${path.join(tempRoot, "user", "chrome-native-host", `${HAOLO_CHROME_NATIVE_HOST_NAME}.json`)}` };
+    if (command === "powershell.exe") return { stdout: Buffer.from(path.join(tempRoot, "user", "chrome-native-host", `${HAOLO_CHROME_NATIVE_HOST_NAME}.json`), "utf16le").toString("base64") };
     return { stdout: "", stderr: "" };
   };
   try {
@@ -44,6 +62,17 @@ test("Native Host manager writes a locked extension manifest and supports precis
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
+});
+
+test("Native Host registration round-trips Chinese and spaced Windows paths without a console code page", async () => {
+  const expected = "C:\\Users\\潘艳芳\\AppData\\Roaming\\Haolo test\\chrome-native-host\\com.haolo.chrome.json";
+  const result = await readChromeNativeHostRegistration(async (command, args) => {
+    assert.equal(command, "powershell.exe");
+    assert.equal(args[2], "-EncodedCommand");
+    assert.match(Buffer.from(args[3], "base64").toString("utf16le"), /Microsoft.Win32.Registry/);
+    return { stdout: Buffer.from(expected, "utf16le").toString("base64") + "\r\n" };
+  });
+  assert.equal(result, expected);
 });
 
 test("Native broker authenticates the host and binds one profile session", async () => {

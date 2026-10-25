@@ -367,7 +367,7 @@ test("sidebar actions follow Codex order, with settings and customer service at 
   assert.match(footer, /aria-expanded="\$\{state\.settingsOpen \? "true" : "false"\}"/);
   assert.match(footer, /renderConversationListIcon\("settings"\)/);
   assert.match(footer, /class="conversation-list-support-button conversation-list-footer-button"/);
-  assert.match(footer, /data-action="open-website-support"/);
+  assert.match(footer, /data-action="open-native-support"/);
   assert.match(footer, /title="联系客服"[^]*aria-label="联系客服"/);
   assert.match(footer, /renderConversationListIcon\("support"\)/);
   assert.ok(chatList.indexOf("renderUpdateDownloadDock()") < chatList.indexOf("renderConversationListFooter()"));
@@ -427,7 +427,7 @@ test("sidebar membership, settings and customer service render as independent bu
       assert.match(settings, /<span>设置<\/span>/);
       assert.match(settings, new RegExp(`aria-expanded="${settingsOpen}"`));
       assert.doesNotMatch(settings, /profile-quota|会员充值|aria-current/);
-      assert.match(support, /data-action="open-website-support"/);
+      assert.match(support, /data-action="open-native-support"/);
       assert.match(support, /<span>客服<\/span>/);
       assert.match(support, /title="联系客服"[^]*aria-label="联系客服"/);
       assert.doesNotMatch(support, /open-settings|profile-quota|aria-expanded|aria-current/);

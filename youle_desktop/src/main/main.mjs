@@ -1,4 +1,5 @@
 import { CodexProviderConversations } from "./codex-provider-conversation.mjs";
+import { createSupportUploads } from "./native-support.mjs";
 import { channelCodexInput, CHANNEL_CODEX_INSTRUCTIONS } from "./channel-codex-input.mjs";
 import { CodexBusinessTools, CODEX_BUSINESS_TOOLS, CODEX_TRADING_INSTRUCTIONS } from "./codex-business-tools.mjs";
 import { CodexTradingArtifacts } from "./codex-trading-artifacts.mjs";
@@ -86,6 +87,7 @@ import {
   HAOLO_CHROME_DEVELOPMENT_EXTENSION_ID,
   ChromeNativeHostManager,
   chromeExtensionOrigins,
+  chromeRuntimePaths,
 } from "./chrome/native-host-manager.mjs";
 import {
   chromeReleaseExtensionIds,
@@ -2807,15 +2809,15 @@ function ensureMacDockVisible() {
 }
 
 function chromeBundledExtensionDirectory() {
-  return app.isPackaged
-    ? path.join(process.resourcesPath, "chrome-extension")
-    : path.join(app.getAppPath(), "extensions", "haolo-chrome");
+  return currentChromeRuntimePaths().extensionDirectory;
 }
 
 function chromeReleasePolicyPath() {
-  return app.isPackaged
-    ? path.join(process.resourcesPath, "chrome-release-policy.json")
-    : path.join(app.getAppPath(), "resources", "chrome-release-policy.json");
+  return currentChromeRuntimePaths().releasePolicyPath;
+}
+
+function currentChromeRuntimePaths() {
+  return chromeRuntimePaths({ appPath: app.getAppPath(), resourcesPath: process.resourcesPath, isPackaged: app.isPackaged });
 }
 
 function currentChromeExtensionIds() {
@@ -5043,14 +5045,31 @@ async function syncSharedBinanceAccountCredentials(credentials) {
   // connection as well; binding credentials to another row would otherwise
   // silently overwrite credentials owned by the wrong device.
   let target = connections.find((item) => String(item.deviceId || "") === deviceId) || null;
+  let created = false;
   if (!target?.id) {
     target = await api.createAccountConnection({
       deviceId,
       label: "Windows",
       analysisConsent: false,
     });
+    created = true;
   }
-  return api.bindAccountConnectionCredentials(target.id, credentials);
+  try {
+    return await api.bindAccountConnectionCredentials(target.id, credentials);
+  } catch (error) {
+    if (created && target?.id) {
+      try {
+        // The server checks under lock that no concurrent bind saved a key.
+        // Older servers return 404; never fall back to unconditional unbind.
+        await api.discardPendingAccountConnection(target.id);
+      } catch {
+        // Preserve the useful binding error. Any leftover record is shown as
+        // incomplete and can be reused on the next attempt.
+        console.warn("[binance-account] pending connection cleanup unavailable");
+      }
+    }
+    throw error;
+  }
 }
 
 async function removeSharedBinanceAccountConnection() {
@@ -5093,7 +5112,7 @@ async function readBinanceAccountStatusWithSharedBinding(owner) {
     await getBinanceAccountService().remove(owner.ownerId);
     local = await getBinanceAccountService().status(owner.ownerId);
   }
-  const remoteBound = connections.length > 0;
+  const remoteBound = Boolean(serverCredentialConnection);
   const localBound = local.bound === true;
   const sharedDeviceId = sharedBinanceConnectionDeviceId();
   const own = connections.find((item) => String(item.deviceId || "") === sharedDeviceId);
@@ -5103,7 +5122,8 @@ async function readBinanceAccountStatusWithSharedBinding(owner) {
     localBound,
     remoteBound,
     remoteOnly: !localBound && remoteBound,
-    connectionId: own?.id || connections[0]?.id || null,
+    bindingIncomplete: !localBound && !remoteBound && connections.length > 0,
+    connectionId: serverCredentialConnection?.id || own?.id || connections[0]?.id || null,
     serverCredentialsBound: Boolean(serverCredentialConnection),
     serverConnectionId: serverCredentialConnection?.id || null,
     emailMasked: maskedEmail(owner.email),
@@ -12185,7 +12205,7 @@ function withThreadRuntimeSettings(result, settings = threadSettingsFromResumeRe
     thread: {
       ...threadWithoutDisplayAlias,
       model: alias || settings.model,
-      ...(alias ? { modelProvider: "haolo_ai" } : modelProvider ? { modelProvider } : {}),
+      ...(alias ? { modelProvider: alias === DEEPSEEK_EXECUTION_MODEL ? "deepseek" : alias.startsWith("gpt-") ? "haolo_ai" : modelProvider } : modelProvider ? { modelProvider } : {}),
       reasoningEffort: settings.effort ?? null,
       serviceTier: settings.serviceTier ?? null,
     },
@@ -13312,6 +13332,29 @@ ipcMain.handle("youle:refreshSession", async (_event, params = {}) => {
   return getYouleApiClient().refreshSession({
     reason: String(params.reason || "renderer-lifecycle"),
   });
+});
+
+const nativeSupportUploads = createSupportUploads({ getClient: getYouleApiClient });
+const nativeSupportUploadOwners = new WeakSet();
+function supportErrorResult(error) {
+  // Return bounded status codes, never signed URLs, credentials or raw network errors.
+  return { ok: false, status: Number(error?.status || error?.statusCode) || (isYouleAuthExpiredError(error) ? 401 : 0), code: String(error?.message || "").match(/^support_[a-z_]+$/)?.[0] || "support_request_failed" };
+}
+ipcMain.handle("youle:supportRequest", async (event, params = {}) => {
+  assertExternalModelsIpcSender(event);
+  try {
+    if (params.action === "sign") throw new Error("support_invalid_action");
+    return { ok: true, data: await getYouleApiClient().supportRequest(params) };
+  } catch (error) { return supportErrorResult(error); }
+});
+ipcMain.handle("youle:supportUpload", async (event, params = {}) => {
+  assertExternalModelsIpcSender(event);
+  if (!nativeSupportUploadOwners.has(event.sender)) {
+    nativeSupportUploadOwners.add(event.sender);
+    event.sender.once("destroyed", () => { void nativeSupportUploads.disposeOwner(event.sender.id); });
+  }
+  try { return { ok: true, data: await nativeSupportUploads.run(event.sender.id, params) }; }
+  catch (error) { return supportErrorResult(error); }
 });
 
 ipcMain.handle("youle:openWebsiteSupport", async () => {
@@ -17602,6 +17645,8 @@ ipcMain.handle("codex:deletePlugin", async (_event, params = {}) => {
 });
 
 ipcMain.handle("codex:startThread", async (_event, params = {}) => {
+  const selectedDisplayModel = firstString(params.modelDisplayAlias, params.__haoloModelDisplayAlias, params.model);
+  params = { ...params, modelDisplayAlias: selectedDisplayModel };
   params = withAnalysisModelRecoveryPolicy(
     String(params?.model || "").trim().toLowerCase() === "gpt-6-sol"
       ? {
@@ -18966,10 +19011,10 @@ ipcMain.handle("codex:sendMessage", async (_event, params = {}) => {
     ? migrateGpt6SolSelection
     : (value) => value;
   const billingModelAlias = firstString(
-    displayModelAliasForSelectionSafe(params.model),
     params.modelDisplayAlias,
     params.model_display_alias,
     params.__haoloModelDisplayAlias,
+    displayModelAliasForSelectionSafe(params.model),
     displayModelAliasForSelectionSafe(params.modelId),
     displayModelAliasForSelectionSafe(params.model_id),
   );
@@ -19510,6 +19555,16 @@ ipcMain.handle("chrome:selectArtifact", async (_event, params = {}) => {
       });
   appendChromeAudit("artifact_selected", { artifactId: artifact.id, name: artifact.name, size: artifact.size });
   return { cancelled: false, artifact };
+});
+
+ipcMain.handle("chrome:pendingTasks", () => chromeToolRuntime?.pendingTasks() || []);
+ipcMain.handle("chrome:taskStatus", (_event, params = {}) => {
+  if (!chromeToolRuntime) throw new Error("Haolo Chrome runtime is not ready.");
+  return chromeToolRuntime.reportTaskStatus(params);
+});
+ipcMain.handle("chrome:bindTask", (_event, params = {}) => {
+  if (!chromeToolRuntime) throw new Error("Haolo Chrome runtime is not ready.");
+  return chromeToolRuntime.bindTask(params);
 });
 
 ipcMain.handle("chrome:approve", async (_event, params = {}) => {
@@ -22763,9 +22818,7 @@ app.whenReady().then(async () => {
   try {
     chromeReleasePolicy = readChromeReleasePolicy(chromeReleasePolicyPath());
     const chromeExtensionIds = currentChromeExtensionIds();
-    const chromeHostExecutable = app.isPackaged
-      ? path.join(process.resourcesPath, "bin", "haolo-chrome-native-host.exe")
-      : path.join(app.getAppPath(), "resources", "bin", "haolo-chrome-native-host.exe");
+    const chromeHostExecutable = currentChromeRuntimePaths().hostExecutablePath;
     chromeNativeHostManager = new ChromeNativeHostManager({
       userDataPath: app.getPath("userData"),
       hostExecutablePath: chromeHostExecutable,
@@ -22790,6 +22843,7 @@ app.whenReady().then(async () => {
     chromeToolRuntime = new ChromeToolRuntime({ broker: chromeNativeBroker });
     chromeToolRuntime.on("task", (task) => {
       appendChromeAudit("task", { taskId: task.taskId, profileId: task.profileId, origin: task.origin });
+      if (task.prompt) restoreMainWindowFromSecondInstance();
       sendToRenderer("chrome:task", task);
     });
     chromeToolRuntime.on("sitePolicy", (policy) => {

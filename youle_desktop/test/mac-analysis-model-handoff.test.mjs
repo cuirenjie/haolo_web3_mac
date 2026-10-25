@@ -68,29 +68,29 @@ for (const [name, failure, options] of [
   ["stream disconnect", { status: "failed", error: "stream disconnected", errorCode: "stream_disconnected", retryable: true }],
   ["HTTP 503", { status: "failed", error: "Service unavailable", httpStatus: 503, retryable: true }],
   ["wall-clock timeout", null, { timeout: true }],
-]) test(`Mac bounded review hands ${name} to the recovery provider after cleanup`, async () => {
+]) test(`Mac bounded review returns ${name} once and cleans its thread without GPT replay`, async () => {
   const h = harness(failure, options);
-  const result = await h.provider.analyze(request, {
-    reasoningEffort: "medium",
-    // This checks the configured cap and handoff, not elapsed CPU scheduling.
-    modelBudget: createTradingModelBudget({ now: () => 0 }),
-  });
-  assert.equal(result.modelId, "gpt-5.6-sol");
-  assert.deepEqual(h.starts.map((entry) => entry.model), ["deepseek-flash", "gpt-5.6-sol"]);
-  assert.equal(h.starts[1].modelProvider, "haolo_ai");
-  assert.equal(h.turns[1].fixedEffort, "high");
-  assert.equal(h.turns.length, 2);
-  assert.ok(h.turns.every((entry) => entry.input[0].text === request.prompt && entry.sandboxPolicy === "read-only"));
-  assert.deepEqual(h.captures.map((entry) => entry.timeoutMs), [90_000, 90_000]);
-  assert.ok(h.captures.every((entry) => entry.resetTimeoutOnActivity === false));
-  assert.deepEqual(h.events, ["start:review-1", "clean:review-1", "start:review-2", "clean:review-2"]);
+  await assert.rejects(h.provider.analyze(request, {
+    reasoningEffort: "medium", modelBudget: createTradingModelBudget({ now: () => 0 }),
+  }));
+  assert.deepEqual(h.starts.map(entry => entry.model), ["deepseek-flash"]);
+  assert.equal(h.starts[0].modelProvider, "deepseek");
+  assert.equal(h.turns[0].fixedEffort, "low");
+  assert.equal(h.turns.length, 1);
+  assert.equal(h.turns[0].input[0].text, request.prompt);
+  assert.equal(h.turns[0].sandboxPolicy, "read-only");
+  assert.deepEqual(h.captures.map(entry => entry.timeoutMs), [900_000]);
+  assert.equal(h.captures[0].resetTimeoutOnActivity, false);
+  assert.deepEqual(h.events, ["start:review-1", "clean:review-1"]);
+  assert.equal(h.waits.length, 0);
 });
 
-test("Mac review keeps the total fallback finite even when every transport fails", async () => {
+test("Mac review cannot enter unbounded workflow transport retries", async () => {
   const h = harness({ status: "failed", error: "stream disconnected", errorCode: "stream_disconnected", retryable: true }, { alwaysFail: true });
-  await assert.rejects(h.provider.analyze(request), (error) => error.recovery?.exhausted === true);
-  assert.deepEqual(h.starts.map((entry) => entry.model), ["deepseek-flash", "gpt-5.6-sol"]);
-  assert.equal(h.cleaned.length, 2);
+  await assert.rejects(h.provider.analyze(request));
+  assert.deepEqual(h.starts.map(entry => entry.model), ["deepseek-flash"]);
+  assert.equal(h.turns.length, 1);
+  assert.equal(h.cleaned.length, 1);
   assert.equal(h.waits.length, 0);
 });
 

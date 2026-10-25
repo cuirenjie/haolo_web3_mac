@@ -1,0 +1,1050 @@
+{
+  "schemaVersion": 1,
+  "scope": "Hong Kong Binance public market / private CONNECT gateway; Windows 0.1.180 compatibility verification; business API/Workers not deployed by this batch",
+  "ownerTask": "01a16c45-262d-7a12-a593-0e4dcf2f9427",
+  "releaseDirectory": "/opt/haolo/releases/xau-release-20261024",
+  "phase": "accepted_retirement_pending",
+  "sourceCommit": "fb7a3258501c2c79c0b75da7431cacca45bf31fd",
+  "fixCommit": "ef8e8dbd640b60a05a0f98c20d0087ddc55fbee9",
+  "sourceAlreadyInRemoteDevAtStart": true,
+  "candidate": "haolo-binance-gateway-xau-20261024",
+  "candidateIdentity": [
+    "feb50911ad941c3b42070ddbe36dac23e9e210ace87a29b984ccd445ab3a4f84",
+    "sha256:608517bec6f006084507de9c1fca40750df5288b8f03a64da545ed5f0248800d",
+    "2026-10-24T05:23:26.379489178Z",
+    0
+  ],
+  "imageId": "sha256:608517bec6f006084507de9c1fca40750df5288b8f03a64da545ed5f0248800d",
+  "ports": {
+    "public": 51087,
+    "private": 51088
+  },
+  "previous": {
+    "container": "haolo-binance-gateway-efficiency-1fe4546",
+    "identity": [
+      "77da8530ccc5d51521f64dc413fad745f1522157a71a4b152658d82b048b7733",
+      "sha256:35a7ed199ca6e84fbf9895a8ca029eb88031e67021037e234416eb5164f114a7",
+      "2026-10-22T12:38:30.170024478Z",
+      0
+    ],
+    "public": 50987,
+    "private": 50988
+  },
+  "switchedAt": 1792820363.917335,
+  "acceptedAt": 1792820669.880055,
+  "backups": {
+    "redisSha256": "fd7ba9c7636b0492ce070a383671f681c6b5c07490f3a0b5b4ba5866bfe778d6",
+    "environmentSha256": "52f8471b3ee0b408f0bd585934cc2957dddbe7aa0808c5548fd6cf1c06ace0aa",
+    "sourceManifestSha256": "700c80d5fcd252bf387be404e6cd01ebfba7835f27c74fc5e9d467901ea94113",
+    "environmentChanges": {}
+  },
+  "runtimeVerification": {
+    "commit": "fb7a3258501c2c79c0b75da7431cacca45bf31fd",
+    "files": [
+      {
+        "path": "services/haolo-binance-gateway/src/access-token-verifier.mjs",
+        "runtimeSha256": "283c01703d5f094d9dd62536f9a082f2f8e38b9d5f584c435cf038596d2eac1e",
+        "matchesManifest": true,
+        "matchesGitNormalized": true
+      },
+      {
+        "path": "services/haolo-binance-gateway/src/auth.mjs",
+        "runtimeSha256": "8274ec670381b0ebe61e7b6314af239ecef6114996580515280feae769c62ab3",
+        "matchesManifest": true,
+        "matchesGitNormalized": true
+      },
+      {
+        "path": "services/haolo-binance-gateway/src/binance-rest.mjs",
+        "runtimeSha256": "ceedaed8c1af7fc879c97f12834ba490a6ca875408d1a572452bb0845493a058",
+        "matchesManifest": true,
+        "matchesGitNormalized": true
+      },
+      {
+        "path": "services/haolo-binance-gateway/src/cache.mjs",
+        "runtimeSha256": "1e4b4a0c8912bc5de73e824f33edc75f4e2503a2e5dd7071c083de490b037d78",
+        "matchesManifest": true,
+        "matchesGitNormalized": true
+      },
+      {
+        "path": "services/haolo-binance-gateway/src/config.mjs",
+        "runtimeSha256": "fd427ca7a77faa86a6e959d9dfb90e88066a1129b2168a16fd9f718297009105",
+        "matchesManifest": true,
+        "matchesGitNormalized": true
+      },
+      {
+        "path": "services/haolo-binance-gateway/src/drain.mjs",
+        "runtimeSha256": "3a42458fc30d5e35f75bea60e6fdb91d9adb546a150f5952f86df3ab2e1ec75c",
+        "matchesManifest": true,
+        "matchesGitNormalized": true
+      },
+      {
+        "path": "services/haolo-binance-gateway/src/market-frame.mjs",
+        "runtimeSha256": "22e1cae026c1ade1fbc36832e9168db6070e8d5efcc586b0dc3da9fa434f4b28",
+        "matchesManifest": true,
+        "matchesGitNormalized": true
+      },
+      {
+        "path": "services/haolo-binance-gateway/src/market-refresh-scope.mjs",
+        "runtimeSha256": "8395c15da2bfbda6823784483d44ff261eacc7c2f59cb480b1477166df40c4f4",
+        "matchesManifest": true,
+        "matchesGitNormalized": true
+      },
+      {
+        "path": "services/haolo-binance-gateway/src/market-routing.mjs",
+        "runtimeSha256": "349e05edcfe8db786f04758a1a20cac15b0c72c4b3acf2e2d8b51555a9222524",
+        "matchesManifest": true,
+        "matchesGitNormalized": true
+      },
+      {
+        "path": "services/haolo-binance-gateway/src/market-tickets.mjs",
+        "runtimeSha256": "6d208efaeb5f829a091ebe9ab67802096d17c206b811ced7575bd6fc4f4bf07f",
+        "matchesManifest": true,
+        "matchesGitNormalized": true
+      },
+      {
+        "path": "services/haolo-binance-gateway/src/market-wire-codec.mjs",
+        "runtimeSha256": "9cb3dd618e217b4925736f500dda99947db319c48d4acfb79a32b19c6a508b47",
+        "matchesManifest": true,
+        "matchesGitNormalized": true
+      },
+      {
+        "path": "services/haolo-binance-gateway/src/private-egress-coordinator.mjs",
+        "runtimeSha256": "54f6c2f04958108c3453f709d127aadb2f5c3899064684a83f22cb0eb061baab",
+        "matchesManifest": true,
+        "matchesGitNormalized": true
+      },
+      {
+        "path": "services/haolo-binance-gateway/src/private-proxy.mjs",
+        "runtimeSha256": "6819175048dd1222bb1522c164bdf2f5fef12e1752882cc2f4d8efa499068a19",
+        "matchesManifest": true,
+        "matchesGitNormalized": true
+      },
+      {
+        "path": "services/haolo-binance-gateway/src/public-rest-cache.mjs",
+        "runtimeSha256": "064ba91258bba9cbaefda9828fe80e11110dcc7e4e9028c1a9f2f2d9061bc051",
+        "matchesManifest": true,
+        "matchesGitNormalized": true
+      },
+      {
+        "path": "services/haolo-binance-gateway/src/public-server.mjs",
+        "runtimeSha256": "069f60b807ce74ca3ed5e146765521562d163e221dc3454dd8787acfa0f3c89c",
+        "matchesManifest": true,
+        "matchesGitNormalized": true
+      },
+      {
+        "path": "services/haolo-binance-gateway/src/rate-limit.mjs",
+        "runtimeSha256": "35499a75478b4c726a0714fc578725ac7da09161d37bc76d9352b601401cd824",
+        "matchesManifest": true,
+        "matchesGitNormalized": true
+      },
+      {
+        "path": "services/haolo-binance-gateway/src/server.mjs",
+        "runtimeSha256": "2a3ec4753cd39811e08fe31a2de8d7a7c3fdbdcb5bb571e8b1b7945ef06cc164",
+        "matchesManifest": true,
+        "matchesGitNormalized": true
+      },
+      {
+        "path": "services/haolo-binance-gateway/src/stream-pool.mjs",
+        "runtimeSha256": "f4c35731c0c4094bbf6f7fda927d4a92902b6e6aefcc8ad9dac52058064e0083",
+        "matchesManifest": true,
+        "matchesGitNormalized": true
+      },
+      {
+        "path": "services/haolo-binance-gateway/src/traffic-metrics.mjs",
+        "runtimeSha256": "0d4d361dfc057dcd38f79dc0cd75090878c381c0a5a2928af8ae967334337b8f",
+        "matchesManifest": true,
+        "matchesGitNormalized": true
+      },
+      {
+        "path": "services/haolo-binance-gateway/src/ws-compression.mjs",
+        "runtimeSha256": "757e6f73aab9b3dc3446b1b0e262f5e191a2ad8c95d5720d3939eb52966dbb58",
+        "matchesManifest": true,
+        "matchesGitNormalized": true
+      },
+      {
+        "path": "services/haolo-binance-gateway/package.json",
+        "runtimeSha256": "f665ba3f7872d74304ea182efce9e6da5c6f1759c7325fe675e9e150ec759125",
+        "matchesManifest": true,
+        "matchesGitNormalized": true
+      }
+    ],
+    "passed": true
+  },
+  "exactImageRegression": {
+    "tests": 104,
+    "passed": 104,
+    "failed": 0,
+    "skipped": 0,
+    "redis": "isolated real Redis; no production fault injection"
+  },
+  "exhaustiveCodeMatrix": {
+    "at": "2026-10-24T05:29:55.796Z",
+    "scope": "All current TRADING Binance spot and USD-M symbols; mock upstream for exhaustive request-path checks; real authenticated catalogue only",
+    "periods": [
+      "1m",
+      "3m",
+      "5m",
+      "15m",
+      "30m",
+      "1h",
+      "2h",
+      "4h",
+      "6h",
+      "8h",
+      "12h",
+      "1d",
+      "3d",
+      "1w",
+      "1M"
+    ],
+    "routeChecks": 34038,
+    "flightRecoveryChecks": 31,
+    "failures": [],
+    "catalogCounts": {
+      "spot": 1383,
+      "futures": 794
+    },
+    "completedAt": "2026-10-24T05:30:01.669Z",
+    "passed": true
+  },
+  "liveCandidateChecks": {
+    "at": "2026-10-24T05:37:00.631Z",
+    "scope": "Authenticated candidate live requests, every native interval on both markets plus reported stuck routes and pagination limits",
+    "results": [
+      {
+        "market": "futures",
+        "symbol": "XAUUSDT",
+        "interval": "1m",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 272,
+        "passed": true
+      },
+      {
+        "market": "futures",
+        "symbol": "XAUUSDT",
+        "interval": "3m",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 139,
+        "passed": true
+      },
+      {
+        "market": "futures",
+        "symbol": "XAUUSDT",
+        "interval": "5m",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 76,
+        "passed": true
+      },
+      {
+        "market": "futures",
+        "symbol": "XAUUSDT",
+        "interval": "15m",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 74,
+        "passed": true
+      },
+      {
+        "market": "futures",
+        "symbol": "XAUUSDT",
+        "interval": "30m",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 75,
+        "passed": true
+      },
+      {
+        "market": "futures",
+        "symbol": "XAUUSDT",
+        "interval": "1h",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 80,
+        "passed": true
+      },
+      {
+        "market": "futures",
+        "symbol": "XAUUSDT",
+        "interval": "2h",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 126,
+        "passed": true
+      },
+      {
+        "market": "futures",
+        "symbol": "XAUUSDT",
+        "interval": "4h",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 73,
+        "passed": true
+      },
+      {
+        "market": "futures",
+        "symbol": "XAUUSDT",
+        "interval": "6h",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 124,
+        "passed": true
+      },
+      {
+        "market": "futures",
+        "symbol": "XAUUSDT",
+        "interval": "8h",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 176,
+        "passed": true
+      },
+      {
+        "market": "futures",
+        "symbol": "XAUUSDT",
+        "interval": "12h",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 73,
+        "passed": true
+      },
+      {
+        "market": "futures",
+        "symbol": "XAUUSDT",
+        "interval": "1d",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 318,
+        "ms": 67,
+        "passed": true
+      },
+      {
+        "market": "futures",
+        "symbol": "XAUUSDT",
+        "interval": "3d",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 106,
+        "ms": 66,
+        "passed": true
+      },
+      {
+        "market": "futures",
+        "symbol": "XAUUSDT",
+        "interval": "1w",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 46,
+        "ms": 65,
+        "passed": true
+      },
+      {
+        "market": "futures",
+        "symbol": "XAUUSDT",
+        "interval": "1M",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 11,
+        "ms": 65,
+        "passed": true
+      },
+      {
+        "market": "futures",
+        "symbol": "BTCUSDT",
+        "interval": "1m",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 72,
+        "passed": true
+      },
+      {
+        "market": "futures",
+        "symbol": "BTCUSDT",
+        "interval": "3m",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 73,
+        "passed": true
+      },
+      {
+        "market": "futures",
+        "symbol": "BTCUSDT",
+        "interval": "5m",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 73,
+        "passed": true
+      },
+      {
+        "market": "futures",
+        "symbol": "BTCUSDT",
+        "interval": "15m",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 172,
+        "passed": true
+      },
+      {
+        "market": "futures",
+        "symbol": "BTCUSDT",
+        "interval": "30m",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 72,
+        "passed": true
+      },
+      {
+        "market": "futures",
+        "symbol": "BTCUSDT",
+        "interval": "1h",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 72,
+        "passed": true
+      },
+      {
+        "market": "futures",
+        "symbol": "BTCUSDT",
+        "interval": "2h",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 71,
+        "passed": true
+      },
+      {
+        "market": "futures",
+        "symbol": "BTCUSDT",
+        "interval": "4h",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 73,
+        "passed": true
+      },
+      {
+        "market": "futures",
+        "symbol": "BTCUSDT",
+        "interval": "6h",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 73,
+        "passed": true
+      },
+      {
+        "market": "futures",
+        "symbol": "BTCUSDT",
+        "interval": "8h",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 72,
+        "passed": true
+      },
+      {
+        "market": "futures",
+        "symbol": "BTCUSDT",
+        "interval": "12h",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 75,
+        "passed": true
+      },
+      {
+        "market": "futures",
+        "symbol": "BTCUSDT",
+        "interval": "1d",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 72,
+        "passed": true
+      },
+      {
+        "market": "futures",
+        "symbol": "BTCUSDT",
+        "interval": "3d",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 154,
+        "passed": true
+      },
+      {
+        "market": "futures",
+        "symbol": "BTCUSDT",
+        "interval": "1w",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 373,
+        "ms": 70,
+        "passed": true
+      },
+      {
+        "market": "futures",
+        "symbol": "BTCUSDT",
+        "interval": "1M",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 86,
+        "ms": 67,
+        "passed": true
+      },
+      {
+        "market": "spot",
+        "symbol": "BTCUSDT",
+        "interval": "1s",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 233,
+        "passed": true
+      },
+      {
+        "market": "spot",
+        "symbol": "BTCUSDT",
+        "interval": "1m",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 71,
+        "passed": true
+      },
+      {
+        "market": "spot",
+        "symbol": "BTCUSDT",
+        "interval": "3m",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 72,
+        "passed": true
+      },
+      {
+        "market": "spot",
+        "symbol": "BTCUSDT",
+        "interval": "5m",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 72,
+        "passed": true
+      },
+      {
+        "market": "spot",
+        "symbol": "BTCUSDT",
+        "interval": "15m",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 73,
+        "passed": true
+      },
+      {
+        "market": "spot",
+        "symbol": "BTCUSDT",
+        "interval": "30m",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 74,
+        "passed": true
+      },
+      {
+        "market": "spot",
+        "symbol": "BTCUSDT",
+        "interval": "1h",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 73,
+        "passed": true
+      },
+      {
+        "market": "spot",
+        "symbol": "BTCUSDT",
+        "interval": "2h",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 71,
+        "passed": true
+      },
+      {
+        "market": "spot",
+        "symbol": "BTCUSDT",
+        "interval": "4h",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 73,
+        "passed": true
+      },
+      {
+        "market": "spot",
+        "symbol": "BTCUSDT",
+        "interval": "6h",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 71,
+        "passed": true
+      },
+      {
+        "market": "spot",
+        "symbol": "BTCUSDT",
+        "interval": "8h",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 70,
+        "passed": true
+      },
+      {
+        "market": "spot",
+        "symbol": "BTCUSDT",
+        "interval": "12h",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 476,
+        "passed": true
+      },
+      {
+        "market": "spot",
+        "symbol": "BTCUSDT",
+        "interval": "1d",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 73,
+        "passed": true
+      },
+      {
+        "market": "spot",
+        "symbol": "BTCUSDT",
+        "interval": "3d",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 501,
+        "ms": 72,
+        "passed": true
+      },
+      {
+        "market": "spot",
+        "symbol": "BTCUSDT",
+        "interval": "1w",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 480,
+        "ms": 72,
+        "passed": true
+      },
+      {
+        "market": "spot",
+        "symbol": "BTCUSDT",
+        "interval": "1M",
+        "limit": 501,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 111,
+        "ms": 64,
+        "passed": true
+      },
+      {
+        "market": "spot",
+        "symbol": "ETHUSDT",
+        "interval": "1m",
+        "limit": 1000,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 1000,
+        "ms": 142,
+        "passed": true
+      },
+      {
+        "market": "futures",
+        "symbol": "XAUUSDT",
+        "interval": "15m",
+        "limit": 500,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 500,
+        "ms": 81,
+        "passed": true
+      },
+      {
+        "market": "futures",
+        "symbol": "XAUUSDT",
+        "interval": "15m",
+        "limit": 1000,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 1000,
+        "ms": 84,
+        "passed": true
+      },
+      {
+        "market": "futures",
+        "symbol": "XAUUSDT",
+        "interval": "15m",
+        "limit": 1500,
+        "status": 200,
+        "cache": "MISS",
+        "rows": 1500,
+        "ms": 88,
+        "passed": true
+      },
+      {
+        "request": "/fapi/v1/ticker/24hr?symbol=ETHUSDT",
+        "status": 200,
+        "ms": 62,
+        "passed": true
+      },
+      {
+        "request": "/fapi/v1/premiumIndex?symbol=BTCUSDT",
+        "status": 200,
+        "ms": 63,
+        "passed": true
+      },
+      {
+        "request": "/fapi/v1/premiumIndex?symbol=ETHUSDT",
+        "status": 200,
+        "ms": 60,
+        "passed": true
+      }
+    ],
+    "total": 53,
+    "failures": [],
+    "passed": true,
+    "completedAt": "2026-10-24T05:38:19.595Z"
+  },
+  "publishedClient": {
+    "version": "0.1.180",
+    "installerSha256": "e91937faacae1475bcdf3cbef14b342bbc9fccd25d2a5e426d1375909a875d8f",
+    "network": "Process-local DIRECT and physical WLAN socket binding; VPN unchanged",
+    "checks": [
+      {
+        "kind": "REST",
+        "market": "futures",
+        "symbol": "XAUUSDT",
+        "interval": "15m",
+        "limit": 501,
+        "status": 200,
+        "rows": 501,
+        "ms": 276,
+        "cache": "MISS"
+      },
+      {
+        "kind": "REST",
+        "market": "futures",
+        "symbol": "XAUUSDT",
+        "interval": "15m",
+        "limit": 501,
+        "status": 200,
+        "rows": 501,
+        "ms": 29,
+        "cache": "HIT"
+      },
+      {
+        "kind": "REST",
+        "market": "futures",
+        "symbol": "XAUUSDT",
+        "interval": "5m",
+        "limit": 501,
+        "status": 200,
+        "rows": 501,
+        "ms": 104,
+        "cache": "MISS"
+      },
+      {
+        "kind": "REST",
+        "market": "futures",
+        "symbol": "XAUUSDT",
+        "interval": "1h",
+        "limit": 501,
+        "status": 200,
+        "rows": 501,
+        "ms": 91,
+        "cache": "MISS"
+      },
+      {
+        "kind": "REST",
+        "market": "futures",
+        "symbol": "BTCUSDT",
+        "interval": "15m",
+        "limit": 501,
+        "status": 200,
+        "rows": 501,
+        "ms": 108,
+        "cache": "MISS"
+      },
+      {
+        "kind": "REST",
+        "market": "spot",
+        "symbol": "ETHUSDT",
+        "interval": "1m",
+        "limit": 1000,
+        "status": 200,
+        "rows": 1000,
+        "ms": 237,
+        "cache": "MISS"
+      },
+      {
+        "kind": "WS",
+        "symbol": "XAUUSDT",
+        "interval": "15m",
+        "eventLagMs": 610
+      },
+      {
+        "kind": "authorized CONNECT",
+        "tlsVerified": true
+      }
+    ],
+    "passed": true
+  },
+  "publishedUi": {
+    "at": "2026-10-24T05:50:37.009Z",
+    "market": "BINANCE:FUTURES:XAUUSDT",
+    "results": [
+      {
+        "interval": "5",
+        "ohlc": "2026-10-24 13:50\n开\n4003.11\n高\n4003.11\n低\n4003.10\n收\n4003.10\n涨幅\n-0.00%(-0.01)\n振幅\n0.00%",
+        "errors": [],
+        "passed": true
+      },
+      {
+        "interval": "60",
+        "ohlc": "2026-10-24 13:00\n开\n4004.33\n高\n4004.50\n低\n4001.60\n收\n4003.10\n涨幅\n-0.03%(-1.23)\n振幅\n0.07%",
+        "errors": [],
+        "passed": true
+      },
+      {
+        "interval": "240",
+        "ohlc": "2026-10-24 12:00\n开\n4000.99\n高\n4004.75\n低\n4000.99\n收\n4003.10\n涨幅\n0.05%(2.11)\n振幅\n0.09%",
+        "errors": [],
+        "passed": true
+      },
+      {
+        "interval": "1D",
+        "ohlc": "2026-10-24 08:00\n开\n4000.91\n高\n4004.75\n低\n3996.84\n收\n4003.10\n涨幅\n0.05%(2.19)\n振幅\n0.20%",
+        "errors": [],
+        "passed": true
+      },
+      {
+        "interval": "1W",
+        "ohlc": "2026-10-19 08:00\n开\n4191.59\n高\n4196.75\n低\n3985.02\n收\n4003.11\n涨幅\n-4.50%(-188.48)\n振幅\n5.05%",
+        "errors": [],
+        "passed": true
+      },
+      {
+        "interval": "15",
+        "ohlc": "2026-10-24 13:45\n开\n4003.10\n高\n4003.11\n低\n4003.09\n收\n4003.10\n涨幅\n0.00%(0.00)\n振幅\n0.00%",
+        "errors": [],
+        "passed": true
+      }
+    ],
+    "passed": true
+  },
+  "publishedUiScreenshotSha256": "ca3b9cf2f8177d3dd8bab579c06e24047d2e9486d2d8f4622f498ad37af0b11d",
+  "acceptanceWindow": {
+    "seconds": 305.8812508583069,
+    "new5xx": 0,
+    "statuses": {
+      "404": 1431,
+      "200": 12462,
+      "304": 1209,
+      "101": 18,
+      "201": 34,
+      "401": 17,
+      "405": 3,
+      "429": 34
+    }
+  },
+  "extendedWindow": {
+    "at": 1792821026.5047886,
+    "candidate": "haolo-binance-gateway-xau-20261024",
+    "switched_at": 1792820363.917335,
+    "seconds": 662.5874536037445,
+    "statuses": {
+      "404": 3094,
+      "200": 26805,
+      "304": 2489,
+      "101": 37,
+      "201": 74,
+      "401": 35,
+      "405": 3,
+      "429": 51,
+      "202": 6
+    },
+    "new5xx": [],
+    "passed": true
+  },
+  "oldRetirement": {
+    "at": 1792821042.855163,
+    "phase": "accepted_retirement_pending",
+    "old": "haolo-binance-gateway-efficiency-1fe4546",
+    "oldState": "running",
+    "oldEstablished": 295,
+    "oldMetrics": "haolo_market_gateway_websocketClients 295\n",
+    "non5xxGroups": [
+      {
+        "status": "404",
+        "method": "GET",
+        "path": "/futures/data/topLongShortAccountRatio",
+        "count": 1056
+      },
+      {
+        "status": "404",
+        "method": "GET",
+        "path": "/futures/data/globalLongShortAccountRatio",
+        "count": 1054
+      },
+      {
+        "status": "404",
+        "method": "GET",
+        "path": "/futures/data/topLongShortPositionRatio",
+        "count": 1054
+      },
+      {
+        "status": "429",
+        "method": "GET",
+        "path": "/fapi/v1/klines",
+        "count": 19
+      },
+      {
+        "status": "429",
+        "method": "GET",
+        "path": "/fapi/v1/ticker/24hr",
+        "count": 12
+      },
+      {
+        "status": "401",
+        "method": "GET",
+        "path": "/fapi/v1/openInterest",
+        "count": 11
+      },
+      {
+        "status": "401",
+        "method": "GET",
+        "path": "/fapi/v1/ticker/24hr",
+        "count": 11
+      },
+      {
+        "status": "401",
+        "method": "GET",
+        "path": "/fapi/v1/premiumIndex",
+        "count": 11
+      },
+      {
+        "status": "429",
+        "method": "GET",
+        "path": "/fapi/v1/openInterest",
+        "count": 11
+      },
+      {
+        "status": "429",
+        "method": "GET",
+        "path": "/fapi/v1/premiumIndex",
+        "count": 9
+      },
+      {
+        "status": "401",
+        "method": "GET",
+        "path": "/",
+        "count": 1
+      },
+      {
+        "status": "401",
+        "method": "GET",
+        "path": "/favicon.ico",
+        "count": 1
+      }
+    ]
+  },
+  "retirementWatcher": "haolo-market-xau-20261024-drain-watch.service",
+  "historicalStuckContainerException": {
+    "container": "haolo-binance-gateway-53badfa",
+    "authorizedExplicitlyByUser": true,
+    "twoChecks": {
+      "serviceListeners": 0,
+      "downstreamEstablished": 0
+    },
+    "forced": true,
+    "exitCode": 137,
+    "evidence": "authorized-old-retirement/receipt.json",
+    "containerAndImagePreserved": true
+  },
+  "limitations": [
+    "34,038 combinations validate production routing/cache code with mock upstream, not 34,038 live Binance requests. Live interval/limit coverage is 53 candidate requests and separate published-client probes.",
+    "Existing rate limits, expired authentication and unsupported-route 4xx remain enforced. Zero 5xx is not zero 4xx.",
+    "Old activity instance has established user WebSockets; automatic natural retirement is pending. Entire batch is not marked complete.",
+    "The first stalled dependency that originally triggered the old flight cannot be identified from available logs."
+  ]
+}

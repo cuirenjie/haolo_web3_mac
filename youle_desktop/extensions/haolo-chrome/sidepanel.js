@@ -1,3 +1,4 @@
+import { taskMessage } from "./task-messages.js";
 const statusTitle = document.querySelector("#statusTitle");
 const statusMessage = document.querySelector("#statusMessage");
 const statusDot = document.querySelector("#statusDot");
@@ -25,6 +26,8 @@ const capabilityButtons = [...document.querySelectorAll("[data-capability]")];
 let connected = false;
 let authorized = false;
 let permissionBusy = false;
+let currentSite = null;
+let taskPending = false;
 
 const port = chrome.runtime.connect({ name: "haolo-sidepanel" });
 port.onMessage.addListener(handleMessage);
@@ -37,11 +40,19 @@ allowOnceButton.addEventListener("click", () => requestPermission("once"));
 allowSiteButton.addEventListener("click", () => requestPermission("site"));
 declineButton.addEventListener("click", () => port.postMessage({ type: "permission.decline" }));
 for (const button of capabilityButtons) {
-  button.addEventListener("click", () => {
+  button.addEventListener("click", async () => {
     const capability = button.dataset.capability;
     button.disabled = true;
     renderCapabilityFeedback("loading", "正在请求 Chrome 的一次性权限…");
-    port.postMessage({ type: "capability.request", payload: { capability } });
+    try {
+      // Chrome requires permissions.request in the user gesture's UI context.
+      const granted = await chrome.permissions.request({ permissions: [capability] });
+      if (!granted) throw new Error("你没有授予该 Chrome 权限。");
+      port.postMessage({ type: "capabilities.status" });
+    } catch (error) {
+      button.disabled = false;
+      renderCapabilityFeedback("error", error.message || "无法启用该 Chrome 权限。");
+    }
   });
 }
 addEventListener("focus", () => port.postMessage({ type: "capabilities.status" }));
@@ -52,7 +63,8 @@ previewButton.addEventListener("click", () => {
 promptForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const prompt = promptInput.value.trim();
-  if (!prompt) return;
+  if (!prompt || taskPending || !connected || !authorized) return;
+  taskPending = true;
   sendButton.disabled = true;
   promptInput.disabled = true;
   renderTaskFeedback("loading", "正在把当前页面和任务安全地发送到 Haolo…");
@@ -78,11 +90,21 @@ function handleMessage(message) {
     renderTaskFeedback("error", message.payload?.message || "无法读取当前页面。");
   }
   if (message?.type === "task.accepted") {
+    taskPending = false;
     promptInput.value = "";
     renderTaskFeedback("success", `任务已发送到 Haolo · ${shortId(message.payload?.taskId)}`);
     updateComposerState();
   }
+  if (message?.type === "task.status") {
+    taskPending = false;
+    const accepted = message.payload?.state === "accepted";
+    renderTaskFeedback(accepted ? "success" : "error", accepted
+      ? "Haolo 已开始处理，可在桌面端查看进度。"
+      : message.payload?.error || "Haolo 未能启动任务，请重试。");
+    updateComposerState();
+  }
   if (message?.type === "task.error") {
+    taskPending = false;
     renderTaskFeedback("error", message.payload?.message || "无法把任务发送到 Haolo。");
     updateComposerState();
   }
@@ -106,7 +128,7 @@ function renderCapabilities(status) {
 function renderCapabilityFeedback(state, text) {
   capabilityFeedback.hidden = false;
   capabilityFeedback.dataset.state = state;
-  capabilityFeedback.textContent = text;
+  capabilityFeedback.textContent = taskMessage(text);
 }
 
 function renderConnection(status) {
@@ -129,6 +151,7 @@ function renderConnection(status) {
 }
 
 function renderTabStatus(status) {
+  currentSite = status;
   setPermissionBusy(false);
   authorized = Boolean(status.authorized);
   siteTitle.textContent = status.title || (status.supported ? "当前网站" : "此页面不可访问");
@@ -151,10 +174,21 @@ function renderPreview(snapshot) {
   previewText.textContent = String(snapshot.text || "此页面没有可读取的可见文本。").slice(0, 1_200);
 }
 
-function requestPermission(mode) {
+async function requestPermission(mode) {
+  const site = currentSite;
+  if (!site?.supported || !site.origin || permissionBusy) return;
   setPermissionBusy(true);
   renderTaskFeedback("loading", mode === "once" ? "正在申请本次访问权限…" : "正在申请此网站的持续访问权限…");
-  port.postMessage({ type: "permission.request", payload: { mode } });
+  try {
+    const granted = await chrome.permissions.request({ origins: [`${site.origin}/*`] });
+    if (!granted) throw new Error("你没有授予当前网站的访问权限。");
+    port.postMessage({ type: "permission.request", payload: {
+      mode, tabId: site.tabId, origin: site.origin, previousMode: site.mode,
+    } });
+  } catch (error) {
+    setPermissionBusy(false);
+    renderTaskFeedback("error", error.message || "无法授权当前网站。");
+  }
 }
 
 function setPermissionBusy(value) {
@@ -166,7 +200,7 @@ function setPermissionBusy(value) {
 }
 
 function updateComposerState() {
-  const enabled = connected && authorized;
+  const enabled = connected && authorized && !taskPending;
   promptInput.disabled = !enabled;
   sendButton.disabled = !enabled;
   if (!authorized) profileLabel.textContent = "先授权当前网站";
@@ -175,7 +209,7 @@ function updateComposerState() {
 function renderTaskFeedback(state, text) {
   taskFeedback.hidden = false;
   taskFeedback.dataset.state = state;
-  taskFeedback.textContent = text;
+  taskFeedback.textContent = taskMessage(text);
 }
 
 function shortProfile(value) {

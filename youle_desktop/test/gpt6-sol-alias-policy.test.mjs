@@ -37,6 +37,21 @@ test("trading analysis keeps GPT-6-Sol as the visible model while using the sele
     fixedReasoningEffort: "max",
   });
   const result = await provider.analyze({ task: "price-action-review" }, { reasoningEffort: "low" });
-  assert.equal(calls[0].modelId, GPT_6_SOL_RUNTIME_MODEL);
+  assert.equal(calls[0].modelId, "deepseek-flash");
   assert.equal(result.modelId, GPT_6_SOL_DISPLAY_MODEL);
+});
+
+test("each product selection survives DeepSeek execution without changing the wire model", async () => {
+  for (const selected of ["gpt-5.6-sol", "gpt-6-sol", "gpt-6-astra", "deepseek-flash"]) {
+    const calls = [];
+    const provider = createAppServerTradingAnalysisProvider({
+      modelId: "deepseek-flash",
+      displayModelId: displayModelAliasForSelection(selected),
+      invoke: async (params) => { calls.push(params); return { status: "success", text: "{}" }; },
+    });
+    const result = await provider.analyze({ task: "selected-model-regression" });
+    assert.equal(result.modelId, selected);
+    assert.equal(calls[0].modelId, "deepseek-flash");
+    assert.equal(calls[0].modelProvider, "deepseek");
+  }
 });

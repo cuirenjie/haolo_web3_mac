@@ -101,6 +101,8 @@ contextBridge.exposeInMainWorld("codexDesktop", {
   getYouleSession: () => ipcRenderer.invoke("youle:getSession"),
   refreshYouleSession: (params) => ipcRenderer.invoke("youle:refreshSession", params),
   openWebsiteSupport: () => ipcRenderer.invoke("youle:openWebsiteSupport"),
+  supportRequest: (params) => ipcRenderer.invoke("youle:supportRequest", params),
+  supportUpload: (params) => ipcRenderer.invoke("youle:supportUpload", params),
   refreshProfile: () => ipcRenderer.invoke("youle:refreshProfile"),
   listImageGenerationModels: (params) =>
     ipcRenderer.invoke("youle:listImageGenerationModels", params),
@@ -343,6 +345,9 @@ contextBridge.exposeInMainWorld("codexDesktop", {
   setPluginEnabled: (params) => ipcRenderer.invoke("codex:setPluginEnabled", params),
   deletePlugin: (params) => ipcRenderer.invoke("codex:deletePlugin", params),
   getChromeIntegrationStatus: () => ipcRenderer.invoke("chrome:getStatus"),
+  getPendingChromeTasks: () => ipcRenderer.invoke("chrome:pendingTasks"),
+  bindChromeTask: (params) => ipcRenderer.invoke("chrome:bindTask", params),
+  reportChromeTaskStatus: (params) => ipcRenderer.invoke("chrome:taskStatus", params),
   repairChromeIntegration: () => ipcRenderer.invoke("chrome:repair"),
   openChromeExtensions: () => ipcRenderer.invoke("chrome:openExtensions"),
   revealChromeExtension: () => ipcRenderer.invoke("chrome:revealExtension"),

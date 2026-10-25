@@ -10,7 +10,7 @@ const state = { version: 2, activatedAt, fallbackUntil: activatedAt + ANALYSIS_R
 
 for (const [label, initial, model, target, now] of [
   ["expired fallback", "haolo_ai", "gpt-5.6-sol", "deepseek", state.fallbackUntil],
-  ["active fallback", "deepseek", "deepseek-flash", "haolo_ai", activatedAt],
+  ["retired active fallback", "haolo_ai", "deepseek-flash", "deepseek", activatedAt],
 ]) test(`real send handler verifies ${label} before starting the turn and preserves host configuration`, async () => {
   const calls = [];
   let provider = initial, restarts = 0;
@@ -81,7 +81,7 @@ test("expired policy clears stale provider and DeepSeek reasoning even when the 
     const restored = withAnalysisModelRecoveryPolicy({ model: "deepseek-flash", [providerKey]: "haolo_ai", reasoningEffort: "max", reasoningEffortPolicy: "fixed" }, state, state.fallbackUntil);
     assert.equal(restored.modelProvider, "deepseek");
     assert.equal(restored.model_provider, undefined);
-    assert.equal(restored.reasoningEffort, undefined);
+    assert.equal(restored.reasoningEffort, "low");
   }
 });
 

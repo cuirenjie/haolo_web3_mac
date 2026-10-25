@@ -43,13 +43,13 @@ test("media policy repairs stale fallback settings, retaining valid GPT choices 
       assert.equal(stale.effort, "max", "does not mutate remembered settings");
     }
   }
-  assert.equal(withAnalysisModelRecoveryPolicy({ model: "gpt-5.6-sol", conversationMode: "execution" }, recovery, now).model, "gpt-5.6-sol");
+  assert.equal(withAnalysisModelRecoveryPolicy({ model: "gpt-5.6-sol", conversationMode: "execution" }, recovery, now).model, "deepseek-flash");
 });
 
 test("production host startThread keeps media on GPT during the fallback window", async () => {
   let handler, sent;
   const deps = {
-    ipcMain: { handle(_method, callback) { handler = callback; } },
+    firstString, ipcMain: { handle(_method, callback) { handler = callback; } },
     withAnalysisModelRecoveryPolicy, getAnalysisModelRecoveryStore: () => ({ snapshot: () => recovery }),
     desktopWorkspace: () => "workspace", getClientForCwd: () => ({}), ensureThreadGroupWorkspaceDirectory() {},
     refreshSkillsDeveloperInstructions: async () => "instructions", videoGenerationInstructionOptions: () => ({}),
@@ -79,20 +79,22 @@ test("production host send policy and media guard agree, including legacy mode a
     assert.equal(selection.model, "gpt-5.6-sol");
     assert.equal(selection.isDeepSeek, false);
   }
-  assert.equal(select({ model: "gpt-5.6-sol", conversationMode: "execution" }).isDeepSeek, false);
+  assert.equal(select({ model: "gpt-5.6-sol", conversationMode: "execution" }).isDeepSeek, true);
 });
 
 test("production turn start registers media recovery selection on the actual target thread", () => {
   const coordinator = new TurnAutoRecoveryCoordinator({ startRecovery: async () => ({}), setTimer: () => ({}), clearTimer() {} });
   const source = block(main, "      rootRecoveryModelsByThread.set", "      try {", main.indexOf("    const startTurn = async () =>"));
-  const deps = { rootRecoveryModelsByThread: new Map(), turnAutoRecoveryCoordinator: coordinator, ANALYSIS_PRIMARY_MODEL: "gpt-5.6-sol", IMAGE_GENERATION_CONVERSATION_MODE, VIDEO_GENERATION_CONVERSATION_MODE };
+  const selections = new Map();
+  const deps = { rootRecoveryModelsByThread: new Map(), turnAutoRecoveryCoordinator: { setRecoverySelection: (id, value) => { selections.set(id, value); coordinator.setRecoverySelection(id, value); } }, ANALYSIS_PRIMARY_MODEL: "gpt-5.6-sol", IMAGE_GENERATION_CONVERSATION_MODE, VIDEO_GENERATION_CONVERSATION_MODE };
   const register = new Function(...Object.keys(deps), `return (threadId, conversationMode, executionSelection, turnReasoningEffort) => { ${source} };`)(...Object.values(deps));
   for (const [index, mode] of [...modes, "execution"].entries()) {
     const threadId = `replacement-${index}`;
     register(threadId, mode, { model: "gpt-5.6-sol", modelProvider: "haolo_ai" }, "high");
     const decision = coordinator.handleTerminalFailure({ threadId, failedTurnId: "original", status: "failed", errorClass: "stream_disconnected" });
-    assert.equal(decision.modelId, "gpt-5.6-sol");
-    assert.equal(decision.reasoningEffort, "high");
+    assert.equal(deps.rootRecoveryModelsByThread.get(threadId), "gpt-5.6-sol");
+    assert.deepEqual(selections.get(threadId), mode === "execution" ? null : { modelId: "gpt-5.6-sol", modelProvider: "haolo_ai", reasoningEffort: "high", conversationMode: mode });
+    assert.equal(decision.status, "ignored", "managed inference policy must not automatically replay a failed turn");
     coordinator.cancel(threadId, "user_cancel");
     register(threadId, mode, { model: "gpt-5.6-sol", modelProvider: "haolo_ai" }, "high");
     assert.equal(coordinator.handleTerminalFailure({ threadId, failedTurnId: "late", status: "failed", errorClass: "stream_disconnected" }).status, "ignored");

@@ -4,6 +4,12 @@ import { isGpt6SolDisplayModel } from "../main/gpt6-sol-alias-policy.mjs";
 // Display aliases never change the model ID or provider used for requests.
 export function modelDisplayName(modelId: string, displayName = modelId): string {
   const label = displayName.trim() || modelId.trim();
+  // A catalog's runtime alias cannot override a recorded product selection.
+  const selectedNames: Record<string, string> = {
+    "gpt-5.6-sol": "GPT-5.6-Sol",
+    "gpt-6-astra": "GPT-6 Astra",
+  };
+  if (selectedNames[modelId.trim().toLowerCase()]) return selectedNames[modelId.trim().toLowerCase()];
   if (isGpt6SolDisplayModel(modelId) || isGpt6SolDisplayModel(label)) return "GPT-6-Sol";
   return isDeepSeekFlashModel(modelId) ||
     isDeepSeekFlashModel(label) ||

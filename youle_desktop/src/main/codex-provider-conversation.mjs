@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { isRecoverableAnalysisModelFailure } from "./analysis-model-recovery.mjs";
 import { buildAutomaticTurnRecoveryPrompt } from "./turn-auto-recovery.mjs";
+import { ANALYSIS_MODEL_FALLBACK_ENABLED } from "./analysis-model-policy.mjs";
 
 // Provider contacts retain a persistent root per contact/model. External
 // channels use isolated roots per message, with durable business state owned
@@ -109,7 +110,7 @@ export class CodexProviderConversations {
             if (turn.id) terminalTurnIds.add(turn.id);
             if (turn.error || ["failed", "interrupted"].includes(turn.status)) {
               const error = Object.assign(new Error(turn.error?.message || `Codex turn ${turn.status}`), turn.error || {}, { status: turn.status });
-              if (isolated && this.recoverTurn && recoveryAttempts < 1 && !recovering &&
+              if (ANALYSIS_MODEL_FALLBACK_ENABLED && isolated && this.recoverTurn && recoveryAttempts < 1 && !recovering &&
                   !signal?.aborted && isRecoverableAnalysisModelFailure(error)) {
                 recovering = true;
                 recoveryAttempts++;
