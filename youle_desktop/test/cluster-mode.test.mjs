@@ -354,7 +354,13 @@ test("composer mode picker exposes only a static ordinary execution mode", async
     composer.indexOf("${groupPicker}") <
       composer.indexOf("${renderWorkflowComposerInputSlots(thread.id, workflowInputContract)}"),
   );
-  assert.equal((composer.match(/renderComposerModelPicker\(thread\.id\)/g) || []).length, 1);
+  const ordinaryStart = composer.indexOf('  if (isVideoExpertThread(thread))');
+  assert.ok(ordinaryStart > 0, 'cloud and ordinary composers must have separate return paths');
+  const cloudComposer = composer.slice(0, ordinaryStart);
+  assert.match(cloudComposer, /if \(isCloudTaskThread\(thread\.id\)\) return/);
+  for (const branch of [cloudComposer, composer.slice(ordinaryStart)]) {
+    assert.equal((branch.match(/renderComposerModelPicker\(thread\.id\)/g) || []).length, 1);
+  }
   assert.match(clusterSwitch, /newThreadModeByThreadId\.set\(threadId, "execution"\)/);
   assert.match(clusterSwitch, /clusterModeByThreadId\.delete\(threadId\)/);
   assert.match(clusterSwitch, /已固定为普通串行执行模式/);

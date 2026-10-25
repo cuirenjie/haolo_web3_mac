@@ -269,7 +269,7 @@ test("switching from DeepSeek to a GPT pool model uses the registered Haolo runt
   );
 });
 
-test("DeepSeek execution pool exposes the verified image and adaptive reasoning contract", () => {
+test("DeepSeek execution pool exposes image input and the fixed low reasoning contract", () => {
   const state = normalizeBusinessModelPoolsState({
     configured: true,
     pools: [
@@ -298,8 +298,8 @@ test("DeepSeek execution pool exposes the verified image and adaptive reasoning 
   assert.equal(option.providerId, DEEPSEEK_EXECUTION_PROVIDER_ID);
   assert.equal(option.routeGroupId, 17);
   assert.deepEqual(option.inputModalities, ["text", "image"]);
-  assert.deepEqual(option.reasoningEfforts.map((effort) => effort.value), ["low", "high", "max"]);
-  assert.equal(option.defaultReasoningEffort, "max");
+  assert.deepEqual(option.reasoningEfforts.map((effort) => effort.value), ["low"]);
+  assert.equal(option.defaultReasoningEffort, "low");
   assert.equal(DEEPSEEK_EXECUTION_CHAT_MODEL_OPTION.serviceTiers.length, 0);
   assert.equal(
     normalizeRuntimeThreadModelSettings({

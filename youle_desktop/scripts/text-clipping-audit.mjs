@@ -101,7 +101,7 @@ export function inspectClippedLabelStyles(inspect) {
         fixture.replaceChildren(label);
         for (const [fontSize, offset] of [["small", -1], ["default", 0], ["medium", 1], ["large", 2]]) {
           fixture.style.setProperty("--app-font-size-offset", `${offset}px`);
-          for (const text of ["English gjpqy", "Ångström café", "简体中文", "繁體中文"]) {
+          for (const text of ["English gjpqy", "Ångström café", "简体中文", "繁體中文", "한국어 거래 환경 설정"]) {
             label.textContent = text;
             checks += 1;
             for (const issue of inspect(fixture)) issues.push({ selector: rule.selectorText, theme, fontPreset: fontSize, ...issue });

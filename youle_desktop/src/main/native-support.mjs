@@ -9,7 +9,7 @@ const MAX_BYTES = 1024 ** 3;
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 export function supportRoute(params = {}) {
   const action = params.action;
-  if (action === "open") return { path: "/api/support/website/open", method: "POST", body: { locale: ["en", "zh-Hant"].includes(params.locale) ? params.locale : "zh-CN" } };
+  if (action === "open") return { path: "/api/support/website/open", method: "POST", body: { locale: ["en", "zh-Hant", "ko"].includes(params.locale) ? params.locale : "zh-CN" } };
   if (!UUID.test(String(params.sessionId || ""))) throw new Error("support_invalid_session");
   const prefix = `/api/support/website/sessions/${params.sessionId}`;
   if (action === "messages") return { path: `${prefix}/messages`, method: "GET" };

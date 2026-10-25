@@ -49,3 +49,11 @@ pnpm --dir youle_desktop exec electron scripts/native-support-qa.mjs
 桌面 QA 使用独立测试窗口、浏览器预览账号、模拟客服接口及本地 HTTP 上传接收端，拦截外部网络。覆盖客服收发、轮询、历史续聊、粘贴附件、失败保留草稿、原模型草稿与模型选择恢复、同一模型历史返回、模型流式回复在客服期间完成，以及简体／繁体／英文与明暗主题。证据输出在 `output/native-support-qa/`。
 
 这些检查不等于生产人工客服实机联调。本次未向真实客服发送测试消息，未打包、签名或上传客户端发布包。
+
+## 2026-10-25 多语言与产品知识版本
+
+客服回复语言独立于界面，简／繁／英／韩的授权与操作说明跟随服务端reply_locale。产品上下文携带support_protocol=2、contract_id、实际APP_VERSION、haolo_windows_web3渠道及本地适配器版本；授权前校验计划绑定，服务端每步复核实际发布记录。
+
+构建自动生成release/support-bundle.json与support-runtime.ts。功能定义在仓库support/catalog.json；新动作须先实现受控控件操作、保存验证及服务端策略，再登记协议。CI提交候选不等于启用，正式签名安装包必须同时上传知识包。发布入口见tools/publish-support-release.mjs，完整跨端说明在规范前端仓库docs/support-language-product-sync-20261024.zh-CN.md。
+
+本批14项客服测试、类型检查及Vite构建通过；未生成新正式安装包，未提交／推送／生产部署。

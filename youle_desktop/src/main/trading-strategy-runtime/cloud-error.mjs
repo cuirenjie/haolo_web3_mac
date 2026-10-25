@@ -1,7 +1,13 @@
+import { koreanText, localizedChoice } from '../../shared/korean.mjs';
 const messages = {
   SECURE_STORAGE_UNAVAILABLE: ['系统安全存储暂不可用，请恢复钥匙串访问后重试；本机记录未被修改。','System secure storage is unavailable. Restore keychain access and retry; local records have not been changed.','系統安全儲存暫不可用，請恢復鑰匙圈存取後重試；本機記錄未被修改。'],
   CLOUD_RUN_JOURNAL_INVALID: ['本机云端任务记录暂时无法读取，原文件已保留。请检查安全存储访问后重启应用。','Local cloud-task records could not be read. The original file is retained. Check secure-storage access and restart the app.','本機雲端任務記錄暫時無法讀取，原檔案已保留。請檢查安全儲存存取後重新啟動應用程式。'],
   PREFERENCE_IMPORT_RESOLUTION_REQUIRED: ['请先到“设置 → 交易偏好”核对迁移内容，再重新分析；原有记录仍保留。','Review the migration in Settings → Trading preferences before analyzing again. Original records are retained.','請先到「設定 → 交易偏好」核對遷移內容，再重新分析；原有記錄仍保留。'],
+  CLOUD_TASK_REPLY_FAILED: ['本次回复未完成，原会话和已收到的内容已保留。','This reply did not complete. The conversation and received content were retained.','本次回覆未完成，原對話與已收到的內容已保留。'],
+  CLOUD_TASK_BUSY: ['此会话正在回复，请稍候或先停止。','This conversation is replying. Wait or stop it first.','此對話正在回覆，請稍候或先停止。'],
+  CLOUD_TASK_MESSAGE_INVALID: ['请输入 1 至 8000 字的消息。','Enter a message of 1–8000 characters.','請輸入 1 至 8000 字的訊息。'],
+  CLOUD_TASK_SUBMISSION_UNCERTAIN: ['上一条消息的发送结果尚未确认，请重试原消息。','The previous submission is unconfirmed. Retry the original message.','上一則訊息的傳送結果尚未確認，請重試原訊息。'],
+  CLOUD_TASK_HISTORY_INVALID: ['原会话记录校验失败，未新建或替换会话。','The original conversation could not be validated. No conversation was created or replaced.','原對話記錄驗證失敗，未建立或替換對話。'],
   PRICE_ALERT_CLOUD_UNAVAILABLE: ['云端价格预警暂未就绪，请稍后重试。','Cloud price alerts are not ready. Please retry shortly.','雲端價格預警暫未就緒，請稍後重試。'],
   PRICE_ALERT_EMAIL_REQUIRED: ['请先在账号页面绑定邮箱。','Add an email address on the Account page first.','請先在帳號頁面綁定信箱。'],
   PRICE_ALERT_READBACK_FAILED: ['尚未确认云端保存结果，请重试。','The cloud save could not be verified. Please retry.','尚未確認雲端儲存結果，請重試。'],
@@ -47,8 +53,7 @@ export function cloudStrategyFailure(error, {language='zh-CN',aborted=false}={})
   const detail=error?.payload?.detail || error?.detail || {};
   let code=String(detail.code || error?.code || 'CLOUD_ANALYSIS_FAILED');
   if (aborted && !['CLOUD_CANCEL_PENDING','CLOUD_RUN_PENDING'].includes(code)) code='TRADING_ANALYSIS_CANCELLED';
-  const index=language==='en'?1:['zh-TW','zh-Hant'].includes(language)?2:0;
-  return {code,message:(messages[code] || messages.CLOUD_ANALYSIS_FAILED)[index],
+  return {code,message:localizedChoice(messages[code] || messages.CLOUD_ANALYSIS_FAILED,language),
     retryable:error?.retryable===true,status:error?.status,runId:error?.runId,
     category:code==='CLOUD_CANCEL_PENDING'?'cancellation_pending':code==='CLOUD_RUN_PENDING'?'pending':undefined};
 }

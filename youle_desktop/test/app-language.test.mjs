@@ -235,7 +235,7 @@ function sourceBlock(source, startMarker, endMarker) {
   return source.slice(start, end);
 }
 
-test("application language safely defaults to Simplified Chinese and exposes three supported locales", () => {
+test("application language safely defaults to Simplified Chinese and exposes four supported locales", () => {
   assert.equal(APP_LANGUAGE_STORAGE_KEY, "haolo.appearance.language");
   assert.equal(translateAppText("设置"), "设置");
   assert.equal(loadAppLanguage({ getItem: () => null }), "zh-CN");
@@ -279,14 +279,15 @@ test("application language safely defaults to Simplified Chinese and exposes thr
   assert.equal(appLanguageLocale("zh-CN"), "zh-CN");
 });
 
-test("language choices always use native names regardless of the active language", () => {
+test("all four language choices use native names regardless of the active language", () => {
   try {
-    for (const language of ["en", "zh-CN", "zh-TW"]) {
+    for (const language of ["en", "zh-CN", "zh-TW", "ko"]) {
       applyAppLanguage(language);
       assert.deepEqual(appLanguageOptions(), [
         { value: "en", label: "English" },
         { value: "zh-CN", label: "简体中文" },
         { value: "zh-TW", label: "繁體中文" },
+        { value: "ko", label: "한국어" },
       ]);
     }
   } finally {
@@ -460,7 +461,7 @@ test("language initializes before boot and reconciles renderer and main-process 
   assert.match(source, /reconcileStartupAppLanguage\(defaults\.language, defaults\.languagePreferenceStored === true\)/);
   assert.match(source, /resolveAppLanguagePreference\(\{[\s\S]*mainPreferenceStored,[\s\S]*rendererLanguage: storedRendererLanguage,[\s\S]*userSelected: appLanguageSelectionRevision > 0/);
   assert.match(main, /DEFAULT_APP_PREFERENCES = Object\.freeze\(\{\s*theme: "light",\s*language: "zh-CN"/s);
-  assert.match(main, /function normalizeAppLanguage\(value\) \{\s*return value === "en" \|\| value === "zh-TW" \? value : "zh-CN";\s*\}/s);
+  assert.match(main, /function normalizeAppLanguage\(value\) \{[\s\S]*?return value === "en" \|\| value === "zh-TW" \|\| value === "ko" \? value : "zh-CN";\s*\}/s);
   assert.match(main, /function appLanguagePreferenceStored\(\)/);
   assert.match(main, /languagePreferenceStored: appLanguagePreferenceStored\(\)/);
   assert.match(main, /ipcMain\.handle\("app:setLanguage"/);
@@ -513,13 +514,15 @@ test("HaoLo select preserves listbox semantics and keyboard interaction", async 
   assert.match(source, /spaceBelow < menuHeight \+ 6 && spaceAbove > spaceBelow/);
 });
 
-test("runtime language audit uses the same pointer interaction as users and verifies reload persistence", async () => {
+test("runtime language audit uses control interactions and verifies reload persistence", async () => {
   const audit = await readFile(new URL("../scripts/audit-i18n-layout.mjs", import.meta.url), "utf8");
   const switchBlock = sourceBlock(audit, "async function switchLanguage", "async function verifyLanguageSurvivesReload");
   assert.match(switchBlock, /data-haolo-select-trigger/);
   assert.match(switchBlock, /data-haolo-select-value/);
   assert.match(switchBlock, /nativeClick/);
-  assert.doesNotMatch(switchBlock, /dispatchEvent/);
+  assert.match(switchBlock, /HAOLO_I18N_QA_DOM_INPUT/);
+  assert.match(switchBlock, /KeyboardEvent\('keydown',\{key:'ArrowDown'/);
+  assert.doesNotMatch(switchBlock, /applyAppLanguage\(|setAppLanguage\(|\.value\s*=/);
   assert.match(switchBlock, /storedValue/);
   assert.match(switchBlock, /applied\.selectedLabel !== nativeLabels\[language\]/);
   assert.match(switchBlock, /JSON\.stringify\(applied\.optionLabels\)/);
@@ -529,7 +532,7 @@ test("runtime language audit uses the same pointer interaction as users and veri
   assert.match(audit, /function verifyLanguageTransitionMatrix/);
   assert.match(audit, /for \(const source of languages\)/);
   assert.match(audit, /for \(const target of languages\)/);
-  assert.match(audit, /for \(const language of \["en", "zh-CN", "zh-TW"\]\)/);
+  assert.match(audit, /for \(const language of \["en", "zh-CN", "zh-TW", "ko"\]\)/);
   assert.match(audit, /verifyLanguageSurvivesReload\(targetWindow, language\)/);
   assert.match(audit, /targetWindow\.reload\(\)/);
 });
@@ -541,7 +544,7 @@ test("renderer has no remaining visible native option boxes", async () => {
   for (const tag of selectTags) assert.match(tag, /\bhidden\b|aria-hidden="true"/);
 });
 
-test("CSS-generated interface copy switches among all three languages", async () => {
+test("CSS-generated interface copy switches among all four languages", async () => {
   const styles = await stylesSource;
   const englishVariables = sourceBlock(styles, ":root {", 'html[data-language="zh-CN"]');
   const simplifiedVariables = sourceBlock(styles, 'html[data-language="zh-CN"]', 'html[data-language="zh-TW"]');
@@ -549,8 +552,17 @@ test("CSS-generated interface copy switches among all three languages", async ()
   assert.doesNotMatch(englishVariables, /[\u3400-\u9fff]/u);
   assert.match(simplifiedVariables, /--i18n-loading-conversation: "正在加载会话\.\.\."/);
   assert.match(traditionalVariables, /--i18n-loading-conversation: "正在載入對話\.\.\."/);
+    const koreanVariables = sourceBlock(styles, 'html[data-language="ko"]', 'html[data-font-size="small"]');
+    assert.doesNotMatch(koreanVariables, /[\u3400-\u9fff]/u);
+    assert.match(koreanVariables, /대화/);
   assert.doesNotMatch(styles, /content:\s*"[^"\n]*[\u3400-\u9fff]/u);
   assert.equal((styles.match(/content: var\(--i18n-/g) || []).length, 5);
+});
+
+test("Korean recharge periods retain the slash and localize the complete DOM text node", () => {
+  assert.equal(translateAppText("/月", "ko"), "/월");
+  assert.equal(translateAppText("/次", "ko"), "/회");
+  assert.equal(translateAppText("39 USDT/月", "ko"), "39 USDT/월");
 });
 
 test("standalone notifications use the same persisted language", async () => {

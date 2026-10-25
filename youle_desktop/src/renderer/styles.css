@@ -130,6 +130,14 @@ html[data-language="zh-TW"] {
   --i18n-qr-generation-failed: "QR Code 產生失敗";
 }
 
+html[data-language="ko"] {
+  --i18n-workflow-timeout-fallback: "이중 경로 시간 초과 전환";
+  --i18n-executable-agent: "실행 가능한 에이전트";
+  --i18n-independent-review: "독립 검토";
+  --i18n-loading-conversation: "대화를 불러오는 중...";
+  --i18n-qr-generation-failed: "QR 코드를 생성하지 못했습니다";
+}
+
 html[data-font-size="small"] {
   --app-font-size-offset: -1px;
   --settings-font-size-offset: -2px;
@@ -3912,8 +3920,14 @@ button * {
   -webkit-user-drag: none;
 }
 
-/* English action labels stay horizontal and can grow past legacy CJK widths. */
-html[data-language="en"] button[data-i18n-single-line] {
+/* Korean wraps at word boundaries; long unbroken identifiers can still wrap. */
+html[data-language="ko"] body {
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}
+
+/* English and Korean action labels can grow past legacy CJK widths. */
+html:is([data-language="en"], [data-language="ko"]) button[data-i18n-single-line] {
   box-sizing: border-box;
   min-inline-size: max-content;
   overflow-wrap: normal;
@@ -25247,6 +25261,16 @@ html[data-theme="dark"] .settings-trading-actions {
   transform: translateY(-1px);
 }
 
+html[data-language="ko"] .settings-theme-options {
+  width: max-content;
+  min-width: 196px;
+  grid-template-columns: repeat(2, max-content);
+}
+
+html[data-language="ko"] .settings-theme-option {
+  padding-inline: 8px;
+}
+
 .settings-theme-icon {
   width: 15px;
   height: 15px;
@@ -34138,7 +34162,7 @@ html[data-theme="dark"]
   align-items: center;
   justify-content: center;
   gap: 2px;
-  margin-left: -8px;
+  margin-left: 0;
 }
 
 .trading-market-chart-action {

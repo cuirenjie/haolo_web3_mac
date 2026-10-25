@@ -16,14 +16,14 @@ export function cloudPriceAlertCard(item) {
   // through the local engine, then restore the authoritative cloud interval.
   const displayInterval = ['1M', '1y'].includes(r.interval) ? '1h' : r.interval;
   const rule = buildPriceAlertRule({requestId: item.id, marketId, interval: displayInterval, price: r.threshold,
-    referencePrice: upward ? r.threshold : r.threshold * 2}, Date.parse(item.createdAt) || Date.now());
+    referencePrice: upward ? r.threshold : r.threshold * 2, locale: item.locale}, Date.parse(item.createdAt) || Date.now());
   const price = r.threshold.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:12});
   const operator = {gte:'≥',lte:'≤',gt:'>',lt:'<',cross_over:'>',cross_under:'<'}[r.operator];
   const lang = item.locale === 'en' ? 1 : item.locale === 'zh-Hant' ? 2 : 0;
   return {alertId: prefix + item.id, cloud: {id:item.id,version:item.version,operator:r.operator,threshold:r.threshold}, enabled:item.enabled === true,
     status:item.state, rule: {...rule, revision:item.version, title:item.title,
       contexts:rule.contexts.map(context => ({...context,intervals:[r.interval]})),
-      normalizedSummary:[`价格 ${operator} ${price} 时发送一次邮件通知`, `Email once when price ${operator} ${price}`, `價格 ${operator} ${price} 時傳送一次郵件通知`][lang],
+      normalizedSummary:item.locale === 'ko' ? `가격이 ${operator} ${price} 조건을 충족하면 이메일을 한 번 보냅니다.` : [`价格 ${operator} ${price} 时发送一次邮件通知`, `Email once when price ${operator} ${price}`, `價格 ${operator} ${price} 時傳送一次郵件通知`][lang],
       evaluationPolicy:{...rule.evaluationPolicy,clock:r.confirmation === 'bar_close' ? 'bar_close' : 'bar_update'}},
     createdAt:item.createdAt, lastEvaluatedAt:item.lastCheckedAt, failure:item.error?.code || item.error || null};
 }

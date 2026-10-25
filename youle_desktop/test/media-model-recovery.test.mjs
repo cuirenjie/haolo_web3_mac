@@ -1,3 +1,5 @@
+import { AppServerClient } from "../src/main/app-server-client.mjs";
+import { normalizeModelRequestBody } from "../src/main/model-request-policy.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
@@ -115,4 +117,27 @@ test("actual media recovery notices describe the GPT continuation and translate 
   }
   announce("text", { chainId: "text", status: "scheduled", modelId: "gpt-5.6-sol" });
   assert.match(notices.at(-1), /备用模型/);
+});
+
+test("media mode survives native RPC, settings, and actual model wire normalization", async () => {
+  const client = new AppServerClient(), sent = [];
+  client.ws = { readyState: 1, send(text) { const rpc = JSON.parse(text); sent.push(rpc);
+    queueMicrotask(() => client.handleMessage(JSON.stringify({ id: rpc.id, result: { thread: { id: "media-wire" } } }))); } };
+  const deps = { executionProviderSelection: p => ({ model: p.model, modelProvider: "haolo_ai", isDeepSeek: false }),
+    firstString, requestedReasoningEffort: () => "high", currentSkillsCwd: "fixture", desktopWorkspace: () => "fixture" };
+  const configure = new Function(...Object.keys(deps), `${functions(main, ["threadConfigurationParams"])};return threadConfigurationParams;`)(...Object.values(deps));
+  for (const conversationMode of modes) {
+    await client.requestRaw("thread/start", configure({ model: "gpt-5.6-sol", conversationMode }));
+    await client.requestRaw("thread/settings/update", { threadId: "media-wire", model: "gpt-5.6-sol", effort: "high" });
+    await client.requestRaw("turn/start", { threadId: "media-wire", model: "gpt-5.6-sol", effort: "high" });
+    for (const rpc of sent.splice(0)) { assert.equal(rpc.params.model, "gpt-5.6-sol"); assert.equal(rpc.params.__haoloConversationMode, undefined); }
+    const input = Buffer.from(JSON.stringify({ model: "gpt-5.6-sol", prompt_cache_key: "media-wire", reasoning: { effort: "high" } }));
+    const project = body => JSON.parse(normalizeModelRequestBody(body, "", undefined, id => client.historyModelSelections.get(id), true));
+    assert.equal(project(input).model, "gpt-5.6-sol");
+    assert.equal(project(input).reasoning.effort, "high");
+    assert.equal(project(Buffer.from(JSON.stringify({model:"gpt-5.6-sol",prompt_cache_key:"different-thread"}))).model, "deepseek-flash");
+    await client.requestRaw("turn/start", { threadId: "media-wire", model: "gpt-5.6-sol", __haoloConversationMode: "execution" });
+    assert.equal(sent.pop().params.model, "deepseek-flash");
+    assert.equal(project(input).model, "deepseek-flash");
+  }
 });

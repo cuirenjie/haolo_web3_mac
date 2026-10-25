@@ -10,10 +10,13 @@ import { pureAnalysisPresentationGroups } from "../src/renderer/pure-analysis-pr
 import { rememberTradingPlanDrawingHistory } from "../src/renderer/trading-plan-drawing-history.ts";
 import { activeThinkingResponseId, isFinalAnswerForThinkingResponse } from "../src/renderer/thinking-indicator.ts";
 import { compactActiveThreadReadResult, compactBackgroundThreadReadResult } from "../src/main/background-thread-hydration.mjs";
+import { isObsoletePlanRecoveryNotice } from "../src/renderer/saved-plan-source.ts";
+import * as businessErrors from "../src/shared/business-tool-error.mjs";
 
 const source = fs.readFileSync(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
 const ast = ts.createSourceFile("main.ts", source, ts.ScriptTarget.Latest, true);
 const functions = [
+  "isCloudTaskThread",
   "orderedThreadItems", "flattenThreadItemRows", "incomingTurnIndexById",
   "preservedExistingThreadItemRow", "preservedSameTurnItemIndex", "compareThreadItemRows",
   "shouldPreserveExistingThreadItem", "shouldPreserveLocalHistoryAheadItem", "latestSortTime", "itemStableId",
@@ -41,17 +44,17 @@ const toolsJs = ts.transpileModule(toolsSource, {
 const toolsExports = {};
 vm.runInNewContext(toolsJs, {
   exports: toolsExports, AbortController,
-  require: () => ({ rebindTradingExpertAnalysisTargetStorageSession: () => null }),
+  require: name => name.includes("business-tool-error") ? businessErrors : ({ rebindTradingExpertAnalysisTargetStorageSession: () => null }),
 });
 
 function harness() {
   let turnId = "turn-1", finishPresentation;
   const resolved = [];
-  const state = { currentThreadId: "origin", activeView: "chat", providerBusy: {}, items: { origin: {} },
+  const state = { currentThreadId: "origin", activeView: "chat", auth: { authenticated: false }, providerBusy: {}, items: { origin: {} },
     itemOrder: { origin: [] }, artifacts: [], threadRoles: {}, voiceInput: { status: "idle" }, resultProcessExpanded: {} };
   const noop = () => {};
   const context = {
-    state, businessPresentationItems, businessPresentationResult, rememberTradingPlanDrawingHistory,
+    state, businessPresentationItems, businessPresentationResult, rememberTradingPlanDrawingHistory, isObsoletePlanRecoveryNotice,
     completedTradingAnalysisReport, isCompletedTradingAnalysisReport, tradingAnalysisDeliveryItems, turnResultFoldTargets, pureAnalysisPresentationGroups,
     activeThinkingResponseId, isFinalAnswerForThinkingResponse,
     activeTurnIdForThread: () => turnId,

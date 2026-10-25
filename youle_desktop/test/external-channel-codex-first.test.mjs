@@ -98,6 +98,7 @@ test("stop targets the active isolated request and marks it cancelled before awa
   const record = { id: "channel-request", cancelled: false }, calls = [];
   const { interruptCurrentTurn } = load(["interruptCurrentTurn"], {
     state: {}, currentComposerThreadId: () => null,
+    isCloudTaskThread: () => false,
     firstString: (...values) => values.find(v => typeof v === "string" && v),
     activeChannelCodexInteractions: new Map([["visible", record]]),
     api: { interruptChannelCodexMessage: async params => {

@@ -1,3 +1,4 @@
+import { koreanText } from '../shared/korean.mjs';
 type PriceContext = { marketId: string; interval: string; referencePrice: number };
 const supported = (marketId: string) => /^BINANCE:(?:FUTURES|SPOT):/.test(marketId);
 const copy = {
@@ -19,6 +20,7 @@ const copy = {
 };
 function t(key: keyof typeof copy) {
   const language = document.documentElement.lang;
+  if (language.startsWith('ko')) return koreanText(copy[key][0]);
   return copy[key][language.startsWith('en') ? 1 : /TW|Hant/i.test(language) ? 2 : 0];
 }
 
@@ -79,7 +81,7 @@ export class TradingPriceAlertControl {
     if (current?.marketId !== this.sample.marketId || current?.interval !== this.sample.interval) return;
     const language = document.documentElement.lang;
     const frozen = { ...this.sample, interval: priceAlertInterval(this.sample.interval), requestId: crypto.randomUUID(), confirmed: true as const,
-      locale:language.startsWith('en') ? 'en' : /TW|Hant/i.test(language) ? 'zh-Hant' : 'zh-CN' };
+      locale:language.startsWith('ko') ? 'ko' : language.startsWith('en') ? 'en' : /TW|Hant/i.test(language) ? 'zh-Hant' : 'zh-CN' };
     const previousFocus = document.activeElement as HTMLElement | null;
     const dialog = document.createElement('dialog');
     this.dialog = dialog;

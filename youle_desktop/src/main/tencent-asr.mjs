@@ -85,9 +85,10 @@ export function normalizeTencentAsrCredentialPayload(payload, options = {}) {
 
 export function buildTencentAsrWebSocketUrl(config, options = {}) {
   const timestamp = Math.floor((options.nowMs ?? Date.now()) / 1000);
+  const engine = options.language === 'ko' ? '16k_ko' : config.engine || TENCENT_ASR_ENGINE;
   const params = {
     convert_num_mode: 1,
-    engine_model_type: config.engine || TENCENT_ASR_ENGINE,
+    engine_model_type: engine,
     expired: timestamp + 24 * 60 * 60,
     filter_dirty: 0,
     filter_empty_result: 1,
@@ -99,7 +100,7 @@ export function buildTencentAsrWebSocketUrl(config, options = {}) {
     timestamp,
     voice_format: 1,
     voice_id: options.voiceId || crypto.randomUUID(),
-    word_info: 100,
+    word_info: engine === TENCENT_ASR_ENGINE ? 100 : 1,
   };
   if (config.token) params.token = config.token;
   if (config.hotwordId) params.hotword_id = config.hotwordId;
@@ -132,6 +133,7 @@ export function createTencentAsrClient(options = {}) {
 
     const config = await getConfig();
     const url = buildTencentAsrWebSocketUrl(config, {
+      language: params.language,
       nowMs: options.nowMs?.(),
       nonce: options.nonce?.(),
       voiceId: options.voiceId?.(),

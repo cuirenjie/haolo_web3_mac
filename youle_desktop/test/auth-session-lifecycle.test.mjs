@@ -13,7 +13,7 @@ test("session client retains protected transports and routes P&L completions to 
   const safeStorage = {}, appNetworkFetch = () => {}, haoloServiceFetch = () => {};
   const events = []; let constructions = 0, wraps = 0;
   const context = vm.createContext({
-    youleApiClient: null,
+    youleApiClient: null, appLanguage: () => "ko",
     YouleApiClient: class { constructor(options) { constructions++; this.options = options; } },
     wrapYouleApiClient: client => { wraps++; return client; },
     path: { join: (...parts) => parts.join('/') }, app: { getPath: () => '/fixture' },
@@ -22,6 +22,7 @@ test("session client retains protected transports and routes P&L completions to 
     sendToRenderer: (...args) => events.push(args),
   });
   const client = vm.runInContext(`${factory}\ngetYouleApiClient()`, context);
+  assert.equal(client.options.getLocale(), "ko");
   assert.equal(client.options.safeStorage, safeStorage);
   assert.equal(client.options.networkFetch, appNetworkFetch);
   assert.equal(client.options.serviceFetch, haoloServiceFetch);

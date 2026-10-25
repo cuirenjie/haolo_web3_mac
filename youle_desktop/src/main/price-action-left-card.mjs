@@ -1,3 +1,4 @@
+import { koreanText, localizedChoice } from '../shared/korean.mjs';
 // Public presentation only. Prices and permissions come from the frozen server receipt.
 const version='price-action-left-dual-v1';
 const words={
@@ -19,7 +20,7 @@ const words={
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
 const positive=v=>typeof v==='number'&&Number.isFinite(v)&&v>0;
 const stamp=v=>Number.isSafeInteger(v)&&v>0&&v<=8640000000000000;
-const translator=language=>key=>words[key]?.[language==='en'?1:['zh-TW','zh-Hant'].includes(language)?2:0]||key;
+const translator=language=>key=>words[key]?localizedChoice(words[key],language):key;
 const linesHtml=lines=>`<div class="execution-plan-details">${lines.map(line=>`<p class="execution-plan-card-line"><span class="execution-plan-card-value">${escape(line)}</span></p>`).join('')}</div>`;
 
 export function validLeftObservation(value){

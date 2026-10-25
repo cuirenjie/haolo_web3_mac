@@ -110,7 +110,7 @@ function bundledModelCatalogFixture() {
 }
 
 function assertWebsocketCompatibilityMode(config) {
-  assert.match(config, /^supports_websockets\s*=\s*true\s*$/m);
+  assert.match(config, /^supports_websockets\s*=\s*false\s*$/m);
   assert.match(config, /^request_max_retries\s*=\s*2\s*$/m);
   assert.match(config, /^stream_max_retries\s*=\s*3\s*$/m);
   assert.doesNotMatch(config, /^responses_websockets_v2\s*=/m);
@@ -208,7 +208,7 @@ test("bundled runtime config uses per-model context defaults and pins remote plu
   const config = fs.readFileSync(new URL("../resources/default-haolo-ai/config.toml", import.meta.url), "utf8");
 
   assert.match(config, /^model\s*=\s*"deepseek-flash"\s*$/m);
-  assert.match(config, /^model_reasoning_effort\s*=\s*"high"\s*$/m);
+  assert.match(config, /^model_reasoning_effort\s*=\s*"low"\s*$/m);
   assert.doesNotMatch(config, /^disable_response_storage\s*=/m);
   assertManagedTopLevelContextPinsAbsent(config);
   assertLegacyContextPinsAbsent(config);
@@ -231,7 +231,7 @@ test("runtime provider overrides always send the bundled Codex version without f
 
   assert.ok(args.includes('model="deepseek-flash"'));
   assert.ok(args.includes('model_provider="deepseek"'));
-  assert.ok(args.includes('model_reasoning_effort="high"'));
+  assert.ok(args.includes('model_reasoning_effort="low"'));
   assert.equal(args.includes('windows.sandbox="unelevated"'), process.platform === "win32");
   assert.ok(args.includes("features.network_proxy.enabled=false"));
   assert.ok(args.includes("features.multi_agent_v2.max_concurrent_threads_per_session=1"));
@@ -325,6 +325,8 @@ test("default resource sync gives a new Codex home per-model context policies", 
     assert.equal(catalog.models.find((candidate) => candidate.slug === "gpt-5.4-mini").context_window, 128_000);
     const deepSeek = catalog.models.find((candidate) => candidate.slug === DEEPSEEK_EXECUTION_MODEL);
     assert.ok(deepSeek);
+    assert.equal(deepSeek.auto_compact_token_limit, null);
+    assert.equal(deepSeek.context_window, 1_048_576);
     assert.equal(deepSeek.prefer_websockets, false);
     assert.equal(deepSeek.minimal_client_version, "0.144.0");
     assert.deepEqual(deepSeek.input_modalities, ["text", "image"]);
@@ -338,7 +340,7 @@ test("default resource sync gives a new Codex home per-model context policies", 
   });
 });
 
-test("default resource sync backfills an old config while forcing the managed Haolo WebSocket transport", () => {
+test("default resource sync backfills an old config while disabling obsolete managed Haolo WebSockets", () => {
   withRuntimeConfigFixture(({ tempRoot }) => {
     const oldCodexHome = path.join(tempRoot, "old-codex-home");
     fs.mkdirSync(oldCodexHome, { recursive: true });
@@ -424,7 +426,7 @@ test("default resource sync backfills an old config while forcing the managed Ha
         "plugins = true",
         "",
         "[model_providers.haolo_ai]",
-        "supports_websockets = false",
+        "supports_websockets = true",
         "request_max_retries = 3",
         "stream_max_retries = 4",
         "",
@@ -437,7 +439,7 @@ test("default resource sync backfills an old config while forcing the managed Ha
     });
     const explicitFeatureConfig = fs.readFileSync(path.join(explicitFeatureHome, "config.toml"), "utf8");
     assert.match(explicitFeatureConfig, /^remote_plugin = true$/m);
-    assert.match(explicitFeatureConfig, /^supports_websockets = true$/m);
+    assert.match(explicitFeatureConfig, /^supports_websockets = false$/m);
     assertWindowsSandboxCompatibilityMode(explicitFeatureConfig);
     assert.match(explicitFeatureConfig, /^request_max_retries = 3$/m);
     assert.match(explicitFeatureConfig, /^stream_max_retries = 4$/m);
@@ -491,7 +493,7 @@ test("default resource sync forces a dotted Haolo WebSocket override without dup
       path.join(codexHome, "config.toml"),
       [
         'model_provider = "haolo_ai"',
-        "model_providers.haolo_ai.supports_websockets = false # stale desktop setting",
+        "model_providers.haolo_ai.supports_websockets = true # stale desktop setting",
         "",
       ].join("\n"),
       "utf8",
@@ -509,7 +511,7 @@ test("default resource sync forces a dotted Haolo WebSocket override without dup
 
     assert.match(
       migrated,
-      /^model_providers\.haolo_ai\.supports_websockets = true # stale desktop setting$/m,
+      /^model_providers\.haolo_ai\.supports_websockets = false # stale desktop setting$/m,
     );
     assert.equal((migrated.match(/supports_websockets\s*=/gm) || []).length, 1);
     assert.ok(first.copied.includes("config.toml:context-defaults"));
@@ -517,7 +519,7 @@ test("default resource sync forces a dotted Haolo WebSocket override without dup
   });
 });
 
-test("default resource sync forces WebSockets in both configured and runtime-derived Codex homes", () => {
+test("default resource sync disables upstream WebSockets in both configured and runtime-derived Codex homes", () => {
   withRuntimeConfigFixture(({ tempRoot }) => {
     const codexHome = path.join(tempRoot, "dual-layout-home");
     const runtimeDotCodex = path.join(codexHome, "runtime-home", ".codex");
@@ -525,7 +527,7 @@ test("default resource sync forces WebSockets in both configured and runtime-der
       fs.mkdirSync(home, { recursive: true });
       fs.writeFileSync(
         path.join(home, "config.toml"),
-        ["[model_providers.haolo_ai]", "supports_websockets = false", ""].join("\n"),
+        ["[model_providers.haolo_ai]", "supports_websockets = true", ""].join("\n"),
         "utf8",
       );
     }
@@ -535,7 +537,7 @@ test("default resource sync forces WebSockets in both configured and runtime-der
     assert.deepEqual(result.codexHomes, [codexHome, runtimeDotCodex]);
     for (const home of result.codexHomes) {
       const migrated = fs.readFileSync(path.join(home, "config.toml"), "utf8");
-      assert.match(migrated, /^supports_websockets = true$/m);
+      assert.match(migrated, /^supports_websockets = false$/m);
       assert.equal((migrated.match(/^supports_websockets\s*=/gm) || []).length, 1);
     }
   });

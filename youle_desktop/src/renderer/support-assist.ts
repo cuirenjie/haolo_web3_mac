@@ -1,17 +1,27 @@
 export type SupportAction = { kind: string; theme?: "light" | "dark"; indicator?: string; parameters?: Record<string, number>; up_color?: string; down_color?: string };
-export type SupportProposal = { id: string; epoch: number; title: string; plan: SupportAction[]; status: string; device_id: string; next_step: number };
-export type SupportAI = { mode: "ai" | "human" | "closed"; phase: string; epoch: number; actions: SupportProposal[] };
+export type SupportProposal = { id: string; epoch: number; title: string; plan: SupportAction[]; status: string; device_id: string; next_step: number; reply_locale?: string; context_binding?: Record<string, any> };
+export type SupportAI = { mode: "ai" | "human" | "closed"; phase: string; epoch: number; actions: SupportProposal[]; reply_locale?: string; protocol_version?: number; copy?: Record<string, string> };
+export const SUPPORT_EXECUTOR_VERSIONS: Record<string, number> = { open_settings: 1, set_theme: 1, open_usage: 1, open_indicators: 1, set_indicator: 1, open_candle_settings: 1, set_candle_colors: 1 };
+export function validateSupportProposal(proposal: SupportProposal, context: Record<string, any>) {
+  if (!proposal.plan.length || proposal.plan.length > 12 || proposal.plan.some(a => !SUPPORT_EXECUTOR_VERSIONS[a.kind])) throw new Error("support_action_not_allowed");
+  const binding = proposal.context_binding;
+  if (binding?.support_protocol === 2) {
+    for (const key of ["version", "contract_id", "channel"]) if (binding[key] !== context[key]) throw new Error("support_operation_context_changed");
+    if (proposal.plan.some(a => binding.action_versions?.[a.kind] !== SUPPORT_EXECUTOR_VERSIONS[a.kind])) throw new Error("support_action_version_changed");
+  }
+}
 const text = {
+  ko: { typing: "haolo가 입력 중입니다...", identity: "haolo AI 고객지원", consent: "haolo 고객지원이 앱 조작을 도와드리려고 합니다. 허용하시겠습니까?", accept: "허용", decline: "거절", operating: "haolo 고객지원이 앱을 조작하고 있습니다", failed: "작업이 완료되지 않았습니다. 고객지원에 계속 문의해 주세요.", return: "고객지원 대화로 돌아가기" },
   "zh-CN": { typing: "haolo 输入中...", identity: "智能客服 haolo", consent: "客服 haolo 请求帮您操作，是否同意？", accept: "同意", decline: "拒绝", operating: "客服 haolo 正在为您操作", failed: "操作未完成，请继续联系客服。", return: "返回客服会话" },
   "zh-TW": { typing: "haolo 輸入中...", identity: "智能客服 haolo", consent: "客服 haolo 請求幫您操作，是否同意？", accept: "同意", decline: "拒絕", operating: "客服 haolo 正在為您操作", failed: "操作未完成，請繼續聯繫客服。", return: "返回客服會話" },
   en: { typing: "haolo is typing...", identity: "Intelligent support haolo", consent: "Support haolo requests permission to help you operate the app. Allow?", accept: "Allow", decline: "Decline", operating: "Support haolo is operating the app for you", failed: "The operation was not completed. Please continue with support.", return: "Return to support" },
 };
-export const assistText = (locale: string, key: keyof typeof text.en) => (text[locale as keyof typeof text] || text["zh-CN"])[key];
+export const assistText = (locale: string, key: keyof typeof text.en) => (text[(locale === "zh-Hant" ? "zh-TW" : locale) as keyof typeof text] || text["zh-CN"])[key];
 export const supportIsTyping = (ai?: SupportAI | null) => ai?.mode === "ai" && ["queued", "thinking", "retrying"].includes(ai.phase);
 export function describeSupportAction(action: SupportAction, locale: string) {
-  const labels = locale === "en"
+  const labels = locale === "ko" ? ["설정 열기", "테마 변경", "사용 내역 열기", "지표 설정 열기", "지표 설정", "캔들 색상 설정 열기", "캔들 색상 변경", "밝게", "어둡게", "상승", "하락", "매개변수"] : locale === "en"
     ? ["Open Settings", "Set appearance", "Open usage details", "Open indicator settings", "Set indicator", "Open candle color settings", "Set candle colors", "Light", "Dark", "Rising", "Falling", "Parameter"]
-    : locale === "zh-TW"
+    : ["zh-TW", "zh-Hant"].includes(locale)
       ? ["開啟設定", "切換主題外觀", "開啟積分消耗", "開啟指標設定", "設定指標", "開啟 K 線漲跌顏色設定", "設定 K 線顏色", "明亮", "黑暗", "上漲", "下跌", "參數"]
       : ["打开设置", "切换主题外观", "打开积分消耗", "打开指标设置", "设置指标", "打开 K 线涨跌颜色设置", "设置 K 线颜色", "明亮", "黑暗", "上涨", "下跌", "参数"];
   const index = ["open_settings", "set_theme", "open_usage", "open_indicators", "set_indicator", "open_candle_settings", "set_candle_colors"].indexOf(action.kind);

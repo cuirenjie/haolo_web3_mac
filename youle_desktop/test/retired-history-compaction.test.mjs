@@ -29,7 +29,7 @@ test("RPC registers the selected model before compaction, cannot register a reti
   const client = new AppServerClient();
   client.ws = { readyState: WebSocket.OPEN, send: raw => {
     const p = JSON.parse(raw);
-    assert.deepEqual(client.historyModelSelections.get("old-thread"), { model: "deepseek-flash", effort: "max" });
+    assert.deepEqual(client.historyModelSelections.get("old-thread"), { model: "deepseek-flash", effort: "low" });
     const pending = client.pending.get(p.id); clearTimeout(pending.timer); client.pending.delete(p.id); pending.resolve({});
   } };
   await client.requestRaw("turn/start", { threadId: "old-thread", model: "deepseek-flash" });
@@ -37,7 +37,7 @@ test("RPC registers the selected model before compaction, cannot register a reti
   assert.equal(client.historyModelSelections.has("other"), false);
   // A settings-only update uses the same wire migration without touching input.
   const result = JSON.parse(normalizeModelRequestBody(JSON.stringify(payload), "", 1e6, id => client.historyModelSelections.get(id)));
-  assert.equal(result.model, "deepseek-flash"); assert.equal(result.reasoning.effort, "max");
+  assert.equal(result.model, "deepseek-flash"); assert.equal(result.reasoning.effort, "low");
   client.handleMessage(JSON.stringify({ method: "thread/closed", params: { threadId: "old-thread" } }));
   assert.equal(client.historyModelSelections.has("old-thread"), false);
 });

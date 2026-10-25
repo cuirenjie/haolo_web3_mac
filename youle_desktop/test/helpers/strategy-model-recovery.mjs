@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createAppServerTradingAnalysisProvider } from "../../src/main/trading-analysis/app-server-provider.mjs";
 import { createTradingAnalysisModelProviderRegistry } from "../../src/main/trading-analysis/model-provider.mjs";
-import { tradingReviewAmbiguity } from "../../src/main/trading-analysis/model-review.mjs";
 import { BUILTIN_TRADING_STRATEGY_ADAPTERS } from "../../src/main/trading-strategy-runtime/builtins/index.mjs";
 import { TradingStrategyCoordinator } from "../../src/main/trading-strategy-runtime/coordinator.mjs";
 import { createTradingStrategyRegistry } from "../../src/main/trading-strategy-runtime/registry.mjs";
@@ -11,7 +10,7 @@ import { applyAppLanguage } from "../../src/renderer/app-language.mjs";
 import { executionPlanTextPartitions } from "../../src/renderer/execution-plans.ts";
 
 const PRIMARY = "deepseek-flash";
-const BACKUP = "gpt-5.6-sol";
+const PRIMARY_BUDGET = 900_000;
 const directAnswer = "等待候选确认，当前不要追价。";
 
 // Exercise each real engine, prompt, parser and drawing gateway through the
@@ -19,7 +18,7 @@ const directAnswer = "等待候选确认，当前不要追价。";
 export function registerStrategyModelRecoveryTests({ name, strategyId, runPipeline, params, compactReport = false }) {
   const scenarios = [
     "valid-first-review", "invalid-json-repair", "primary-timeout",
-    "backup-json-repair", "upstream-503-502", "both-budgets-exhausted",
+    "repair-budget-exhausted", "upstream-503", "upstream-502", "primary-budget-exhausted",
     "cancelled", "permission-denied", "direct-answer",
     "english-report", "english-direct-answer", "traditional-report",
   ];
@@ -47,18 +46,16 @@ export function registerStrategyModelRecoveryTests({ name, strategyId, runPipeli
           if (scenario === "permission-denied") {
             return { status: "failed", error: "permission denied", httpStatus: 403, category: "permission", retryable: false };
           }
-          if (scenario === "both-budgets-exhausted" || (
-            ["primary-timeout", "backup-json-repair"].includes(scenario) && modelId === PRIMARY
-          )) {
+          if (scenario === "primary-timeout") return { status: "failed", code: "TRADING_ANALYSIS_MODEL_TIMEOUT", error: "upstream timed out", category: "timeout", retryable: true };
+          if (scenario === "primary-budget-exhausted" || (scenario === "repair-budget-exhausted" && calls.length === 2)) {
             clock += remainingModelTime() + 1;
             remainingModelTime();
             assert.fail("The real monotonic budget must reject an expired call");
           }
-          if (scenario === "upstream-503-502" && calls.length < 3) {
-            return { status: "failed", error: "upstream server unavailable", httpStatus: calls.length === 1 ? 503 : 502, retryable: true };
+          if (scenario.startsWith("upstream-")) {
+            return { status: "failed", error: "upstream server unavailable", httpStatus: Number(scenario.slice(-3)), retryable: true };
           }
-          if ((scenario === "invalid-json-repair" && calls.length === 1)
-            || (scenario === "backup-json-repair" && calls.length === 2)) {
+          if (["invalid-json-repair", "repair-budget-exhausted"].includes(scenario) && calls.length === 1) {
             clock += 20_000;
             return { status: "success", text: "invalid JSON" };
           }
@@ -90,21 +87,25 @@ export function registerStrategyModelRecoveryTests({ name, strategyId, runPipeli
         modelRegistry: registry, providerId: provider.providerId,
       }) : null;
       const pending = coordinator ? coordinator.run(strategyId, input, options) : runPipeline(input, options);
-      if (scenario === "both-budgets-exhausted") {
+      if (["primary-timeout", "primary-budget-exhausted", "repair-budget-exhausted"].includes(scenario)) {
         await assert.rejects(pending, (error) => {
           assert.equal(error.code, "TRADING_ANALYSIS_MODEL_TIMEOUT");
-          assert.equal(error.modelId, BACKUP);
-          assert.equal(error.recovery.exhausted, true);
-          assert.equal(error.attempts.at(-1).modelId, BACKUP);
+          assert.equal(error.modelId, PRIMARY);
+          assert.equal(error.recovery, undefined, "No fallback recovery may be activated");
           return true;
         });
-        assert.deepEqual(calls.map((call) => call.modelId), [PRIMARY, BACKUP]);
-        assert.equal(clock, 180_002, "Neither validation nor transport recovery may reset the budget");
+        assert.deepEqual(calls.map((call) => call.modelId), scenario === "repair-budget-exhausted" ? [PRIMARY, PRIMARY] : [PRIMARY]);
+        assert.ok(calls.every(call => call.reasoningEffort === "low"));
+        assert.equal(clock, scenario === "primary-timeout" ? 0 : PRIMARY_BUDGET + 1, "Validation must share the original monotonic budget");
         return;
       }
-      if (scenario === "upstream-503-502") {
-        await assert.rejects(pending, /upstream server unavailable/);
-        assert.deepEqual(calls.map(call => call.modelId), [PRIMARY, BACKUP], "a second upstream failure must stop after one fallback");
+      if (scenario.startsWith("upstream-")) {
+        await assert.rejects(pending, error => {
+          assert.match(error.message,/upstream server unavailable/);
+          assert.equal(error.status,Number(scenario.slice(-3)));
+          return true;
+        });
+        assert.deepEqual(calls.map(call => call.modelId), [PRIMARY], "An upstream failure must not replay on another model");
         return;
       }
       if (["cancelled", "permission-denied"].includes(scenario)) {
@@ -129,25 +130,19 @@ export function registerStrategyModelRecoveryTests({ name, strategyId, runPipeli
       if (english && strategyId && !direct) {
         assert.ok(executionPlanTextPartitions(visibleReport)?.candidates.length, "English real-engine result must keep plan cards");
       }
-      const expectedModels = {
-        "primary-timeout": [PRIMARY, BACKUP],
-        "backup-json-repair": [PRIMARY, BACKUP, BACKUP],
-        "upstream-503-502": [PRIMARY, BACKUP, BACKUP],
-        "invalid-json-repair": [PRIMARY, PRIMARY],
-      }[scenario] || [PRIMARY];
+      const expectedModels = scenario === "invalid-json-repair" ? [PRIMARY, PRIMARY] : [PRIMARY];
       assert.deepEqual(calls.map((call) => call.modelId), expectedModels);
       assert.equal(result.model.modelId, expectedModels.at(-1));
-      const repair = ["invalid-json-repair", "backup-json-repair"].includes(scenario);
+      const repair = scenario === "invalid-json-repair";
       assert.equal(result.model.reviewAttempts, repair ? 2 : 1);
-      const firstEffort = tradingReviewAmbiguity(result.theoryResult).ambiguous ? "high" : "medium";
-      assert.equal(calls[0].reasoningEffort, firstEffort);
+      assert.ok(calls.every(call => call.reasoningEffort === "low"));
+      assert.equal(calls[0].remaining, PRIMARY_BUDGET);
       if (repair) {
         const last = calls.at(-1);
-        assert.equal(last.remaining, 70_000);
+        assert.equal(last.remaining, PRIMARY_BUDGET - 20_000);
         assert.match(last.request.prompt, /SECOND_PASS_REVIEW/);
         assert.equal(last.request.snapshotId, calls[0].request.snapshotId);
       }
-      assert.ok(calls.filter((call) => call.modelId === BACKUP).every((call) => call.reasoningEffort === "high"));
     });
   }
 }

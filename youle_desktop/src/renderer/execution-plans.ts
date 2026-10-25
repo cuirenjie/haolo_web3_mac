@@ -1,3 +1,4 @@
+import { koreanText, localizedChoice } from '../shared/korean.mjs';
 import {normalizeCloudReports, cloudPlanCard, type CloudTradingReport} from '../main/cloud-plan-contract.mjs';
 export type ExecutionPlanCandidate = {
   title: string;
@@ -768,8 +769,7 @@ export function executionPlanNeedsActivation(plan: SavedExecutionPlan) {
 }
 
 export function executionPlanActivationText(key: 'inactive'|'activate'|'activating'|'activated'|'failed'|'saving'|'saveFailed'|'activationCacheFailed'|'unconfirmed'|'ended', language: unknown) {
-  const index=language==='en'?1:['zh-TW','zh-Hant'].includes(String(language))?2:0;
-  return {
+  const copy = {
     inactive:['已保存 · 未激活提醒','Saved · Reminder inactive','已儲存 · 未啟用提醒'],
     activate:['激活提醒','Activate reminder','啟用提醒'],
     activating:['正在激活提醒…','Activating reminder…','正在啟用提醒…'],
@@ -780,7 +780,8 @@ export function executionPlanActivationText(key: 'inactive'|'activate'|'activati
     activationCacheFailed:['提醒已激活，本机缓存写入失败，请刷新计划列表核对','Reminder activated, but the local cache could not be saved. Refresh the plan list to check.','提醒已啟用，本機快取寫入失敗，請重新整理計畫清單核對'],
     unconfirmed:['预警未确认激活','Reminder activation is not confirmed','提醒未確認啟用'],
     ended:['计划已结束','Plan ended','計畫已結束'],
-  }[key][index];
+  }[key];
+  return localizedChoice(copy, String(language));
 }
 
 export function transitionExecutionPlan(

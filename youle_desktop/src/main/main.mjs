@@ -1,4 +1,7 @@
+import { withKoreanVariants } from '../shared/korean.mjs';
 import { CodexProviderConversations } from "./codex-provider-conversation.mjs";
+import { koreanText } from "../shared/korean.mjs";
+import { excludeCurrentThreadMemory } from "./group-memory-context.mjs";
 import { createSupportUploads } from "./native-support.mjs";
 import { channelCodexInput, CHANNEL_CODEX_INSTRUCTIONS } from "./channel-codex-input.mjs";
 import { CodexBusinessTools, CODEX_BUSINESS_TOOLS, CODEX_TRADING_INSTRUCTIONS } from "./codex-business-tools.mjs";
@@ -60,6 +63,7 @@ import { createSharedBinanceAccountReader } from "./binance-account/shared-reade
 import { PersonalMemoryStore } from "./personal-context/memory-store.mjs";
 import { createCloudTradingPreferences, cloudTradingPreferenceFailure } from "./personal-context/cloud-trading-preferences.mjs";
 import { createCloudStrategyRuntime, cloudAccountConnection } from "./trading-strategy-runtime/cloud-runtime.mjs";
+import {createCloudTaskChat} from './trading-strategy-runtime/cloud-task-chat.mjs';
 import {createCloudPlans} from './trading-strategy-runtime/cloud-plans.mjs';
 import {createCloudPriceAlerts, isCloudPriceAlert} from './trading-alerts/cloud-price-alerts.mjs';
 import {createCloudAlertFeed} from './trading-strategy-runtime/cloud-alert-feed.mjs';
@@ -4485,6 +4489,7 @@ function getYouleApiClient() {
       logPath: path.join(app.getPath("userData"), "haolo-api-skills.log"),
       storagePath: youleSessionPath(),
       authPath: youleAuthPath(),
+      getLocale: appLanguage,
       safeStorage,
       networkFetch: appNetworkFetch,
       serviceFetch: haoloServiceFetch,
@@ -9749,7 +9754,8 @@ function normalizeAppTheme(value) {
 }
 
 function normalizeAppLanguage(value) {
-  return value === "en" || value === "zh-TW" ? value : "zh-CN";
+  if (value === "ko-KR" || value === "ko_KR") return "ko";
+  return value === "en" || value === "zh-TW" || value === "ko" ? value : "zh-CN";
 }
 
 function normalizeAppPreferences(value = {}) {
@@ -9785,7 +9791,7 @@ function appLanguagePreferenceStored() {
   return Boolean(source && typeof source === "object" && normalizeAppLanguage(source.language) === source.language);
 }
 
-const MAIN_UI_COPY = Object.freeze({
+const MAIN_UI_COPY = Object.freeze(withKoreanVariants({
   en: Object.freeze({
     settings: "Settings",
     close: "Close",
@@ -9891,10 +9897,11 @@ const MAIN_UI_COPY = Object.freeze({
     copy: "複製",
     microphonePermissionDenied: "請在系統設定 > 隱私權與安全性 > 麥克風中允許 HaoLo 使用麥克風",
   }),
-});
+}));
 
 function mainUiText(key, language = appLanguage()) {
   const normalized = normalizeAppLanguage(language);
+  if (normalized === "ko") return koreanText(MAIN_UI_COPY["zh-CN"][key] || MAIN_UI_COPY.en[key] || key);
   return MAIN_UI_COPY[normalized]?.[key] || MAIN_UI_COPY.en[key] || key;
 }
 
@@ -9925,6 +9932,7 @@ const QUESTION_ANSWER_PROGRESS_COPY = Object.freeze({
 });
 
 function localizedQuestionAnswerProgressPayload(payload, language = appLanguage()) {
+  if (normalizeAppLanguage(language) === "ko") return { ...payload, title: koreanText(payload?.title), detail: koreanText(payload?.detail) };
   if (normalizeAppLanguage(language) !== "en") return payload;
   const status = payload?.status === "completed" || payload?.status === "failed"
     ? payload.status
@@ -9936,12 +9944,12 @@ function localizedQuestionAnswerProgressPayload(payload, language = appLanguage(
 
 function appLanguageLocale(language = appLanguage()) {
   const normalized = normalizeAppLanguage(language);
-  return normalized === "en" ? "en-US" : normalized;
+  return normalized === "en" ? "en-US" : normalized === "ko" ? "ko-KR" : normalized;
 }
 
 function userDataTransferCopy(language = appLanguage()) {
   const normalized = normalizeAppLanguage(language);
-  const copies = {
+  const copies = withKoreanVariants({
     en: {
       exportLocationTitle: "Choose user data export location",
       exportInsideUserDataError: "The export location cannot be inside the current user data directory. Choose another folder.",
@@ -9981,7 +9989,8 @@ function userDataTransferCopy(language = appLanguage()) {
       confirmLabel: "繼續匯入",
       cancelLabel: "取消",
     },
-  };
+  });
+  if (normalized === "ko") return Object.fromEntries(Object.entries(copies["zh-CN"]).map(([key, value]) => [key, koreanText(value)]));
   return copies[normalized] || copies.en;
 }
 
@@ -10029,10 +10038,12 @@ async function setAppTheme(theme) {
 }
 
 async function setAppLanguage(language) {
-  return writeAppPreferences({
+  const preferences = await writeAppPreferences({
     ...appPreferences(),
     language: normalizeAppLanguage(language),
   });
+  chromeNativeBroker?.setLanguage(preferences.language);
+  return preferences;
 }
 
 async function setLocalPluginEnabled(params = {}) {
@@ -10211,11 +10222,11 @@ async function refreshSkillsDeveloperInstructions(
   }
 }
 
-function buildThreadGroupMemoryInstructions(cwd) {
+function buildThreadGroupMemoryInstructions(cwd, contextPolicy = {}) {
   const startedAt = performanceTimingStart();
   const workspace = path.resolve(cwd || desktopWorkspace());
   const sessionsDir = path.join(workspaceCodexHome(workspace), "sessions");
-  const files = recentGroupSessionFiles(sessionsDir);
+  const files = excludeCurrentThreadMemory(recentGroupSessionFiles(sessionsDir), contextPolicy.currentThreadId);
   let entriesCount = 0;
   let totalChars = 0;
   try {
@@ -10588,7 +10599,7 @@ function buildDesktopDeveloperInstructions(
   fs.mkdirSync(outputDir, { recursive: true });
   const groupContextInstructions = buildThreadGroupContextInstructions(threadGroupContext);
   const groupMemoryInstructions = contextPolicy.includeConversationMemory === false
-    ? null : buildThreadGroupMemoryInstructions(cwd || desktopWorkspace());
+    ? null : buildThreadGroupMemoryInstructions(cwd || desktopWorkspace(), contextPolicy);
   const mediaRoutingInstructions = buildHaoloMediaDeveloperInstructions(cwd || desktopWorkspace());
   const conversationModeInstructions = buildConversationModeDeveloperInstructions(
     conversationMode,
@@ -12237,6 +12248,8 @@ function threadConfigurationParams(params = {}, options = {}) {
     displayModelAliasForSelectionSafe(params.model),
   );
   if (displayModelAlias) config.__haoloModelDisplayAlias = displayModelAlias;
+  const mode = String(params.conversationMode || params.conversation_mode || "").trim().toLowerCase().replace(/_/g, "-");
+  if (["image-generation", "video-generation"].includes(mode)) config.__haoloConversationMode = mode;
   if (options.developerInstructions !== undefined) {
     config.developerInstructions = options.developerInstructions;
   }
@@ -13096,6 +13109,7 @@ ipcMain.handle("voice:startSession", async (event, params = {}) => {
     const sender = event.sender;
     const result = await getVoiceRecognizer().startSession({
       requestId,
+      language: appLanguage(),
       onResult(payload) {
         if (Number(payload?.serviceCode) === 4002) clearVoiceCredentialCache();
         if (payload?.final || payload?.ok === false) clearVoiceSessionOwner(sender.id, requestId);
@@ -15669,12 +15683,15 @@ async function runPersonalStrategyRequest(strategyId, params = {}) {
   };
 }
 
-let cloudStrategyRuntime;
+let cloudStrategyRuntime, cloudRunJournal;
+function getCloudRunJournal() {
+  return cloudRunJournal ||= new CloudRunJournal({storagePath:path.join(app.getPath("userData"), "cloud-strategy-runs.bin"), safeStorage});
+}
 function getCloudStrategyRuntime() {
   if (cloudStrategyRuntime) return cloudStrategyRuntime;
   cloudStrategyRuntime = createCloudStrategyRuntime({
     owner: requireHaoloAccountOwner, api: getYouleApiClient,
-    journal: new CloudRunJournal({storagePath:path.join(app.getPath("userData"), "cloud-strategy-runs.bin"), safeStorage}),
+    journal: getCloudRunJournal(),
     connection: async (_owner, target) => {
       if (!target.marketKey.startsWith("binance:usdm:") || !target.marketKey.endsWith("USDT")) return null;
       const connections = await readSharedBinanceAccountConnections();
@@ -16068,7 +16085,15 @@ ipcMain.handle("tradingCloud:recovery", async (event, params = {}) => {
   } catch(error) {return {ok:false,error:cloudStrategyFailure(error,{language:appLanguage()})};}
 });
 
-const cloudPlans = createCloudPlans({owner:requireHaoloAccountOwner,api:getYouleApiClient});
+let cloudTaskChatJournal;
+const cloudTaskChat = createCloudTaskChat({owner:requireHaoloAccountOwner,api:getYouleApiClient,
+  journal:()=>cloudTaskChatJournal ||= new CloudRunJournal({storagePath:path.join(app.getPath('userData'),'cloud-task-chat.bin'),safeStorage})});
+ipcMain.handle('tradingCloud:taskChat',async(event,params={})=>{
+  assertExternalModelsIpcSender(event);
+  try {return {ok:true,...await cloudTaskChat.perform(params.action,params.input)};}
+  catch(error){return {ok:false,error:cloudStrategyFailure(error,{language:appLanguage()})};}
+});
+const cloudPlans = createCloudPlans({owner:requireHaoloAccountOwner,api:getYouleApiClient,sources:getCloudRunJournal});
 const cloudPriceAlerts = createCloudPriceAlerts({owner:requireHaoloAccountOwner,api:getYouleApiClient});
 async function tradingAlertsCombinedSnapshot() {
   const local = await (await getTradingAlertService()).snapshot();
@@ -19103,6 +19128,7 @@ ipcMain.handle("codex:sendMessage", async (_event, params = {}) => {
       params.imageGenerationSize || params.image_generation_size,
       params.imageGenerationSizeField || params.image_generation_size_field,
       videoGenerationOptions,
+      { currentThreadId: threadId },
     );
     const conversationModeTurnOverrides = buildConversationModeTurnOverrides(
       conversationMode,
@@ -19232,6 +19258,7 @@ ipcMain.handle("codex:sendMessage", async (_event, params = {}) => {
           [HAOLO_REASONING_SUPPORT_FIELD]:
             params.supportedReasoningEfforts || params.supported_reasoning_efforts,
           ...conversationModeTurnOverrides,
+          __haoloConversationMode: conversationMode,
           serviceTier: null,
           approvalPolicy: params.approvalPolicy || undefined,
           sandboxPolicy: normalizeSandboxPolicy(params.sandboxPolicy),
@@ -22826,6 +22853,7 @@ app.whenReady().then(async () => {
     });
     if (process.platform === "win32") await chromeNativeHostManager.install();
     chromeNativeBroker = new ChromeNativeBroker({
+      language: appPreferences().language,
       userDataPath: app.getPath("userData"),
       extensionOrigins: chromeExtensionOrigins(chromeExtensionIds),
       desktopExecutable: app.getPath("exe") || process.execPath,

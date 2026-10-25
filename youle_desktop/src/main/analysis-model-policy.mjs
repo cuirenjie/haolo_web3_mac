@@ -1,5 +1,5 @@
 // Inference policy only; the product tariff remains independent.
-import { canonicalDeepSeekModel, migrateDeepSeekModelSelection } from "./deepseek-model-policy.mjs";
+import { canonicalDeepSeekModel, migrateDeepSeekModelSelection, isManagedAnalysisModel } from "./deepseek-model-policy.mjs";
 import { DEFAULT_EXECUTION_MODEL, migrateRetiredModelSelection } from "./retired-model-policy.mjs";
 export const ANALYSIS_PRIMARY_MODEL = DEFAULT_EXECUTION_MODEL;
 export const ANALYSIS_RECOVERY_MODEL = "gpt-5.6-sol";
@@ -17,7 +17,7 @@ export function normalizeAnalysisModelRecoveryState(value) {
 
 export function analysisModelPolicySelection(state, modelId, now = Date.now()) {
   const model = String(migrateRetiredModelSelection({ model: canonicalDeepSeekModel(modelId) }).model || ANALYSIS_PRIMARY_MODEL).trim();
-  const managed = [ANALYSIS_PRIMARY_MODEL, ANALYSIS_RECOVERY_MODEL, "gpt-6-sol", "gpt-6-astra"].includes(model.toLowerCase());
+  const managed = isManagedAnalysisModel(model);
   return { modelId: managed ? ANALYSIS_PRIMARY_MODEL : model, fallback: false };
 }
 
@@ -56,4 +56,32 @@ export function withAnalysisModelRecoveryPolicy(params, state, now = Date.now(),
   Object.assign(next, { reasoningEffort: "low", reasoningEffortPolicy: "fixed", supportedReasoningEfforts: ["low"] });
   for (const key of ["reasoning_effort", "effort"]) if (key in next) next[key] = "low";
   return next;
+}
+
+// Apply at the native RPC boundary as well as UI entry points: resume, fork
+// and automatic thread setup can otherwise restore a persisted GPT provider.
+// Only selection envelopes are traversed; prompts/history and billing labels
+// are never rewritten.
+export function normalizeAnalysisRPCSelection(method, params, context = {}) {
+  if (!["thread/start", "thread/resume", "thread/fork", "thread/settings/update", "turn/start"].includes(method)) return params;
+  if (["image-generation", "video-generation"].includes(String(context.conversationMode || params.conversationMode || params.conversation_mode || "").trim().toLowerCase().replace(/_/g, "-"))) return params;
+  const visit = (value, root = false) => {
+    let next = value;
+    const modelKey = ["model", "modelId", "model_id"].find(key => typeof value[key] === "string");
+    const model = modelKey ? value[modelKey] : undefined;
+    if (isManagedAnalysisModel(model) || (root && !modelKey && !value.modelProvider && !value.model_provider)) {
+      next = withAnalysisModelRecoveryPolicy({ ...value, model }, null);
+      if (modelKey && modelKey !== "model") next[modelKey] = next.model;
+      for (const key of ["reasoning_effort", "effort"]) if (key in value) next[key] = "low";
+      if (!root && "model_provider" in value) next.model_provider = "deepseek";
+    }
+    for (const key of ["settings", "config", "collaborationMode", "collaboration_mode"]) {
+      if (value[key] && typeof value[key] === "object" && !Array.isArray(value[key])) {
+        const nested = visit(value[key]);
+        if (nested !== value[key]) next = { ...next, [key]: nested };
+      }
+    }
+    return next;
+  };
+  return visit(params, true);
 }

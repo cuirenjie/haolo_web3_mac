@@ -103,6 +103,7 @@ async function click(targetWindow, selector) {
   const clicked = await targetWindow.webContents.executeJavaScript(`(() => {
     const element = document.querySelector(${JSON.stringify(selector)});
     if (!element) return false;
+    element.focus({ preventScroll: true });
     element.click();
     return true;
   })()`, true);
@@ -132,7 +133,16 @@ async function switchLanguage(targetWindow, language) {
     await nativeClick(targetWindow, '[data-action="open-settings"]');
     await waitFor(targetWindow, ".settings-dialog");
   }
-  await nativeClick(targetWindow, ".settings-language-select [data-haolo-select-trigger]");
+  await nativeClick(targetWindow, '[data-settings-tab="general"]');
+  await waitFor(targetWindow, '.settings-general-list');
+  for (let attempt=0; attempt<6; attempt++) {
+    const opened=await targetWindow.webContents.executeJavaScript(`document.querySelector('.settings-language-select [data-haolo-select-trigger]')?.getAttribute('aria-expanded') === 'true'`,true);
+    if(opened) break;
+    if(process.env.HAOLO_I18N_QA_DOM_INPUT === "1") {
+      await targetWindow.webContents.executeJavaScript(`(() => { const trigger=document.querySelector('.settings-language-select [data-haolo-select-trigger]'); trigger.focus(); trigger.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true})); })()`,true);
+    } else await nativeClick(targetWindow, ".settings-language-select [data-haolo-select-trigger]");
+    await delay(200);
+  }
   await waitFor(targetWindow, ".settings-language-select [data-haolo-select-menu]");
   await nativeClick(targetWindow, `.settings-language-select [data-haolo-select-value="${language}"]`);
   await waitFor(targetWindow, `.settings-dialog`);
@@ -146,8 +156,8 @@ async function switchLanguage(targetWindow, language) {
   }))()`,
     true,
   );
-  const expectedLang = language === "en" ? "en-US" : language;
-  const nativeLabels = { en: "English", "zh-CN": "简体中文", "zh-TW": "繁體中文" };
+  const expectedLang = language === "en" ? "en-US" : language === "ko" ? "ko-KR" : language;
+  const nativeLabels = { en: "English", "zh-CN": "简体中文", "zh-TW": "繁體中文", ko: "한국어" };
   if (
     applied.selectedLabel !== nativeLabels[language] ||
     JSON.stringify(applied.optionLabels) !== JSON.stringify(Object.values(nativeLabels))
@@ -176,14 +186,14 @@ async function verifyLanguageSurvivesReload(targetWindow, language) {
     lang: document.documentElement.lang,
     storedValue: localStorage.getItem("haolo.appearance.language"),
   }))()`, true);
-  const expectedLang = language === "en" ? "en-US" : language;
+  const expectedLang = language === "en" ? "en-US" : language === "ko" ? "ko-KR" : language;
   if (restored.language !== language || restored.lang !== expectedLang || restored.storedValue !== language) {
     throw new Error(`Language did not survive reload: ${JSON.stringify(restored)}`);
   }
 }
 
 async function verifyLanguageTransitionMatrix(targetWindow) {
-  const languages = ["en", "zh-CN", "zh-TW"];
+  const languages = ["en", "zh-CN", "zh-TW", "ko"];
   for (const source of languages) {
     await switchLanguage(targetWindow, source);
     for (const target of languages) {
@@ -203,6 +213,13 @@ async function returnHome(targetWindow) {
     await click(targetWindow, ".page-home-button");
     await waitForGone(targetWindow, ".consumption-page, .trading-alerts-page");
   }
+  const workspacePage = ".execution-plans-page, .binance-account-page, .skills-plaza-page, .recharge-page";
+  if (await targetWindow.webContents.executeJavaScript(
+    `Boolean(document.querySelector(${JSON.stringify(workspacePage)}))`, true,
+  )) {
+    await click(targetWindow, '[data-action="new-chat"]');
+    await waitForGone(targetWindow, workspacePage);
+  }
   const profileOpen = await targetWindow.webContents.executeJavaScript(
     "Boolean(document.querySelector('.profile-menu'))",
     true,
@@ -216,6 +233,19 @@ async function returnHome(targetWindow) {
 async function openSurface(targetWindow, surface) {
   await returnHome(targetWindow);
   if (surface === "home") return "#app";
+  if (surface === "account" || surface === "plans") {
+    await click(targetWindow, '[data-conversation-static-action="' + surface + '"]');
+    const selector = surface === "plans" ? ".execution-plans-page" : ".binance-account-page";
+    await waitFor(targetWindow, selector);
+    return selector;
+  }
+  if (surface.startsWith("chart-")) {
+    await waitFor(targetWindow, '[data-market-action="open-chart-settings"]');
+    await click(targetWindow, '[data-market-action="open-chart-settings"]');
+    await waitFor(targetWindow, ".trading-chart-settings-dialog");
+    await click(targetWindow, '[data-market-settings-tab="' + surface.slice(6) + '"]');
+    return ".trading-chart-settings-dialog";
+  }
   if (surface === "auto-task" || surface === "auto-task-frequency") {
     await nativeClick(targetWindow, '[data-action="toggle-external-channel-menu"]');
     await nativeClick(targetWindow, '[data-action="open-auto-task-dialog"]');
@@ -228,17 +258,29 @@ async function openSurface(targetWindow, surface) {
     await waitFor(targetWindow, ".profile-menu");
     return ".profile-menu";
   }
-  if (surface === "settings" || surface === "settings-profile") {
+  if (surface === "settings" || surface.startsWith("settings-")) {
     await click(targetWindow, '[data-action="open-settings"]');
     await waitFor(targetWindow, ".settings-dialog");
-    if (surface === "settings-profile") {
-      await click(targetWindow, '[data-settings-tab="profile"]');
-      await waitFor(targetWindow, ".settings-profile-panel");
-    } else {
-      await click(targetWindow, '[data-settings-tab="general"]');
-      await waitFor(targetWindow, ".settings-general-list");
-    }
+    const tab = surface === "settings" ? "general" : surface.slice("settings-".length);
+    await click(targetWindow, `[data-settings-tab="${tab}"]`);
+    await waitFor(targetWindow, '.settings-nav-item.active[data-settings-tab="' + tab + '"]');
     return ".settings-dialog";
+  }
+  if (surface === "strategies" || surface === "indicators") {
+    await click(targetWindow, '[data-conversation-static-action="skills"]');
+    await waitFor(targetWindow, '[data-skills-plaza-tab="mySkills"]');
+    if (surface === "indicators") {
+      await click(targetWindow, '[data-skills-plaza-tab="indicators"]');
+      await waitFor(targetWindow, '[data-skills-plaza-tab="indicators"][aria-pressed="true"]');
+    }
+    return ".skills-plaza-page";
+  }
+  if (surface === "recharge") {
+    await click(targetWindow, '.titlebar-profile');
+    await waitFor(targetWindow, '[data-action="profile-quota"]');
+    await click(targetWindow, '[data-action="profile-quota"]');
+    await waitFor(targetWindow, '.recharge-page');
+    return '.recharge-page';
   }
   if (surface === "consumption") {
     await click(targetWindow, '[data-action="open-settings"]');
@@ -282,11 +324,16 @@ async function inspectSelectStates(targetWindow, name, capture) {
   if (!debuggerApi.isAttached()) debuggerApi.attach("1.3");
   await debuggerApi.sendCommand("DOM.enable");
   await debuggerApi.sendCommand("CSS.enable");
-  const { root } = await debuggerApi.sendCommand("DOM.getDocument");
   const triggerSelector = ".settings-language-select [data-haolo-select-trigger]";
   const optionSelector = '.settings-language-select [aria-selected="true"]';
-  const { nodeId: triggerId } = await debuggerApi.sendCommand("DOM.querySelector", { nodeId: root.nodeId, selector: triggerSelector });
-  const { nodeId: optionId } = await debuggerApi.sendCommand("DOM.querySelector", { nodeId: root.nodeId, selector: optionSelector });
+  // Settings can re-render after account sync. Resolve the current DOM node for
+  // each state instead of retaining a stale DevTools node ID across transitions.
+  const forceState = async (selector, forcedPseudoClasses) => {
+    const { root } = await debuggerApi.sendCommand("DOM.getDocument");
+    const { nodeId } = await debuggerApi.sendCommand("DOM.querySelector", {nodeId:root.nodeId,selector});
+    if (!nodeId) throw new Error(`Missing state audit control: ${selector}`);
+    await debuggerApi.sendCommand("CSS.forcePseudoState", {nodeId,forcedPseudoClasses});
+  };
   await debuggerApi.sendCommand("Input.dispatchMouseEvent", { type: "mouseMoved", x: 1, y: 1 });
   const states = [];
   const inspect = async (state, selector = triggerSelector) => {
@@ -307,26 +354,32 @@ async function inspectSelectStates(targetWindow, name, capture) {
   };
   try {
     for (const [state, forcedPseudoClasses] of [["default", []], ["hover", ["hover"]], ["active", ["hover", "active"]], ["focus", ["focus", "focus-visible"]]]) {
-      await debuggerApi.sendCommand("CSS.forcePseudoState", { nodeId: triggerId, forcedPseudoClasses });
+      await forceState(triggerSelector, forcedPseudoClasses);
       await inspect(state);
     }
-    await debuggerApi.sendCommand("CSS.forcePseudoState", { nodeId: triggerId, forcedPseudoClasses: [] });
+    await forceState(triggerSelector, []);
     await targetWindow.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(triggerSelector)}).disabled = true`, true);
     await inspect("disabled");
     await targetWindow.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(triggerSelector)}).disabled = false`, true);
     await nativeClick(targetWindow, triggerSelector);
+    // Account/settings hydration can replace the select between the disabled
+    // probe and the click. Re-read state and retry the normal control once.
+    if (await targetWindow.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(triggerSelector)})?.getAttribute('aria-expanded') !== 'true'`, true)) {
+      await delay(200);
+      await nativeClick(targetWindow, triggerSelector);
+    }
     await inspect("open");
     if (states.at(-1).expanded !== "true") throw new Error(`Language menu did not open at zoom ${targetWindow.webContents.getZoomFactor()}`);
     for (const [state, forcedPseudoClasses] of [["option-selected", []], ["option-hover", ["hover"]], ["option-focus", ["focus", "focus-visible"]]]) {
-      await debuggerApi.sendCommand("CSS.forcePseudoState", { nodeId: optionId, forcedPseudoClasses });
+      await forceState(optionSelector, forcedPseudoClasses);
       await inspect(state, optionSelector);
     }
-    await debuggerApi.sendCommand("CSS.forcePseudoState", { nodeId: optionId, forcedPseudoClasses: [] });
+    await forceState(optionSelector, []);
     await targetWindow.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(optionSelector)}).disabled = true`, true);
     await inspect("option-disabled", optionSelector);
   } finally {
-    await debuggerApi.sendCommand("CSS.forcePseudoState", { nodeId: triggerId, forcedPseudoClasses: [] });
-    await debuggerApi.sendCommand("CSS.forcePseudoState", { nodeId: optionId, forcedPseudoClasses: [] });
+    await forceState(triggerSelector, []);
+    await forceState(optionSelector, []);
     await targetWindow.webContents.executeJavaScript(`(() => {
       const trigger = document.querySelector(${JSON.stringify(triggerSelector)});
       trigger.disabled = false;
@@ -421,7 +474,18 @@ async function inspectLayout(targetWindow, scopeSelector) {
         if (clipped.right - clipped.left <= 1 || clipped.bottom - clipped.top <= 1) return null;
         current = current.parentElement;
       }
-      return clipped;
+      // The opaque sticky save bar paints above the scrolling preference form.
+      // Text behind it is not visible; still inspect every section by scrolling.
+      const footer = scope.querySelector(".settings-trading-actions");
+      if (footer && !footer.contains(owner) && getComputedStyle(footer).position === "sticky") {
+        const bounds = footer.getBoundingClientRect();
+        const background = getComputedStyle(footer).backgroundColor;
+        if (background.startsWith("rgb(") && bounds.left <= clipped.left && bounds.right >= clipped.right &&
+            bounds.bottom >= clipped.bottom && bounds.top < clipped.bottom) {
+          clipped.bottom = Math.min(clipped.bottom, bounds.top);
+        }
+      }
+      return clipped.bottom - clipped.top > 1 ? clipped : null;
     };
     const textRects = [];
     const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
@@ -440,6 +504,18 @@ async function inspectLayout(targetWindow, scopeSelector) {
       node = walker.nextNode();
     }
     const overlaps = [];
+    // Also check whole theme controls: a label can overlap its sibling's icon
+    // without intersecting another text range.
+    for (const group of scope.querySelectorAll('.settings-theme-options')) {
+      const buttons = [...group.children].filter(shown);
+      for (let i = 1; i < buttons.length; i++) {
+        const left = buttons[i - 1].getBoundingClientRect();
+        const right = buttons[i].getBoundingClientRect();
+        const width = Math.min(left.right, right.right) - Math.max(left.left, right.left);
+        const height = Math.min(left.bottom, right.bottom) - Math.max(left.top, right.top);
+        if (width > 1 && height > 2) overlaps.push({left:compact(buttons[i - 1]),right:compact(buttons[i]),width,height});
+      }
+    }
     for (let leftIndex = 0; leftIndex < textRects.length; leftIndex += 1) {
       const left = textRects[leftIndex];
       for (let rightIndex = leftIndex + 1; rightIndex < textRects.length; rightIndex += 1) {
@@ -454,7 +530,7 @@ async function inspectLayout(targetWindow, scopeSelector) {
       if (overlaps.length >= 30) break;
     }
     const englishButtonIssues = [];
-    if (document.documentElement.dataset.language === "en") {
+    if (["en", "ko"].includes(document.documentElement.dataset.language)) {
       for (const button of scope.querySelectorAll("button")) {
         if (!shown(button)) continue;
         const labelNodes = [];
@@ -467,7 +543,7 @@ async function inspectLayout(targetWindow, scopeSelector) {
           if (labelNodes.length > 1) break;
           labelNode = labelWalker.nextNode();
         }
-        if (labelNodes.length !== 1 || !/[A-Za-z]/u.test(String(labelNodes[0].nodeValue || ""))) continue;
+        if (labelNodes.length !== 1 || !/[A-Za-z\uac00-\ud7a3]/u.test(String(labelNodes[0].nodeValue || ""))) continue;
         const range = document.createRange();
         range.selectNodeContents(labelNodes[0]);
         const rects = [...range.getClientRects()].filter((rect) => rect.width > 1 && rect.height > 1);
@@ -476,7 +552,18 @@ async function inspectLayout(targetWindow, scopeSelector) {
           if (!lines.some((top) => Math.abs(top - rect.top) <= 2)) lines.push(rect.top);
         }
         const bounds = button.getBoundingClientRect();
-        const escaped = rects.some((rect) => rect.left < bounds.left - 1 || rect.right > bounds.right + 1 || rect.top < bounds.top - 1 || rect.bottom > bounds.bottom + 1);
+        // Range includes text hidden by an intentional ellipsis (for example a
+        // long user nickname). Measure its painted horizontal extent; vertical
+        // glyph clipping remains checked independently below.
+        const owner = labelNodes[0].parentElement;
+        const ownerStyle = getComputedStyle(owner);
+        const ownerBounds = owner.getBoundingClientRect();
+        const ellipsis = ownerStyle.textOverflow === 'ellipsis' && ['hidden', 'clip'].includes(ownerStyle.overflowX);
+        const escaped = rects.some((rect) => {
+          const left = ellipsis ? Math.max(rect.left, ownerBounds.left) : rect.left;
+          const right = ellipsis ? Math.min(rect.right, ownerBounds.right) : rect.right;
+          return left < bounds.left - 1 || right > bounds.right + 1 || rect.top < bounds.top - 1 || rect.bottom > bounds.bottom + 1;
+        });
         const horizontalOverflow = button.scrollWidth > button.clientWidth + 1;
         const verticalOverflow = button.scrollHeight > button.clientHeight + 1;
         // Native language names skip the translation marker, but still need geometry checks.
@@ -503,7 +590,7 @@ async function inspectLayout(targetWindow, scopeSelector) {
       }
     }
     const languageResidue = [];
-    if (document.documentElement.dataset.language === "en") {
+    if (["en", "ko"].includes(document.documentElement.dataset.language)) {
       const han = /[\u3400-\u9fff]/u;
       const skipLanguageText = [
         "[data-i18n-skip]", "[contenteditable='true']", "textarea", "pre", "code",
@@ -554,6 +641,45 @@ async function inspectLayout(targetWindow, scopeSelector) {
   })()`, true);
 }
 
+async function inspectScrolledLayout(targetWindow, scopeSelector) {
+  const scrollers = await targetWindow.webContents.executeJavaScript(`(() => {
+    const scope = document.querySelector(${JSON.stringify(scopeSelector)});
+    return [scope, ...scope.querySelectorAll("*")].map((element, index) => ({
+      index, top: element.scrollTop, height: element.clientHeight, maximum: element.scrollHeight - element.clientHeight,
+      visible: element.getBoundingClientRect().height > 0 && ["auto", "scroll"].includes(getComputedStyle(element).overflowY) && element.tagName !== "TEXTAREA"
+    })).filter(item => item.visible && item.height > 40 && item.maximum > 2);
+  })()`, true);
+  const states = [];
+  for (const scroller of scrollers) {
+    const steps = Math.ceil(scroller.maximum / (scroller.height * .75));
+    const scroll = async (top) => {
+      await targetWindow.webContents.executeJavaScript(`(() => {
+        const scope = document.querySelector(${JSON.stringify(scopeSelector)});
+        const element = [scope, ...scope.querySelectorAll("*")][${scroller.index}];
+        element.scrollTop = ${top};
+        return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      })()`, true);
+    };
+    try {
+      for (let step = 1; step <= steps; step++) {
+        const top = Math.min(scroller.maximum, step * scroller.height * .75);
+        await scroll(top);
+        const result = await inspectLayout(targetWindow, scopeSelector);
+        const issues = [
+          ...result.overlaps.map(issue => "text overlap: " + issue.left.text + " / " + issue.right.text),
+          ...result.overflow.map(issue => "container overflow: " + issue.element),
+          ...result.escapedChildren.map(issue => "child escaped: " + issue.child.element),
+          ...result.englishButtonIssues.map(issue => "button layout: " + issue.text),
+          ...result.languageResidue.map(issue => "UI residue: " + issue.value),
+          ...result.textClipping.map(issue => "glyph clipped: " + issue.text),
+        ];
+        states.push({index: scroller.index, top, issues});
+      }
+    } finally { await scroll(scroller.top); }
+  }
+  return states;
+}
+
 async function main() {
   await mkdir(OUTPUT, { recursive: true });
   await app.whenReady();
@@ -587,17 +713,20 @@ async function main() {
     process.stdout.write(`Typography: ${typography.checks} samples, ${typography.issues.length} clipped\n`);
     if (typography.issues.length) failures.push({ name: "clipped-label-typography", issues: typography.issues.map((issue) => `glyph clipped: ${issue.selector} ${issue.fontSize} ${issue.text}`), result: { textClipping: typography.issues } });
     if (process.env.HAOLO_I18N_QA_SKIP_LANGUAGE_TRANSITIONS !== "1") {
-      for (const language of ["en", "zh-CN", "zh-TW"]) {
+      for (const language of ["en", "zh-CN", "zh-TW", "ko"]) {
         await verifyLanguageSurvivesReload(targetWindow, language);
       }
       await verifyLanguageTransitionMatrix(targetWindow);
     }
-    const languages = process.env.HAOLO_I18N_QA_ENGLISH_ONLY === "1" || QUICK_ENGLISH_BUTTON_AUDIT ? ["en"] : ["en", "zh-CN", "zh-TW"];
+    const supportedLanguages = process.env.HAOLO_I18N_QA_ENGLISH_ONLY === "1" ? ["en"] : QUICK_ENGLISH_BUTTON_AUDIT ? ["en", "ko"] : ["en", "zh-CN", "zh-TW", "ko"];
+    const languages = supportedLanguages.filter(language => !process.env.HAOLO_I18N_QA_LANGUAGES || process.env.HAOLO_I18N_QA_LANGUAGES.split(',').includes(language));
+    if (!languages.length) throw new Error('No supported audit language selected');
     const zooms = QUICK_ENGLISH_BUTTON_AUDIT ? [1, 1.5] : [1, 1.25, 1.5];
     const fontSizes = QUICK_ENGLISH_BUTTON_AUDIT ? ["large"] : ["small", "default", "medium", "large"];
     // Scheduled-task creation is not exposed by current builds. Do not attempt
     // the retired phone-menu route when there is no entry point to activate.
-    const surfaces = ["home", "profile", "settings-profile", "settings", "consumption", "alerts"];
+    const surfaces = ["home", "profile", "settings-profile", "settings-trading", "settings", "settings-about", "consumption", "alerts", "strategies", "indicators", "recharge", "account", "plans",
+      ...["main-style", "background", "scale", "rise-fall", "coordinate", "live-price", "drawing-tools", "drawing-visibility", "order-display"].map(tab => "chart-" + tab)];
     if (await targetWindow.webContents.executeJavaScript('Boolean(document.querySelector(\'[data-action="open-auto-task-dialog"]\'))')) {
       surfaces.push("auto-task", "auto-task-frequency");
     }
@@ -608,7 +737,7 @@ async function main() {
       const transitionSource = language === "en" ? "zh-TW" : language === "zh-CN" ? "en" : "zh-CN";
       await switchLanguage(targetWindow, transitionSource);
       await switchLanguage(targetWindow, language);
-      for (const surface of selectedSurface ? [selectedSurface] : surfaces) {
+      for (const surface of (selectedSurface ? [selectedSurface] : surfaces).filter(surface => !process.env.HAOLO_I18N_QA_SURFACES || process.env.HAOLO_I18N_QA_SURFACES.split(",").includes(surface))) {
         process.stdout.write(`Auditing ${language} ${surface}\n`);
         const scopeSelector = await openSurface(targetWindow, surface);
         for (const zoom of zooms) {
@@ -620,7 +749,9 @@ async function main() {
               const name = `${language}-${surface}-${theme}-${fontSize}-${Math.round(zoom * 100)}`;
               const selectStates = surface === "settings" && zoom === 1.5
                 ? await inspectSelectStates(targetWindow, name, language === "en" && fontSize === "large") : [];
-              const entry = { name, language, surface, theme, fontSize, zoom, result, selectStates };
+              const scrollStates = fontSize === "large" && zoom === 1.5
+                ? await inspectScrolledLayout(targetWindow, scopeSelector) : [];
+              const entry = { name, language, surface, theme, fontSize, zoom, result, selectStates, scrollStates };
               records.push(entry);
               const issues = [
                 ...(result.missing ? ["surface missing"] : []),
@@ -636,9 +767,10 @@ async function main() {
                 ...result.languageResidue.map((issue) => `English UI residue: ${issue.kind} ${issue.value}`),
                 ...result.textClipping.map((issue) => `glyph clipped: ${issue.element} ${issue.text}`),
                 ...selectStates.flatMap((state) => state.textClipping.map((issue) => `glyph clipped (${state.state}): ${issue.element} ${issue.text}`)),
+                ...scrollStates.flatMap(state => state.issues.map(issue => `scroll ${state.index}@${state.top}: ${issue}`)),
               ];
               if (issues.length) failures.push({ name, issues, result });
-              if (language === "en" && fontSize === "large" && zoom === 1.5) {
+              if (issues.length || ((language === "en" || language === "ko") && fontSize === "large" && zoom === 1.5)) {
                 const image = await targetWindow.webContents.capturePage();
                 await writeFile(path.join(OUTPUT, `${name}.png`), image.toPNG());
               }
@@ -653,6 +785,9 @@ async function main() {
         } else if (surface.startsWith("settings")) {
           await click(targetWindow, ".settings-close-button");
           await waitForGone(targetWindow, ".settings-dialog");
+        } else if (surface.startsWith("chart-")) {
+          await click(targetWindow, '[data-market-action="close-chart-settings"]');
+          await waitForGone(targetWindow, ".trading-chart-settings-dialog");
         } else if (surface.startsWith("auto-task")) {
           await click(targetWindow, '[data-action="close-auto-task-dialog"]');
           await waitForGone(targetWindow, ".auto-task-dialog");
@@ -666,6 +801,7 @@ async function main() {
       output: OUTPUT,
       auditedStates: records.length,
       auditedSelectStates: records.reduce((count, entry) => count + entry.selectStates.length, 0),
+      auditedScrollStates: records.reduce((count, entry) => count + entry.scrollStates.length, 0),
       typography,
       records,
       failures,

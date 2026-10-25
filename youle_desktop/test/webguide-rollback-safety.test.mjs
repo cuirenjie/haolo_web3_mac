@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import ts from "typescript";
 
 const rendererSource = readFile(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
 const taskAnchorSource = readFile(new URL("../src/renderer/task-anchor.ts", import.meta.url), "utf8");
@@ -33,10 +34,24 @@ test("provider previews stay local and never enter Codex history hydration", asy
     "function shouldHydrateAssistantPreview",
     "function shouldHydrateAttachmentOnlyTitle",
   );
-  assert.match(
-    eligibility,
-    /function shouldHydrateAssistantPreview\(thread: ConversationSummary\) \{\s*if \(isProviderThread\(thread\)\) return false;/,
-  );
+  const compiled = ts.transpileModule(eligibility, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  for (const kind of ['provider', 'cloud', 'local']) {
+    let localPreviewChecks = 0;
+    const context = {
+      isCloudTaskThread: () => kind === 'cloud', isProviderThread: () => kind === 'provider',
+      usesAssistantThreadPreview: () => { localPreviewChecks++; return true; },
+      state: { currentThreadId: 'other' }, shouldDelayBackgroundHydration: () => false,
+      isBlankNewThread: () => false, hiddenThreadIds: new Set(), isThreadBusy: () => false,
+      completedAssistantPreviewHydrations: new Set(), isAssistantPreviewThreadHydrating: () => false,
+      shouldHydrateThreadLastAssistantProvider: () => false, shouldHydrateAttachmentOnlyTitle: () => false,
+      latestThreadAssistantPreviewText: () => '', threadAssistantPreviewStore: {},
+    };
+    const eligible = new Function(...Object.keys(context), `${compiled}\nreturn shouldHydrateAssistantPreview;`)(...Object.values(context));
+    assert.equal(eligible({ id: 'task', kind: 'main_session' }), kind === 'local', kind);
+    assert.equal(localPreviewChecks, kind === 'local' ? 1 : 0, kind);
+  }
 
   const previewPolicy = sourceBlock(
     source,

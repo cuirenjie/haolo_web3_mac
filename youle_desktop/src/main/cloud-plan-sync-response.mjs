@@ -1,3 +1,4 @@
+import { koreanText, localizedChoice } from '../shared/korean.mjs';
 import {randomUUID} from 'node:crypto';
 import {cloudPlanSyncFailurePolicy} from './cloud-plan-sync-policy.mjs';
 import {redactSupportText} from './diagnostic-support-evidence.mjs';
@@ -44,8 +45,7 @@ export async function cloudPlanListResponse(plans,{language='zh-CN',accountId,re
     try {
       recordFailure(diagnostic);
     } catch { /* A diagnostic write failure must not interrupt recovery. */ }
-    const index=language==='en'?1:['zh-TW','zh-Hant'].includes(language)?2:0;
     return {ok:false,error:{...policy,diagnosticId:diagnostic.diagnosticId,
-      message:messages[policy.category==='authentication'?'authentication':'failed'][index]}};
+      message:localizedChoice(messages[policy.category==='authentication'?'authentication':'failed'],language)}};
   }
 }

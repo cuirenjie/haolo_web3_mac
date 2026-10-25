@@ -169,3 +169,14 @@ test("pending upload signing reserves its owner and cannot outlive disposal", as
   await assert.rejects(first, /cancelled/);
   assert.deepEqual(await readdir(tempRoot), []);
 });
+
+test("Mac context rejection preserves text support without authorizing a Windows operation", async t => {
+  const { support, calls } = fixture(t, p => p.action === "aiContext" ? { ok: false, status: 422 }
+    : { ok: true, data: payload() }, () => ({}));
+  await support.open(); support.entry().draft = "Mac installation question"; await support.send();
+  const context = calls.find(p => p.action === "aiContext").context;
+  assert.equal(context.surface, "macos"); assert.equal(context.channel, "haolo_web3_mac");
+  assert.ok(calls.some(p => p.action === "send"));
+  await support.decide({id: OTHER,device_id:support.deviceId,epoch:1}, true);
+  assert.ok(calls.every(p => p.action !== "aiConsent"));
+});

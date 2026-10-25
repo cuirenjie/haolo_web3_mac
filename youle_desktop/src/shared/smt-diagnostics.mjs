@@ -1,3 +1,4 @@
+import { koreanText } from './korean.mjs';
 // Public receipt validation and localized display; no strategy calculation.
 const words={
   SMT_PAIR_QUALIFIED:['对照市场通过校验','Comparison market qualified','對照市場通過校驗'],
@@ -27,27 +28,27 @@ const words={
 };
 export function smtDiagnosticPresentation(d,language='zh-CN') {
   const i=language==='en'?1:['zh-TW','zh-Hant'].includes(language)?2:0;
-  const t=code=>(words[code]??words.SMT_SOURCE_UNAVAILABLE)[i];
+  const t=code=>language==='ko'?koreanText((words[code]??words.SMT_SOURCE_UNAVAILABLE)[0]):(words[code]??words.SMT_SOURCE_UNAVAILABLE)[i];
   const n=v=>Number.isFinite(v)?v.toFixed(3):'—';
   const selected=d.checks.find(c=>c.marketId===d.selectedMarketId)??d.checks[0];
   const details=[
-    [ `主市场：${d.primaryMarketId} · ${d.interval}`,`Primary: ${d.primaryMarketId} · ${d.interval}`,`主市場：${d.primaryMarketId} · ${d.interval}` ][i],
+    language==='ko'?`주 시장: ${d.primaryMarketId} · ${d.interval}`:[ `主市场：${d.primaryMarketId} · ${d.interval}`,`Primary: ${d.primaryMarketId} · ${d.interval}`,`主市場：${d.primaryMarketId} · ${d.interval}` ][i],
     ...d.checks.map(c=>{
-      const facts=[`已收盘：主市场 ${c.primaryCount} / 对照 ${c.comparisonCount}；对齐 ${c.alignedCandleCount} 根 / ${(c.alignmentRatio*100).toFixed(1)}%；收益相关系数 ${n(c.correlation)}（≥0.450）`,
+      const facts=language==='ko'?`종가 확정 캔들: 주 시장 ${c.primaryCount}개 / 비교 시장 ${c.comparisonCount}개; 정렬 ${c.alignedCandleCount}개 / ${(c.alignmentRatio*100).toFixed(1)}%; 수익률 상관계수 ${n(c.correlation)} (≥0.450)`:[`已收盘：主市场 ${c.primaryCount} / 对照 ${c.comparisonCount}；对齐 ${c.alignedCandleCount} 根 / ${(c.alignmentRatio*100).toFixed(1)}%；收益相关系数 ${n(c.correlation)}（≥0.450）`,
         `Closed: primary ${c.primaryCount} / comparison ${c.comparisonCount}; aligned ${c.alignedCandleCount} / ${(c.alignmentRatio*100).toFixed(1)}%; return correlation ${n(c.correlation)} (≥0.450)`,
         `已收盤：主市場 ${c.primaryCount} / 對照 ${c.comparisonCount}；對齊 ${c.alignedCandleCount} 根 / ${(c.alignmentRatio*100).toFixed(1)}%；收益相關係數 ${n(c.correlation)}（≥0.450）`][i];
-      const baseline=d.policyVersion==='smt-pairing-v1'?[
+      const baseline=d.policyVersion==='smt-pairing-v1'?(language==='ko'?`; 과거 단기/장기 구간 ${n(c.shortCorrelation)} / ${n(c.longCorrelation)}`:[
         `；历史短／长窗口 ${n(c.shortCorrelation)} / ${n(c.longCorrelation)}`,
         `; historical short/long windows ${n(c.shortCorrelation)} / ${n(c.longCorrelation)}`,
-        `；歷史短／長視窗 ${n(c.shortCorrelation)} / ${n(c.longCorrelation)}`][i]:'';
-      return `${c.marketId}${c.marketId===d.selectedMarketId?['（已选定）',' (selected)','（已選定）'][i]:''}${i===1?': ':'：'}${t(c.code)}${i===1?'. ':'。'}${facts}${baseline}`;
+        `；歷史短／長視窗 ${n(c.shortCorrelation)} / ${n(c.longCorrelation)}`][i]):'';
+      return `${c.marketId}${c.marketId===d.selectedMarketId?(language==='ko'?' (선택됨)':['（已选定）',' (selected)','（已選定）'][i]):''}${i===1||language==='ko'?': ':'：'}${t(c.code)}${i===1||language==='ko'?'. ':'。'}${facts}${baseline}`;
     }),
   ];
-  if(d.policyVersion==='smt-pairing-v1')details[0]+=[
+  if(d.policyVersion==='smt-pairing-v1')details[0]+=language==='ko'?'. 페어 선정 기준: 최근 18개 신호 캔들 이전의 80/160개 캔들 수익률 상관계수로 호환 후보의 순위를 평가합니다. 최소 60개 캔들과 85% 이상의 정렬률이 필요합니다.':[
     '。配对依据：同类候选在最近18根信号窗口之前，以80／160根历史收益相关性择优；数据至少60根，对齐率≥85%。',
     '. Selection: rank compatible candidates by 80/160-bar historical return correlation before the latest 18-bar signal window; at least 60 candles and ≥85% alignment.',
     '。配對依據：同類候選在最近18根訊號視窗之前，以80／160根歷史收益相關性擇優；資料至少60根，對齊率≥85%。'][i];
-  if(d.venueWarning)details.push([
+  if(d.venueWarning)details.push(language==='ko'?`보조 거래소 검증: ${t(d.venueWarning)}. 검증을 통과한 자산 간 페어는 계속 사용할 수 있습니다.`:[
     `辅助跨场所校验：${t(d.venueWarning)}；不影响已合格的跨资产配对。`,
     `Auxiliary venue check: ${t(d.venueWarning)}; qualified cross-asset pairs remain usable.`,
     `輔助跨場所校驗：${t(d.venueWarning)}；不影響已合格的跨資產配對。`][i]);
@@ -55,7 +56,7 @@ export function smtDiagnosticPresentation(d,language='zh-CN') {
   const metric=d.code==='SMT_CORRELATION_UNSTABLE'&&selected
     ?`${n(selected.shortCorrelation)}, ${n(selected.longCorrelation)}`:n(selected?.correlation);
   const compact=`SMT: ${t(d.code)}${insufficient?` (${metric}; ≥0.450)`:''}`;
-  return {summary:t(d.code),compact,details};
+  return language==='ko'?{summary:koreanText(t(d.code)),compact:koreanText(compact),details:details.map(value=>koreanText(value))}:{summary:t(d.code),compact,details};
 }
 
 export function validSmtDiagnostics(d) {

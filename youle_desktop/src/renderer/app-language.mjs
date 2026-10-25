@@ -7,10 +7,11 @@ import { REVIEWED_ENGLISH_UI_PHRASES } from "./app-language-en-reviewed.mjs";
 import { PRODUCT_ENGLISH_UI_PHRASES } from "./app-language-en-product.mjs";
 import { GENERATED_TRADITIONAL_UI_PHRASES } from "./app-language-zh-tw-generated.mjs";
 import { englishDrawingText } from "./app-language-en-drawing.mjs";
+import { koreanText } from "../shared/korean.mjs";
 
 export const APP_LANGUAGE_STORAGE_KEY = "haolo.appearance.language";
 
-export const APP_LANGUAGES = Object.freeze(["en", "zh-CN", "zh-TW"]);
+export const APP_LANGUAGES = Object.freeze(["en", "zh-CN", "zh-TW", "ko"]);
 
 const ENGLISH_UI_PHRASES = Object.freeze({
   "正在等待行情恢复": "Waiting for market data",
@@ -966,6 +967,9 @@ const ENGLISH_UI_PHRASES = Object.freeze({
   "请先开通体验版或其他套餐": "Activate the trial or another plan first.",
   "当前没有可用积分，请开通体验版或其他套餐后再提问": "You have no available points. Activate the trial or another plan before asking the model.",
   "您的积分不足，请充值或开通会员": "You do not have enough points. Recharge or activate a membership.",
+  "当前可用积分不足，请查看消耗明细。若刚完成付款，请核对订单是否到账。": "You do not have enough available credits. Check your usage details. If you just paid, check whether your order has been credited.",
+  "会员仍在有效期内，但当前可用积分已用完。会员有效期不代表无限积分，请查看消耗明细核对用量；需要继续使用时可补充积分。": "Your membership is still active, but your available credits have run out. Membership does not include unlimited credits. Check your usage details and add credits if you need to continue.",
+  "查看消耗明细": "View usage details",
   "当前未开通有效体验版或其他套餐，请先开通后再使用盘面分析": "Activate a valid trial or another plan before using market analysis.",
   "暂时无法验证会员权益，请稍后重试": "Unable to verify membership access right now. Please try again shortly.",
   "确认支付信息": "Confirm payment details",
@@ -1307,6 +1311,9 @@ const TRADITIONAL_UI_PHRASES = Object.freeze({
   "请先开通体验版或其他套餐": "請先開通體驗版或其他套餐",
   "当前没有可用积分，请开通体验版或其他套餐后再提问": "當前沒有可用積分，請開通體驗版或其他套餐後再提問",
   "您的积分不足，请充值或开通会员": "您的積分不足，請充值或開通會員",
+  "当前可用积分不足，请查看消耗明细。若刚完成付款，请核对订单是否到账。": "目前可用積分不足，請查看消耗明細。若剛完成付款，請核對訂單是否到帳。",
+  "会员仍在有效期内，但当前可用积分已用完。会员有效期不代表无限积分，请查看消耗明细核对用量；需要继续使用时可补充积分。": "會員仍在有效期內，但目前可用積分已用完。會員有效期不代表無限積分，請查看消耗明細核對用量；需要繼續使用時可補充積分。",
+  "查看消耗明细": "查看消耗明細",
   "当前未开通有效体验版或其他套餐，请先开通后再使用盘面分析": "目前未開通有效體驗版或其他套餐，請先開通後再使用盤面分析",
   "暂时无法验证会员权益，请稍后重试": "暫時無法驗證會員權益，請稍後重試",
   "确认支付信息": "確認支付資訊",
@@ -1454,6 +1461,7 @@ export function isAppLanguage(value) {
 }
 
 export function normalizeAppLanguage(value) {
+  if (value === "ko-KR" || value === "ko_KR") return "ko";
   return isAppLanguage(value) ? value : "zh-CN";
 }
 
@@ -1487,7 +1495,7 @@ export function resolveAppLanguagePreference({
 
 export function appLanguageLocale(language = currentAppLanguage) {
   const normalized = normalizeAppLanguage(language);
-  return normalized === "en" ? "en-US" : normalized;
+  return normalized === "en" ? "en-US" : normalized === "ko" ? "ko-KR" : normalized;
 }
 
 export function getCurrentAppLanguage() {
@@ -1500,6 +1508,7 @@ export function appLanguageOptions() {
     { value: "en", label: "English" },
     { value: "zh-CN", label: "简体中文" },
     { value: "zh-TW", label: "繁體中文" },
+    { value: "ko", label: "한국어" },
   ];
 }
 
@@ -1587,6 +1596,17 @@ function englishDynamicUiLabel(source) {
 
 export function translateAppText(value, language = currentAppLanguage) {
   const source = String(value ?? "").replace(/\bDeepSeek\s+V4\.1\s+Flash\b/gi, "GPT-6 Astra");
+  if (normalizeAppLanguage(language) === "ko") {
+    const cacheKey = `ko\u0000${source}`;
+    const cached = translationCache.get(cacheKey);
+    if (cached !== undefined) return cached;
+    const direct = koreanText(source);
+    const canonical = HAN_TEXT_PATTERN.test(direct) ? koreanText(traditionalToSimplifiedCharacters(source)) : direct;
+    const translated = (canonical.match(/\p{Script=Han}/gu)?.length || 0) < (direct.match(/\p{Script=Han}/gu)?.length || 0) ? canonical : direct;
+    if (translationCache.size >= 6_000) translationCache.clear();
+    translationCache.set(cacheKey, translated);
+    return translated;
+  }
   if (!source || !HAN_TEXT_PATTERN.test(source)) return source;
   const normalized = normalizeAppLanguage(language);
   const canonicalSource = traditionalToSimplifiedCharacters(source);
@@ -1609,6 +1629,7 @@ export function translateAppText(value, language = currentAppLanguage) {
 
 export function translateDrawingText(value, language = currentAppLanguage, section = false) {
   const source = String(value ?? "");
+  if (normalizeAppLanguage(language) === 'ko') return translateAppText(source, language);
   if (!HAN_TEXT_PATTERN.test(source)) return source;
   if (normalizeAppLanguage(language) !== "en") return translateAppText(source, language);
   return englishDrawingText(traditionalToSimplifiedCharacters(source), section) ?? translateAppText(source, language);
@@ -1689,6 +1710,7 @@ const TRADING_ANNOTATION_ENGLISH_ENTRIES = entriesByLength({
 
 export function translateTradingAnnotationText(value, language = currentAppLanguage) {
   const source = String(value ?? "");
+  if (normalizeAppLanguage(language) === 'ko') return translateAppText(source, language);
   if (!source || !HAN_TEXT_PATTERN.test(source)) return source;
   if (normalizeAppLanguage(language) !== "en") return translateAppText(source, language);
   const canonical = traditionalToSimplifiedCharacters(source);
@@ -1757,10 +1779,10 @@ function syncEnglishButtonLayout(node, language) {
   const button = node.parentElement?.closest?.("button");
   if (!button) return;
   const labels = simpleButtonLabelNodes(button);
-  const isSingleEnglishLabel = language === "en"
+  const isSingleEnglishLabel = ["en", "ko"].includes(language)
     && !button.hasAttribute("data-i18n-wrap")
     && labels.length === 1
-    && LATIN_BUTTON_TEXT_PATTERN.test(String(labels[0].nodeValue ?? ""));
+    && (LATIN_BUTTON_TEXT_PATTERN.test(String(labels[0].nodeValue ?? "")) || language === 'ko');
   button.toggleAttribute("data-i18n-single-line", isSingleEnglishLabel);
 }
 

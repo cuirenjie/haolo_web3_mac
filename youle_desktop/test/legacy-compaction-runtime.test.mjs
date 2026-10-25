@@ -13,12 +13,14 @@ import { ModelRequestRelay } from "../src/main/model-request-relay.mjs";
 import { requestWithThreadHistoryRecovery } from "../src/main/thread-history-recovery.mjs";
 
 const runtime = fileURLToPath(new URL("../resources/bin/haolo_ai.exe", import.meta.url));
-test("bundled CLI reproduces retired-history compaction failure and completes the same chain with a scoped migration", {
+test("bundled CLI compacts retired history with DeepSeek and relay migration requires the same live thread", {
   skip: process.platform !== "win32" || !fs.existsSync(runtime), timeout: 60_000,
 }, async t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "haolo-legacy-compact-"));
   const home = path.join(directory, "home"); fs.mkdirSync(home);
   const requests = [], events = [], blocked = [];
+  const fixturePending = new Map();
+  let fixtureRequestId = 0;
   let child, host, seed = true, migrationEnabled = false, stderr = "";
   const model = http.createServer(async (req, res) => {
     const chunks = []; for await (const c of req) chunks.push(c);
@@ -41,7 +43,7 @@ test("bundled CLI reproduces retired-history compaction failure and completes th
     res.end(stream.map(e => `data: ${JSON.stringify(e)}\n\n`).join(""));
   });
   await new Promise(r => model.listen(0, "127.0.0.1", r));
-  const relay = new ModelRequestRelay({ upstreamBaseUrl: `http://127.0.0.1:${model.address().port}/v1`,
+  const relay = new ModelRequestRelay({ upstreamBaseUrl: `http://127.0.0.1:${model.address().port}/v1`, managedAnalysis: true,
     resolveHistoryModel: id => migrationEnabled ? host.historyModelSelections.get(id) : undefined });
   relay.on("request-error", e => blocked.push(e.code));
   await relay.start();
@@ -50,6 +52,8 @@ test("bundled CLI reproduces retired-history compaction failure and completes th
       const exited = new Promise(r => child.once("exit", r)); child.kill(); await exited;
     }
     for (const p of host?.pending.values() || []) clearTimeout(p.timer);
+    for (const p of fixturePending.values()) clearTimeout(p.timer);
+    fixturePending.clear();
   };
   t.after(async () => {
     await stop(); await relay.stop(); model.closeAllConnections(); await new Promise(r => model.close(r));
@@ -58,15 +62,18 @@ test("bundled CLI reproduces retired-history compaction failure and completes th
     await fs.promises.rm(directory, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
   const start = async () => {
+    // Today's host resolves this provider ID; both fixture phases point it
+    // exclusively at the isolated local server.
+    const provider = "deepseek";
     const settings = [
-      `model="${seed ? "gpt-5.5" : "gpt-5.6-sol"}"`, 'model_provider="fixture"',
+      `model="${seed ? "gpt-5.5" : "deepseek-flash"}"`, `model_provider="${provider}"`,
       "model_context_window=20000", "model_auto_compact_token_limit=10000",
       "features.remote_plugin=false", "features.plugins=false", "features.apps=false",
-      'model_providers.fixture.name="fixture"',
-      `model_providers.fixture.base_url="${seed ? `http://127.0.0.1:${model.address().port}/v1` : relay.localBaseUrl()}"`,
-      'model_providers.fixture.wire_api="responses"', "model_providers.fixture.requires_openai_auth=false",
-      "model_providers.fixture.supports_websockets=false", "model_providers.fixture.request_max_retries=0",
-      "model_providers.fixture.stream_max_retries=0",
+      `model_providers.${provider}.name="fixture"`,
+      `model_providers.${provider}.base_url="${seed ? `http://127.0.0.1:${model.address().port}/v1` : relay.localBaseUrl()}"`,
+      `model_providers.${provider}.wire_api="responses"`, `model_providers.${provider}.requires_openai_auth=false`,
+      `model_providers.${provider}.supports_websockets=false`, `model_providers.${provider}.request_max_retries=0`,
+      `model_providers.${provider}.stream_max_retries=0`,
     ];
     const env = Object.fromEntries(["SystemRoot", "WINDIR", "PATH", "TEMP", "TMP", "COMSPEC", "PATHEXT"]
       .filter(k => process.env[k]).map(k => [k, process.env[k]]));
@@ -80,11 +87,28 @@ test("bundled CLI reproduces retired-history compaction failure and completes th
     host.on("notification", e => events.push(e));
     const lines = readline.createInterface({ input: child.stdout });
     child.once("exit", () => lines.close());
-    lines.on("line", line => host.handleMessage(line));
+    lines.on("line", line => {
+      const message = JSON.parse(line), pending = fixturePending.get(message.id);
+      if (!pending) return host.handleMessage(line);
+      fixturePending.delete(message.id); clearTimeout(pending.timer);
+      if (message.error) pending.reject(new Error(message.error.message));
+      else pending.resolve(message.result);
+    });
     await host.requestRaw("initialize", { clientInfo: { name: "legacy_compaction_test", version: "1" }, capabilities: { experimentalApi: true } });
     host.sendNotification("initialized", {});
   };
-  const rpc = (method, params) => requestWithThreadHistoryRecovery({
+  // Seed genuinely retired history through the native fixture protocol only.
+  // Today's host normalizes legacy selections; all resume/repair operations
+  // below still use the production host and its DeepSeek-only normalization.
+  const seedRpc = (method, params) => new Promise((resolve, reject) => {
+    const id = `seed_${++fixtureRequestId}`;
+    const timer = setTimeout(() => {
+      fixturePending.delete(id); reject(new Error(`fixture ${method} timed out`));
+    }, 12_000);
+    fixturePending.set(id, { resolve, reject, timer });
+    child.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
+  });
+  const rpc = (method, params) => seed ? seedRpc(method, params) : requestWithThreadHistoryRecovery({
     request: (m, p) => host.requestRaw(m, p, 12_000), method, params, codexHome: home,
   });
   const run = async (threadId, text) => {
@@ -105,18 +129,40 @@ test("bundled CLI reproduces retired-history compaction failure and completes th
     ids.push(created.thread.id);
     assert.equal((await run(ids[i], "Historical BTCUSDT 1h conversation")).status, "completed");
   }
+  assert.ok(requests.length >= 2 && requests.every(r => r.model === "gpt-5.5"), "seed must contain actual retired-model history");
   await stop(); seed = false; await start();
   for (const id of ids) await rpc("thread/resume", { threadId: id, cwd: directory, model: "gpt-5.6-sol" });
+  const firstRequest = requests.length, firstEvent = events.length;
   const first = await run(ids[0], "帮我用裸K策略分析 BTCUSDT 1小时");
-  assert.equal(first.status, "failed");
+  assert.equal(first.status, "completed", JSON.stringify(first));
+  assert.ok(requests.length >= firstRequest + 2, "automatic compaction and its answer must both run");
+  assert.ok(requests.slice(firstRequest).every(r => r.model === "deepseek-flash" && r.reasoning?.effort === "low"));
+  assert.ok(events.slice(firstEvent).some(e => e.method === "item/completed" && e.params.item?.type === "contextCompaction"));
+  // Current RPC normalization already prevents the original CLI failure. Keep
+  // the negative control at the wire boundary for older persisted compactions.
+  const legacyRequest = threadId => fetch(`${relay.localBaseUrl()}/responses`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...requests[0], model: "gpt-5.5", prompt_cache_key: threadId }),
+  });
+  const rejected = await legacyRequest(ids[0]);
+  assert.equal(rejected.status, 400); await rejected.text();
   assert.ok(blocked.includes("MODEL_RETIRED"));
-  const before = requests.length, eventStart = events.length;
   migrationEnabled = true;
+  const unconfirmed = await legacyRequest(ids[1]);
+  assert.equal(unconfirmed.status, 400); await unconfirmed.text();
+  const admitted = requests.length;
+  const migrated = await legacyRequest(ids[0]);
+  assert.equal(migrated.status, 200); await migrated.text();
+  assert.equal(requests.length, admitted + 1);
+  assert.equal(requests.at(-1).model, "deepseek-flash");
+  assert.equal(requests.at(-1).reasoning.effort, "low");
+  const before = requests.length, eventStart = events.length;
   const fixed = await run(ids[1], "帮我用裸K策略分析 BTCUSDT 1小时");
   assert.equal(fixed.status, "completed", JSON.stringify(fixed));
   const migratedRequests = requests.slice(before);
   assert.ok(migratedRequests.length >= 2, "compaction and subsequent answer must both reach the model");
-  assert.ok(migratedRequests.every(r => r.model === "gpt-5.6-sol"));
+  assert.ok(migratedRequests.every(r => r.model === "deepseek-flash"));
+  assert.ok(migratedRequests.every(r => r.reasoning?.effort === "low"));
   assert.ok(JSON.stringify(migratedRequests.at(-1).input).includes("帮我用裸K策略分析 BTCUSDT 1小时"));
   assert.ok(events.slice(eventStart).some(e => e.method === "item/completed" && e.params.item?.type === "contextCompaction"));
   const history = await rpc("thread/read", { threadId: ids[1], includeTurns: true });

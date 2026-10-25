@@ -164,6 +164,7 @@ export class YouleApiClient {
     this.logPath = options.logPath;
     this.clientId = String(options.clientId || process.env.HAOLO_DESKTOP_CLIENT_ID || "").trim()
       || desktopClientId(options.platform || process.platform);
+    this.getLocale = typeof options.getLocale === "function" ? options.getLocale : () => "zh-CN";
     this.onAccountPnl = typeof options.onAccountPnl === "function" ? options.onAccountPnl : undefined;
     this.networkFetch = typeof options.networkFetch === "function"
       ? options.networkFetch
@@ -3471,6 +3472,7 @@ export class YouleApiClient {
       importPreferences: ["POST", "/trading-preferences/import"],
       capabilities: ["GET", "/trading-capabilities"],
       createRun: ["POST", "/agent-runs"],
+      createAssistantRun: ["POST", "/assistant-runs"],
       plans: ["GET", "/trading-plans"],
       priceAlerts: ["GET", "/alerts"],
       createPriceAlertDraft: ["POST", "/alert-drafts"],
@@ -3488,6 +3490,11 @@ export class YouleApiClient {
       const action={plan:['GET',''],savePlan:['POST','/save'],activatePlan:['POST','/activate'],planLifecycle:['PATCH','/lifecycle'],deletePlan:['DELETE','']}[operation];
       routes[operation]=[action[0],`/plans/${planId}${action[1]}`];
       payload=body;
+    }
+    if (operation === 'task') {
+      const id = String(payload.taskId || '');
+      if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id)) throw new TypeError('Invalid cloud task id');
+      routes.task = ['GET', `/tasks/${id}`]; payload = {};
     }
     if (["run", "runEvents", "cancelRun"].includes(operation)) {
       const id = String(payload.runId || "");
@@ -4451,9 +4458,14 @@ export class YouleApiClient {
   }
 
   async requestJson(url, init = {}) {
+    const locale = this.getLocale();
+    const headers = init.headers instanceof Headers || Array.isArray(init.headers)
+      ? Object.fromEntries(new Headers(init.headers).entries()) : {...init.headers};
+    if (!Object.keys(headers).some(key => key.toLowerCase() === 'accept-language')) headers['Accept-Language'] = locale;
+    init = {...init, headers};
     this.conditionalPollFetch ||= createConditionalPollFetch(
       (target, options) => this.serviceFetch(target, options),
-      () => `${this.baseUrl}:${this.authRevision}:${this.profile?.id || this.profile?.user_id || ''}:${this.token || ''}`,
+      () => `${this.baseUrl}:${this.authRevision}:${this.profile?.id || this.profile?.user_id || ''}:${this.token || ''}:${this.getLocale()}`,
       { changes: true },
     );
     const accountMutation = !["GET", "HEAD"].includes(String(init.method || "GET").toUpperCase())
@@ -4467,7 +4479,10 @@ export class YouleApiClient {
   }
 
   async requestBinary(url, init = {}) {
-    return requestBinary(url, { ...init, logPath: this.logPath, fetchImpl: this.serviceFetch });
+    const headers = init.headers instanceof Headers || Array.isArray(init.headers)
+      ? Object.fromEntries(new Headers(init.headers).entries()) : {...init.headers};
+    if (!Object.keys(headers).some(key => key.toLowerCase() === 'accept-language')) headers['Accept-Language'] = this.getLocale();
+    return requestBinary(url, { ...init, headers, logPath: this.logPath, fetchImpl: this.serviceFetch });
   }
 
   async load() {
@@ -7415,7 +7430,7 @@ function extractProviderChatText(payload, { allowEmpty = false } = {}) {
 }
 
 function normalizeConsumptionLanguage(value) {
-  return value === "en" || value === "zh-TW" ? value : "zh-CN";
+  return value === "ko" || value === "en" || value === "zh-TW" ? value : "zh-CN";
 }
 
 function fixedProviderReasoningEffort(params = {}) {

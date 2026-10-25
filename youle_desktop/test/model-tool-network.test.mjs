@@ -4,11 +4,12 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { testPython } from '../scripts/test-python.mjs';
 import { modelToolNetworkEnv, modelToolNetworkConfigArgs, withModelToolNetwork } from "../src/main/model-tool-network.mjs";
 
 function python(code, env) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.env.PYTHON || (process.platform === "win32" ? "python" : "python3"), ["-c", code], { env, windowsHide: true });
+    const child = spawn(testPython(), ["-X", "utf8", "-c", code], { env, windowsHide: true });
     let stdout = "", stderr = "";
     child.stdout.on("data", (data) => { stdout += data; });
     child.stderr.on("data", (data) => { stderr += data; });

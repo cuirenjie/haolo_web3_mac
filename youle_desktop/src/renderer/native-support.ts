@@ -1,5 +1,6 @@
 export type SupportAttachment = { kind: string; name?: string; file_name?: string; url?: string; mime_type?: string; size_bytes?: number; object_key?: string };
-import { SupportAssist, type SupportAI, type SupportProposal } from "./support-assist.ts";
+import { SupportAssist, SUPPORT_EXECUTOR_VERSIONS, validateSupportProposal, type SupportAI, type SupportProposal } from "./support-assist.ts";
+import { supportRuntime } from "./support-runtime.ts";
 export type SupportMessage = { id: string; role: string; text?: string; created_at?: string; attachments?: SupportAttachment[]; sender_type?: string; support_event?: string };
 export type SupportPayload = { session: { id: string; status: string; created_at?: string; updated_at?: string }; messages: SupportMessage[]; support_online?: boolean; ai?: SupportAI | null };
 export type SupportRecord = { id: string; title: string; status: string; updatedAt: number; readIds: string[]; unread: number };
@@ -42,6 +43,7 @@ export class NativeSupport {
   readonly deviceId = crypto.randomUUID();
   private assist?: SupportAssist;
   private generation = 0;
+  private contextCompatible = false;
   private selection = 0;
   private timer?: ReturnType<typeof setTimeout>;
   private fetching = new Set<string>();
@@ -52,7 +54,7 @@ export class NativeSupport {
   setAccount(account: string) {
     if (this.account === account) return;
     this.assist?.abort(); this.assistPinned = false;
-    this.generation++; this.selection++;
+    this.generation++; this.selection++; this.contextCompatible = false;
     for (const uploadId of this.uploads) void this.uploadRequest({ action: "cancel", uploadId }).catch(() => {});
     this.uploads.clear();
     clearTimeout(this.timer);
@@ -122,23 +124,39 @@ export class NativeSupport {
   close() { if (this.assisting) return; this.active = false; this.assistPinned = false; this.selection++; this.opening = false; }
   private async configure(id: string) {
     if (!this.options.context) return;
-    await this.request({ action: "aiContext", sessionId: id, context: { ...this.options.context(), device_id: this.deviceId, surface: "windows", locale: this.options.locale() } });
+    const generation = this.generation;
+    try {
+      await this.request({ action: "aiContext", sessionId: id, context: this.productContext() });
+      if (generation === this.generation) this.contextCompatible = true;
+    } catch (error: any) {
+      if (generation === this.generation) this.contextCompatible = false;
+      // Older servers may not register the Mac contract yet. Text support
+      // remains available, but no operation may use a Windows contract.
+      if (![400, 404, 422].includes(error?.status)) throw error;
+    }
+  }
+  replyLocale() { return this.entry().payload?.ai?.reply_locale || this.options.locale(); }
+  private productContext() {
+    return { ...this.options.context?.(), ...supportRuntime, channel: "haolo_web3_mac",
+      action_versions: Object.fromEntries(Object.entries(supportRuntime.action_versions).filter(([key, v]) => SUPPORT_EXECUTOR_VERSIONS[key] === v)),
+      device_id: this.deviceId, surface: "macos", locale: this.options.locale() };
   }
   async decide(proposal: SupportProposal, accepted: boolean) {
-    if (this.assisting || proposal.device_id !== this.deviceId) return;
-    const sid = this.currentId, account = this.account;
+    if (!this.contextCompatible || this.assisting || proposal.device_id !== this.deviceId) return;
+    const sid = this.currentId, account = this.account, generation = this.generation;
     const token = crypto.randomUUID().replaceAll("-", "") + crypto.randomUUID().replaceAll("-", "");
     this.assisting = true;
     try {
+      if (accepted) validateSupportProposal(proposal, this.productContext());
       const result = await this.timedRequest({ action: "aiConsent", sessionId: sid, actionId: proposal.id, body: { decision: accepted ? "accept" : "decline", epoch: proposal.epoch, device_id: this.deviceId, token } });
-      if (!accepted) return;
+      if (!accepted || generation !== this.generation || sid !== this.currentId) return;
       this.assistPinned = true;
       const authorize = async () => {
         if (account !== this.account || sid !== this.currentId) throw new Error("support_account_changed");
         const data = await this.timedRequest({ action: "ai", sessionId: sid });
-        if (data.ai?.mode !== "ai" || data.ai.epoch !== proposal.epoch || !data.ai.actions?.some((a: SupportProposal) => a.id === proposal.id && a.status === "running")) throw new Error("support_operation_superseded");
+        if (generation !== this.generation || sid !== this.currentId || data.ai?.mode !== "ai" || data.ai.epoch !== proposal.epoch || !data.ai.actions?.some((a: SupportProposal) => a.id === proposal.id && a.status === "running")) throw new Error("support_operation_superseded");
       };
-      this.assist = new SupportAssist({ locale: () => this.options.locale() === "zh-Hant" ? "zh-TW" : this.options.locale(), authorize,
+      this.assist = new SupportAssist({ locale: () => proposal.reply_locale || this.replyLocale(), authorize,
         theme: () => document.documentElement.dataset.theme || "", themePersisted: () => this.options.storage.getItem("haolo.appearance.theme") });
       await this.assist.run(result.plan, (index, stage, outcome) => this.timedRequest({ action: "aiStep", sessionId: sid, actionId: proposal.id, body: { index, stage, result: outcome || "", device_id: this.deviceId, token } }));
     } catch {

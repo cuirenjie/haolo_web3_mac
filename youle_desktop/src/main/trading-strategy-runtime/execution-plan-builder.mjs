@@ -1,3 +1,4 @@
+import { koreanText, localizedChoice } from '../../shared/korean.mjs';
 import crypto from "node:crypto";
 import { EXECUTION_PLAN_SCHEMA_VERSION, validateExecutionPlan } from "./contracts.mjs";
 import { personalRiskUnavailable, personalRiskUnavailableNotice } from "../trading-analysis/personal-risk-context.mjs";
@@ -1822,6 +1823,7 @@ function formatExecutionPlanMarkdownEnglish(validated) {
 
 export function formatExecutionPlanMarkdown(plan, options = {}) {
   const validated = validateExecutionPlan(plan);
+  if (options?.language === "ko") return koreanText(formatExecutionPlanMarkdown(validated, {...options, language: "zh-CN"}));
   if (validated.preconditions.some((item) => item.id === "personal-risk-unavailable")) {
     return options.language === "en"
       ? "## Market observation\n\nPersonal risk validation is unavailable. No executable plan or position size is generated."

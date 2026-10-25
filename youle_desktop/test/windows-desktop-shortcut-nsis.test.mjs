@@ -43,7 +43,7 @@ test("actual NSIS hooks preserve install-time intent and keep-shortcuts update f
     "function Get-HaoloInteractiveSid { Get-HaoloSid }",
     "function Get-HaoloDesktop([string]$scopeName) { Join-Path $fixtureRoot ('desktop-'+$scopeName) }",
     "function Read-HaoloInstallDir([string]$scopeName) { $installedScope=if ($config.scope) { $config.scope } else { 'CurrentUser' }; if ($scopeName -eq $installedScope -and $config.installed) { return (Join-Path $fixtureRoot 'app') }; return '' }",
-    "function Read-HaoloShortcutState([string]$scopeName) { $p=Join-Path $fixtureRoot ('state-'+$scopeName+'.json'); if (Test-Path -LiteralPath $p) { Get-Content -LiteralPath $p -Raw | ConvertFrom-Json } }",
+    "function Read-HaoloShortcutState([string]$scopeName) { $p=Join-Path $fixtureRoot ('state-'+$scopeName+'.json'); if (Test-Path -LiteralPath $p) { Get-Content -LiteralPath $p -Raw -Encoding UTF8 | ConvertFrom-Json } }",
     "function Write-HaoloShortcutState([string]$scopeName,$state) { $state | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $fixtureRoot ('state-'+$scopeName+'.json')) -Encoding UTF8 }",
     "try { $r=Invoke-HaoloShortcutAction; if ($Action -eq 'Snapshot' -and ($config.deleteAfterSnapshot -or $config.consumePending)) {",
     "  $fixtureScope=if ($config.scope) { $config.scope } else { 'CurrentUser' }",
@@ -128,7 +128,7 @@ test("actual NSIS hooks preserve install-time intent and keep-shortcuts update f
   const flags = new NsisScriptGenerator(); flags.flags(["keep-shortcuts"]);
   const probe = path.join(root, "uninstall-guard-probe.exe");
   const probeNsi = path.join(root, "uninstall-guard-probe.nsi");
-  fs.writeFileSync(probeNsi, [
+  fs.writeFileSync(probeNsi, "\ufeff" + [
     'Unicode true', 'SilentInstall silent', 'RequestExecutionLevel user', `OutFile "${nsisQuote(probe)}"`,
     '!include "LogicLib.nsh"', `!addincludedir "${nsisQuote(path.join(templates, "include"))}"`,
     `!addplugindir /x86-unicode "${nsisQuote(plugins)}"`, '!include "StdUtils.nsh"', flags.build(),

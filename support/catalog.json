@@ -1,0 +1,432 @@
+{
+  "schema_version": 1,
+  "repository": "cuirenjie/haolo_web3_mac",
+  "surface": "macos",
+  "features": [
+    {
+      "id": "saved-plan-menu",
+      "title": "计划卡片菜单与来源跳转",
+      "body": "macOS 计划页的卡片右上角有右箭头，点击卡片可结束、重新打开或删除计划，也可跳转K线画线或相关会话。弹窗样式与会话中的计划卡一致，点击空白处或按Escape关闭；删除仍需确认。跳转优先打开原始会话，恢复计划对应的原市场、分析周期和已保存画线。没有本机来源时按计划的 runId 和云端 taskId 读取原始历史会话，保留原任务身份、标题、各轮提问和回复；打开后可继续发送文字追问，新回复追加到同一原任务，重新打开仍保留完整历史。发送中可停止，网络结果不确定时重试原消息沿用同一提交标识，避免重复追加。不会新建恢复记录或插入恢复说明气泡；仅打开会话不会重新分析。原历史不存在时提示无法读取，不伪造替代会话。来源关联按账号及计划唯一标识保存，重启后可继续使用。客服可解释这些入口，不能代用户执行交易或删除计划。",
+      "category": "plans",
+      "locale": "zh-CN",
+      "status": "approved",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/saved-execution-plan-menu.ts",
+        "youle_desktop/src/renderer/saved-plan-source.ts",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-plans.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-task-history.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-task-chat.mjs",
+        "youle_desktop/src/renderer/cloud-task-chat.ts",
+        "youle_desktop/docs/plan-card-menu-20261021.zh-CN.md"
+      ]
+    },
+    {
+      "id": "support-service",
+      "title": "客服 haolo 的范围、费用与身份",
+      "body": "客服 haolo 是智能客服，处理 Haolo 安装、账号、页面操作、图表功能、积分会员、邀请与产品故障；客服本身免费且不扣用户积分。行情预测、通用写作等独立任务不在客服范围。用户询问如何使用产品的分析功能属于产品咨询。模糊表述先追问，不能仅因出现BTC等币种名称而拒答。",
+      "category": "support-service",
+      "locale": "zh-CN",
+      "status": "approved",
+      "requires_login": false,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/docs/native-support.zh-CN.md"
+      ]
+    },
+    {
+      "id": "assist-permission",
+      "title": "授权代操作及拒绝后的处理",
+      "body": "客服提供具体操作计划，用户同意后才执行。授权只绑定本次会话、设备和计划。操作过程中显示蓝色边框、移动光标和操作提示，并临时锁定输入；完成或异常后解锁。拒绝后继续提供文字指导。不支持交易、支付、转账、提现、删除数据或修改凭据。官网授权只适用于当前官网，不能修改 macOS 设置。",
+      "category": "assist-permission",
+      "locale": "zh-CN",
+      "status": "approved",
+      "requires_login": false,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/docs/native-support.zh-CN.md"
+      ]
+    },
+    {
+      "id": "theme",
+      "title": "macOS 主题外观与界面语言",
+      "body": "macOS 左下角设置→通用，可选择明亮或黑暗主题，也可切换简体中文、英文、繁体中文。客服可在用户同意具体计划后打开设置并更改主题；更改后必须检查实际主题和本地保存结果。",
+      "category": "theme",
+      "locale": "zh-CN",
+      "status": "approved",
+      "requires_login": false,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {
+        "open_settings": 1,
+        "set_theme": 1
+      },
+      "sources": [
+        "youle_desktop/src/renderer/main.ts"
+      ]
+    },
+    {
+      "id": "usage",
+      "title": "查看积分消耗",
+      "body": "macOS 设置内有积分消耗入口，可查看消耗明细。客服可获得授权后打开该页。客服不能从提问文本推断用户余额、订单状态或实际扣费；具体金额及任务记录以用户自己的消耗明细和后台核查为准。客服对话本身不扣积分。",
+      "category": "usage",
+      "locale": "zh-CN",
+      "status": "approved",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {
+        "open_usage": 1
+      },
+      "sources": [
+        "youle_desktop/src/renderer/main.ts"
+      ]
+    },
+    {
+      "id": "indicators",
+      "title": "指标配置与参数",
+      "body": "macOS K线区域底部有指标设置入口。用户要修改指标时，先明确哪一个指标、哪一个周期参数和目标值；使用当前客户端提供的指标目录及允许范围。客服可授权打开指标设置并填写、保存参数，随后校验实际保存结果。指标解释可以用于产品教学，不替客户判断买卖。",
+      "category": "indicators",
+      "locale": "zh-CN",
+      "status": "approved",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {
+        "open_indicators": 1,
+        "set_indicator": 1
+      },
+      "sources": [
+        "youle_desktop/src/renderer/trading-expert-market.ts"
+      ]
+    },
+    {
+      "id": "candle-colors",
+      "title": "K线涨跌颜色",
+      "body": "macOS K线设置包含涨跌颜色页和主图样式页。涨跌颜色可选择绿涨红跌或红涨绿跌；主图样式可设置具体上涨、下跌颜色。客服需明确两种颜色后申请授权，并检查保存结果，不改变交易或分析策略。",
+      "category": "candle-colors",
+      "locale": "zh-CN",
+      "status": "approved",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {
+        "open_candle_settings": 1,
+        "set_candle_colors": 1
+      },
+      "sources": [
+        "youle_desktop/src/renderer/trading-expert-chart-settings.ts"
+      ]
+    },
+    {
+      "id": "chart-issue",
+      "title": "行情、图表或分析结果无法显示",
+      "body": "BTC图表打不开、价格停止刷新、指标未显示、分析入口报错都属于产品问题。先询问客户端平台和版本、交易品种、周期、问题发生位置、可复现步骤及报错内容。不能把没有知识记录直接判断成Bug，不能声称已读取用户未提供的截图内容。确需技术处理时登记脱敏问题。",
+      "category": "chart-issue",
+      "locale": "zh-CN",
+      "status": "approved",
+      "requires_login": false,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/docs/native-support.zh-CN.md"
+      ]
+    },
+    {
+      "id": "support-resolution",
+      "title": "技术跟进、邮件与人工接管",
+      "body": "公开产品问题成功提交或关联共建帖子后提醒管理员；私人问题内部登记后提醒管理员。正常客服解决不发邮件，真实故障即使重试恢复也保留告警。修复需实际发布并登记版本后才通知关联用户，不承诺具体修复时间。用户要求人工时登记需求并继续协助；实际管理员接管后，该会话AI永久停止回复。",
+      "category": "support-resolution",
+      "locale": "zh-CN",
+      "status": "approved",
+      "requires_login": false,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/docs/native-support.zh-CN.md"
+      ]
+    },
+    {
+      "id": "membership",
+      "title": "会员与付费分析问题的边界",
+      "body": "会员权益、充值入口和任务积分消耗属于产品咨询。权益和当前价格以官网会员页面及账号内实际展示为准，不从旧知识推断价格或已到账情况。支付异常进入内部处理，客服不能替用户提交支付或公开订单信息。客服免费不代表其他分析功能免费。",
+      "category": "membership",
+      "locale": "zh-CN",
+      "status": "approved",
+      "requires_login": false,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/docs/native-support.zh-CN.md"
+      ]
+    },
+    {
+      "id": "credit-exhaustion-zh-cn",
+      "title": "会员有效但积分不足的排查",
+      "body": "会员有效期与可用积分是两项独立信息，会员仍有效也可能已用完积分。先核对订单是否付款并完成权益发放，再核对当前可用余额和购买后的消耗。已发放额度不是剩余余额，待发额度不能当作当前可用余额。信息缺失时不能断言已到账或已用完；重启不能恢复已经消费的积分。macOS 积分不足提示可打开消耗明细；若刚付款应核对订单。用户对消耗有异议时内部核账，不自动退款、赠送积分或重复支付，不在公开内容暴露账号和订单。",
+      "category": "membership",
+      "locale": "zh-CN",
+      "status": "approved",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {
+        "open_usage": 1
+      },
+      "sources": [
+        "youle_desktop/src/renderer/quota-balance.ts",
+        "youle_desktop/src/renderer/main.ts",
+        "youle_desktop/docs/credit-exhaustion-message-20261025.zh-CN.md"
+      ]
+    },
+    {
+      "id": "credit-exhaustion-en",
+      "title": "Active membership with insufficient credits",
+      "body": "Membership validity and available credits are separate. An active member can exhaust their credits. Check that payment and fulfillment succeeded, then verify the current available balance and usage since purchase. Granted credits are not the remaining balance; pending credits are not spendable. Missing data cannot establish successful fulfillment or exhaustion. Restarting cannot restore spent credits. The macOS insufficient-credit notice opens usage details; recent payments require an order check. Escalate disputed usage for private reconciliation without automatically refunding, granting credits, repeating payment, or exposing account and order details.",
+      "category": "membership",
+      "locale": "en",
+      "status": "approved",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {
+        "open_usage": 1
+      },
+      "sources": [
+        "youle_desktop/src/renderer/quota-balance.ts",
+        "youle_desktop/src/renderer/main.ts",
+        "youle_desktop/docs/credit-exhaustion-message-20261025.zh-CN.md"
+      ]
+    },
+    {
+      "id": "credit-exhaustion-zh-hant",
+      "title": "會員有效但積分不足的排查",
+      "body": "會員有效期與可用積分是兩項獨立資訊，會員仍有效也可能已用完積分。先核對訂單是否付款並完成權益發放，再核對目前可用餘額和購買後的消耗。已發放額度不是剩餘餘額，待發額度不能當作目前可用餘額。資訊缺失時不能斷言已到帳或已用完；重啟不能恢復已經消費的積分。macOS 積分不足提示可開啟消耗明細；若剛付款應核對訂單。使用者對消耗有異議時內部核帳，不自動退款、贈送積分或重複支付，不在公開內容暴露帳號和訂單。",
+      "category": "membership",
+      "locale": "zh-Hant",
+      "status": "approved",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {
+        "open_usage": 1
+      },
+      "sources": [
+        "youle_desktop/src/renderer/quota-balance.ts",
+        "youle_desktop/src/renderer/main.ts",
+        "youle_desktop/docs/credit-exhaustion-message-20261025.zh-CN.md"
+      ]
+    },
+    {
+      "id": "deepseek-analysis-route-zh-cn",
+      "title": "分析模型与耗时说明",
+      "body": "Haolo 托管文本分析使用 DeepSeek，推理档位统一为 low；历史产品名称、用户选择记录和计费名称不代表实际使用 GPT。模型故障不会自动切换 GPT。分析耗时受输入规模、策略复杂度和生成内容长度影响，首个进度出现不代表完整分析已经完成；不能承诺每次分析都更快。遇到分析失败或无可用账号时，应收集客户端版本、发生时间和脱敏错误，交由技术人员核对，客服不能替用户更换模型账号或重放付费分析。",
+      "category": "analysis",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": false,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/analysis-model-policy.mjs",
+        "youle_desktop/src/main/app-server-client.mjs",
+        "youle_desktop/src/main/model-request-policy.mjs"
+      ]
+    },
+    {
+      "id": "deepseek-analysis-route-zh-hant",
+      "title": "分析模型與耗時說明",
+      "body": "Haolo 託管文字分析使用 DeepSeek，推理檔位統一為 low；歷史產品名稱、使用者選擇紀錄和計費名稱不代表實際使用 GPT。模型故障不會自動切換 GPT。分析耗時受輸入規模、策略複雜度和生成內容長度影響，首個進度出現不代表完整分析已經完成；不能承諾每次分析都更快。遇到分析失敗或無可用帳號時，應收集客戶端版本、發生時間和去識別化錯誤，交由技術人員核對，客服不能替使用者更換模型帳號或重播付費分析。",
+      "category": "analysis",
+      "locale": "zh-Hant",
+      "status": "pending",
+      "requires_login": false,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/analysis-model-policy.mjs",
+        "youle_desktop/src/main/app-server-client.mjs",
+        "youle_desktop/src/main/model-request-policy.mjs"
+      ]
+    },
+    {
+      "id": "deepseek-analysis-route-en",
+      "title": "Analysis model and completion time",
+      "body": "Haolo managed text analysis uses DeepSeek with low reasoning effort. Historical product names, saved selections and billing names do not identify a GPT upstream. Model failures do not trigger an automatic switch to GPT. Completion time depends on input size, strategy complexity and generated content length. Initial progress does not mean that the complete analysis is ready, and faster completion cannot be promised for every run. For analysis failures or unavailable accounts, collect the client version, occurrence time and redacted error for technical investigation. Support cannot change model accounts or replay paid analysis on the user's behalf.",
+      "category": "analysis",
+      "locale": "en",
+      "status": "pending",
+      "requires_login": false,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/analysis-model-policy.mjs",
+        "youle_desktop/src/main/app-server-client.mjs",
+        "youle_desktop/src/main/model-request-policy.mjs"
+      ]
+    },
+    {
+      "id": "context-efficiency-zh-cn",
+      "title": "长会话上下文与积分消耗",
+      "body": "工具调用的后续推理会继续使用历史，缓存输入也可能消耗积分。待发布优化在实际模型请求中合并同一工具结果内完全相同的长文本副本，并避免把当前会话再次作为其他任务背景注入；保留原始记录、其他任务背景和不同事实。提前整理实验未通过，已恢复原有整理阈值。真实合成任务对照验证了事实和连续性，但节省幅度取决于任务，不能将样本比例承诺为用户账单降幅。先核对客户安装版本及实际消耗记录；源码或候选知识包不代表已经上线。",
+      "category": "analysis",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": false,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/model-context-projection.mjs",
+        "youle_desktop/docs/context-efficiency-20261025.zh-CN.md",
+        "youle_desktop/src/main/group-memory-context.mjs",
+        "youle_desktop/docs/context-model-validation-20261025.zh-CN.md"
+      ]
+    },
+    {
+      "id": "context-efficiency-en",
+      "title": "Long conversations and credit usage",
+      "body": "Later tool steps reuse history, and cached input may still consume credits. The pending optimization shares identical long text within each model-facing tool result and excludes the current conversation from other-task background, retaining original records, other tasks and differing facts. Early compaction failed evaluation and the original thresholds were restored. Real-model synthetic comparisons checked facts and continuity; savings depend on the task and sample percentages are not billing promises. Check the installed version and actual usage. Source code or a candidate bundle does not establish production availability.",
+      "category": "analysis",
+      "locale": "en",
+      "status": "pending",
+      "requires_login": false,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/model-context-projection.mjs",
+        "youle_desktop/docs/context-efficiency-20261025.zh-CN.md",
+        "youle_desktop/src/main/group-memory-context.mjs",
+        "youle_desktop/docs/context-model-validation-20261025.zh-CN.md"
+      ]
+    },
+    {
+      "id": "context-efficiency-zh-hant",
+      "title": "長會話上下文與積分消耗",
+      "body": "工具呼叫的後續推理會繼續使用歷史，快取輸入也可能消耗積分。待發布最佳化在實際模型請求中合併同一工具結果內完全相同的長文字副本，並避免把目前會話再次作為其他任務背景注入；保留原始紀錄、其他任務背景與不同事實。提前整理實驗未通過，已恢復原有整理門檻。真實合成任務對照驗證了事實與連續性，但節省幅度取決於任務，不能將範例比例承諾為使用者帳單降幅。先核對客戶安裝版本與實際消耗紀錄；原始碼或候選知識包不代表已經上線。",
+      "category": "analysis",
+      "locale": "zh-Hant",
+      "status": "pending",
+      "requires_login": false,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/model-context-projection.mjs",
+        "youle_desktop/docs/context-efficiency-20261025.zh-CN.md",
+        "youle_desktop/src/main/group-memory-context.mjs",
+        "youle_desktop/docs/context-model-validation-20261025.zh-CN.md"
+      ]
+    },
+    {
+      "id": "deepseek-protocol-compatibility-zh-cn",
+      "title": "分析正文出现工具代码或 DSML",
+      "body": "分析正文出现 DSML 或工具代码，表示模型回复格式异常，不代表工具已经执行或分析已经完成。待发布 macOS 修复提供协议兼容和旧会话保护，保留原始记录，不执行历史代码。对格式有效但不存在的工具调用，原轮次可复用已有结果，只追加一次禁用所有工具的文字恢复，不重复业务操作；会增加一次正常模型推理消耗。DSML、破损调用或再次违规仍提示失败，不能承诺所有分析都能恢复。客服应收集版本、时间及脱敏错误；先核对安装包是否包含修复，源码和测试通过不代表上线。",
+      "category": "analysis",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": false,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/deepseek-responses-adapter.mjs",
+        "youle_desktop/src/main/model-request-relay.mjs",
+        "youle_desktop/src/main/app-server-client.mjs",
+        "youle_desktop/src/shared/model-protocol-text.mjs",
+        "youle_desktop/docs/deepseek-protocol-compatibility-20261025.zh-CN.md"
+      ]
+    },
+    {
+      "id": "deepseek-protocol-compatibility-zh-hant",
+      "title": "分析正文出現工具程式碼或 DSML",
+      "body": "分析正文出現 DSML 或工具程式碼，表示模型回覆格式異常，不代表工具已執行或分析已完成。待發布 macOS 修復提供協定相容及舊會話保護，保留原始紀錄，不執行歷史程式碼。對格式有效但不存在的工具呼叫，原輪次可重用已有結果，只追加一次停用所有工具的文字恢復，不重複業務操作；會增加一次正常模型推理消耗。DSML、破損呼叫或再次違規仍提示失敗，不能承諾所有分析都能恢復。客服應收集版本、時間及去識別化錯誤；先核對安裝程式是否包含修復，原始碼和測試通過不代表上線。",
+      "category": "analysis",
+      "locale": "zh-Hant",
+      "status": "pending",
+      "requires_login": false,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/deepseek-responses-adapter.mjs",
+        "youle_desktop/src/main/model-request-relay.mjs",
+        "youle_desktop/src/main/app-server-client.mjs",
+        "youle_desktop/src/shared/model-protocol-text.mjs",
+        "youle_desktop/docs/deepseek-protocol-compatibility-20261025.zh-CN.md"
+      ]
+    },
+    {
+      "id": "deepseek-protocol-compatibility-en",
+      "title": "Tool code or DSML in an analysis reply",
+      "body": "DSML or tool code indicates an invalid model response format, not completed analysis or tool execution. The pending macOS fix preserves original history without executing historical code. A well-formed call to an unavailable tool can receive one answer-only continuation in the same turn, using existing results with all tools disabled. This adds normal model inference usage but does not repeat business operations. DSML, malformed calls or further prohibited calls still fail; recovery is not guaranteed for every analysis. Collect the version, time and redacted error, and verify that the installed release contains the fix. Source and passing tests do not establish production availability.",
+      "category": "analysis",
+      "locale": "en",
+      "status": "pending",
+      "requires_login": false,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/deepseek-responses-adapter.mjs",
+        "youle_desktop/src/main/model-request-relay.mjs",
+        "youle_desktop/src/main/app-server-client.mjs",
+        "youle_desktop/src/shared/model-protocol-text.mjs",
+        "youle_desktop/docs/deepseek-protocol-compatibility-20261025.zh-CN.md"
+      ]
+    },
+    {
+      "id": "korean-interface",
+      "title": "四语言界面与专业韩语",
+      "body": "应用语言支持简体中文、English、繁體中文和한국어。macOS及移动端在设置的语言选项切换，官网通过语言菜单切换；邀请中心也支持한국어。业务界面、验证错误、日期格式和系统生成报告随所选语言变化。韩语模型回复使用专业韩语，保留市场代码、数值、接口字段、用户原文和第三方专有名词。切换语言不会修改账户、交易计划或行情数据。客服回复语言仍可按会话偏好独立选择。本功能以实际安装和已发布版本为准。",
+      "category": "settings",
+      "locale": "zh-CN",
+      "status": "approved",
+      "requires_login": false,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/app-language.mjs",
+        "youle_desktop/src/main/trading-analysis/model-output-language.mjs"
+      ]
+    }
+  ]
+}
