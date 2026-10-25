@@ -120,7 +120,7 @@ export async function combineIndicatorPriceActionAnalysis(strategyId, params, na
       ...(selectedLevels ? {[`${side}Trigger`]: selectedLevels.trigger,
         [`${side}Invalidation`]: selectedLevels.stop, [`${side}Target`]: selectedLevels.targets[0],
         [`${side}Targets`]: selectedLevels.targets} : {})};
-    const heading = params.language === 'ko' ? '프라이스 액션 전략 및 지표 종합 평가' : params.language === 'en' ? 'Price Action strategy and indicator assessment'
+    const heading = params.language === 'ja' ? 'プライスアクション戦略と指標の総合評価' : params.language === 'ko' ? '프라이스 액션 전략 및 지표 종합 평가' : params.language === 'en' ? 'Price Action strategy and indicator assessment'
       : ['zh-TW', 'zh-Hant'].includes(params.language) ? '裸 K 策略與指標綜合判斷' : '裸 K 策略与指标综合判断';
     const report = [`### ${heading}`, review.summary, review.rationale,
       indicatorStructuralReport(buildPriceActionStrategyReport(snapshot, priceAction)),

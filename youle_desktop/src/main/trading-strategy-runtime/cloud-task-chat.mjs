@@ -70,7 +70,7 @@ export function createCloudTaskChat({owner,api,journal}) {
         if (record && !record.acknowledged && !record.runId) fail('CLOUD_TASK_SUBMISSION_UNCERTAIN');
         if (running.length) fail('CLOUD_TASK_BUSY');
         if (input.modelId && !models.has(input.modelId)) fail('MODEL_SELECTION_INVALID');
-        const locale = input.locale === 'ko' ? 'ko' : input.locale === 'en' ? 'en' : /zh-(TW|Hant)/.test(input.locale || '') ? 'zh-Hant' : 'zh-CN';
+        const locale = input.locale === 'ja' ? 'ja' : input.locale === 'ko' ? 'ko' : input.locale === 'en' ? 'en' : /zh-(TW|Hant)/.test(input.locale || '') ? 'zh-Hant' : 'zh-CN';
         let context = {...task.context,taskId};
         // Index assistant admission requires a current, owned market snapshot.
         if (context.marketKey.startsWith('index:')) {

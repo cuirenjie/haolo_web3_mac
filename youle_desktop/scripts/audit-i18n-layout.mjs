@@ -156,8 +156,8 @@ async function switchLanguage(targetWindow, language) {
   }))()`,
     true,
   );
-  const expectedLang = language === "en" ? "en-US" : language === "ko" ? "ko-KR" : language;
-  const nativeLabels = { en: "English", "zh-CN": "简体中文", "zh-TW": "繁體中文", ko: "한국어" };
+  const expectedLang = language === "ja" ? "ja-JP" : language === "en" ? "en-US" : language === "ko" ? "ko-KR" : language;
+  const nativeLabels = { en: "English", "zh-CN": "简体中文", "zh-TW": "繁體中文", ko: "한국어", ja: "日本語" };
   if (
     applied.selectedLabel !== nativeLabels[language] ||
     JSON.stringify(applied.optionLabels) !== JSON.stringify(Object.values(nativeLabels))
@@ -179,21 +179,24 @@ async function switchLanguage(targetWindow, language) {
 
 async function verifyLanguageSurvivesReload(targetWindow, language) {
   await switchLanguage(targetWindow, language);
-  await targetWindow.reload();
+  await new Promise(resolve => {
+    targetWindow.webContents.once('did-finish-load', resolve);
+    targetWindow.reload();
+  });
   await waitFor(targetWindow, ".titlebar-profile");
   const restored = await targetWindow.webContents.executeJavaScript(`(() => ({
     language: document.documentElement.dataset.language,
     lang: document.documentElement.lang,
     storedValue: localStorage.getItem("haolo.appearance.language"),
   }))()`, true);
-  const expectedLang = language === "en" ? "en-US" : language === "ko" ? "ko-KR" : language;
+  const expectedLang = language === "ja" ? "ja-JP" : language === "en" ? "en-US" : language === "ko" ? "ko-KR" : language;
   if (restored.language !== language || restored.lang !== expectedLang || restored.storedValue !== language) {
-    throw new Error(`Language did not survive reload: ${JSON.stringify(restored)}`);
+    throw new Error(`Language ${language} did not survive reload: ${JSON.stringify(restored)}`);
   }
 }
 
 async function verifyLanguageTransitionMatrix(targetWindow) {
-  const languages = ["en", "zh-CN", "zh-TW", "ko"];
+  const languages = ["en", "zh-CN", "zh-TW", "ko", "ja"];
   for (const source of languages) {
     await switchLanguage(targetWindow, source);
     for (const target of languages) {
@@ -267,7 +270,10 @@ async function openSurface(targetWindow, surface) {
     return ".settings-dialog";
   }
   if (surface === "strategies" || surface === "indicators") {
-    await click(targetWindow, '[data-conversation-static-action="skills"]');
+    await click(targetWindow, '.conversation-row[data-thread-id="mock-thread-1"]');
+    await waitFor(targetWindow, '[data-action="toggle-trading-expert-mention-menu"]');
+    await click(targetWindow, '[data-action="toggle-trading-expert-mention-menu"]');
+    await click(targetWindow, surface === "indicators" ? '[data-open-indicator-plaza]' : '[data-open-strategy-plaza]');
     await waitFor(targetWindow, '[data-skills-plaza-tab="mySkills"]');
     if (surface === "indicators") {
       await click(targetWindow, '[data-skills-plaza-tab="indicators"]');
@@ -485,6 +491,15 @@ async function inspectLayout(targetWindow, scopeSelector) {
           clipped.bottom = Math.min(clipped.bottom, bounds.top);
         }
       }
+      const header = scope.querySelector(".settings-panel-header");
+      if (header && !header.contains(owner) && getComputedStyle(header).position === "sticky") {
+        const bounds = header.getBoundingClientRect();
+        if (getComputedStyle(header).backgroundColor.startsWith("rgb(") &&
+            bounds.left <= clipped.left && bounds.right >= clipped.right &&
+            bounds.top <= clipped.top && bounds.bottom > clipped.top) {
+          clipped.top = Math.max(clipped.top, bounds.bottom);
+        }
+      }
       return clipped.bottom - clipped.top > 1 ? clipped : null;
     };
     const textRects = [];
@@ -530,7 +545,7 @@ async function inspectLayout(targetWindow, scopeSelector) {
       if (overlaps.length >= 30) break;
     }
     const englishButtonIssues = [];
-    if (["en", "ko"].includes(document.documentElement.dataset.language)) {
+    if (["en", "ko", "ja"].includes(document.documentElement.dataset.language)) {
       for (const button of scope.querySelectorAll("button")) {
         if (!shown(button)) continue;
         const labelNodes = [];
@@ -590,8 +605,8 @@ async function inspectLayout(targetWindow, scopeSelector) {
       }
     }
     const languageResidue = [];
-    if (["en", "ko"].includes(document.documentElement.dataset.language)) {
-      const han = /[\u3400-\u9fff]/u;
+    if (["en", "ko", "ja"].includes(document.documentElement.dataset.language)) {
+      const han = document.documentElement.dataset.language === "ja" ? /当前|账户|订单|价格|风险|设置|请选择|请稍|暂无|交易偏好|\\p{Script=Hangul}/u : /[\u3400-\u9fff]/u;
       const skipLanguageText = [
         "[data-i18n-skip]", "[contenteditable='true']", "textarea", "pre", "code",
         ".message-text", ".markdown-body", ".message-markdown", ".message-content-text",
@@ -706,18 +721,28 @@ async function main() {
     }
     targetWindow.webContents.setZoomFactor(1);
     await waitFor(targetWindow, ".titlebar-profile");
+    // Exercise the existing strategy workspace through its real conversation
+    // route. The old sidebar entry is retired; this profile contains mock data.
+    await targetWindow.webContents.executeJavaScript(`(() => {
+      const key = 'youle-desktop-thread-preferences';
+      const preferences = JSON.parse(localStorage.getItem(key) || '{}');
+      preferences.tradingExpertThreads = ['mock-thread-1'];
+      localStorage.setItem(key, JSON.stringify(preferences));
+    })()`, true);
+    await new Promise(resolve => { targetWindow.webContents.once('did-finish-load', resolve); targetWindow.reload(); });
+    await waitFor(targetWindow, ".titlebar-profile");
     await delay(500);
     await verifyTextClippingDetector(targetWindow);
     typography = await targetWindow.webContents.executeJavaScript(`(${inspectClippedLabelStyles.toString()})(${inspectTextClipping.toString()})`, true);
     process.stdout.write(`Typography: ${typography.checks} samples, ${typography.issues.length} clipped\n`);
     if (typography.issues.length) failures.push({ name: "clipped-label-typography", issues: typography.issues.map((issue) => `glyph clipped: ${issue.selector} ${issue.fontSize} ${issue.text}`), result: { textClipping: typography.issues } });
     if (process.env.HAOLO_I18N_QA_SKIP_LANGUAGE_TRANSITIONS !== "1") {
-      for (const language of ["en", "zh-CN", "zh-TW", "ko"]) {
+      for (const language of ["en", "zh-CN", "zh-TW", "ko", "ja"]) {
         await verifyLanguageSurvivesReload(targetWindow, language);
       }
       await verifyLanguageTransitionMatrix(targetWindow);
     }
-    const supportedLanguages = QUICK_ENGLISH_BUTTON_AUDIT ? ["en", "ko"] : ["en", "zh-CN", "zh-TW", "ko"];
+    const supportedLanguages = QUICK_ENGLISH_BUTTON_AUDIT ? ["en", "ko", "ja"] : ["en", "zh-CN", "zh-TW", "ko", "ja"];
     const languages = supportedLanguages.filter(language => !process.env.HAOLO_I18N_QA_LANGUAGES || process.env.HAOLO_I18N_QA_LANGUAGES.split(',').includes(language));
     if (!languages.length) throw new Error('No supported audit language selected');
     const zooms = QUICK_ENGLISH_BUTTON_AUDIT ? [1, 1.5] : [1, 1.25, 1.5];
@@ -767,7 +792,7 @@ async function main() {
                 ...scrollStates.flatMap(state => state.issues.map(issue => `scroll ${state.index}@${state.top}: ${issue}`)),
               ];
               if (issues.length) failures.push({ name, issues, result });
-              if (issues.length || ((language === "en" || language === "ko") && fontSize === "large" && zoom === 1.5)) {
+              if (issues.length || ((["en", "ko", "ja"].includes(language)) && fontSize === "large" && zoom === 1.5)) {
                 const image = await targetWindow.webContents.capturePage();
                 await writeFile(path.join(OUTPUT, `${name}.png`), image.toPNG());
               }

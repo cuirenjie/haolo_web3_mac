@@ -27,7 +27,7 @@ test("language-sensitive account surfaces prevent long labels from overlapping",
 
 test("English action buttons remain single-line and expand beyond legacy CJK widths", () => {
   assert.match(languageSource, /button\.toggleAttribute\("data-i18n-single-line", isSingleEnglishLabel\)/);
-  assert.match(stylesSource, /html:is\(\[data-language="en"\], \[data-language="ko"\]\) button\[data-i18n-single-line\]\s*\{[^}]*min-inline-size:\s*max-content;[^}]*word-break:\s*normal;[^}]*white-space:\s*nowrap;/s);
+  assert.match(stylesSource, /html:is\(\[data-language="en"\], \[data-language="ko"\], \[data-language="ja"\]\) button\[data-i18n-single-line\]\s*\{[^}]*min-inline-size:\s*max-content;[^}]*word-break:\s*normal;[^}]*white-space:\s*nowrap;/s);
   assert.match(stylesSource, /\.settings-profile-submit\s*\{[^}]*width:\s*auto;[^}]*min-width:\s*132px;[^}]*height:\s*42px;[^}]*padding:\s*0 22px;/s);
   assert.match(stylesSource, /\.settings-data-button\s*\{[^}]*display:\s*inline-flex;[^}]*min-width:\s*72px;[^}]*padding:\s*0 12px;[^}]*white-space:\s*nowrap;/s);
   assert.match(stylesSource, /\.trading-alert-card:is\(:hover, :focus-within\) \.trading-alert-card-copy small\s*\{[^}]*opacity:\s*0;/s);
@@ -52,7 +52,7 @@ test("dynamic consumption copy is formatted for the active locale before renderi
 
 test("the packaged geometry audit covers languages, themes, zooms and large text", () => {
   assert.equal(JSON.parse(packageSource).scripts["audit:i18n-layout"], "electron ./scripts/audit-i18n-layout.cjs");
-  assert.match(auditSource, /\["en", "zh-CN", "zh-TW", "ko"\]/);
+  assert.match(auditSource, /\["en", "zh-CN", "zh-TW", "ko", "ja"\]/);
   assert.match(auditSource, /\["light", "dark"\]/);
   assert.match(auditSource, /\[1, 1\.25, 1\.5\]/);
   assert.match(auditSource, /\["small", "default", "medium", "large"\]/);

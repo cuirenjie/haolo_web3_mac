@@ -1,3 +1,4 @@
+import { japaneseText } from './japanese.mjs';
 import { koreanText } from './korean.mjs';
 const messages = {
   market_waiting: ['正在等待行情额度恢复，原分析任务已保留，将自动继续。', 'Waiting for market data capacity. Your analysis task is saved and will continue automatically.', '正在等待行情額度恢復，原分析任務已保留，將自動繼續。'],
@@ -8,5 +9,5 @@ const messages = {
 };
 
 export function marketRecoveryProgressMessage(stage,language='zh-CN') {
-  return language === 'ko' ? koreanText(messages[stage]?.[0] || '') : messages[stage]?.[language === 'en' || language === 'en-US' ? 1 : ['zh-Hant','zh-TW','zh-HK'].includes(language) ? 2 : 0] || '';
+  return language === 'ja' ? japaneseText(messages[stage]?.[0] || '') : language === 'ko' ? koreanText(messages[stage]?.[0] || '') : messages[stage]?.[language === 'en' || language === 'en-US' ? 1 : ['zh-Hant','zh-TW','zh-HK'].includes(language) ? 2 : 0] || '';
 }

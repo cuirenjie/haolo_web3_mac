@@ -125,3 +125,8 @@ test('restart surfaces uncertain draft and retries its original admission id',as
   let captured;h.deps.request=async(action,input)=>{captured=input;return {...h.history,pending:null};};
   await ui.send(threadId,'上一条追问','gpt-6-astra','zh-CN');assert.equal(captured.requestId,requestId);
 });
+
+test('Japanese continuation language reaches the cloud without falling back to Chinese',async()=>{
+ const s=server();await s.make().perform('send',{taskId,requestId,prompt:'元の計画について説明してください。',locale:'ja'});
+ assert.equal(s.calls.find(call=>call.op==='createAssistantRun').body.locale,'ja');
+});

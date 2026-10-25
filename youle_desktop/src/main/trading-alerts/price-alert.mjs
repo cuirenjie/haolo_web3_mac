@@ -13,7 +13,7 @@ export function parsePriceAlertInput(value = {}) {
   if (!['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '8h', '12h', '1d', '1w', '1M', '1y'].includes(interval)) invalid('价格预警周期无效');
   const { price, referencePrice } = value;
   if (![price, referencePrice].every(n => typeof n === 'number' && Number.isFinite(n) && n > 0)) invalid('价格必须是大于零的有效数值');
-  const locale = ['en', 'zh-Hant', 'ko'].includes(value.locale) ? value.locale : 'zh-CN';
+  const locale = ['en', 'zh-Hant', 'ko', 'ja'].includes(value.locale) ? value.locale : 'zh-CN';
   return { requestId, marketId, interval, price, referencePrice, locale };
 }
 
@@ -22,11 +22,11 @@ export function buildPriceAlertRule(spec, now = Date.now()) {
   const price = spec.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 12 });
   const [venue, type, symbol] = spec.marketId.split(':');
   const pair = venue === 'BINANCE' ? symbol.replace(/(USDT|USDC|FDUSD|BUSD|TUSD|BTC|ETH|BNB|EUR|USD)$/, '/$1') : symbol;
-  const summary = spec.locale === 'ko' ? `가격이 ${price} ${upward ? '이상으로 상승' : '이하로 하락'}하면 이메일을 한 번 보냅니다.`
+  const summary = spec.locale === 'ja' ? `価格が ${price} ${upward ? '以上' : '以下'}になると、メールを一度送信します。` : spec.locale === 'ko' ? `가격이 ${price} ${upward ? '이상으로 상승' : '이하로 하락'}하면 이메일을 한 번 보냅니다.`
     : spec.locale === 'en' ? `Email once when price is ${upward ? 'at or above' : 'at or below'} ${price}`
     : spec.locale === 'zh-Hant' ? `價格${upward ? '上漲至或高於' : '下跌至或低於'} ${price} 時傳送一次郵件通知`
     : `价格${upward ? '上涨至或高于' : '下跌至或低于'} ${price} 时发送一次邮件通知`;
-  const marketType = spec.locale === 'ko' ? (type === 'SPOT' ? '현물' : '무기한 선물')
+  const marketType = spec.locale === 'ja' ? (type === 'SPOT' ? '現物' : '無期限先物') : spec.locale === 'ko' ? (type === 'SPOT' ? '현물' : '무기한 선물')
     : spec.locale === 'en' ? (type === 'SPOT' ? 'Spot' : 'Perpetual')
     : spec.locale === 'zh-Hant' ? (type === 'SPOT' ? '現貨' : '永續') : (type === 'SPOT' ? '现货' : '永续');
   return normalizeAlertRule({

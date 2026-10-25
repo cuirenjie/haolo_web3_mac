@@ -1,3 +1,4 @@
+import { japaneseText } from '../shared/japanese.mjs';
 import {
   SIMPLIFIED_UI_CHARACTERS,
   TRADITIONAL_UI_CHARACTERS,
@@ -11,9 +12,11 @@ import { koreanText } from "../shared/korean.mjs";
 
 export const APP_LANGUAGE_STORAGE_KEY = "haolo.appearance.language";
 
-export const APP_LANGUAGES = Object.freeze(["en", "zh-CN", "zh-TW", "ko"]);
+export const APP_LANGUAGES = Object.freeze(["en", "zh-CN", "zh-TW", "ko", "ja"]);
 
 const ENGLISH_UI_PHRASES = Object.freeze({
+  "你的": "Your",
+  "你的 hao宝": "Your HaoBao",
   "自定义": "Custom",
   "更新中": "Updating",
   "等待更新": "Waiting for update",
@@ -1244,6 +1247,7 @@ export function isAppLanguage(value) {
 }
 
 export function normalizeAppLanguage(value) {
+  if (/^ja(?:[-_]JP)?$/i.test(String(value))) return "ja";
   if (value === "ko-KR" || value === "ko_KR") return "ko";
   return isAppLanguage(value) ? value : "zh-CN";
 }
@@ -1278,7 +1282,7 @@ export function resolveAppLanguagePreference({
 
 export function appLanguageLocale(language = currentAppLanguage) {
   const normalized = normalizeAppLanguage(language);
-  return normalized === "en" ? "en-US" : normalized === "ko" ? "ko-KR" : normalized;
+  return normalized === "en" ? "en-US" : normalized === "ja" ? "ja-JP" : normalized === "ko" ? "ko-KR" : normalized;
 }
 
 export function appLanguageOptions() {
@@ -1288,6 +1292,7 @@ export function appLanguageOptions() {
     { value: "zh-CN", label: "简体中文" },
     { value: "zh-TW", label: "繁體中文" },
     { value: "ko", label: "한국어" },
+    { value: "ja", label: "日本語" },
   ];
 }
 
@@ -1358,6 +1363,7 @@ function reviewedTraditionalEnglish() {
 
 export function translateAppText(value, language = currentAppLanguage) {
   const source = String(value ?? "").replace(/\bDeepSeek\s+V4\.1\s+Flash\b/gi, "GPT-6 Astra");
+  if (normalizeAppLanguage(language) === "ja") return japaneseText(source);
   if (normalizeAppLanguage(language) === "ko") {
     const cacheKey = `ko\u0000${source}`;
     const cached = translationCache.get(cacheKey);
@@ -1392,7 +1398,7 @@ export function translateAppText(value, language = currentAppLanguage) {
 
 export function translateDrawingText(value, language = currentAppLanguage, section = false) {
   const source = String(value ?? "");
-  if (normalizeAppLanguage(language) === 'ko') return translateAppText(source, language);
+  if (['ko', 'ja'].includes(normalizeAppLanguage(language))) return translateAppText(source, language);
   if (!HAN_TEXT_PATTERN.test(source)) return source;
   if (normalizeAppLanguage(language) !== "en") return translateAppText(source, language);
   return englishDrawingText(traditionalToSimplifiedCharacters(source), section) ?? translateAppText(source, language);
@@ -1473,7 +1479,7 @@ const TRADING_ANNOTATION_ENGLISH_ENTRIES = entriesByLength({
 
 export function translateTradingAnnotationText(value, language = currentAppLanguage) {
   const source = String(value ?? "");
-  if (normalizeAppLanguage(language) === 'ko') return translateAppText(source, language);
+  if (['ko', 'ja'].includes(normalizeAppLanguage(language))) return translateAppText(source, language);
   if (!source || !HAN_TEXT_PATTERN.test(source)) return source;
   if (normalizeAppLanguage(language) !== "en") return translateAppText(source, language);
   const canonical = traditionalToSimplifiedCharacters(source);
@@ -1542,10 +1548,10 @@ function syncEnglishButtonLayout(node, language) {
   const button = node.parentElement?.closest?.("button");
   if (!button) return;
   const labels = simpleButtonLabelNodes(button);
-  const isSingleEnglishLabel = ["en", "ko"].includes(language)
+  const isSingleEnglishLabel = ["en", "ko", "ja"].includes(language)
     && !button.hasAttribute("data-i18n-wrap")
     && labels.length === 1
-    && (LATIN_BUTTON_TEXT_PATTERN.test(String(labels[0].nodeValue ?? "")) || language === 'ko');
+    && (LATIN_BUTTON_TEXT_PATTERN.test(String(labels[0].nodeValue ?? "")) || ['ko', 'ja'].includes(language));
   button.toggleAttribute("data-i18n-single-line", isSingleEnglishLabel);
 }
 

@@ -1,3 +1,4 @@
+import { japaneseText } from '../shared/japanese.mjs';
 import { koreanText } from '../shared/korean.mjs';
 import { TradingPriceAlertMarkers, type PriceAlertChart } from './trading-price-alert-markers.ts';
 import { publishChartPriceAlerts, refreshChartPriceAlerts, type ChartPriceAlert } from './trading-price-alert-store.ts';
@@ -31,6 +32,7 @@ const copy = {
 };
 function t(key: keyof typeof copy) {
   const language = document.documentElement.lang;
+  if (language.startsWith('ja')) return japaneseText(copy[key][0]);
   if (language.startsWith('ko')) return (copy[key] as string[])[3] || koreanText(copy[key][0]);
   return copy[key][language.startsWith('en') ? 1 : /TW|Hant/i.test(language) ? 2 : 0];
 }
@@ -121,7 +123,7 @@ export class TradingPriceAlertControl {
     const language = document.documentElement.lang;
     const frozen = { ...sample, interval: replaces?.interval ?? priceAlertInterval(sample.interval), requestId: crypto.randomUUID(), confirmed: true as const,
       ...(replaces ? { replacesAlertId: replaces.alertId, replacesVersion: replaces.version } : {}),
-      locale:language.startsWith('ko') ? 'ko' : language.startsWith('en') ? 'en' : /TW|Hant/i.test(language) ? 'zh-Hant' : 'zh-CN' };
+      locale:language.startsWith('ja') ? 'ja' : language.startsWith('ko') ? 'ko' : language.startsWith('en') ? 'en' : /TW|Hant/i.test(language) ? 'zh-Hant' : 'zh-CN' };
     const previousFocus = document.activeElement as HTMLElement | null;
     const dialog = document.createElement('dialog');
     this.dialog = dialog;

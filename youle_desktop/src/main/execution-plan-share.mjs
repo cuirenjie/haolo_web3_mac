@@ -41,7 +41,7 @@ export async function savePlanShareImage({dataUrl, window, dialog, language, val
   const bytes = Buffer.from(dataUrl.split(',')[1], 'base64');
   if (!bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))) throw new Error('INVALID_PLAN_IMAGE');
   const result = await dialog.showSaveDialog(window, {
-    title: language === 'ko' ? '계획 이미지 저장' : language === 'en' ? 'Save plan image' : language === 'zh-TW' ? '儲存計畫圖片' : '保存计划图片',
+    title: language === 'ja' ? '取引計画の画像を保存' : language === 'ko' ? '계획 이미지 저장' : language === 'en' ? 'Save plan image' : language === 'zh-TW' ? '儲存計畫圖片' : '保存计划图片',
     defaultPath: `HaoLo-plan-${new Date().toISOString().replace(/[:.]/g, '-')}.png`,
     filters: [{name: 'PNG', extensions: ['png']}],
   });

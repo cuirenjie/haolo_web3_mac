@@ -1,3 +1,4 @@
+import { japaneseText } from '../../shared/japanese.mjs';
 import { koreanText, localizedChoice } from '../../shared/korean.mjs';
 import crypto from "node:crypto";
 import { EXECUTION_PLAN_SCHEMA_VERSION, validateExecutionPlan } from "./contracts.mjs";
@@ -1793,6 +1794,7 @@ function formatExecutionPlanMarkdownEnglish(validated) {
 
 export function formatExecutionPlanMarkdown(plan, options = {}) {
   const validated = validateExecutionPlan(plan);
+  if (options?.language === "ja") return japaneseText(formatExecutionPlanMarkdown(validated, {...options, language: "zh-CN"}));
   if (options?.language === "ko") return koreanText(formatExecutionPlanMarkdown(validated, {...options, language: "zh-CN"}));
   if (options?.language === "en") return formatExecutionPlanMarkdownEnglish(validated);
   const bilateralScenarios = validated.preferredSide === "neutral"

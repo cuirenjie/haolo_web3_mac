@@ -1,3 +1,4 @@
+import { japaneseText } from '../shared/japanese.mjs';
 import { withKoreanVariants } from '../shared/korean.mjs';
 import { createNewsFeed } from './news-feed.mjs';
 import { createNewsWindows } from './news-windows.mjs';
@@ -9608,8 +9609,9 @@ function normalizeAppTheme(value) {
 }
 
 function normalizeAppLanguage(value) {
+  if (/^ja(?:[-_]JP)?$/i.test(String(value))) return "ja";
   if (value === "ko-KR" || value === "ko_KR") return "ko";
-  return value === "en" || value === "zh-TW" || value === "ko" ? value : "zh-CN";
+  return value === "en" || value === "zh-TW" || value === "ko" || value === "ja" ? value : "zh-CN";
 }
 
 function normalizeAppPreferences(value = {}) {
@@ -9752,6 +9754,7 @@ const MAIN_UI_COPY = Object.freeze(withKoreanVariants({
 
 function mainUiText(key, language = appLanguage()) {
   const normalized = normalizeAppLanguage(language);
+  if (normalized === "ja") return japaneseText(MAIN_UI_COPY["zh-CN"][key] || MAIN_UI_COPY.en[key] || key);
   if (normalized === "ko") return koreanText(MAIN_UI_COPY["zh-CN"][key] || MAIN_UI_COPY.en[key] || key);
   return MAIN_UI_COPY[normalized]?.[key] || MAIN_UI_COPY.en[key] || key;
 }
@@ -9783,6 +9786,7 @@ const QUESTION_ANSWER_PROGRESS_COPY = Object.freeze({
 });
 
 function localizedQuestionAnswerProgressPayload(payload, language = appLanguage()) {
+  if (normalizeAppLanguage(language) === "ja") return { ...payload, title: japaneseText(payload?.title), detail: japaneseText(payload?.detail) };
   if (normalizeAppLanguage(language) === "ko") return { ...payload, title: koreanText(payload?.title), detail: koreanText(payload?.detail) };
   if (normalizeAppLanguage(language) !== "en") return payload;
   const status = payload?.status === "completed" || payload?.status === "failed"
@@ -9795,7 +9799,7 @@ function localizedQuestionAnswerProgressPayload(payload, language = appLanguage(
 
 function appLanguageLocale(language = appLanguage()) {
   const normalized = normalizeAppLanguage(language);
-  return normalized === "en" ? "en-US" : normalized === "ko" ? "ko-KR" : normalized;
+  return normalized === "en" ? "en-US" : normalized === "ja" ? "ja-JP" : normalized === "ko" ? "ko-KR" : normalized;
 }
 
 function userDataTransferCopy(language = appLanguage()) {
@@ -9841,6 +9845,7 @@ function userDataTransferCopy(language = appLanguage()) {
       cancelLabel: "取消",
     },
   });
+  if (normalized === "ja") return Object.fromEntries(Object.entries(copies["zh-CN"]).map(([key, value]) => [key, japaneseText(value)]));
   if (normalized === "ko") return Object.fromEntries(Object.entries(copies["zh-CN"]).map(([key, value]) => [key, koreanText(value)]));
   return copies[normalized] || copies.en;
 }

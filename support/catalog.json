@@ -1036,6 +1036,24 @@
         "youle_desktop/src/main/youle-api-client.mjs",
         "youle_desktop/src/shared/market-news-categories.mjs"
       ]
+    },
+    {
+      "id": "japanese-interface-candidate",
+      "title": "专业日语与五语言设置（源码候选）",
+      "body": "此为未部署、未发布的源码候选，生产可用性以实际安装和服务版本为准。配套版本支持简体中文、繁體中文、English、한국어、日本語。Windows和移动端在设置中选择日本語，官网和邀请中心通过语言菜单切换。系统界面、业务提示和模型输出使用专业日语；用户原文、市场代码、接口键名、金额和价格保持原值。语言切换不执行交易、不改变业务权限。客服会话语言可独立选择。\n\n[en]\nUnpublished source candidate. Matching clients and services add Japanese to the existing four languages. Choose Japanese in Settings or the website language menu. System copy and model prose use professional Japanese; user content, identifiers, protocol keys and numeric values remain unchanged. Availability depends on the installed and deployed versions.\n\n[ko]\n아직 배포되지 않은 소스 후보입니다. 설정 또는 웹사이트 언어 메뉴에서 일본어를 선택할 수 있습니다. 시스템 문구와 모델 응답은 전문적인 일본어를 사용하며, 사용자 원문과 식별자, 인터페이스 필드 및 숫자는 유지됩니다. 실제 사용 가능 여부는 설치된 앱과 서버 버전에 따라 다릅니다.\n\n[ja]\n未公開のソースコード候補です。対応するアプリとサービスでは、既存の4言語に日本語が追加されます。設定またはウェブサイトの言語メニューで日本語を選択してください。システムの文言とモデルの回答には専門的で自然な日本語を使用します。ユーザーの原文、識別子、インターフェースのキー、金額と価格は変更しません。実際の利用可否は、インストール済みアプリとサーバーのバージョンによります。",
+      "category": "settings",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": false,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/app-language.mjs",
+        "youle_desktop/src/shared/japanese.mjs",
+        "youle_desktop/src/main/assistant-output-language.mjs"
+      ]
     }
   ]
 }

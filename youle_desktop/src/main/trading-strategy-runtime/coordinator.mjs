@@ -1,3 +1,4 @@
+import { japaneseText } from '../../shared/japanese.mjs';
 import { koreanText, localizedChoice } from '../../shared/korean.mjs';
 import { createStrategyResultEnvelope } from "./contracts.mjs";
 import { withTradingPreferenceContext } from "../personal-context/trading-preference-context.mjs";
@@ -45,12 +46,13 @@ function stripLegacyExecutionPlanSection(value, language) {
     }
     if (skipping && /^\s*#{1,6}\s+\S/u.test(line)) skipping = false;
     if (!skipping) output.push(line.replace(/^(\s*#{1,6}\s+)(?:当前执行方案|當前執行方案|Current execution plan|条件式执行|條件式執行|Conditional execution)\s*$/u,
-      (_, prefix) => prefix + (language === "ko" ? "구조적 시나리오" : language === "en" ? "Structural scenario" : language === "zh-TW" || language === "zh-Hant" ? "結構場景" : "结构场景")));
+      (_, prefix) => prefix + (language === "ja" ? "構造シナリオ" : language === "ko" ? "구조적 시나리오" : language === "en" ? "Structural scenario" : language === "zh-TW" || language === "zh-Hant" ? "結構場景" : "结构场景")));
   }
   return output.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function structuralReferenceNotice(language) {
+  if (language === "ja") return japaneseText(structuralReferenceNotice("zh-CN"));
   if (language === "ko") return koreanText(structuralReferenceNotice("zh-CN"));
   if (language === "en") return "### Structural reference\n\nThe analysis and chart annotations below describe the original market structure and its conditional scenarios. Their trigger and projection levels are structural references. The execution plan above applies the configured entry-distance limit, staged targets and risk rules, so its planned prices may differ. Use that plan for execution levels; its risk/reward ratios include estimated fees and slippage. The plan uses price-touch entry: a market-entry action means its price condition is already met, and the displayed trigger is then an entry reference. The candle-close confirmation and retest criteria below describe the original structural scenario. No order has been submitted.";
   if (language === "zh-TW" || language === "zh-Hant") return "### 結構參考\n\n下方分析與圖表標註描述原始市場結構及其條件場景，觸發價和投射目標屬於結構參考。上方執行方案已套用設定的入場距離限制、分批目標及風險規則，因此計畫價格可能不同；執行價位以上方方案為準，盈虧比已計入預估手續費與滑點。執行方案採用價格觸達入場；市價入場動作表示計畫價格條件已滿足，此時顯示的觸發價為入場參考。下方收盤突破與回踩條件描述原始結構場景。尚未提交任何訂單。";
@@ -273,8 +275,8 @@ export class TradingStrategyCoordinator {
     const combined = params?.responseMode !== "direct" && exposesExecutionPlan;
     const english = params?.language === "en";
     const traditional = params?.language === "zh-TW" || params?.language === "zh-Hant";
-    const planHeading = params?.language === 'ko' ? '### 가격 도달 조건에 따른 실행 계획' : english ? "### Configured price-touch plan" : traditional ? "### 價格觸達執行方案" : "### 价格触达执行方案";
-    const structuralSummary = params?.language === 'ko' ? '원래 시장 구조 평가(아래 확인 가격은 설정된 실행 계획의 진입 가격과 별개입니다): ' : english
+    const planHeading = params?.language === 'ja' ? '### 指定価格への到達を条件とする取引計画' : params?.language === 'ko' ? '### 가격 도달 조건에 따른 실행 계획' : english ? "### Configured price-touch plan" : traditional ? "### 價格觸達執行方案" : "### 价格触达执行方案";
+    const structuralSummary = params?.language === 'ja' ? '元の相場構造の評価（以下の確認価格は、設定した取引計画のエントリー価格とは別のものです）：' : params?.language === 'ko' ? '원래 시장 구조 평가(아래 확인 가격은 설정된 실행 계획의 진입 가격과 별개입니다): ' : english
       ? "Original structural assessment (confirmation levels below are separate from the configured plan's entry prices): "
       : traditional ? "原始結構判斷（下列確認價位與執行方案的入場價分開）：" : "原始结构判断（下列确认价位与执行方案的入场价分开）：";
     // Localization belongs to the formatter/pipeline. Never discard analysis

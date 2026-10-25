@@ -7,21 +7,23 @@ export type NewsItem = { id: string; title: string; content: string; timestamp: 
 export type NewsPage = { items: NewsItem[]; nextCursor: string | null; status: string; fetchedAt: number | null; category?: NewsCategory };
 export type NewsQuery = { day?: string; cursor?: string; language?: string; category?: NewsCategory };
 const messages = {
+  ja: ['ローソク足チャート','速報','ブラウザー','開発中のため、まだご利用いただけません。','日付を選択','キャンセル','確定','今日','好材料','悪材料','共有','読み込み中…','速報はありません','読み込めませんでした。再試行してください。','再試行','さらに読み込む','最新の速報','更新が一時的に遅れています','閉じる','画像をコピー','X','Telegram','ダウンロード','リンク','画像をコピーしました。貼り付けて共有できます。','リンクをコピーしました','画像を保存しました','操作に失敗しました。再試行してください。','詳細を見る','出典','コードをスキャンして速報を読む','この取引ペアの市場データは提供されていません','チャートを開けませんでした。再試行してください。','グループチャット','前年','前月','翌月','翌年','日,月,火,水,木,金,土'],
   'zh-CN': ['K线','快讯','浏览器','正在开发中，还未上线','选择日期','取消','确定','今','利好','利空','分享','加载中…','暂无快讯','加载失败，请重试','重试','加载更多','最新快讯','数据更新暂时延迟','关闭','复制图片','X','Telegram','下载','链接','图片已复制，可粘贴分享','链接已复制','图片已保存','操作失败，请重试','查看详情','来源','扫码阅读快讯','该交易对暂未提供行情','打开K线失败，请重试','群聊','上一年','上个月','下个月','下一年','日,一,二,三,四,五,六'],
   'zh-TW': ['K線','快訊','瀏覽器','正在開發中，尚未上線','選擇日期','取消','確定','今','利好','利空','分享','載入中…','暫無快訊','載入失敗，請重試','重試','載入更多','最新快訊','資料更新暫時延遲','關閉','複製圖片','X','Telegram','下載','連結','圖片已複製，可貼上分享','連結已複製','圖片已儲存','操作失敗，請重試','查看詳情','來源','掃碼閱讀快訊','此交易對暫未提供行情','開啟K線失敗，請重試','群聊','上一年','上個月','下個月','下一年','日,一,二,三,四,五,六'],
   en: ['Candlestick chart','News flashes','Browser','In development. Not yet available.','Choose date','Cancel','Confirm','Today','Bullish','Bearish','Share','Loading…','No news flashes','Unable to load. Try again.','Retry','Load more','Latest news','Updates are temporarily delayed','Close','Copy image','X','Telegram','Download','Link','Image copied. Paste to share.','Link copied','Image saved','Something went wrong. Try again.','Read details','Source','Scan to read the news','Market data is unavailable for this pair','Unable to open chart. Try again.','Chat','Previous year','Previous month','Next month','Next year','Su,Mo,Tu,We,Th,Fr,Sa'],
   ko: ['캔들 차트','속보','브라우저','개발 중이며 아직 출시되지 않았습니다.','날짜 선택','취소','확인','오늘','호재','악재','공유','불러오는 중…','속보가 없습니다','불러오지 못했습니다. 다시 시도해 주세요.','다시 시도','더 보기','최신 속보','업데이트가 지연되고 있습니다','닫기','이미지 복사','X','Telegram','다운로드','링크','이미지가 복사되었습니다. 붙여넣어 공유하세요.','링크가 복사되었습니다','이미지가 저장되었습니다','실패했습니다. 다시 시도해 주세요.','속보 보기','출처','스캔하여 속보 읽기','이 거래쌍의 시세를 제공하지 않습니다','차트를 열 수 없습니다. 다시 시도해 주세요.','채팅','이전 연도','이전 달','다음 달','다음 연도','일,월,화,수,목,금,토'],
 };
-const language = () => { const l = appLanguageLocale(); return l === 'zh-CN' || l === 'zh-TW' ? l : l === 'ko-KR' ? 'ko' : 'en'; };
+const language = () => { const l = appLanguageLocale(); return l === 'zh-CN' || l === 'zh-TW' ? l : l === 'ja-JP' ? 'ja' : l === 'ko-KR' ? 'ko' : 'en'; };
 const words = () => messages[language()];
 const categoryLabels = {
+  ja: ['注目','大口保有者','大口注文','市場','新規上場','FRB','トランプ'],
   'zh-CN': ['精选','巨鲸','主力','市场','上新','美联储','特朗普'],
   'zh-TW': ['精選','巨鯨','主力','市場','上新','美聯儲','特朗普'],
   en: ['Featured','Whales','Large orders','Markets','Listings','Fed','Trump'],
   ko: ['주요 뉴스','고래','큰손','시장','신규 상장','연준','트럼프'],
 };
-const categoryGroupLabels = { 'zh-CN':'快讯分类', 'zh-TW':'快訊分類', en:'News categories', ko:'속보 카테고리' };
-const expandLabels = { 'zh-CN':['展开全文','收起'], 'zh-TW':['展開全文','收起'], en:['Show more','Show less'], ko:['더 보기','접기'] };
+const categoryGroupLabels = { ja:'速報のカテゴリー', 'zh-CN':'快讯分类', 'zh-TW':'快訊分類', en:'News categories', ko:'속보 카테고리' };
+const expandLabels = { ja:['全文を表示','折りたたむ'], 'zh-CN':['展开全文','收起'], 'zh-TW':['展開全文','收起'], en:['Show more','Show less'], ko:['더 보기','접기'] };
 const NEWS_BRAND = 'Haolo';
 const brandedText = (value: string) => value.replace(/aicoin/gi, NEWS_BRAND);
 const newsShareUrl = (id: string) => 'https://haolo.com/api/news/read/flash-' + encodeURIComponent(id);
@@ -114,7 +116,7 @@ export class MarketNewsController {
     this.loading = true; this.failure = false;
     if (!quiet) this.render();
     try {
-      const result = await window.codexDesktop?.getMarketNews?.({day:this.day || undefined,cursor:more ? this.cursor || undefined : undefined,language:language() === 'en' ? 'en' : 'cn',category:this.category});
+      const result = await window.codexDesktop?.getMarketNews?.({day:this.day || undefined,cursor:more ? this.cursor || undefined : undefined,language:language() === 'ja' ? 'ja' : language() === 'en' ? 'en' : 'cn',category:this.category});
       if (this.disposed || generation !== this.generation) return;
       if (!result || result.status === 'unavailable') throw Error('NEWS_UNAVAILABLE');
       // Older APIs ignore unknown query parameters. Never show an unfiltered
