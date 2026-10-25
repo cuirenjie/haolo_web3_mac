@@ -1,6 +1,18 @@
 // Reviewed product copy. Keep complete phrases ahead of the legacy word map;
 // trading terminology must not be assembled from single-character translations.
 export const REVIEWED_ENGLISH_UI_PHRASES = Object.freeze({
+  "在此价格重新创建预警？": "Create a replacement alert at this price?",
+  "在此價格重新建立預警？": "Create a replacement alert at this price?",
+  "确认后将在此价格创建预警，并自动删除原预警；取消则保留原预警。": "Confirm to create an alert at this price and automatically delete the original. Cancel to keep the original.",
+  "確認後將在此價格建立預警，並自動刪除原預警；取消則保留原預警。": "Confirm to create an alert at this price and automatically delete the original. Cancel to keep the original.",
+  "这样做会永久删除您的“{label}”预警。": "This will permanently delete your “{label}” alert.",
+  "這樣做會永久刪除您的「{label}」預警。": "This will permanently delete your “{label}” alert.",
+  "尚未确认预警已删除，请重试。": "Deletion has not been verified. Please retry.",
+  "尚未確認預警已刪除，請重試。": "Deletion has not been verified. Please retry.",
+  "新预警可能已创建，但原预警尚未确认删除。请重试以完成替换。": "The new alert may have been created, but deletion of the original is unverified. Retry to finish replacing it.",
+  "新預警可能已建立，但原預警尚未確認刪除。請重試以完成替換。": "The new alert may have been created, but deletion of the original is unverified. Retry to finish replacing it.",
+  "穿过": "Crossing",
+  "穿過": "Crossing",
   "更多周期": "More timeframes",
   "收起自选": "Hide watchlist",
   "展开自选": "Show watchlist",

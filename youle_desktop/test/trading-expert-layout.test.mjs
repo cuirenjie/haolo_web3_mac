@@ -2107,7 +2107,9 @@ test("Trading Expert keeps every price scale bright when switching to dark mode"
   assert.match(createPane, /priceScale\(\)\?\.applyOptions\(\{[\s\S]*?textColor: theme\.text/s);
   assert.match(applyTheme, /rightPriceScale: \{[\s\S]*?textColor: theme\.text/s);
   assert.match(applyTheme, /this\.indicatorPanes\.forEach[\s\S]*?priceScale\(\)\?\.applyOptions\(\{[\s\S]*?textColor: theme\.text/s);
-  assert.match(source, /attributeFilter: \["data-theme", "lang"\]/);
+  const observedAttributes = [...source.matchAll(/attributeFilter:\s*\[([^\]]+)\]/g)]
+    .map(match => new Set([...match[1].matchAll(/["']([^"']+)["']/g)].map(value => value[1])));
+  assert.ok(observedAttributes.some(attributes => attributes.has("data-theme") && attributes.has("lang")));
 });
 
 test("Trading Expert subchart indicators cover pane behavior and both themes", async () => {

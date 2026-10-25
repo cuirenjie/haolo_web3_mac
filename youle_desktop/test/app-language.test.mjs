@@ -531,6 +531,12 @@ test("CSS-generated interface copy switches among all four languages", async () 
   assert.equal((styles.match(/content: var\(--i18n-/g) || []).length, 5);
 });
 
+test("Korean recharge periods retain the slash and localize the complete DOM text node", () => {
+  assert.equal(translateAppText("/月", "ko"), "/월");
+  assert.equal(translateAppText("/次", "ko"), "/회");
+  assert.equal(translateAppText("39 USDT/月", "ko"), "39 USDT/월");
+});
+
 test("standalone notifications use the same persisted language", async () => {
   const main = await mainSource;
   const notificationBlock = sourceBlock(main, "function desktopNotificationHtml", "function desktopNotificationIconDataUrl");

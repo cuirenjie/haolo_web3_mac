@@ -213,6 +213,13 @@ async function returnHome(targetWindow) {
     await click(targetWindow, ".page-home-button");
     await waitForGone(targetWindow, ".consumption-page, .trading-alerts-page");
   }
+  const workspacePage = ".execution-plans-page, .binance-account-page, .skills-plaza-page, .recharge-page";
+  if (await targetWindow.webContents.executeJavaScript(
+    `Boolean(document.querySelector(${JSON.stringify(workspacePage)}))`, true,
+  )) {
+    await click(targetWindow, '[data-action="new-chat"]');
+    await waitForGone(targetWindow, workspacePage);
+  }
   const profileOpen = await targetWindow.webContents.executeJavaScript(
     "Boolean(document.querySelector('.profile-menu'))",
     true,
@@ -226,6 +233,19 @@ async function returnHome(targetWindow) {
 async function openSurface(targetWindow, surface) {
   await returnHome(targetWindow);
   if (surface === "home") return "#app";
+  if (surface === "account" || surface === "plans") {
+    await click(targetWindow, '[data-conversation-static-action="' + surface + '"]');
+    const selector = surface === "plans" ? ".execution-plans-page" : ".binance-account-page";
+    await waitFor(targetWindow, selector);
+    return selector;
+  }
+  if (surface.startsWith("chart-")) {
+    await waitFor(targetWindow, '[data-market-action="open-chart-settings"]');
+    await click(targetWindow, '[data-market-action="open-chart-settings"]');
+    await waitFor(targetWindow, ".trading-chart-settings-dialog");
+    await click(targetWindow, '[data-market-settings-tab="' + surface.slice(6) + '"]');
+    return ".trading-chart-settings-dialog";
+  }
   if (surface === "auto-task" || surface === "auto-task-frequency") {
     await nativeClick(targetWindow, '[data-action="toggle-external-channel-menu"]');
     await nativeClick(targetWindow, '[data-action="open-auto-task-dialog"]');
@@ -238,17 +258,29 @@ async function openSurface(targetWindow, surface) {
     await waitFor(targetWindow, ".profile-menu");
     return ".profile-menu";
   }
-  if (surface === "settings" || surface === "settings-profile") {
+  if (surface === "settings" || surface.startsWith("settings-")) {
     await click(targetWindow, '[data-action="open-settings"]');
     await waitFor(targetWindow, ".settings-dialog");
-    if (surface === "settings-profile") {
-      await click(targetWindow, '[data-settings-tab="profile"]');
-      await waitFor(targetWindow, ".settings-profile-panel");
-    } else {
-      await click(targetWindow, '[data-settings-tab="general"]');
-      await waitFor(targetWindow, ".settings-general-list");
-    }
+    const tab = surface === "settings" ? "general" : surface.slice("settings-".length);
+    await click(targetWindow, `[data-settings-tab="${tab}"]`);
+    await waitFor(targetWindow, '.settings-nav-item.active[data-settings-tab="' + tab + '"]');
     return ".settings-dialog";
+  }
+  if (surface === "strategies" || surface === "indicators") {
+    await click(targetWindow, '[data-conversation-static-action="skills"]');
+    await waitFor(targetWindow, '[data-skills-plaza-tab="mySkills"]');
+    if (surface === "indicators") {
+      await click(targetWindow, '[data-skills-plaza-tab="indicators"]');
+      await waitFor(targetWindow, '[data-skills-plaza-tab="indicators"][aria-pressed="true"]');
+    }
+    return ".skills-plaza-page";
+  }
+  if (surface === "recharge") {
+    await click(targetWindow, '.titlebar-profile');
+    await waitFor(targetWindow, '[data-action="profile-quota"]');
+    await click(targetWindow, '[data-action="profile-quota"]');
+    await waitFor(targetWindow, '.recharge-page');
+    return '.recharge-page';
   }
   if (surface === "consumption") {
     await click(targetWindow, '[data-action="open-settings"]');
@@ -442,7 +474,18 @@ async function inspectLayout(targetWindow, scopeSelector) {
         if (clipped.right - clipped.left <= 1 || clipped.bottom - clipped.top <= 1) return null;
         current = current.parentElement;
       }
-      return clipped;
+      // The opaque sticky save bar paints above the scrolling preference form.
+      // Text behind it is not visible; still inspect every section by scrolling.
+      const footer = scope.querySelector(".settings-trading-actions");
+      if (footer && !footer.contains(owner) && getComputedStyle(footer).position === "sticky") {
+        const bounds = footer.getBoundingClientRect();
+        const background = getComputedStyle(footer).backgroundColor;
+        if (background.startsWith("rgb(") && bounds.left <= clipped.left && bounds.right >= clipped.right &&
+            bounds.bottom >= clipped.bottom && bounds.top < clipped.bottom) {
+          clipped.bottom = Math.min(clipped.bottom, bounds.top);
+        }
+      }
+      return clipped.bottom - clipped.top > 1 ? clipped : null;
     };
     const textRects = [];
     const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
@@ -598,6 +641,45 @@ async function inspectLayout(targetWindow, scopeSelector) {
   })()`, true);
 }
 
+async function inspectScrolledLayout(targetWindow, scopeSelector) {
+  const scrollers = await targetWindow.webContents.executeJavaScript(`(() => {
+    const scope = document.querySelector(${JSON.stringify(scopeSelector)});
+    return [scope, ...scope.querySelectorAll("*")].map((element, index) => ({
+      index, top: element.scrollTop, height: element.clientHeight, maximum: element.scrollHeight - element.clientHeight,
+      visible: element.getBoundingClientRect().height > 0 && ["auto", "scroll"].includes(getComputedStyle(element).overflowY) && element.tagName !== "TEXTAREA"
+    })).filter(item => item.visible && item.height > 40 && item.maximum > 2);
+  })()`, true);
+  const states = [];
+  for (const scroller of scrollers) {
+    const steps = Math.ceil(scroller.maximum / (scroller.height * .75));
+    const scroll = async (top) => {
+      await targetWindow.webContents.executeJavaScript(`(() => {
+        const scope = document.querySelector(${JSON.stringify(scopeSelector)});
+        const element = [scope, ...scope.querySelectorAll("*")][${scroller.index}];
+        element.scrollTop = ${top};
+        return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      })()`, true);
+    };
+    try {
+      for (let step = 1; step <= steps; step++) {
+        const top = Math.min(scroller.maximum, step * scroller.height * .75);
+        await scroll(top);
+        const result = await inspectLayout(targetWindow, scopeSelector);
+        const issues = [
+          ...result.overlaps.map(issue => "text overlap: " + issue.left.text + " / " + issue.right.text),
+          ...result.overflow.map(issue => "container overflow: " + issue.element),
+          ...result.escapedChildren.map(issue => "child escaped: " + issue.child.element),
+          ...result.englishButtonIssues.map(issue => "button layout: " + issue.text),
+          ...result.languageResidue.map(issue => "UI residue: " + issue.value),
+          ...result.textClipping.map(issue => "glyph clipped: " + issue.text),
+        ];
+        states.push({index: scroller.index, top, issues});
+      }
+    } finally { await scroll(scroller.top); }
+  }
+  return states;
+}
+
 async function main() {
   await mkdir(OUTPUT, { recursive: true });
   await app.whenReady();
@@ -642,7 +724,8 @@ async function main() {
     const fontSizes = QUICK_ENGLISH_BUTTON_AUDIT ? ["large"] : ["small", "default", "medium", "large"];
     // Scheduled-task creation is not exposed by current builds. Do not attempt
     // the retired phone-menu route when there is no entry point to activate.
-    const surfaces = ["home", "profile", "settings-profile", "settings", "consumption", "alerts"];
+    const surfaces = ["home", "profile", "settings-profile", "settings-trading", "settings", "settings-about", "consumption", "alerts", "strategies", "indicators", "recharge", "account", "plans",
+      ...["main-style", "background", "scale", "rise-fall", "coordinate", "live-price", "drawing-tools", "drawing-visibility", "order-display"].map(tab => "chart-" + tab)];
     if (await targetWindow.webContents.executeJavaScript('Boolean(document.querySelector(\'[data-action="open-auto-task-dialog"]\'))')) {
       surfaces.push("auto-task", "auto-task-frequency");
     }
@@ -651,7 +734,7 @@ async function main() {
       const transitionSource = language === "en" ? "zh-TW" : language === "zh-CN" ? "en" : "zh-CN";
       await switchLanguage(targetWindow, transitionSource);
       await switchLanguage(targetWindow, language);
-      for (const surface of surfaces) {
+      for (const surface of surfaces.filter(surface => !process.env.HAOLO_I18N_QA_SURFACES || process.env.HAOLO_I18N_QA_SURFACES.split(",").includes(surface))) {
         process.stdout.write(`Auditing ${language} ${surface}\n`);
         const scopeSelector = await openSurface(targetWindow, surface);
         for (const zoom of zooms) {
@@ -663,7 +746,9 @@ async function main() {
               const name = `${language}-${surface}-${theme}-${fontSize}-${Math.round(zoom * 100)}`;
               const selectStates = surface === "settings" && zoom === 1.5
                 ? await inspectSelectStates(targetWindow, name, language === "en" && fontSize === "large") : [];
-              const entry = { name, language, surface, theme, fontSize, zoom, result, selectStates };
+              const scrollStates = fontSize === "large" && zoom === 1.5
+                ? await inspectScrolledLayout(targetWindow, scopeSelector) : [];
+              const entry = { name, language, surface, theme, fontSize, zoom, result, selectStates, scrollStates };
               records.push(entry);
               const issues = [
                 ...(result.missing ? ["surface missing"] : []),
@@ -679,9 +764,10 @@ async function main() {
                 ...result.languageResidue.map((issue) => `English UI residue: ${issue.kind} ${issue.value}`),
                 ...result.textClipping.map((issue) => `glyph clipped: ${issue.element} ${issue.text}`),
                 ...selectStates.flatMap((state) => state.textClipping.map((issue) => `glyph clipped (${state.state}): ${issue.element} ${issue.text}`)),
+                ...scrollStates.flatMap(state => state.issues.map(issue => `scroll ${state.index}@${state.top}: ${issue}`)),
               ];
               if (issues.length) failures.push({ name, issues, result });
-              if ((language === "en" || language === "ko") && fontSize === "large" && zoom === 1.5) {
+              if (issues.length || ((language === "en" || language === "ko") && fontSize === "large" && zoom === 1.5)) {
                 const image = await targetWindow.webContents.capturePage();
                 await writeFile(path.join(OUTPUT, `${name}.png`), image.toPNG());
               }
@@ -696,6 +782,9 @@ async function main() {
         } else if (surface.startsWith("settings")) {
           await click(targetWindow, ".settings-close-button");
           await waitForGone(targetWindow, ".settings-dialog");
+        } else if (surface.startsWith("chart-")) {
+          await click(targetWindow, '[data-market-action="close-chart-settings"]');
+          await waitForGone(targetWindow, ".trading-chart-settings-dialog");
         } else if (surface.startsWith("auto-task")) {
           await click(targetWindow, '[data-action="close-auto-task-dialog"]');
           await waitForGone(targetWindow, ".auto-task-dialog");
@@ -709,6 +798,7 @@ async function main() {
       output: OUTPUT,
       auditedStates: records.length,
       auditedSelectStates: records.reduce((count, entry) => count + entry.selectStates.length, 0),
+      auditedScrollStates: records.reduce((count, entry) => count + entry.scrollStates.length, 0),
       typography,
       records,
       failures,
