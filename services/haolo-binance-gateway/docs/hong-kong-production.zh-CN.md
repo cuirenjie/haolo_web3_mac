@@ -2,7 +2,11 @@
 
 2026-09-19 已从旧新加坡边缘迁移到香港 **`ecs-user@8.217.125.71`**（4 核 16 GiB）。本服务同时提供公共 REST/WS 和私有 HTTPS CONNECT，属于 Windows 仓库中的服务器组件；部署它不构建或发布桌面安装包。
 
-## 当前活动版本（2026-10-24 13:50 核验）
+## 当前活动版本（2026-10-25 18:41 核验）
+
+活动网关为 `haolo-binance-gateway-batch-cbfe575a`，公共/私有端口 `51187/51188`，来源 `cbfe575a962cd5c3039a367e29edd28dca17f64a`，镜像 `sha256:fce316d4200104f0cb2fc40edc36aa595ea7b3c2974952e7687153455f1c89f3`。120 项精确镜像回归、24 文件校验、真实公网 REST/WS/CONNECT 和 139 秒零 5xx 窗口通过。付费/赠送及窗口统计已上线，旧连接保持原实例。用户单次明确允许保留旧连接继续发布，当前仍为 `accepted_retirement_pending`，由两个独立守护自然退役；不得扩大例外或声称退役完成。见[本次发布记录](batch-release-20261025.zh-CN.md)。
+
+## 历史活动版本（2026-10-24 13:50 核验）
 
 共享行情刷新整体 deadline / fencing 修复已切流并验收：`haolo-binance-gateway-xau-20261024`，公共/私有端口 `51087/51088`，来源 `fb7a3258501c2c79c0b75da7431cacca45bf31fd`，镜像 `sha256:608517bec6f006084507de9c1fca40750df5288b8f03a64da545ed5f0248800d`。精确镜像 104 项回归、21 文件校验、34038 组合代码矩阵和 53 项真实接口检查通过；正式 Windows 0.1.180 经物理 WLAN 国内直连，XAU 15m REST、实时帧及实际图表显示通过，VPN 未变。约 662.6 秒 32594 次新请求零 5xx，4xx/429 单独记录。状态仍为 **`accepted_retirement_pending`**：旧 efficiency 实例有 295 条连接，由 `haolo-market-xau-20261024-drain-watch.service` 自然退役，不能叠加下一发布或称整个批次完成。历史 53badfa 空连接卡死进程经本轮用户单独授权终止，例外不能扩展。见[发布记录](xau-release-20261024.zh-CN.md)和[机器回执](verification/xau-release-20261024.json)。
 
