@@ -17,6 +17,7 @@ const matches = (line, pattern) => pattern.test(labelOf(line));
 const fixed = (value) => Number(String(value).replace(/,/g, "")).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: String(value).includes(",") });
 
 function priceText(value) {
+  if(value==null)return '—';
   const amount = Number(String(value).replace(/,/g, ""));
   // Count the leading zero below 1. Preserve all integer digits above 7.
   const fractionDigits = (price) => Math.max(0, 7 - Math.trunc(Math.abs(price)).toLocaleString("en-US", { useGrouping: false }).length);
@@ -85,6 +86,7 @@ function strategyLabel(value, language) {
     ["vpvr-analysis", "VPVR", "VPVR", "VPVR"],
   ];
   const match = names.find(([aliases]) => aliases.split("|").some((alias) => alias.toLowerCase() === raw.toLowerCase()));
+  if(match&&language==='ko')return ['프라이스 액션','오더 플로우','찬 이론','와이코프','엘리엇 파동','차트 패턴','하모닉','다우 이론','갠 이론','SMT 다이버전스','ICT / SMC','이동평균','볼린저 밴드','MACD','RSI','KDJ','VPVR'][names.indexOf(match)];
   return match ? match[language === "en" ? 3 : language === "zh-TW" ? 2 : 1] : raw;
 }
 

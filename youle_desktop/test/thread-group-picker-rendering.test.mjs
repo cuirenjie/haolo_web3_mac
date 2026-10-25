@@ -1116,7 +1116,7 @@ test("left panel collapse control stays on every conversation-sidebar page", asy
   );
   assert.match(
     renderBlock,
-    /const workspaceHasConversationList =\s*state\.activeView === "chat" \|\|\s*state\.activeView === "account" \|\|\s*state\.activeView === "plans" \|\|\s*state\.activeView === "autoTasks" \|\|\s*state\.activeView === "alerts" \|\|\s*state\.activeView === "skillsPlaza";[\s\S]*?const isChatLeftCollapsed =\s*workspaceHasConversationList && state\.leftCollapsed/,
+    /const workspaceHasConversationList =\s*state\.activeView === "chat" \|\|\s*state\.activeView === "haobao" \|\|\s*state\.activeView === "account" \|\|\s*state\.activeView === "plans" \|\|\s*state\.activeView === "autoTasks" \|\|\s*state\.activeView === "alerts" \|\|\s*state\.activeView === "skillsPlaza";[\s\S]*?const isChatLeftCollapsed =\s*workspaceHasConversationList && state\.leftCollapsed/,
   );
   assert.match(
     renderBlock,
@@ -1161,7 +1161,7 @@ test("left panel collapse control stays on every conversation-sidebar page", asy
   assert.match(toggleBlock, /function toggleLeftPanelCollapsed/);
   assert.match(
     toggleBlock,
-    /if \(state\.activeView !== "chat" && state\.activeView !== "account" && state\.activeView !== "plans" && state\.activeView !== "autoTasks" && state\.activeView !== "alerts" && state\.activeView !== "skillsPlaza"\) return/,
+    /if \(state\.activeView !== "chat" && state\.activeView !== "haobao" && state\.activeView !== "account" && state\.activeView !== "plans" && state\.activeView !== "autoTasks" && state\.activeView !== "alerts" && state\.activeView !== "skillsPlaza"\) return/,
   );
 
   const eventBlock = sourceBlock(

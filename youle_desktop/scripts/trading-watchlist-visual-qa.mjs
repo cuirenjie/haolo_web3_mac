@@ -6,13 +6,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const output = process.env.HAOLO_WATCHLIST_QA_OUTPUT || path.join(root, ".tmp", "trading-watchlist-qa");
+const output = path.resolve(process.env.HAOLO_WATCHLIST_QA_OUTPUT || path.join(root, ".tmp", "trading-watchlist-qa"));
+const scope = process.env.HAOLO_WATCHLIST_QA_SCOPE || "follow";
 app.setPath("userData", path.join(output, "profile"));
 app.disableHardwareAcceleration();
 async function main() {
   await mkdir(output, { recursive: true });
   const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  const report = { checks: [], screenshots: [], errors: [] };
+  const report = { scope, checks: [], screenshots: [], errors: [] };
   let server, window;
   try {
     server = await createServer({
@@ -42,6 +43,38 @@ async function main() {
     });
     const js = (source) => window.webContents.executeJavaScript(source, true);
     const check = (name) => report.checks.push(name);
+    const wheelRows = async (deltaY) => {
+      const point = await js("(()=>{const r=document.querySelector('[data-watchlist-rows]').getBoundingClientRect();return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}})()");
+      window.webContents.sendInputEvent({type:'mouseMove',...point});
+      window.webContents.sendInputEvent({type:'mouseWheel',...point,deltaX:0,deltaY,canScroll:true});
+      await pause(120);
+    };
+    const checkRecommendationNoScroll = async () => {
+      const snapshot = () => js("(()=>{const r=document.querySelector('[data-watchlist-rows]');return {scroll:r.scrollTop,first:r.querySelector('.trading-watchlist-recommendation').getBoundingClientRect().top,footer:document.querySelector('.trading-watchlist-recommendation-footer').getBoundingClientRect().top}})()");
+      const before = await snapshot();
+      assert.equal(before.scroll,0);
+      for (const delta of [-240,240,-480,480]) {
+        await wheelRows(delta);
+        assert.deepEqual(await snapshot(),before,'recommendations stay fixed while wheeling in either direction');
+      }
+      await js("document.querySelector('[data-watchlist-rows]').scrollTop=100");
+      assert.deepEqual(await snapshot(),before,'recommendations are not a hidden scroll container');
+    };
+    const checkRecommendationFooter = async () => {
+      const bounds = await js(`(() => {
+        const host=document.querySelector('[data-watchlist-host]');
+        const rows=host.querySelector('[data-watchlist-rows]');
+        const footer=host.querySelector('.trading-watchlist-recommendation-footer');
+        const status=footer.querySelector('.trading-watchlist-recommendation-status');
+        const range=document.createRange();range.selectNodeContents(status);
+        const h=host.getBoundingClientRect(),f=footer.getBoundingClientRect(),s=range.getBoundingClientRect(),r=rows.getBoundingClientRect();
+        const group=document.querySelector('.composer-context-group-picker').getBoundingClientRect();
+        return {separate:!rows.contains(footer),scrollbar:getComputedStyle(rows).scrollbarWidth,
+          full:s.top>=f.top&&s.bottom<=f.bottom&&f.bottom<=h.bottom+0.5&&f.bottom<=group.top,
+          overlap:r.bottom>f.top+0.5,hit:status.contains(document.elementFromPoint((s.left+s.right)/2,(s.top+s.bottom)/2))};
+      })()`);
+      assert.deepEqual(bounds, {separate:true,scrollbar:'none',full:true,overlap:false,hit:true});
+    };
     const click = async (selector) => {
       await js(`document.querySelector(${JSON.stringify(selector)})?.click()`);
       await pause(90);
@@ -53,7 +86,8 @@ async function main() {
         if (error) throw Error(error);
         await pause(100);
       }
-      throw Error(`Timed out: ${expression}`);
+      const context = await js(`JSON.stringify({language:document.documentElement.dataset.language,pickerHidden:workspace.picker.hidden,category:workspace.marketCategory,search:workspace.search.value,markets:workspace.markets.length,memberships:document.querySelectorAll('[data-market-action=watchlist-membership]').length})`);
+      throw Error(`Timed out: ${expression}; ${context}`);
     };
     const capture = async (name) => {
       await js(
@@ -64,6 +98,12 @@ async function main() {
       const file = path.join(output, `${name}.png`);
       await writeFile(file, (await window.webContents.capturePage()).toPNG());
       report.screenshots.push(file);
+      if (/^recommendations-(light|dark)$/.test(name)) {
+        const rect = await js(`(() => {const r=document.querySelector('[data-watchlist-host]').getBoundingClientRect();return {x:Math.floor(r.x),y:Math.floor(r.y),width:Math.ceil(r.width),height:Math.ceil(r.height)};})()`);
+        const panelFile = path.join(output, `${name}-panel.png`);
+        await writeFile(panelFile, (await window.webContents.capturePage(rect)).toPNG());
+        report.screenshots.push(panelFile);
+      }
     };
     const cdp = (method, params) => window.webContents.debugger.sendCommand(method, params);
     const forceState = async (selector, pseudoClasses = []) => {
@@ -79,7 +119,7 @@ async function main() {
     const contrast = (foreground, background) => {
       const luminance = (color) => {
         const channels = color.match(/[\d.]+/g).slice(0, 3).map(Number).map(channel => {
-          const value = channel / 255;
+          const value = color.startsWith('color(srgb ') ? channel : channel / 255;
           return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
         });
         return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
@@ -208,16 +248,18 @@ async function main() {
         assert.equal((await style(addGroup)).borderLeftWidth, "0px");
       }
       await forceState(addGroup);
-      const recommendations = await js("[...document.querySelectorAll('[data-watchlist-recommendation]')].map(e=>({id:e.dataset.watchlistRecommendation,checked:e.checked}))");
-      assert.deepEqual(recommendations.map(r => r.id), ['BTC','ETH','ZEC','BNB','SNDK','MU','SKHYNIX','XAU'].map(s => `BINANCE:FUTURES:${s}USDT`));
-      assert.ok(recommendations.every(r => r.checked));
-      const recommendationInput = '[data-watchlist-recommendation]';
-      assert.equal((await style(recommendationInput)).backgroundColor, 'rgb(5, 5, 5)');
-      const recommendationAction = '[data-watchlist-action="add-recommended"]';
-      for (const [state, expected] of [["", "rgb(5, 5, 5)"], ["hover", "rgb(32, 32, 32)"], ["active", "rgb(48, 48, 48)"], ["focus-visible", "rgb(5, 5, 5)"]]) {
+      assert.equal(await js("document.querySelector('.trading-watchlist-head').checkVisibility()"), false);
+      assert.equal(await js("document.querySelectorAll('.trading-watchlist-recommendations input,[data-watchlist-action=add-recommended]').length"), 0);
+      assert.equal(await js("document.querySelectorAll('[data-watchlist-recommendation]').length"), 11);
+      assert.equal(await js("document.querySelectorAll('.trading-watchlist-recommendation-intro,.trading-watchlist-recommendation-caption,[data-watchlist-action=more-recommendations]').length"), 0);
+      assert.equal((await style('.trading-watchlist-recommendation-footer')).borderTopWidth, '0px');
+      const recommendations = await js("[...document.querySelectorAll('[data-watchlist-recommendation]')].map(e=>({id:e.dataset.watchlistRecommendation,added:e.getAttribute('aria-pressed')}))");
+      assert.deepEqual(recommendations.map(r => r.id), ['BTC','ETH','ZEC','BNB','SNDK','MU','SKHYNIX','XAU','KORU','SPCX','TSLA'].map(s => `BINANCE:FUTURES:${s}USDT`));
+      assert.ok(recommendations.every(r => r.added === 'false'));
+      const recommendationAction = '[data-watchlist-recommendation="BINANCE:FUTURES:BTCUSDT"]';
+      for (const state of ['', 'hover', 'active', 'focus-visible']) {
         await forceState(recommendationAction, state ? [state] : []);
         const actionStyle = await style(recommendationAction);
-        assert.equal(actionStyle.backgroundColor, expected);
         assert.ok(contrast(actionStyle.color, actionStyle.backgroundColor) >= 4.5);
       }
       await forceState(recommendationAction);
@@ -228,14 +270,17 @@ async function main() {
         assert.ok(contrast((await style('.trading-watchlist-recommendation small')).color, card.backgroundColor) >= 4.5);
       }
       await forceState('.trading-watchlist-recommendation');
-      await js("document.querySelectorAll('[data-watchlist-recommendation]').forEach(e=>e.click())");
-      assert.equal(await js("document.querySelector('[data-watchlist-action=add-recommended]').disabled"), true);
-      const disabledRecommendation = await style(recommendationAction);
-      assert.ok(contrast(disabledRecommendation.color, disabledRecommendation.backgroundColor) >= 4.5);
-      await capture(`recommendations-disabled-${theme}`);
+      await click(recommendationAction);
+      assert.equal(await js("workspace.watchlist.has('BINANCE:FUTURES:BTCUSDT')"), true);
       await js("workspace.watchlistPanel.refresh()");
-      assert.equal(await js("document.querySelectorAll('[data-watchlist-recommendation]:checked').length"), 0, 'refresh preserves choices');
-      await js("document.querySelectorAll('[data-watchlist-recommendation]').forEach(e=>e.click());document.activeElement?.blur()");
+      assert.equal(await js("document.querySelector('[data-watchlist-recommendation]').getAttribute('aria-pressed')"), 'true', 'refresh preserves added state and the recommendation session');
+      assert.equal(await js("document.querySelectorAll('[data-watchlist-recommendation]').length"), 11, 'refresh preserves all recommendations');
+      const addedStyle = await style(recommendationAction);
+      assert.ok(contrast(addedStyle.color, addedStyle.backgroundColor) >= 4.5);
+      await capture(`recommendations-added-${theme}`);
+      await click(recommendationAction);
+      assert.equal(await js("workspace.watchlist.activeGroup.markets.length"), 0, 'clicking Added removes only that market');
+      await js("document.activeElement?.blur()");
       const addAlignment = await js(`(() => {
         const add=document.querySelector('[data-watchlist-action=add]'), a=add.getBoundingClientRect();
         const icon=document.querySelector('.trading-expert-panel-header-actions > .small-icon-button').getBoundingClientRect();
@@ -246,12 +291,12 @@ async function main() {
       assert.equal(addAlignment.size, (await style('[data-watchlist-host]')).fontSize);
       await capture(`empty-${theme}`);
       const recommendationLabel = await js(`(() => {
-        const e=document.querySelector('[data-watchlist-action=add-recommended]'), s=getComputedStyle(e), range=document.createRange();range.selectNodeContents(e);
+        const e=document.querySelector('[data-watchlist-recommendation]'), s=getComputedStyle(e), range=document.createRange();range.selectNodeContents(e);
         const r=range.getBoundingClientRect(), b=e.getBoundingClientRect();
         return {text:e.textContent,color:s.color,fill:s.webkitTextFillColor,visibility:s.visibility,font:s.font,opacity:s.opacity,rect:{top:r.top,bottom:r.bottom,left:r.left,right:r.right},button:{top:b.top,bottom:b.bottom}};
       })()`);
       assert.equal(recommendationLabel.visibility, 'visible');
-      assert.equal(recommendationLabel.fill, 'rgb(255, 255, 255)');
+      assert.equal(recommendationLabel.fill, recommendationLabel.color);
       assert.ok(recommendationLabel.rect.top >= recommendationLabel.button.top && recommendationLabel.rect.bottom <= recommendationLabel.button.bottom, JSON.stringify(recommendationLabel));
       await click(addGroup);
       const dialog = '.trading-watchlist-dialog';
@@ -296,22 +341,108 @@ async function main() {
     }
     check("Both themes use seamless headers, no panel divider or plus border, compact dialogs, neutral input focus and black actions across enabled, disabled, hover, active and keyboard focus states");
     const initialStars = await js("JSON.stringify([...workspace.favoriteSymbols])");
-    await click('[data-watchlist-recommendation="BINANCE:FUTURES:ZECUSDT"]');
-    await click('[data-watchlist-action="add-recommended"]');
-    assert.deepEqual(await js("workspace.watchlist.activeGroup.markets.map(m=>m.baseAsset)"), ['BTC','ETH','BNB','SNDK','MU','SKHYNIX','XAU']);
+    await click('[data-watchlist-recommendation="BINANCE:FUTURES:BTCUSDT"]');
+    await click('[data-watchlist-recommendation="BINANCE:FUTURES:ETHUSDT"]');
+    assert.deepEqual(await js("workspace.watchlist.activeGroup.markets.map(m=>m.baseAsset)"), ['ETH','BTC']);
+    await click('[data-watchlist-action="view-watchlist"]');
+    assert.equal(await js("document.querySelector('.trading-watchlist-head').checkVisibility()"), true);
+    assert.equal(await js("document.querySelectorAll('[data-watchlist-row]').length"), 2);
     assert.equal(await js("JSON.stringify([...workspace.favoriteSymbols])"), initialStars);
     await window.loadURL(fixtureUrl);
     await wait("window.ready === true");
-    assert.deepEqual(await js("workspace.watchlist.activeGroup.markets.map(m=>m.baseAsset)"), ['BTC','ETH','BNB','SNDK','MU','SKHYNIX','XAU']);
+    assert.deepEqual(await js("workspace.watchlist.activeGroup.markets.map(m=>m.baseAsset)"), ['ETH','BTC']);
     await js("workspace.watchlist.activeGroup.markets=[];workspace.watchlist.save();workspace.watchlistPanel.refresh();workspace.syncWatchlistChanges()");
     for (const theme of ['light','dark']) {
       await js(`document.documentElement.dataset.theme='${theme}';workspace.watchlistPanel.refresh()`);
       await capture(`recommendations-${theme}`);
+      for (const language of ['zh-CN', 'zh-TW', 'en', 'ko']) {
+        for (const width of [280, 330]) {
+          await js(`document.querySelector('#layout').style.setProperty('--trading-expert-panel-width', '${width}px');qaSetLanguage('${language}');workspace.watchlistPanel.refresh()`);
+          await pause(100);
+          const layout = await js(`(() => {
+            const host=document.querySelector('[data-watchlist-host]');
+            const rows=host.querySelector('[data-watchlist-rows]').getBoundingClientRect();
+            const items=[...host.querySelectorAll('.trading-watchlist-recommendation')];
+            return {overflow:host.scrollWidth>host.clientWidth,visible:items.filter(e=>{const r=e.getBoundingClientRect();return r.top>=rows.top&&r.bottom<=rows.bottom;}).length,labels:[...host.querySelectorAll('[data-watchlist-recommendation]')].map(e=>e.textContent)};
+          })()`);
+          assert.equal(layout.overflow,false,`${theme} ${language} ${width}: no horizontal overflow`);
+          assert.ok(layout.visible >= 8, `${theme} ${language} ${width}: at least eight recommendations fit`);
+          assert.equal(layout.labels.length,11);
+          await checkRecommendationFooter();
+          if (language==='en' || language==='ko') assert.doesNotMatch(layout.labels.join(''),/[\u4e00-\u9fff]/,`${theme} ${language}: translated recommendations`);
+          await capture(`follow-${theme}-${language}-${width}`);
+        }
+      }
+      await js("document.querySelector('#layout').style.removeProperty('--trading-expert-panel-width');qaSetLanguage('zh-CN')");
     }
-    check("Fixed recommendations preserve checkbox choices, disable empty submission, add selected perpetuals in order and persist without touching star favorites");
+    check("Compact recommendations show all eleven markets without introduction or divider, add and undo individual markets, enter quotes on demand and persist memberships after reload");
     await js("document.documentElement.dataset.theme='light'");
     await capture("empty-light");
     await click('[data-watchlist-action="add"]');
+    // The current directory uses star buttons; the older full suite below still
+    // exercises the retired independent membership-checkbox layout.
+    if (scope === "follow") {
+      await wait("document.querySelectorAll('[data-market-action=favorite]').length >= 18");
+      assert.equal(await js("workspace.picker.hidden"), false);
+      await js("workspace.search.value='BTC';workspace.search.dispatchEvent(new Event('input',{bubbles:true}))");
+      await wait("document.querySelectorAll('[data-market-action=symbol][data-market-id^=\"BINANCE:\"]').length === 2");
+      await js("workspace.setPickerOpen(false)");
+      check("The top Add action still opens the current market directory and searches spot and perpetual contracts");
+      window.setSize(1100, 700);
+      await js("document.documentElement.style.setProperty('--app-font-size-offset','4px');workspace.watchlistPanel.refresh()");
+      await checkRecommendationNoScroll();
+      const target = '[data-watchlist-recommendation="BINANCE:FUTURES:BTCUSDT"]';
+      const point = await js(`(() => {const r=document.querySelector(${JSON.stringify(target)}).getBoundingClientRect();return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)};})()`);
+      const beforeScroll = await js("document.querySelector('[data-watchlist-rows]').scrollTop");
+      assert.equal(beforeScroll,0);
+      window.webContents.sendInputEvent({type:'mouseMove',...point});
+      window.webContents.sendInputEvent({type:'mouseDown',...point,button:'left',clickCount:1});
+      window.webContents.sendInputEvent({type:'mouseUp',...point,button:'left',clickCount:1});
+      await wait("workspace.watchlist.has('BINANCE:FUTURES:BTCUSDT')");
+      await js("workspace.watchlistPanel.refresh()");
+      assert.equal(await js("document.querySelector('[data-watchlist-rows]').scrollTop"), beforeScroll);
+      assert.equal(await js("document.activeElement.dataset.watchlistRecommendation"), 'BINANCE:FUTURES:BTCUSDT');
+      assert.equal(await js("document.querySelector('[data-watchlist-host]').scrollWidth > document.querySelector('[data-watchlist-host]').clientWidth"), false);
+      await checkRecommendationFooter();
+      assert.equal(await js(`(() => {const e=document.querySelector(${JSON.stringify(target)}).getBoundingClientRect();const r=document.querySelector('[data-watchlist-rows]').getBoundingClientRect();return e.top>=r.top&&e.bottom<=r.bottom+0.5;})()`),true,'adding keeps the button fully visible');
+      await checkRecommendationNoScroll();
+      await capture('follow-compact-added');
+      await click('[data-watchlist-action="view-watchlist"]');
+      assert.equal(await js("document.querySelectorAll('[data-watchlist-row]').length"), 1);
+      await click('[data-watchlist-action="remove"]');
+      assert.equal(await js("document.querySelectorAll('[data-watchlist-recommendation]').length"), 11);
+      check("Recommendations do not scroll at a compact size and larger font; native addition preserves focus, and removing the last quote restores recommendations");
+      await checkRecommendationFooter();
+      await js("workspace.watchlist.activeGroup.markets=[...qaMarkets];workspace.watchlistPanel.refresh()");
+      assert.equal(await js("document.querySelector('[data-watchlist-host]').dataset.watchlistView"), 'quotes');
+      assert.equal(await js("getComputedStyle(document.querySelector('[data-watchlist-rows]')).scrollbarWidth"), 'thin');
+      assert.equal(await js("(()=>{const r=document.querySelector('[data-watchlist-rows]');return r.scrollHeight>r.clientHeight})()"), true);
+      assert.equal(await js("document.querySelector('.trading-watchlist-recommendation-footer')"), null);
+      await pause(150);
+      await capture('quotes-before-wheel');
+      report.scrollProbe = await js(`(()=>{const e=document.querySelector('[data-watchlist-rows]'),r=e.getBoundingClientRect();return {rect:r.toJSON(),scrollHeight:e.scrollHeight,clientHeight:e.clientHeight,scrollTop:e.scrollTop,hit:document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.outerHTML?.slice(0,500),overflow:getComputedStyle(e).overflowY,view:e.closest('[data-watchlist-host]').dataset.watchlistView};})()`);
+      for(let attempt=0;attempt<3;attempt++){
+        await wheelRows(-240);
+        if(await js("document.querySelector('[data-watchlist-rows]').scrollTop>0"))break;
+        await pause(200);
+      }
+      assert.ok(await js("document.querySelector('[data-watchlist-rows]').scrollTop>0"),'overflowing quote lists still scroll with the mouse wheel');
+      await capture('quotes-scrollbar-restored');
+      await js("workspace.watchlist.activeGroup.markets=[];workspace.watchlistPanel.refresh();document.documentElement.style.removeProperty('--app-font-size-offset');document.querySelector('#layout').style.setProperty('--trading-expert-panel-width','300px')");
+      window.setSize(1296,876);
+      await pause(200);
+      for (const theme of ['light','dark']) {
+        await js(`document.documentElement.dataset.theme='${theme}';workspace.watchlistPanel.refresh()`);
+        await checkRecommendationFooter();
+        await checkRecommendationNoScroll();
+        assert.equal(await js("(()=>{const r=document.querySelector('[data-watchlist-rows]').getBoundingClientRect();return [...document.querySelectorAll('.trading-watchlist-recommendation')].every(e=>{const b=e.getBoundingClientRect();return b.top>=r.top&&b.bottom<=r.bottom+0.5})})()"),true,'all eleven complete recommendations fit the reference window: '+await js('JSON.stringify({rows:document.querySelector("[data-watchlist-rows]").getBoundingClientRect(),items:[...document.querySelectorAll(".trading-watchlist-recommendation")].map(e=>e.getBoundingClientRect())})'));
+        await capture(`recommendations-${theme}`);
+      }
+      check("Recommendation counts stay fully visible; recommendations never scroll, while overflowing quote lists retain native wheel scrolling and a scrollbar");
+      assert.equal(await js("window.qaError || ''"), "");
+      report.status = "passed";
+      return;
+    }
     await wait(
       "document.querySelectorAll('[data-market-action=watchlist-membership]').length >= 18",
     );
@@ -866,11 +997,11 @@ async function main() {
       }
       await click('[data-group-id="tradfi"]');
       assert.equal(await js("document.querySelectorAll('[data-watchlist-row]').length"),1);
-      assert.equal(await js("document.querySelector('[data-watchlist-row]').dataset.watchlistRow"),'BINANCE:FUTURES:XAUUSDT');
+      assert.equal(await js("document.querySelector('[data-watchlist-row]').dataset.watchlistRow"),'BINANCE:FUTURES:TSLAUSDT');
       assert.equal(await js("document.querySelectorAll('[data-watchlist-drag],[data-watchlist-action=remove],[data-watchlist-action=add],[data-watchlist-action=new-group]').length"),0);
       await capture(`tradfi-${theme}`);
       await click('[data-watchlist-action="select"]');
-      assert.equal(await js("workspace.selectedMarketId"),'BINANCE:FUTURES:XAUUSDT');
+      assert.equal(await js("workspace.selectedMarketId"),'BINANCE:FUTURES:TSLAUSDT');
       await click('[data-group-id="indices"]');
       await wait("document.querySelectorAll('[data-watchlist-index]').length === 7");
       assert.equal(await js("document.querySelectorAll('[data-watchlist-row]').length"),0);

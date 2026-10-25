@@ -12,6 +12,18 @@ function controller(methods, globals = {}) {
   return new Function(...Object.keys(globals), `${compiled}\nreturn new Harness();`)(...Object.values(globals));
 }
 
+test('news navigation never substitutes a spot market for an unavailable perpetual', async () => {
+  const chart = controller(['openNewsMarket']);
+  let selected;
+  Object.assign(chart, { disposed:false, markets:[{id:'spot',symbol:'BTCUSDT',provider:'binance',marketType:'spot'}],
+    prepareAlertContext:async id=>{selected=id;} });
+  await assert.rejects(chart.openNewsMarket({symbol:'BTCUSDT',venue:'binance',marketType:'perpetual'}),/NEWS_MARKET_UNAVAILABLE/);
+  assert.equal(selected,undefined);
+  chart.markets.push({id:'perpetual',symbol:'BTCUSDT',provider:'binance',marketType:'perpetual'});
+  await chart.openNewsMarket({symbol:'BTCUSDT',venue:'binance',marketType:'perpetual'});
+  assert.equal(selected,'perpetual');
+});
+
 test("a late favorite response cannot commit or initialize favorites after its chart is destroyed", async () => {
   let finish;
   let commits = 0;

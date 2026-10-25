@@ -1,4 +1,5 @@
 import { customChartSurface } from './custom-theme.ts';
+import { MarketNewsController, renderMarketPageSwitch, type NewsMarket } from './market-news.ts';
 import { requestIndexChart, INDEX_RESOLUTIONS, indexPeriodFor } from "./trading-index-chart.ts";
 import { deferInteractionRender } from "./interaction-render-guard.ts";
 import { openBoundAnalysisChart } from "./trading-analysis-chart-context.ts";
@@ -4890,6 +4891,7 @@ export function renderTradingExpertMarketWorkspace() {
   return `
     <section class="trading-expert-market" data-trading-market-workspace aria-label="实时交易行情">
       <div class="trading-market-workspace-body">
+        ${renderMarketPageSwitch()}
         ${renderTradingDrawingToolbar()}
         <div class="trading-market-content">
           <div class="trading-market-overview">
@@ -5145,6 +5147,7 @@ class TradingExpertMarketWorkspace {
   private openIndicatorWidthMenuKey: string | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private themeObserver: MutationObserver | null = null;
+  private newsController: MarketNewsController;
   private marketStreamSubscriptionId: string | null = null;
   private marketSocketLastActivityAt = 0;
   private marketKlineLastActivityAt = 0;
@@ -5287,11 +5290,18 @@ class TradingExpertMarketWorkspace {
     newTaskWorkspace = false,
   ) {
     this.host = host;
+    this.newsController = new MarketNewsController(host, (market) => this.openNewsMarket(market));
     this.newTaskWorkspace = newTaskWorkspace;
     this.favoriteStorageAccountIdentity = favoriteStorageAccountIdentity;
     this.indexFavorites = new TradingIndexFavorites(window.localStorage, favoriteStorageAccountIdentity);
     this.drawingStorageSessionId = drawingStorageSessionId;
-    this.drawingVisibilitySettings = new TradingDrawingVisibility(drawingStorageSessionId, () => this.syncDrawingVisibilityControls());
+    this.drawingVisibilitySettings = new TradingDrawingVisibility(drawingStorageSessionId, (edited) => {
+      this.syncDrawingVisibilityControls();
+      if (edited) {
+        this.chartSettings.drawingVisibility = this.drawingVisibilitySettings.layers();
+        this.persistAndApplyChartSettings();
+      }
+    });
     this.chartElement = this.requireElement("[data-market-chart]");
     this.viewport = this.requireElement("[data-market-chart-viewport]");
     this.drawingLayer = this.requireElement<SVGSVGElement>("[data-drawing-layer]");
@@ -5556,8 +5566,6 @@ class TradingExpertMarketWorkspace {
       return;
     }
     if (action === "restore-chart-settings") {
-      this.chartSettingsNavigation()?.setVerticalLocked(false);
-      this.drawingVisibilitySettings.setAll(false);
       this.chartSettings = cloneTradingChartSettings(DEFAULT_TRADING_CHART_SETTINGS);
       this.persistAndApplyChartSettings({ rebuildSeries: true });
       this.refreshChartSettingsDialog();
@@ -5905,7 +5913,8 @@ class TradingExpertMarketWorkspace {
     const continuousInput = target.hasAttribute("data-color-picker-input") || target.type === "number";
     if ((event.type === "input") !== continuousInput) return;
     if (key === "verticalLocked") {
-      this.chartSettingsNavigation()?.setVerticalLocked(target.checked);
+      this.chartSettings.verticalLocked = target.checked;
+      this.persistAndApplyChartSettings();
       this.syncChartNavigationControls();
       return;
     }
@@ -6066,6 +6075,7 @@ class TradingExpertMarketWorkspace {
     }
     if (options.rebuildSeries) this.rebuildPrimarySeries();
     this.chartNavigation?.setAutoScale(this.chartSettings.autoScale);
+    this.chartNavigation?.setVerticalLocked(this.chartSettings.verticalLocked);
     this.applyChartTheme();
     this.applyKlineAnnotationVisibility();
     this.applyDrawingToolsSetting();
@@ -6074,7 +6084,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private applyKlineAnnotationVisibility() {
-    this.drawingVisibilitySettings.migrateLegacyDataVisibility(this.chartSettings.hideKlineAnnotations);
+    this.drawingVisibilitySettings.applyAccountLayers(this.chartSettings.drawingVisibility);
     this.syncDrawingVisibilityControls();
   }
 
@@ -6990,6 +7000,7 @@ class TradingExpertMarketWorkspace {
     if (chartChanged) {
       if (styleChanged) this.rebuildPrimarySeries();
       this.chartNavigation?.setAutoScale(this.chartSettings.autoScale);
+      this.chartNavigation?.setVerticalLocked(this.chartSettings.verticalLocked);
       this.applyChartTheme();
       this.applyKlineAnnotationVisibility();
       this.applyDrawingToolsSetting();
@@ -9607,6 +9618,15 @@ class TradingExpertMarketWorkspace {
       const context = this.alertContextSnapshot();
       void window.codexDesktop.tradingAlertsSyncDrawings?.({ marketId: context.marketId, interval: context.interval, drawings: context.drawings });
     }, 180);
+  }
+
+  private async openNewsMarket(market: NewsMarket) {
+    if (!this.markets.length) await this.loadMarkets();
+    const matches = this.markets.filter(row => row.symbol.toUpperCase() === market.symbol.toUpperCase());
+    const target = matches.find(row => row.provider === market.venue && row.marketType === market.marketType)
+      || matches.find(row => row.provider === 'binance' && row.marketType === market.marketType);
+    if (!target) throw new Error('NEWS_MARKET_UNAVAILABLE');
+    await this.prepareAlertContext(target.id, null, {strictMarketId:true, assertActive:()=> { if(this.disposed)throw Error('WORKSPACE_CLOSED'); }});
   }
 
   async prepareAlertContext(
@@ -12917,6 +12937,7 @@ class TradingExpertMarketWorkspace {
         },
       },
     );
+    this.chartNavigation.setVerticalLocked(this.chartSettings.verticalLocked);
     this.resizeObserver = new ResizeObserver(() => {
       const width = this.chartElement.clientWidth;
       const height = this.chartElement.clientHeight;
@@ -14205,6 +14226,7 @@ class TradingExpertMarketWorkspace {
   destroy() {
     if (this.disposed) return;
     this.disposed = true;
+    this.newsController.destroy();
     this.priceAlertControl.destroy();
     this.drawingVisibilitySettings.destroy();
     this.unregisterSettingsSync?.();

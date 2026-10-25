@@ -403,7 +403,7 @@ test("manual and AI drawings persist in isolated conversation storage", async ()
   // General, detached and independently applied Skill drawing results.
   assert.equal((market.match(/rememberTradingAnalysisJobContext\(job\)/g) || []).length, 3);
   assert.match(drawing, /onAiDrawingContextsChanged\(null\)/);
-  assert.match(main, /const storageSessionId = tradingExpertMarketWorkspaceStorageSessionId\(\) \|\| threadId/);
+  assert.match(main, /const storageSessionId = haoBaoSessionId \|\| tradingExpertMarketWorkspaceStorageSessionId\(\) \|\| threadId/);
   assert.match(main, /syncTradingExpertMarketWorkspace\([\s\S]*targetThreadId \|\| preserved\.threadId,[\s\S]*sourceStorageSessionId && sourceStorageSessionId !== targetStorageSessionId[\s\S]*?sourceStorageSessionId/);
   assert.match(main, /migrateTradingExpertMarketWorkspaceStorageSession\(previousThreadId, nextThreadId\)/);
   assert.match(main, /syncTradingExpertMarketWorkspace\([\s\S]*freshHost,[\s\S]*targetThreadId \|\| ""/);

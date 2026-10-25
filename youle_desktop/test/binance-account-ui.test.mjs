@@ -32,7 +32,8 @@ test("account navigation uses the same full-width workspace layout as strategy",
   assert.doesNotMatch(accountBranch, /renderAgentPanel|renderChatPanel|agent-panel/);
   assert.match(source, /data-conversation-static-action="account"/);
   assert.match(source, /const accountActive = state\.activeView === "account"/);
-  assert.match(source, /tradingExpertLayout \? "trading-expert-layout" : ""/);
+  assert.match(source, /const marketLayout = tradingExpertLayout \|\| haoBaoLayout/);
+  assert.match(source, /marketLayout \? "trading-expert-layout" : ""/);
   assert.doesNotMatch(source, /tradingExpertPanelLayout/);
   assert.match(source, /workspaceHasConversationList && !tradingExpertLayout \? renderLeftPanelToggle\(\) : ""/);
   assert.doesNotMatch(
@@ -44,7 +45,7 @@ test("account navigation uses the same full-width workspace layout as strategy",
   assert.doesNotMatch(source, /renderBinanceAccountExpansionControl|data-trading-expert-account-expansion|binanceAccountPageToggleLabel/);
   assert.match(
     source,
-    /function toggleLeftPanelCollapsed\(\)[\s\S]*state\.activeView !== "chat" && state\.activeView !== "account"[\s\S]*state\.leftCollapsed = !state\.leftCollapsed/,
+    /function toggleLeftPanelCollapsed\(\)[\s\S]*state\.activeView !== "chat" && state\.activeView !== "haobao" && state\.activeView !== "account"[\s\S]*state\.leftCollapsed = !state\.leftCollapsed/,
   );
   assert.match(
     source,

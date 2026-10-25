@@ -4,6 +4,115 @@
   "surface": "macos",
   "features": [
     {
+      "id": "watchlist-follow-recommendations",
+      "title": "自选关注列表与逐项添加",
+      "body": "macOS 默认自选为空时展示紧凑单列关注列表，提供全部11个推荐交易对，新增 KORU、SPCX、TSLA；去掉引导标题、说明、热门交易对标签及底部分隔线，缩小图标、文字、按钮和行距。每行「添加」立即加入自选并变成「已添加」，再次点击可移出；添加后仍可继续选择，点击「查看自选」或重新点击自选分组进入行情列表。推荐状态隐藏价格和涨幅表头及列表滚动条，底部「已添加」计数与「查看自选」独立保留空间，完整显示；添加推荐页固定展示，禁用滚轮及程序滚动，刷新时保持顶部位置。进入已有自选行情列表后，内容超出时恢复滚动条，保留行情、排序及分组功能；顶部「添加」继续打开市场搜索。macOS 客户端主图、分屏、自选、市场搜索和预警共用币安传统金融原始品牌图标，随客户端内置并保留官方来源及哈希，明暗主题不改色；未收录或加载失败时保留兜底标识。客服可说明操作，无新增代操作协议；此条为待发布源码候选，以实际安装版本为准。",
+      "category": "workspace",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-watchlist-ui.ts",
+        "youle_desktop/src/renderer/trading-watchlist.css",
+        "youle_desktop/src/renderer/trading-watchlist.ts",
+        "youle_desktop/src/renderer/trading-expert-market-identity.ts",
+        "youle_desktop/src/renderer/trading-tradfi-logo-assets.ts"
+      ]
+    },
+    {
+      "id": "chart-settings-full-sync-zh-cn",
+      "title": "K线设置与跨设备同步",
+      "body": "个人设置→通用设置首项「K线设置」，包含主图样式、图表背景、K线缩放、涨跌颜色、坐标选择、实时价格、画线工具、隐藏绘图及订单显示。修改即时应用；同一账号通过逐字段队列同步38个图表字段，离线修改保留，恢复默认也参与同步。明暗主题颜色分开保存；锁定K线和五类隐藏开关为账号偏好，切换市场或会话不会清除。重置图表只重置当前视图，不跨设备发送操作。复权在没有除权事件的数据上保留原始价格；订单仅为绑定账户的只读显示。全部同步需要配套macOS v8设置协议及服务端新增六字段校验上线；此条为待发布源码候选。客服仅说明步骤，尚无新增K线设置代操作能力。",
+      "category": "chart-settings",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-expert-chart-settings.ts",
+        "youle_desktop/src/renderer/trading-expert-market.ts",
+        "youle_desktop/src/renderer/account-settings-sync.ts"
+      ]
+    },
+    {
+      "id": "chart-settings-full-sync-en",
+      "title": "Chart settings and cross-device sync",
+      "body": "Personal settings → the first General settings entry, Chart settings, provides chart style, background, zoom, up/down colors, price scale, live price, drawing tools, drawing visibility and order display. Changes apply immediately. Per-field account queues synchronize all 38 chart fields, retain offline edits and sync restored defaults. Light and dark colors are saved separately. The chart lock and five visibility switches follow the account across markets and conversations. Reset chart is a local viewport command. Adjustment modes preserve original prices when corporate-action data is absent. Account order overlays are read-only. Full synchronization requires the macOS v8 settings protocol and the six-field server extension to be released; this is a pending source candidate. Support explains steps and has no new delegated chart-settings action.",
+      "category": "chart-settings",
+      "locale": "en",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-expert-chart-settings.ts",
+        "youle_desktop/src/renderer/trading-expert-market.ts",
+        "youle_desktop/src/renderer/account-settings-sync.ts"
+      ]
+    },
+    {
+      "id": "chart-settings-full-sync-zh-hant",
+      "title": "K線設定與跨裝置同步",
+      "body": "個人設定→通用設定首項「K線設定」，包含主圖樣式、圖表背景、K線縮放、漲跌顏色、座標選擇、即時價格、畫線工具、隱藏繪圖及訂單顯示。修改立即套用；同一帳號逐欄位同步38個圖表欄位，保留離線修改，恢復預設亦參與同步。明暗主題顏色分開儲存；鎖定K線與五類隱藏開關隨帳號跨市場、會話保留。重設圖表僅重設目前視圖。缺少除權事件時保留原始價格；訂單僅顯示綁定帳戶的唯讀資料。完整同步需配套macOS v8設定協定與服務端新增六欄位校驗上線；本條為待發布原始碼候選。客服僅說明步驟，尚無新增K線設定代操作能力。",
+      "category": "chart-settings",
+      "locale": "zh-Hant",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-expert-chart-settings.ts",
+        "youle_desktop/src/renderer/trading-expert-market.ts",
+        "youle_desktop/src/renderer/account-settings-sync.ts"
+      ]
+    },
+    {
+      "id": "chart-settings-full-sync-ko",
+      "title": "차트 설정 및 기기 간 동기화",
+      "body": "개인 설정 → 일반 설정의 첫 항목인 차트 설정에서 메인 차트 스타일, 배경, 확대/축소, 상승·하락 색상, 가격 축, 실시간 가격, 그리기 도구, 도형 숨기기 및 주문 표시를 설정합니다. 변경 사항은 즉시 적용되며 계정별 필드 큐가 38개 차트 필드, 오프라인 변경 및 기본값 복원을 동기화합니다. 밝은 테마와 어두운 테마의 색상은 별도로 저장됩니다. 차트 잠금과 다섯 가지 표시 설정은 시장·대화를 바꿔도 유지됩니다. 차트 초기화는 현재 기기의 보기만 변경합니다. 권리락 정보가 없으면 원래 가격을 유지하고 계좌 주문은 읽기 전용으로 표시합니다. 전체 동기화에는 macOS v8 설정 프로토콜과 서버의 신규 6개 필드 검증 배포가 필요합니다. 이 항목은 배포 전 소스 후보이며 고객지원의 새 차트 설정 대행 기능은 없습니다.",
+      "category": "chart-settings",
+      "locale": "ko",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-expert-chart-settings.ts",
+        "youle_desktop/src/renderer/trading-expert-market.ts",
+        "youle_desktop/src/renderer/account-settings-sync.ts"
+      ]
+    },
+    {
+      "id": "watchlist-remove-hover",
+      "title": "自选交易对的移除按钮",
+      "body": "macOS 自选列表中，鼠标悬浮在交易对行时才显示右侧的 × 移除按钮；点击选中交易对后，鼠标移开即隐藏按钮，并恢复涨幅列的正常间距。客服可说明操作，无新增代操作协议；以实际安装版本为准。",
+      "category": "workspace",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-watchlist.css",
+        "youle_desktop/src/renderer/trading-watchlist-ui.ts"
+      ]
+    },
+    {
       "id": "analysis-request-priority-zh-cn",
       "title": "本轮分析要求优先",
       "body": "策略及指标分析保留本轮完整输入；明确要求做多或做空时，只发布对应方向的计划。本轮方向、入场方式、风险及附加要求优先于冲突的已保存交易偏好，其余偏好保留，长期设置不变。模型先核对原生候选，未满足时继续搜索冻结行情内更宽窗口的条件入场方案；条件未触发不等于立即交易。缺少真实依据、条件矛盾或模型校验失败时说明原因，不编造价格或用反方向替代。需配套API、独立Worker及客户端版本启用，本条为未发布源码候选。",
@@ -95,7 +204,7 @@
     {
       "id": "plan-probability-reply",
       "title": "计划卡片下方的模型概率评估",
-      "body": "配套客户端和云端版本启用后，左右侧策略或指标分析生成正式计划时，可在卡片下方追加模型概率评估。基于已收盘历史行情和冻结计划，盈利概率按100%减止损概率计算，仅严格大于50%才展示；小于或等于50%、依据不足或评估失败时不追加回复，计划卡片照常保留。结果明确标识为未经过历史回测校准的条件模型估算：仅表示入场后、有效期内第1止盈或止损至少触达一个时，第1止盈先触达的概率，不是分批交易的最终净胜率。不会随机抬高结果，不修改计划价格，不自动交易。重新打开历史沿用原结果，不重新估算。客服可说明功能，不能代为分析行情或调整概率。源码候选尚不代表发布。",
+      "body": "配套客户端和云端版本启用后，左右侧策略或指标分析生成正式计划时，可在对应计划卡片及操作栏下方展示模型概率评估。卡片显示盈利概率及评估说明，不展示止损概率补集公式行。基于已收盘历史行情和冻结计划，盈利概率按100%减止损概率计算，仅严格大于50%才展示；小于或等于50%、依据不足或评估失败时不追加回复，计划卡片照常保留。结果明确标识为未经过历史回测校准的条件模型估算：仅表示入场后、有效期内第1止盈或止损至少触达一个时，第1止盈先触达的概率，不是分批交易的最终净胜率。不会随机抬高结果，不修改计划价格，不自动交易。重新打开历史沿用原结果，不重新估算。客服可说明功能，不能代为分析行情或调整概率。源码候选尚不代表发布。",
       "category": "plans",
       "locale": "zh-CN",
       "status": "pending",
@@ -127,6 +236,90 @@
         "youle_desktop/src/renderer/haobao-avatar.ts",
         "youle_desktop/src/renderer/haobao.css",
         "youle_desktop/src/renderer/main.ts"
+      ]
+    },
+    {
+      "id": "haobao-language-ko",
+      "title": "HaoBao 인터페이스 언어 및 사용자 지정 이름",
+      "body": "HaoBao 소개, 환영 문구, 외형의 색상·캐릭터·표정, 설정 안내와 접근성 레이블은 중국어 간체·번체, 영어, 한국어를 지원합니다. 환영 문구는 인터페이스 언어에 맞게 바뀌며 사용자 지정 이름, 저장된 메시지와 사용자 입력은 원문을 유지합니다. 전략 및 지표 갤러리는 입력창의 더하기 메뉴에서 계속 열 수 있습니다. 기존 계획 카드의 스타일은 유지됩니다. HaoBao는 로컬 프런트엔드 미리보기이며 클라우드 모니터링, 선제적 메시지 또는 고객 지원 대행 기능이 추가되지 않습니다. 아직 출시되지 않은 소스 후보입니다.",
+      "category": "haobao",
+      "locale": "ko",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/haobao.ts",
+        "youle_desktop/src/renderer/haobao-avatar.ts",
+        "youle_desktop/src/renderer/main.ts",
+        "youle_desktop/src/renderer/app-language-en-product.mjs",
+        "youle_desktop/src/renderer/app-language.mjs",
+        "youle_desktop/src/shared/korean-catalog.mjs"
+      ]
+    },
+    {
+      "id": "haobao-language-en",
+      "title": "HaoBao interface language and custom names",
+      "body": "HaoBao introductions, welcome text, appearance colours, characters, expressions, settings messages and accessibility labels support Simplified Chinese, Traditional Chinese, English and Korean. Welcome text follows the interface language; custom names, saved messages and user input keep their original text. Strategy and indicator galleries remain accessible from the composer plus menu. Existing plan card styling is unchanged. HaoBao remains a local frontend preview, with no new cloud monitoring, proactive messages or support actions. This is an unpublished source candidate.",
+      "category": "haobao",
+      "locale": "en",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/haobao.ts",
+        "youle_desktop/src/renderer/haobao-avatar.ts",
+        "youle_desktop/src/renderer/main.ts",
+        "youle_desktop/src/renderer/app-language-en-product.mjs",
+        "youle_desktop/src/renderer/app-language.mjs",
+        "youle_desktop/src/shared/korean-catalog.mjs"
+      ]
+    },
+    {
+      "id": "haobao-language-zh-hant",
+      "title": "hao寶介面語言與暱稱保護",
+      "body": "hao寶的介紹、歡迎內容、外觀顏色／角色／表情、設定提示及無障礙標籤支援簡體中文、繁體中文、英語和韓語。切換語言後歡迎內容隨介面更新；使用者自訂名稱、已儲存訊息和使用者輸入保留原文。策略廣場與指標廣場繼續透過輸入框加號中的對應入口開啟，原計畫卡片樣式不變。目前 hao寶 仍是本機前端體驗，不新增雲端監控、主動訊息或客服代操作。本項為尚未發布的原始碼候選。",
+      "category": "haobao",
+      "locale": "zh-Hant",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/haobao.ts",
+        "youle_desktop/src/renderer/haobao-avatar.ts",
+        "youle_desktop/src/renderer/main.ts",
+        "youle_desktop/src/renderer/app-language-en-product.mjs",
+        "youle_desktop/src/renderer/app-language.mjs",
+        "youle_desktop/src/shared/korean-catalog.mjs"
+      ]
+    },
+    {
+      "id": "haobao-language-zh-cn",
+      "title": "hao宝界面语言与昵称保护",
+      "body": "hao宝的介绍、欢迎内容、外观颜色/角色/表情、设置提示及无障碍标签支持简体中文、繁体中文、英语和韩语。切换语言后欢迎内容随界面更新；用户自定义名称、已保存消息和用户输入保留原文。策略广场与指标广场继续通过输入框加号中的对应入口打开，原计划卡片样式不变。当前 hao宝 仍是本地前端体验，不新增云端监控、主动消息或客服代操作。此项为未发布源码候选。",
+      "category": "haobao",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/haobao.ts",
+        "youle_desktop/src/renderer/haobao-avatar.ts",
+        "youle_desktop/src/renderer/main.ts",
+        "youle_desktop/src/renderer/app-language-en-product.mjs",
+        "youle_desktop/src/renderer/app-language.mjs",
+        "youle_desktop/src/shared/korean-catalog.mjs"
       ]
     },
     {
@@ -614,8 +807,8 @@
     },
     {
       "id": "right-target-bands-zh-cn",
-      "title": "右侧三档止盈强制区间",
-      "body": "配套后端上线后，新右侧计划三档净盈亏比固定为1:0.3–1:0.5、1:0.6–1:0.8、1:0.9–1:1.3。优先保留符合区间的原结构目标；缺失档位按对应区间随机生成有效精度价格，不再因结构目标不足而取消计划，也不压缩档位。价格计入费用并在生成后固定，重试、保存和历史恢复不重新随机；报告标明生成档位，不把它们作为结构预测。谐波保留原形态入场和止损。账户、交易精度及个人硬风控仍需通过。左侧及旧历史保持原规则；上线后重新分析生效。当前为源码候选，需核对后端实际版本。客服不能代用户调整风控、下单或激活计划。",
+      "title": "交易偏好与计划卡片",
+      "body": "新 macOS 策略分析逐字段采用本轮明确条件、已保存偏好、默认值的优先级，不修改长期设置。最低净盈亏比按比例放大三档净比例，计入费用与价格精度；例如0.4/0.7/1.1配最低2得到2/3.5/5.5。实际价格、仓位、图表、保存记录和三档止盈/保本提醒共用冻结结果，恢复不重新生成。新闻纪律或风险冲突仍展示原样式参考卡，原因及不建议开仓说明在聊天正文，卡内不新增元素；没有可靠价格时显示不可用。参考卡不能激活提醒，用户风险设置是上限，实际仓位可能受账户和策略约束更低。旧计划和移动端保持原政策。当前仅源码候选，未部署；需配套客户端、API及Worker，客服不能代用户改风控、下单或激活计划。",
       "category": "analysis",
       "locale": "zh-CN",
       "status": "pending",
@@ -625,14 +818,16 @@
       ],
       "actions": {},
       "sources": [
-        "youle_desktop/docs/right-target-bands-20261025.zh-CN.md",
-        "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs"
+        "youle_desktop/src/main/plan-presentation-card.mjs",
+        "youle_desktop/src/shared/plan-presentation.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-alert-feed.mjs",
+        "youle_desktop/docs/preference-plan-presentation-20261025.zh-CN.md"
       ]
     },
     {
       "id": "right-target-bands-zh-hant",
-      "title": "右側三檔止盈強制區間",
-      "body": "配套後端上線後，新右側計畫三檔淨盈虧比固定為1:0.3–1:0.5、1:0.6–1:0.8、1:0.9–1:1.3。優先保留符合區間的原結構目標；缺失檔位按對應區間隨機產生有效精度價格，不再因結構目標不足而取消計畫，也不壓縮檔位。價格計入費用並在產生後固定，重試、儲存和歷史恢復不重新隨機；報告標明產生檔位，不將其作為結構預測。諧波保留原形態入場和止損。帳戶、交易精度及個人硬風控仍須通過。左側及舊歷史保持原規則；上線後重新分析生效。目前為原始碼候選，須核對後端實際版本。客服不能代使用者調整風控、下單或啟用計畫。",
+      "title": "交易偏好與計畫卡片",
+      "body": "新 macOS 策略分析逐欄採用本輪明確條件、已儲存偏好、預設值的優先序，不修改長期設定。最低淨盈虧比按比例放大三檔淨比例，計入費用與價格精度；例如0.4/0.7/1.1配最低2得到2/3.5/5.5。實際價格、倉位、圖表、儲存記錄和三檔止盈/保本提醒共用凍結結果，恢復不重新產生。新聞紀律或風險衝突仍展示原樣式參考卡，原因及不建議開倉說明在聊天正文，卡內不新增元素；沒有可靠價格時顯示不可用。參考卡不能啟用提醒，使用者風險設定為上限，實際倉位可能受帳戶和策略約束更低。舊計畫和行動端保持原政策。目前僅原始碼候選，未部署；須配套用戶端、API及Worker，客服不能代使用者改風控、下單或啟用計畫。",
       "category": "analysis",
       "locale": "zh-Hant",
       "status": "pending",
@@ -642,14 +837,16 @@
       ],
       "actions": {},
       "sources": [
-        "youle_desktop/docs/right-target-bands-20261025.zh-CN.md",
-        "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs"
+        "youle_desktop/src/main/plan-presentation-card.mjs",
+        "youle_desktop/src/shared/plan-presentation.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-alert-feed.mjs",
+        "youle_desktop/docs/preference-plan-presentation-20261025.zh-CN.md"
       ]
     },
     {
       "id": "right-target-bands-en",
-      "title": "Mandatory right-side profit-target bands",
-      "body": "After the matching backend release, new right-side plans require net reward:risk bands of 1:0.3–1:0.5, 1:0.6–1:0.8 and 1:0.9–1:1.3. Matching structural prices take priority. Missing exits are sampled randomly from valid price ticks within their bands, so insufficient structural targets no longer cancel a plan or compress its bands. Costs are included. Prices stay fixed across retries, saving and restoration; generated exits are labelled and are not predictive evidence. Harmonic entry and stop keep their native geometry. Account, precision and explicit risk limits still apply. Left-side and old saved plans retain their rules. Reanalyse after deployment. This is a source candidate; verify the deployed backend version. Support cannot change risk settings, place orders or activate plans.",
+      "title": "Trading preferences and plan cards",
+      "body": "New macOS strategy requests resolve each field from the current explicit request, saved preferences, then defaults, without rewriting saved settings. The minimum net reward:risk proportionally scales all three targets after costs and price precision; 0.4/0.7/1.1 with minimum 2 becomes 2/3.5/5.5. Prices, sizing, chart, saved plan and all three target/break-even reminders share frozen values across restoration. News or risk restrictions keep a reference card in the original layout; explanations stay in chat, with no added card elements. Missing reliable prices remain unavailable. Reference cards cannot activate reminders. Risk settings are caps; account and strategy limits may reduce sizing. Historical plans and mobile keep their existing policy. Source candidate only, not deployed; matching client, API and Worker are required. Support cannot change risk settings, place orders or activate plans.",
       "category": "analysis",
       "locale": "en",
       "status": "pending",
@@ -659,14 +856,16 @@
       ],
       "actions": {},
       "sources": [
-        "youle_desktop/docs/right-target-bands-20261025.zh-CN.md",
-        "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs"
+        "youle_desktop/src/main/plan-presentation-card.mjs",
+        "youle_desktop/src/shared/plan-presentation.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-alert-feed.mjs",
+        "youle_desktop/docs/preference-plan-presentation-20261025.zh-CN.md"
       ]
     },
     {
       "id": "right-target-bands-ko",
-      "title": "우측 진입 익절 목표의 필수 구간",
-      "body": "해당 백엔드 배포 후 새 우측 진입 계획의 순손익비 구간은 1:0.3–1:0.5, 1:0.6–1:0.8, 1:0.9–1:1.3입니다. 구간에 맞는 기존 구조 가격을 우선 보존하고, 없는 목표는 해당 구간의 유효한 가격 단위에서 무작위로 생성합니다. 구조 목표 부족으로 계획을 취소하거나 구간을 압축하지 않습니다. 비용을 반영하고 생성 가격을 고정하여 재시도, 저장 및 복원 시 다시 추출하지 않습니다. 생성한 목표는 보고서에 표시하며 예측 근거로 사용하지 않습니다. 하모닉 진입가와 손절가는 기존 패턴을 유지합니다. 계좌, 가격 정밀도 및 사용자 위험 한도 검증은 계속 적용됩니다. 좌측 진입과 과거 계획은 기존 규칙을 유지하며 배포 후 재분석해야 적용됩니다. 현재 소스 후보이므로 실제 배포 버전을 확인하세요. 고객지원은 위험 설정 변경, 주문 또는 계획 활성화를 대신할 수 없습니다.",
+      "title": "거래 선호 설정과 계획 카드",
+      "body": "새 macOS 전략 요청은 현재 요청의 명시 조건, 저장된 선호 설정, 기본값 순으로 각 항목을 적용하며 저장 설정을 변경하지 않습니다. 최소 순손익비에 따라 비용과 가격 단위를 반영하여 세 목표를 같은 비율로 확대합니다. 예를 들어 0.4/0.7/1.1에 최소 2를 적용하면 2/3.5/5.5가 됩니다. 가격, 포지션 크기, 차트, 저장 계획과 세 익절 및 본전 알림은 복원 시에도 같은 고정 값을 사용합니다. 뉴스나 위험 제한이 있어도 기존 모양의 참고 카드를 표시하며 설명은 채팅 본문에만 표시하고 카드 요소를 추가하지 않습니다. 신뢰할 가격이 없으면 사용 불가로 표시합니다. 참고 카드에서는 알림을 활성화할 수 없습니다. 위험 설정은 상한이며 계좌와 전략 제한에 따라 포지션이 작아질 수 있습니다. 과거 계획과 모바일 정책은 유지됩니다. 아직 배포하지 않은 소스 후보이며 호환되는 클라이언트, API, Worker가 필요합니다. 고객지원은 위험 설정 변경, 주문 또는 계획 활성화를 대신할 수 없습니다.",
       "category": "analysis",
       "locale": "ko",
       "status": "pending",
@@ -676,8 +875,166 @@
       ],
       "actions": {},
       "sources": [
-        "youle_desktop/docs/right-target-bands-20261025.zh-CN.md",
-        "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs"
+        "youle_desktop/src/main/plan-presentation-card.mjs",
+        "youle_desktop/src/shared/plan-presentation.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-alert-feed.mjs",
+        "youle_desktop/docs/preference-plan-presentation-20261025.zh-CN.md"
+      ]
+    },
+    {
+      "id": "cloud-plan-sync-validation-zh-cn",
+      "title": "云端计划同步与校验",
+      "body": "macOS 云端计划同步兼容带本轮提问约束的已保存计划；原会话过期或回执不含原始提问时仍可读取，计划内容与触发条件继续校验。同步失败保留本机已有计划，不等于计划未保存或已丢失。网络暂时失败会自动重试；数据校验失败会明确提示，应更新客户端，仍失败时联系客服。客服只能解释和协助排查，不能修改交易计划或代用户激活提醒。",
+      "category": "plans",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-plans.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-runtime.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs",
+        "youle_desktop/src/main/cloud-plan-sync-response.mjs",
+        "youle_desktop/docs/cloud-plan-request-receipt-20261025.zh-CN.md"
+      ]
+    },
+    {
+      "id": "cloud-plan-sync-validation-en",
+      "title": "Cloud plan synchronization and validation",
+      "body": "macOS can synchronize saved plans with request-specific constraints even when the original chat has expired or the receipt omits the original prompt. Frozen plan contents and trigger conditions are still validated. A synchronization failure preserves existing local plans and does not mean the plan was not saved or was lost. Temporary network failures retry automatically; validation failures show a specific message. Update the app and contact support if the problem persists. Support can explain and troubleshoot, but cannot change trading plans or activate reminders on the user’s behalf.",
+      "category": "plans",
+      "locale": "en",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-plans.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-runtime.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs",
+        "youle_desktop/src/main/cloud-plan-sync-response.mjs",
+        "youle_desktop/docs/cloud-plan-request-receipt-20261025.zh-CN.md"
+      ]
+    },
+    {
+      "id": "cloud-plan-sync-validation-zh-hant",
+      "title": "雲端計畫同步與驗證",
+      "body": "macOS 雲端計畫同步相容帶本輪提問約束的已儲存計畫；原會話過期或回執不含原始提問時仍可讀取，計畫內容與觸發條件繼續驗證。同步失敗保留本機既有計畫，不等於計畫未儲存或已遺失。網路暫時失敗會自動重試；資料驗證失敗會明確提示，應更新用戶端，仍失敗時請聯絡客服。客服只能說明和協助排查，不能修改交易計畫或代使用者啟用提醒。",
+      "category": "plans",
+      "locale": "zh-Hant",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-plans.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-runtime.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs",
+        "youle_desktop/src/main/cloud-plan-sync-response.mjs",
+        "youle_desktop/docs/cloud-plan-request-receipt-20261025.zh-CN.md"
+      ]
+    },
+    {
+      "id": "cloud-plan-sync-validation-ko",
+      "title": "클라우드 계획 동기화 및 검증",
+      "body": "macOS는 원래 대화가 만료되거나 영수증에 원래 요청이 없어도 요청별 조건이 포함된 저장된 계획을 동기화합니다. 저장된 계획 내용과 트리거 조건은 계속 검증합니다. 동기화 실패 시 기존 로컬 계획을 유지하며, 이는 계획이 저장되지 않았거나 손실되었다는 뜻이 아닙니다. 일시적인 네트워크 오류는 자동으로 재시도합니다. 데이터 검증 실패 시 별도 안내가 표시되며, 앱 업데이트 후에도 계속되면 고객 지원에 문의하세요. 고객 지원은 설명과 문제 진단만 제공하며 거래 계획을 변경하거나 사용자를 대신해 알림을 활성화할 수 없습니다.",
+      "category": "plans",
+      "locale": "ko",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-plans.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-runtime.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs",
+        "youle_desktop/src/main/cloud-plan-sync-response.mjs",
+        "youle_desktop/docs/cloud-plan-request-receipt-20261025.zh-CN.md"
+      ]
+    },
+    {
+      "id": "market-news-zh-cn",
+      "title": "K线、快讯与浏览器入口",
+      "body": "选中分类以加粗文字区分，不显示下划线。快讯顶部栏包含精选（默认）、巨鲸、主力、市场、上新、美联储和特朗普七个分类；向下滚动时，页面入口、分类、日期和刷新入口保持可见。分类切换保留所选日期并回到第一页，刷新返回当前分类的最新快讯，分页和每分钟自动刷新沿用当前分类。暂无快讯与加载中时顶部栏位置不变；窄窗口可横向滚动分类。点击快讯卡片的正文或空白处可打开官网新闻中心对应的快讯文章；投票、分享、展开全文和交易对按钮独立响应，选择文字不会跳转。发布时间显示在分享右侧。K线左侧顶部图标可切换K线与快讯。快讯使用 Haolo 品牌和单列信息流，不显示额外页面标题、条目分隔线或K线全屏控件。日期按钮位于快讯内容区，可打开日历；旁边的刷新图标返回最新。长文可展开全文。支持分页、已接入交易对的K线跳转、分享图片和链接。每账号每条快讯只能投利好或利空一票，再次点击取消。浏览器提示正在开发中，还未上线。需配套客户端与业务API版本，本条为发布候选。",
+      "category": "market-news",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/market-news.ts",
+        "youle_desktop/src/renderer/market-news.css",
+        "youle_desktop/src/main/youle-api-client.mjs",
+        "youle_desktop/src/shared/market-news-categories.mjs"
+      ]
+    },
+    {
+      "id": "market-news-zh-hant",
+      "title": "K線、快訊與瀏覽器入口",
+      "body": "選中分類以粗體文字區分，不顯示底線。快訊頂部列包含精選（預設）、巨鯨、主力、市場、上新、美聯儲和特朗普七個分類；向下捲動時，頁面入口、分類、日期和重新整理入口保持可見。切換分類保留所選日期並回到第一頁，重新整理返回目前分類的最新快訊，分頁和每分鐘自動更新沿用目前分類。暫無快訊與載入中時頂部列位置不變；窄視窗可橫向捲動分類。點擊快訊卡片的正文或空白處可開啟官網新聞中心對應的快訊文章；投票、分享、展開全文與交易對按鈕獨立回應，選取文字不會跳轉。發布時間顯示在分享右側。K線左側頂部圖示可切換K線與快訊。快訊使用 Haolo 品牌和單欄資訊流，不顯示額外頁面標題、條目分隔線或K線全螢幕控制項。日期按鈕位於快訊內容區，可開啟日曆；旁邊的重新整理圖示返回最新。長文可展開全文。支援分頁、已接入交易對的K線跳轉、分享圖片與連結。每帳號每條快訊只能投利好或利空一票，再次點擊取消。瀏覽器提示正在開發中，尚未上線。需配套用戶端與業務API版本，本條為發布候選。",
+      "category": "market-news",
+      "locale": "zh-Hant",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/market-news.ts",
+        "youle_desktop/src/renderer/market-news.css",
+        "youle_desktop/src/main/youle-api-client.mjs",
+        "youle_desktop/src/shared/market-news-categories.mjs"
+      ]
+    },
+    {
+      "id": "market-news-en",
+      "title": "Charts, news flashes and browser entry",
+      "body": "The selected category uses bold text without an underline. The sticky news toolbar contains Featured (default), Whales, Large orders, Markets, Listings, Fed and Trump. The page switch, categories, date and refresh remain visible while scrolling. Switching category keeps the selected date and resets pagination. Refresh returns to the latest items in the current category; pagination and minute-by-minute updates keep that category. The toolbar stays in place during loading and empty results. Categories scroll horizontally in narrow windows. Click the news card body or empty space to open its article in the website News Center. Voting, sharing, expanding text and trading-pair buttons act independently; selecting text does not navigate. Publication time appears to the right of Share. Use the icon above the chart drawing tools to switch between charts and Haolo news. The single-column feed omits extra page headings, item dividers and chart fullscreen controls. Use the date button within the feed to open the calendar and the adjacent refresh icon to return to the latest news. Long articles can be expanded. Pagination, supported trading-pair charts, image and link sharing remain available. Each account has one bullish or bearish vote per item; clicking again cancels it. The browser is in development. Requires matching client and business API releases; this entry is a release candidate.",
+      "category": "market-news",
+      "locale": "en",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/market-news.ts",
+        "youle_desktop/src/renderer/market-news.css",
+        "youle_desktop/src/main/youle-api-client.mjs",
+        "youle_desktop/src/shared/market-news-categories.mjs"
+      ]
+    },
+    {
+      "id": "market-news-ko",
+      "title": "차트, 속보 및 브라우저 메뉴",
+      "body": "선택한 카테고리는 밑줄 없이 굵은 글씨로 표시합니다. 속보 상단 바에는 주요 뉴스(기본), 고래, 큰손, 시장, 신규 상장, 연준, 트럼프의 일곱 카테고리가 있습니다. 아래로 스크롤해도 페이지 전환, 카테고리, 날짜, 새로고침이 표시됩니다. 카테고리를 바꾸면 선택한 날짜를 유지하고 첫 페이지로 돌아갑니다. 새로고침, 페이지 이동, 매분 자동 업데이트는 현재 카테고리를 유지합니다. 로딩 중이거나 속보가 없어도 상단 바 위치는 유지되며 좁은 창에서는 카테고리를 가로로 스크롤할 수 있습니다. 속보 카드 본문이나 빈 공간을 클릭하면 공식 웹사이트 뉴스 센터의 해당 기사가 열립니다. 투표, 공유, 펼치기 및 거래쌍 버튼은 각각 동작하며 텍스트 선택으로 이동하지 않습니다. 게시 시간은 공유 오른쪽에 표시됩니다. 차트 그리기 도구 위 아이콘에서 차트와 Haolo 속보를 전환합니다. 단일 열 피드에는 추가 페이지 제목, 기사 구분선 또는 차트 전체 화면 버튼이 없습니다. 피드의 날짜 버튼으로 달력을 열고 옆 새로 고침 아이콘으로 최신 속보로 돌아갑니다. 긴 기사는 펼쳐 읽을 수 있습니다. 이전 속보, 지원 거래쌍 차트, 공유 이미지와 링크를 제공합니다. 계정마다 속보당 호재 또는 악재 한 표만 가능하며 다시 누르면 취소됩니다. 브라우저는 개발 중입니다. 대응하는 클라이언트 및 비즈니스 API 배포가 필요한 후보 기능입니다.",
+      "category": "market-news",
+      "locale": "ko",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/market-news.ts",
+        "youle_desktop/src/renderer/market-news.css",
+        "youle_desktop/src/main/youle-api-client.mjs",
+        "youle_desktop/src/shared/market-news-categories.mjs"
       ]
     }
   ]

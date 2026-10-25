@@ -30,6 +30,28 @@ export function cloudMarketContext(params) {
 }
 
 export function validateCloudResult(run, record) {
+  return validateResult(run,record);
+}
+
+// Only the authenticated saved-plan list supplies this independent frozen
+// reference. Its receipt deliberately outlives (and omits) the original prompt.
+// Live/recovered analyses always use validateCloudResult and their journal body.
+export function validateSavedCloudResult(run, plan, {origin}={}) {
+  const policy=plan?.monitoringPolicy==='entry_v2'?'entry-v2':
+    plan?.monitoringPolicy==='windows_v1'&&plan.executionPolicy==='right-legacy-v1'?'right-legacy-v1':null;
+  const result=run?.desktopResult;
+  if(!policy||plan.saved!==true||plan.deleted||run?.id!==plan.runId||run?.executionPolicy!==policy
+    ||result?.cloud?.executionPolicy!==policy||!Array.isArray(result.cloud.planIds)||!result.cloud.planIds.includes(plan.id)
+    ||!Number.isSafeInteger(plan.appliedPreferences?.revision)
+    ||!isDeepStrictEqual(run.context,plan.context)
+    ||!isDeepStrictEqual(result.executionPlan,plan.executionPlan)
+    ||!isDeepStrictEqual(result.cloud.appliedPreferences,plan.appliedPreferences))throw fail('CLOUD_RESULT_CONTEXT_INVALID');
+  return validateResult(run,{runId:plan.runId,body:{...run,preferencesRevision:plan.appliedPreferences.revision},
+    preferencesHash:plan.appliedPreferences.configHash,requestedEntryMode:policy==='right-legacy-v1'?'right':plan.executionPlan.requestedMode,
+    marketId:result.snapshot?.marketId,interval:result.snapshot?.interval,origin},plan);
+}
+
+function validateResult(run, record, savedPlan) {
   const result = run.desktopResult;
   const context = record.body.context;
   if (run.id !== record.runId || run.clientContract !== 'windows-v1' || run.strategy !== record.body.strategy
@@ -55,7 +77,7 @@ export function validateCloudResult(run, record) {
     && (run.executionPolicy!=='right-legacy-v1'||run.locale!==record.body.locale||result.cloud.locale!==record.body.locale)) {
     throw fail('CLOUD_RESULT_CONTEXT_INVALID');
   }
-  if (record.body.executionPolicy==='entry-v2') validateCloudEntryResult(result,record);
+  if (record.body.executionPolicy==='entry-v2') validateCloudEntryResult(result,record,{savedPlan});
   if (record.body.executionPolicy==='right-legacy-v1') validateCloudRightResult(result,record);
   return {...result,cloud:{...result.cloud,...(record.origin ? {origin:record.origin} : {})}};
 }

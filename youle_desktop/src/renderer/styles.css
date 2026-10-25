@@ -34845,6 +34845,21 @@ html[data-theme="dark"] .trading-market-favorite-ticker-drag-ghost {
   object-fit: cover;
 }
 
+/* Binance originals retain their own colors in both themes and for all providers. */
+.trading-market-asset-logo.official-tradfi-logo {
+  border-radius: 50%;
+  background: transparent;
+}
+
+.trading-market-asset-logo.official-tradfi-logo > img {
+  object-fit: contain;
+  background: transparent;
+}
+
+.trading-market-asset-logo.official-tradfi-logo[data-market-logo-state="loaded"] > .trading-market-asset-mark {
+  visibility: hidden;
+}
+
 /* Keep the local mark visible until remote pixels are ready, also on slow or
    offline connections. No opacity transition: refreshing quotes must not flash. */
 .trading-market-asset-logo[data-market-logo-state="pending"] > img {

@@ -1045,6 +1045,7 @@ export class TradingExpertSplitPane {
         },
       },
     );
+    this.chartNavigation.setVerticalLocked(this.settings.verticalLocked);
     this.resizeObserver = new ResizeObserver(() => {
       this.chart?.applyOptions({
         width: Math.max(this.chartElement.clientWidth, 1),
@@ -1587,6 +1588,7 @@ export class TradingExpertSplitPane {
     const styleChanged = settings.chartStyle !== this.settings.chartStyle;
     const scaleModeChanged = this.chart?.priceScale("right", 0).options().mode !== priceScaleMode(settings);
     this.settings = cloneTradingChartSettings(settings);
+    this.chartNavigation?.setVerticalLocked(settings.verticalLocked);
     this.themeName = themeName;
     this.indicatorPanes.forEach((_runtime,id)=>this.renderCloudIndicatorPatch(id));
     const theme = settings.themes[themeName];

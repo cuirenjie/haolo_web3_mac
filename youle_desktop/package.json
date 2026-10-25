@@ -49,6 +49,8 @@
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "1.67.0",
+    "ajv": "8.17.1",
+    "ajv-formats": "3.0.1",
     "call-bind-apply-helpers": "1.0.2",
     "dunder-proto": "1.0.1",
     "es-define-property": "1.0.1",

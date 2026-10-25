@@ -88,7 +88,7 @@ test('breakout-retest keeps confirmation, zone, snapshot and live-evidence requi
   }
 });
 
-test('optional invalidation stays absent and non-plan outcomes never produce cards',()=>{
+test('optional invalidation stays absent and historical non-plan outcomes retain their original presentation',()=>{
   const report=cloudPlanCardFixture();delete report.executionPlan.entryCondition.invalidation;
   assert.doesNotMatch(cloudPlanCard(report).content,/条件失效:/);
   report.executionPlan.outcome.action='wait';assert.equal(cloudPlanCard(report),null);

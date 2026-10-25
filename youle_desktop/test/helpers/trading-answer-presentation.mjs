@@ -4,6 +4,7 @@ import ts from "typescript";
 import * as plans from "../../src/renderer/execution-plans.ts";
 import * as view from "../../src/main/execution-plan-card-view.mjs";
 import * as cloud from "../../src/main/cloud-plan-contract.mjs";
+import { renderPlanProbabilityReply } from "../../src/main/plan-probability-view.mjs";
 import { tradingAnalysisDeliveryItems } from "../../src/renderer/trading-analysis-completion.ts";
 import { turnResultFoldTargets } from "../../src/renderer/turn-result-fold.ts";
 import { pureAnalysisPresentationGroups } from "../../src/renderer/pure-analysis-presentation.ts";
@@ -30,7 +31,7 @@ export function renderTradingAnswer(items, { expanded = false, language = "zh-CN
   const state = { items: { fixture: Object.fromEntries(items.map(item => [item.id, item])) },
     resultProcessExpanded: {}, settings: { language }, executionPlans: [] };
   const deps = {
-    ...plans, ...view, ...cloud, state, turnResultFoldTargets, pureAnalysisPresentationGroups,
+    ...plans, ...view, ...cloud, state, turnResultFoldTargets, pureAnalysisPresentationGroups, renderPlanProbabilityReply,
     itemTurnId: item => item?.turnId || item?.turn_id,
     agentMessagePhase: item => item?.phase || item?.message_phase || item?.messagePhase,
     isRenderedUserSideMessage: message => message.kind === "user_text",

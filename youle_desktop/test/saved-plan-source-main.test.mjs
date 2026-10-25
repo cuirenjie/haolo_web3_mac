@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {createTradingTranscriptHost} from './helpers/trading-transcript-host.mjs';
 import {createCloudPlans} from '../src/main/trading-strategy-runtime/cloud-plans.mjs';
 import {cloudAccountPlanCardFixture} from './support/cloud-plan-card-fixture.mjs';
+import fs from 'node:fs';
 
 test('missing plan source cannot opt into creating a replacement thread',async t=>{
   const host=createTradingTranscriptHost(t,[],'target',{missingSourceId:'missing'});
@@ -23,12 +24,13 @@ test('source bindings are account scoped and never activate, delete, or alter a 
   await assert.rejects(service.perform('source',{planId:plan.id,runId:plan.runId,sourceThreadId:'cloud-run:placeholder'}),{code:'CLOUD_PLAN_SOURCE_INVALID'});
 });
 test('cloud plan list hydrates each report with the exact run origin and rejects an account switch during lookup',async()=>{
-  const report=cloudAccountPlanCardFixture(),preferences={revision:1,configHash:'hash'},context={marketKey:'binance:usdm:BTCUSDT',interval:'1h'};
-  const plan={...report.planRecords[0],saved:true,appliedPreferences:preferences,executionPlan:report.executionPlan};
-  const result={ok:true,clientContract:'windows-v1',strategy:{id:report.strategyId},snapshot:{marketId:report.marketId,interval:report.interval},
-    executionPlan:report.executionPlan,analysisPlan:{marketId:report.marketId,interval:report.interval,report:report.report,executionPlan:report.executionPlan},
-    cloud:{runId:report.runId,resultHash:report.resultHash,locale:report.locale,executionPolicy:'entry-v2',context,appliedPreferences:preferences,planRecords:[plan]}};
-  const run={id:report.runId,strategy:report.strategyId,clientContract:'windows-v1',context,desktopResult:result};
+  // The card-only fixture intentionally omits transport receipts. Use a full
+  // synthetic server result so this checks the real saved-plan validation path.
+  const {result,record}=JSON.parse(fs.readFileSync(new URL('./fixtures/wyckoff-retest-public.json',import.meta.url),'utf8')).cases.find(c=>c.kind==='long'&&c.locale==='zh-CN');
+  result.ok=true;
+  Object.assign(result.analysisPlan,{marketId:result.snapshot.marketId,interval:result.snapshot.interval,analysisId:result.analysisPlan.drawingPatch.analysisId});
+  const plan={...structuredClone(result.cloud.planRecords[0]),saved:true};
+  const run={id:result.cloud.runId,strategy:result.strategy.id,clientContract:'windows-v1',context:record.body.context,locale:result.cloud.locale,executionPolicy:'entry-v2',desktopResult:result};
   const original={ownerId:'a',accountId:'a',baseUrl:'https://example.test'};let owner=original;
   const origin={sourceThreadId:'exact-source',storageSessionId:'exact-source',analysisJobId:'job'};
   const sources={origins:async id=>{assert.equal(id,'a');return {[run.id]:origin,'another-run':{sourceThreadId:'wrong'}};}};

@@ -19,7 +19,7 @@ import {createCloudPlanRefresher,cloudPlanSyncMessage} from './cloud-plan-sync';
 import {createExecutionPlanAutoActivator} from './execution-plan-auto-activation';
 import { accountSettingsSync, type SettingValues } from './account-settings-sync.ts';
 import type { CloudRecoveryApi } from "./cloud-task-recovery.ts";
-import {normalizeCloudReports, cloudReportFromResponse, cloudPlanCard, bindLegacyCloudCandidate, type CloudTradingReport} from '../main/cloud-plan-contract.mjs';
+import {normalizeCloudReports, cloudReportFromResponse, cloudPlanCard, cloudPlanControls, bindLegacyCloudCandidate, type CloudTradingReport} from '../main/cloud-plan-contract.mjs';
 import {rememberTradingPlanDrawingHistory} from './trading-plan-drawing-history.ts';
 import {createSavedPlanSourceResolver, resolveSavedPlanSource, linkSavedPlanSource, isGeneratedPlanRecord, isObsoletePlanRecoveryNotice} from './saved-plan-source.ts';
 import {createExecutionPlanMenu, createPlanDialog, planMenuText, planChartContext} from './execution-plan-menu.ts';
@@ -28,6 +28,7 @@ import {showPlanShare} from './execution-plan-share.ts';
 import { createExternalTradingReplyPlanAttachments } from './external-trading-plan-images.ts';
 import './execution-plan-menu.css';
 import "./styles.css";
+import "./market-news.css";
 import { createHaoBaoUi } from "./haobao";
 import { installInteractionRenderGuard, deferInteractionRender } from "./interaction-render-guard.ts";
 import {
@@ -2050,6 +2051,10 @@ type DesktopApi = {
   getFinnhubMarketQuotes?(params: { symbols: string[] }): Promise<any>;
   getPublicMarketIndices?(): Promise<import("./trading-public-indices.ts").PublicIndicesSnapshot>;
   getIndexChart?(params: {indexId: string; period?: string; before?: number}): Promise<import("./trading-index-chart.ts").IndexChartResponse>;
+  getMarketNews?(params: import('./market-news.ts').NewsQuery): Promise<import('./market-news.ts').NewsPage>;
+  getMarketNewsDetail?(params: {id:string}): Promise<{item:import('./market-news.ts').NewsItem;status:string}>;
+  voteMarketNews?(params: {id:string;direction:number}): Promise<{id:string;vote:number;bullish:number;bearish:number}>;
+  saveMarketNewsImage?(params: {dataUrl:string}): Promise<{saved:boolean}>;
   getFinnhubMarketSnapshot?(params: {
     symbol: string;
     assetClass?: string;
@@ -39276,6 +39281,7 @@ function renderMessageExecutionPlan(
       index += candidateOffset;
       const card=cloudPlanCard(report,{language:state.settings.language});
       if(!card) return '';
+      const controls=cloudPlanControls(state.settings.language);
       const key=executionPlanCandidateKey(message.conversation_id,message.id,index);
       if(!card.readOnly)executionPlanCandidatesBySource.set(key,{title:card.title,content:card.content,cloudReport:report});
       const fontSize=loadMessageExecutionPlanFontSize(key);
@@ -39285,10 +39291,10 @@ function renderMessageExecutionPlan(
         <div class="execution-plan-card-content">${card.html}</div>
         <div class="message-execution-plan-footer">
         ${options.allowPlanAction ? renderAddToPlanAction(message, text, candidateOffset, index) : ""}
-        <footer class="message-execution-plan-controls" aria-label="执行卡片文字与便利贴操作">
-          <button type="button" data-message-execution-plan-action="increase"${fontSize>=MESSAGE_EXECUTION_PLAN_FONT_SIZES.at(-1)!?' disabled':''}>放大</button>
-          <button type="button" data-message-execution-plan-action="decrease"${fontSize<=MESSAGE_EXECUTION_PLAN_FONT_SIZES[0]?' disabled':''}>缩小</button>
-          ${card.readOnly?'':'<button type="button" data-message-execution-plan-action="sticky">便利贴</button>'}
+        <footer class="message-execution-plan-controls" aria-label="${escapeAttr(controls.label)}">
+          <button type="button" data-message-execution-plan-action="increase"${fontSize>=MESSAGE_EXECUTION_PLAN_FONT_SIZES.at(-1)!?' disabled':''}>${escapeHtml(controls.increase)}</button>
+          <button type="button" data-message-execution-plan-action="decrease"${fontSize<=MESSAGE_EXECUTION_PLAN_FONT_SIZES[0]?' disabled':''}>${escapeHtml(controls.decrease)}</button>
+          ${card.readOnly?'':`<button type="button" data-message-execution-plan-action="sticky">${escapeHtml(controls.sticky)}</button>`}
         </footer></div></section>${options.allowPlanAction ? renderPlanProbabilityReply(report,state.settings.language) : ''}`;
     }).join('');
     return {bubbleContent:formatMessageText(text,options),cards:cards?`<div class="message-execution-plan-list">${cards}</div>`:''};
@@ -43284,7 +43290,7 @@ function renderConversationListActions() {
       </div>
       <button type="button" class="conversation-list-action ${state.activeView === "haobao" ? "active" : ""}" data-conversation-static-action="haobao" ${state.activeView === "haobao" ? 'aria-current="page"' : ""}>
         ${haoBaoUi.sidebarIcon()}
-        <span>你的 ${escapeHtml(haoBaoUi.name)}</span>
+        <span>你的 <span data-i18n-skip>${escapeHtml(haoBaoUi.name)}</span></span>
       </button>
     </div>
     <section class="conversation-list-secondary-actions" aria-label="任务分类">

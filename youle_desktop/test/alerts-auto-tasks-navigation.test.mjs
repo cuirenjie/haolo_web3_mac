@@ -60,8 +60,8 @@ test("the alerts selection and sidebar controls share light and dark theme state
     "function renderMaximizeIcon",
   );
 
-  assert.match(workspaceRender, /state\.activeView === "chat" \|\|\s*state\.activeView === "account" \|\|\s*state\.activeView === "plans" \|\|\s*state\.activeView === "autoTasks" \|\|\s*state\.activeView === "alerts" \|\|\s*state\.activeView === "skillsPlaza"/);
-  assert.match(toggleBlock, /state\.activeView !== "chat" && state\.activeView !== "account" && state\.activeView !== "plans" && state\.activeView !== "autoTasks" && state\.activeView !== "alerts" && state\.activeView !== "skillsPlaza"/);
+  assert.match(workspaceRender, /state\.activeView === "chat" \|\|\s*state\.activeView === "haobao" \|\|\s*state\.activeView === "account" \|\|\s*state\.activeView === "plans" \|\|\s*state\.activeView === "autoTasks" \|\|\s*state\.activeView === "alerts" \|\|\s*state\.activeView === "skillsPlaza"/);
+  assert.match(toggleBlock, /state\.activeView !== "chat" && state\.activeView !== "haobao" && state\.activeView !== "account" && state\.activeView !== "plans" && state\.activeView !== "autoTasks" && state\.activeView !== "alerts" && state\.activeView !== "skillsPlaza"/);
   assert.match(styles, /--conversation-action-hover:\s*rgba\(17, 24, 39, 0\.035\);/);
   assert.match(
     styles,

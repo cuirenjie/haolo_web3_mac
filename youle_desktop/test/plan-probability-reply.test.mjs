@@ -23,7 +23,9 @@ test('left, right and legacy replies appear after the unchanged plan and control
   for(const legacy of [false,true])for(const mode of ['left','right']) {
     const report=probabilityReport('zh-CN',mode,legacy);
     const {rendered}=renderCurrentReports([report],{allowPlanAction:true});
-    assert.ok(rendered.cards.indexOf('plan-probability-reply')>rendered.cards.indexOf('message-execution-plan-controls'));
+    const replyIndex=rendered.cards.indexOf('plan-probability-reply');
+    const controlsIndex=rendered.cards.indexOf('message-execution-plan-controls');
+    assert.ok(controlsIndex>=0 && replyIndex>controlsIndex);
     assert.match(rendered.cards,/62\.75%/);
     const before=structuredClone(report);delete before.profitProbability;
     assert.equal(rendered.cards.replace(renderPlanProbabilityReply(report),''),renderCurrentReports([before],{allowPlanAction:true}).rendered.cards);
@@ -53,7 +55,8 @@ test('escapes model text and provides four localized descriptions without render
     report.profitProbability.assessments[0].summary='<img src=x onerror=alert(1)> & evidence';
     const html=renderPlanProbabilityReply(report,locale);
     assert.ok(html.includes('&lt;img'));assert.ok(!html.includes('<img'));
-    assert.match(html,/100% − .*37\.25% = 62\.75%/);
+    assert.doesNotMatch(html,/plan-probability-formula|100% −|37\.25%/);
+    assert.match(html,/<strong>62\.75%<\/strong>/);
     assert.ok(html.includes(locale==='en'?'Not calibrated':locale==='ko'?'백테스트':locale==='zh-Hant'?'回測':'回测'));
   }
 });

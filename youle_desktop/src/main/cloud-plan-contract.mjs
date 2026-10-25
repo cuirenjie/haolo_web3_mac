@@ -10,12 +10,24 @@ import {validLeftObservation,leftRouteView} from './price-action-left-card.mjs';
 import {validConditionalWatch} from './conditional-watch-card.mjs';
 import {normalizePlanProbability} from './plan-probability-view.mjs';
 import {validAnalysisRequestPlan} from '../shared/analysis-request-contract.mjs';
+import {validPlanPresentation,validPresentationDrawing,validPresentationReminder} from '../shared/plan-presentation.mjs';
+import {planPresentationCard} from './plan-presentation-card.mjs';
 const uuid = value => typeof value==='string' && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
 const hash = value => typeof value==='string' && /^[a-f0-9]{64}$/.test(value);
 const positive=value=>typeof value==='number'&&Number.isFinite(value)&&value>0;
 const predicate=value=>value&&['at_or_above','at_or_below','cross_up','cross_down','in_zone'].includes(value.operator)&&positive(value.lower)
   &&(value.operator==='in_zone'?positive(value.upper)&&value.upper>=value.lower:value.upper==null);
 const fail = () => {throw new Error('CLOUD_REPORT_INVALID');};
+export function cloudPlanControls(language) {
+  const rows={
+    'zh-CN':['卡片文字与便利贴操作','放大','缩小','便利贴'],
+    'zh-TW':['卡片文字與便利貼操作','放大','縮小','便利貼'],
+    en:['Card text and sticky note controls','Larger','Smaller','Sticky note'],
+    ko:['카드 글자 및 메모 제어','확대','축소','메모'],
+  };
+  const [label,increase,decrease,sticky]=rows[language]||rows['zh-CN'];
+  return {label,increase,decrease,sticky};
+}
 export function normalizeCloudReports(value) {
   if(value==null) return [];
   if(!Array.isArray(value)||value.length>8) fail();
@@ -53,8 +65,10 @@ export function normalizeCloudReports(value) {
     if(row.executionPlan?.schemaVersion!==2||!Array.isArray(row.executionPlan.scenarios)||row.executionPlan.scenarios.length>1
       ||row.planRecords.length!==row.executionPlan.scenarios.length)fail();
     const plan=row.executionPlan;
-    if(!validAnalysisRequestPlan(plan))fail();
+    if(!validAnalysisRequestPlan(plan)||!validPlanPresentation(plan)
+      ||(plan.planPresentation&&!validPresentationDrawing(plan,row.drawingPatch)))fail();
     for(const remote of row.planRecords) {
+      if(!validPresentationReminder(plan,remote))fail();
       if(plan.requestRequirements && (remote.scenario?.side!==plan.scenarios[0]?.side
         ||!validAnalysisRequestPlan(remote.executionPlan)))fail();
     }
@@ -155,9 +169,8 @@ export function cloudPlanCard(report, { hideExpiry = false, separateAction = fal
   const t=key=>words[key]?localizedChoice(words[key],displayLanguage||report.locale):key;
   const plan=report.executionPlan,condition=plan.entryCondition,scenario=plan.scenarios[0];
   const language=displayLanguage||(report.locale==='zh-Hant'?'zh-TW':report.locale);
-  // Historical observation payloads remain readable, but never become cards.
-  // Only a server-priced plan uses the original structured plan presentation.
-  if(plan.outcome?.action!=='plan'||!condition||!scenario) return null;
+  if(plan.outcome?.action!=='plan'||!condition||!scenario)
+    return plan.planPresentation?.version==='always-card-v1'?planPresentationCard(report,language):null;
   const route=leftRouteView(plan,language);
   const predicate=p=>p ? `${t(p.operator)} ${p.operator==='in_zone'?`[${p.lower}, ${p.upper}]`:p.lower}` : '';
   const details=[t(condition.confirmation),predicate(condition.trigger)];

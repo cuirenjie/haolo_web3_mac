@@ -13,10 +13,16 @@ const conditionValid=rule=>rule?.monitoringPolicy==='entry_v2'&&hash(rule.condit
   &&(rule.entryCondition.confirmation!=='breakout_retest'||(predicate(rule.entryCondition.retest)&&rule.entryCondition.retest.operator==='in_zone'));
 function validEvent(event,items) {
   const alert=event?.alert||items.get(event?.alertId),evidence=event?.data?.evidence;
+  const name=event?.data?.condition,exits=alert?.rule?.preferenceExitPolicy;
+  const newExit=exits?.version==='preference-exits-v1'&&(
+    name==='break_even'&&exits.moveStopToBreakEven===true
+    ||name==='time'&&positive(alert.rule.leftHoldingDeadline)
+    ||name==='structure'&&alert.rule.leftPolicy?.version==='price-action-left-dual-v1'
+    ||/^target:[12]$/.test(name)&&positive(alert.rule.targets?.[Number(name.split(':')[1])]));
   return Number.isSafeInteger(event?.sequence)&&event.sequence>0&&token(event.data?.eventId)&&positive(event.data?.price)
     &&Number.isSafeInteger(event.data?.occurredAt)&&event.data.occurredAt>0&&alert?.id===event.alertId
     &&conditionValid(alert.rule)&&evidence?.conditionHash===alert.rule.conditionHash
-    &&['entry','stop','target:0'].includes(event.data?.condition)
+    &&(['entry','stop','target:0'].includes(name)||newExit)
     &&evidence.conditionId===alert.rule.entryCondition.conditionId&&evidence.conditionRevision===alert.rule.entryCondition.revision;
 }
 export function createCloudAlertFeed({owner,api,journal,notify,changed,intervalMs=15000}) {

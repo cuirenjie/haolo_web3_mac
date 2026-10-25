@@ -1,6 +1,6 @@
 import {cloudTaskHistory} from './cloud-task-history.mjs';
 import {isDeepStrictEqual as equal} from 'node:util';
-import {validateCloudResult} from './cloud-runtime.mjs';
+import {validateSavedCloudResult} from './cloud-runtime.mjs';
 import {cloudReportFromResponse,selectCloudPlan} from '../cloud-plan-contract.mjs';
 
 const fail = code => {throw Object.assign(new Error(code),{code});};
@@ -41,10 +41,7 @@ export function createCloudPlans({owner,api,sources}) {
         if((plan.monitoringPolicy!=='entry_v2'&&!right(plan))||!plan.saved||plan.deleted||seen.has(plan.id))fail('CLOUD_RESULT_CONTEXT_INVALID');
         seen.add(plan.id);items.push(plan);
         const run=response.receipts?.[plan.id]||await request(captured,'run',{runId:plan.runId});
-        const result=validateCloudResult(run,{runId:run.id,body:{...run,preferencesRevision:plan.appliedPreferences.revision},
-          preferencesHash:plan.appliedPreferences.configHash,requestedEntryMode:right(plan)?'right':plan.executionPlan.requestedMode,
-          marketId:run.desktopResult?.snapshot?.marketId,interval:run.desktopResult?.snapshot?.interval,origin:origins[run.id]});
-        if(!equal(result.executionPlan,plan.executionPlan))fail('CLOUD_RESULT_CONTEXT_INVALID');
+        const result=validateSavedCloudResult(run,plan,{origin:origins[plan.runId]});
         reports.push(selectCloudPlan(cloudReportFromResponse(result)[0],plan));
         }
         after=response.nextCursor;

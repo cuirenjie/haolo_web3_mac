@@ -87,7 +87,8 @@ async function main() {
     })()`);
     await check("Catalog identity survives stale quote metadata while the live price is retained", async () => {
       assert.deepEqual(await js("['SNDK','SKHYNIX','CL'].map(asset=>{const market=workspace.resolveWatchlistMarket(qaIcons.find(m=>m.baseAsset===asset));return [market.assetClass,market.markPrice]})"), [["stock",999],["stock",999],["commodity",999]]);
-      assert.equal(await js("['SNDK','SKHYNIX','CL'].every(asset=>!!qaLogo(asset).querySelector('[data-market-logo-local]')&&!qaImage(asset))"), true);
+      await wait("['SNDK','SKHYNIX','CL'].every(asset=>qaImage(asset)?.naturalWidth>0&&qaLogo(asset).dataset.marketLogoState==='loaded')");
+      assert.equal(await js("['SNDK','SKHYNIX','CL'].every(asset=>qaImage(asset).dataset.marketLogoStage==='bundled')"), true);
     });
     await check("A delayed image never covers the visible fallback with a blank circle", async () => {
       assert.equal(await js("(()=>{const image=qaImage('QASLOW'),style=getComputedStyle(image),fallback=qaLogo('QASLOW').querySelector('[data-market-logo-fallback]');return !!fallback.textContent.trim()&&(image.hidden||style.visibility==='hidden'||style.opacity==='0'||style.display==='none')})()"), true);
@@ -154,9 +155,10 @@ async function main() {
       await js("workspace.setPickerOpen(false)");
     });
     await check("Main and split chart headers and split search preserve their icon nodes", async () => {
-      await js("workspace.updateSymbolUi();workspace.splitLayoutId='2-columns';workspace.applySplitLayout()");
+      await js("workspace.selectedMarketMeta=qaIcons.find(m=>m.baseAsset==='SNDK');workspace.updateSymbolUi();workspace.splitLayoutId='2-columns';workspace.applySplitLayout()");
       await wait("workspace.splitPanes.length===1");
-      await js("window.qaSplit=workspace.splitPanes[0];qaSplit.updateMarkets(workspace.availableSplitPaneMarkets());qaSplit.setSymbolMenuOpen(true)");
+      await js("window.qaSplit=workspace.splitPanes[0];qaSplit.market=qaIcons.find(m=>m.baseAsset==='SKHYNIX');qaSplit.updateToolbarState();qaSplit.updateMarkets(workspace.availableSplitPaneMarkets());qaSplit.setSymbolMenuOpen(true)");
+      await wait("workspace.host.querySelector('.trading-market-symbol .official-tradfi-logo img')?.naturalWidth>0 && qaSplit.host.querySelector('[data-split-symbol-logo] .official-tradfi-logo img')?.naturalWidth>0");
       await pause(150);
       await js("window.qaMainLogo=workspace.host.querySelector('.trading-market-symbol [data-market-logo-shell]');window.qaSplitLogos=[...qaSplit.host.querySelectorAll('[data-market-logo-shell]')]");
       for (let i=0;i<10;i++) { await js("workspace.updateSymbolUi();qaSplit.updateToolbarState()"); await pause(30); }
@@ -182,6 +184,35 @@ async function main() {
       assert.equal(await js("qaOtherLogos.every(n=>n.isConnected&&n.dataset.marketLogoState==='fallback'&&!!n.textContent.trim())"),true);
       await js("qaOther.remove()");
     });
+    await check("Every bundled original decodes offline, and same-ticker crypto cannot inherit a stock source", async () => {
+      await js(`(async()=>{
+        const {renderTradingMarketAssetLogo}=await import('/trading-expert-market-identity.ts');
+        const {BINANCE_TRADFI_LOGOS}=await import('/trading-tradfi-logo-assets.ts');
+        window.qaAll=document.createElement('section');qaAll.style.cssText='position:fixed;left:-10000px;top:0';document.body.append(qaAll);
+        qaAll.innerHTML=Object.entries(BINANCE_TRADFI_LOGOS).map(([asset,logo])=>renderTradingMarketAssetLogo(asset,'binance',true,logo.kind==='equity'?'stock':logo.kind)).join('')+renderTradingMarketAssetLogo('MU','binance',true,'crypto');
+      })()`);
+      await wait("[...qaAll.querySelectorAll('img')].every(i=>i.complete&&i.naturalWidth>0)");
+      assert.equal(await js("[...qaAll.querySelectorAll('.official-tradfi-logo img')].every(i=>i.dataset.marketLogoStage==='bundled')"), true);
+      assert.match(await js("qaAll.querySelector('img[data-market-logo-asset=MU][data-market-logo-primary-stage=binance]').dataset.marketLogoSrc"), /static\/assets\/logos\/MU\.png/);
+      await js("qaAll.remove()");
+    });
+    // Actual watchlist rows, using the same brands as the user's Binance reference.
+    window.setSize(1440, 1100);
+    await js(`(() => {
+      const symbols=['MU','NVDA','SPCX','AAPL','TSLA','SNDK','META','AMD','MSFT','BE','KORU','SKHYNIX','XAU'];
+      workspace.markets=symbols.map(asset=>({...qaMarkets[0],id:'BINANCE:FUTURES:'+asset+'USDT',symbol:asset+'USDT',baseAsset:asset,displaySymbol:asset+'/USDT',assetClass:asset==='XAU'?'commodity':asset==='KORU'?'etf':'stock',quoteAvailable:false}));
+      workspace.watchlist.selectGroup('watchlist');workspace.watchlist.activeGroup.markets=workspace.markets;
+      workspace.watchlistMarketsById=new Map();workspace.watchlistPanel.refresh();
+    })()`);
+    await wait("[...document.querySelectorAll('[data-watchlist-row] img')].every(i=>i.naturalWidth>0)");
+    for (const theme of ['light','dark']) {
+      await js(`document.documentElement.dataset.theme='${theme}'`);
+      await pause(100);
+      const bounds=await js("(()=>{const r=document.querySelector('[data-watchlist-host]').getBoundingClientRect();return {x:Math.floor(r.x),y:Math.floor(r.y),width:Math.ceil(r.width),height:Math.ceil(r.height)}})()");
+      const file=path.join(output,`tradfi-reference-${theme}.png`);
+      await writeFile(file,(await window.webContents.capturePage(bounds)).toPNG());
+      report.screenshots.push(file);
+    }
     assert.equal(await js("window.qaError || ''"), "");
   } catch (error) {
     report.failures.push(error.stack || String(error));

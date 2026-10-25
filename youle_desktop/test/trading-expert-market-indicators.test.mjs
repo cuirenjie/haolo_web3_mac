@@ -1453,13 +1453,14 @@ test("Binance asset logos use the shared official static asset path", async () =
   );
 });
 
-test("TradFi asset logos use deterministic local marks when exchange logos are unavailable", async () => {
+test("TradFi asset logos bundle Binance originals with deterministic fallback marks", async () => {
   const { renderTradingMarketAssetLogo } = await import("../src/renderer/trading-expert-market-identity.ts");
 
   const xau = renderTradingMarketAssetLogo("XAU", "binance", false, "commodity");
   assert.match(xau, /data-market-logo-local="commodity"/);
   assert.match(xau, /data-market-logo-glyph="Au"/);
-  assert.doesNotMatch(xau, /bin\.bnbstatic\.com/);
+  assert.match(xau, /data-market-logo-stage="bundled"/);
+  assert.match(xau, /assets\/binance-tradfi\/XAU\.png/);
 
   const sndk = renderTradingMarketAssetLogo("SNDK", "binance", false, "stock");
   assert.match(sndk, /data-market-logo-local="stock"/);

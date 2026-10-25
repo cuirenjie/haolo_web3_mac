@@ -75,7 +75,8 @@ export class TradingWatchlistPanel {
   private deferredRender = false;
   private menuCloseTimer: number | null = null;
   private readonly indices: TradingPublicIndices;
-  private readonly recommendationSelections = new Map<string, Set<string>>();
+  // Keep onboarding open while adding several markets; membership remains in the store.
+  private recommendationSession = false;
   private readonly priceFlash = new TradingPriceFlash();
 
   constructor(options: WatchlistOptions) {
@@ -122,7 +123,6 @@ export class TradingWatchlistPanel {
     host?.addEventListener("keydown", this.handleKeyDown, { signal });
     document.addEventListener("pointerover", this.handleGroupPointerOver, { signal });
     host?.addEventListener("pointerout", this.handleGroupPointerOut, { signal });
-    host?.addEventListener("change", this.handleRecommendationChange, { signal });
     window.addEventListener("resize", () => this.closeMenu(), { signal });
     document.addEventListener(
       "pointerdown",
@@ -142,6 +142,9 @@ export class TradingWatchlistPanel {
 
   setExpanded(expanded: boolean) {
     if (this.options.store.expanded === expanded) return;
+    if (!expanded) {
+      this.recommendationSession = false;
+    }
     this.options.store.expanded = expanded;
     this.options.store.save();
     this.refresh();
@@ -169,6 +172,10 @@ export class TradingWatchlistPanel {
       this.toggle.setAttribute("aria-expanded", String(store.expanded));
     }
     if (!this.host) return;
+    const focusedRecommendation = document.activeElement instanceof HTMLElement
+      && this.host.dataset.watchlistView === "recommendations"
+      && this.host.contains(document.activeElement)
+      ? document.activeElement : null;
     const menuOpen = Boolean(this.host.querySelector("[data-watchlist-menu]:popover-open"));
     const menuClosing = this.menuCloseTimer !== null;
     this.closeMenu();
@@ -182,10 +189,13 @@ export class TradingWatchlistPanel {
       return;
     }
     const active = store.activeGroup;
+    const showingRecommendations = active.id === "watchlist"
+      && (!active.markets.length || this.recommendationSession);
+    this.host.dataset.watchlistView = showingRecommendations ? "recommendations" : "quotes";
     const hasNewMarket = !store.fixedGroup && this.renderedGroupId === active.id
       && active.markets.some((market) => !this.renderedMarketIds.has(market.id));
     if (hasNewMarket) this.sort = null;
-    const scrollTop = hasNewMarket ? 0
+    const scrollTop = showingRecommendations || hasNewMarket ? 0
       : this.host.querySelector("[data-watchlist-rows]")?.scrollTop || 0;
     this.renderedGroupId = active.id;
     this.renderedMarketIds = new Set(active.markets.map((market) => market.id));
@@ -216,29 +226,37 @@ export class TradingWatchlistPanel {
         ${store.fixedGroup ? "" : '<button type="button" class="trading-watchlist-add-group" data-watchlist-action="new-group" aria-label="新建分组" title="新建分组">＋</button>'}
         ${store.fixedGroup ? "" : '<button type="button" class="trading-watchlist-add" data-watchlist-action="add">添加</button>'}
       </nav>
-      <div class="trading-watchlist-head">
+      <div class="trading-watchlist-head" ${showingRecommendations ? "hidden" : ""}>
         <span>名称</span>
         <button type="button" data-i18n-wrap data-watchlist-action="sort-price" aria-label="按${showingIndices ? "最新指数" : "最新价"}排序" title="按${showingIndices ? "最新指数" : "最新价"}排序">${showingIndices ? "最新指数" : "最新价"}<span aria-hidden="true">${this.sort?.column === "price" ? (this.sort.direction === 1 ? "↑" : "↓") : "↕"}</span></button>
         <button type="button" data-i18n-wrap data-watchlist-action="sort-change" aria-label="按24H涨幅排序" title="按24H涨幅排序">24H涨幅<span aria-hidden="true">${this.sort?.column === "change" ? (this.sort.direction === 1 ? "↑" : "↓") : "↕"}</span></button>
       </div>
       <div class="trading-watchlist-rows" data-watchlist-rows role="list" aria-label="${escape(`${activeGroupName}${uiText("交易对")}`)}">
         ${
-          (showingIndices ? this.renderIndices() : this.sortedMarkets()
+          (showingRecommendations ? this.renderRecommendations() : showingIndices ? this.renderIndices() : this.sortedMarkets()
             .map((market) => this.renderRow(market))
             .join("")) ||
           this.renderEmpty()
         }
         <span class="trading-watchlist-sort-status" data-watchlist-sort-status role="status" aria-live="polite"></span>
-      </div>`;
+      </div>
+      ${showingRecommendations ? this.renderRecommendationFooter() : ""}`;
     const rows = this.host.querySelector<HTMLElement>("[data-watchlist-rows]");
     this.measureRowLayout();
     this.paintQuotes();
     if (rows) rows.scrollTop = scrollTop;
+    if (showingRecommendations && focusedRecommendation) {
+      const id = focusedRecommendation.dataset.watchlistRecommendation;
+      const action = focusedRecommendation.dataset.watchlistAction;
+      const selector = id ? `[data-watchlist-recommendation="${CSS.escape(id)}"]`
+        : action ? `[data-watchlist-action="${CSS.escape(action)}"]` : null;
+      if (selector) this.host.querySelector<HTMLElement>(selector)?.focus({ preventScroll: true });
+    }
     if (menuOpen) {
       this.openMenu(false);
       if (menuClosing) this.scheduleMenuClose();
     }
-    if (rows && !store.fixedGroup) {
+    if (rows && !store.fixedGroup && !showingRecommendations) {
       this.sorter = new TradingFavoriteTickerSortController({
         host: rows,
         axis: "y",
@@ -291,32 +309,32 @@ export class TradingWatchlistPanel {
     }
     if (store.activeGroupId.startsWith("custom-"))
       return '<div class="trading-watchlist-empty trading-watchlist-empty-custom" role="status">点击右上角"添加"增加</div>';
-    const selected = this.selectedRecommendations();
+    return this.renderRecommendations();
+  }
+
+  private renderRecommendations() {
+    const { store } = this.options;
+    const markets = WATCHLIST_RECOMMENDED_MARKETS;
+    const added = new Set(store.activeGroup.markets.map(market => market.id));
     return `<div class="trading-watchlist-recommendations" aria-label="推荐交易对">
-      <div class="trading-watchlist-recommendation-grid">${WATCHLIST_RECOMMENDED_MARKETS.map((market) => `<label class="trading-watchlist-recommendation" title="${escape(`${market.displaySymbol} ${market.venue} ${market.tag}`)}">
-        <input type="checkbox" data-watchlist-recommendation="${escape(market.id)}" aria-label="添加 ${escape(market.displaySymbol)}" ${selected.has(market.id) ? "checked" : ""}>
-        <span><strong>${escape(market.displaySymbol)}</strong><small>${escape(`${market.venue} USDT永续`)}</small></span>
-      </label>`).join("")}</div>
-      <button type="button" class="trading-watchlist-add-recommended" data-i18n-wrap data-watchlist-action="add-recommended" ${selected.size ? "" : "disabled"}>一键添加到${escape(store.activeGroup.name)}</button>
+      <div class="trading-watchlist-recommendation-list" id="trading-watchlist-recommendation-list" role="list">${markets.map((market) => `<div class="trading-watchlist-recommendation" role="listitem">
+        ${renderTradingMarketAssetLogo(market.baseAsset, market.provider, false, market.assetClass, market.description)}
+        <span class="trading-watchlist-recommendation-copy">
+          <span class="trading-watchlist-recommendation-name" title="${escape(market.displaySymbol)}"><strong>${escape(market.baseAsset)}</strong><span> / ${escape(market.quoteAsset)}</span></span>
+          <small><span>${escape(market.venue || "币安")}</span> · <span>永续</span></small>
+        </span>
+        <button type="button" class="trading-watchlist-recommendation-add" data-watchlist-action="toggle-recommendation" data-watchlist-recommendation="${escape(market.id)}" aria-pressed="${added.has(market.id)}" aria-label="${added.has(market.id) ? "移除" : "添加"} ${escape(market.displaySymbol)}" title="${added.has(market.id) ? "移出自选" : "添加自选"}">${added.has(market.id) ? "已添加" : "添加"}</button>
+      </div>`).join("")}</div>
     </div>`;
   }
 
-  private selectedRecommendations() {
-    const id = this.options.store.activeGroupId;
-    if (!this.recommendationSelections.has(id))
-      this.recommendationSelections.set(id, new Set(WATCHLIST_RECOMMENDED_MARKETS.map((market) => market.id)));
-    return this.recommendationSelections.get(id)!;
+  private renderRecommendationFooter() {
+    const added = new Set(this.options.store.activeGroup.markets.map(market => market.id));
+    return `<footer class="trading-watchlist-recommendation-footer">
+        <span class="trading-watchlist-recommendation-status" role="status" aria-live="polite"><span>已添加</span> <span>${added.size}</span></span>
+        ${added.size ? '<button type="button" data-watchlist-action="view-watchlist">查看自选</button>' : ""}
+      </footer>`;
   }
-
-  private readonly handleRecommendationChange = (event: Event) => {
-    const input = event.target;
-    if (!(input instanceof HTMLInputElement) || !input.dataset.watchlistRecommendation) return;
-    const selected = this.selectedRecommendations();
-    if (input.checked) selected.add(input.dataset.watchlistRecommendation);
-    else selected.delete(input.dataset.watchlistRecommendation);
-    const add = this.host?.querySelector<HTMLButtonElement>('[data-watchlist-action="add-recommended"]');
-    if (add) add.disabled = !selected.size;
-  };
 
   private renderIndices() {
     const indices = [...this.indices.indices];
@@ -500,6 +518,7 @@ export class TradingWatchlistPanel {
       else this.closeMenu();
     } else if (action === "group") {
       this.closeMenu();
+      this.recommendationSession = false;
       store.selectGroup(button.dataset.groupId || "");
       this.sort = null;
       this.refresh();
@@ -507,25 +526,32 @@ export class TradingWatchlistPanel {
     } else if (action === "remove-group") {
       const id = button.dataset.groupId || "";
       if (!store.removeGroup(id)) return;
-      this.recommendationSelections.delete(id);
       this.sort = null;
       this.refresh();
       this.options.onChange();
       (this.host?.querySelector<HTMLElement>('[data-watchlist-menu]:popover-open [aria-checked="true"]')
         || this.host?.querySelector<HTMLElement>('[data-watchlist-groups] > [data-group-id]'))?.focus();
-    } else if (action === "add-recommended" && !store.fixedGroup) {
-      const selected = WATCHLIST_RECOMMENDED_MARKETS.filter((market) => this.selectedRecommendations().has(market.id));
-      const existing = new Set(store.activeGroup.markets.map((market) => market.id));
-      store.addMarkets(selected);
-      selected
-        .filter((market) => !existing.has(market.id))
-        .forEach((market) => this.options.onMembershipChange?.(market, true));
+    } else if (action === "toggle-recommendation" && store.activeGroupId === "watchlist") {
+      const market = WATCHLIST_RECOMMENDED_MARKETS.find(market => market.id === button.dataset.watchlistRecommendation);
+      if (!market) return;
+      const added = !store.has(market.id);
+      this.recommendationSession = true;
+      store.setMembership(market, added);
+      this.options.onMembershipChange?.(market, added);
       this.refresh();
       this.options.onChange();
-      this.host?.querySelector<HTMLElement>('[data-watchlist-action="add"]')?.focus();
+      this.host?.querySelector<HTMLElement>(`[data-watchlist-recommendation="${market.id}"]`)?.focus({ preventScroll: true });
+    } else if (action === "view-watchlist") {
+      this.recommendationSession = false;
+      this.refresh();
+      this.host?.querySelector<HTMLElement>('[data-watchlist-action="select"]')?.focus({ preventScroll: true });
     } else if (action === "retry") this.options.retryTradFi();
     else if (action === "new-group" && !store.fixedGroup) this.openGroupDialog();
-    else if (action === "add") this.options.openPicker();
+    else if (action === "add") {
+      this.recommendationSession = false;
+      this.refresh();
+      this.options.openPicker();
+    }
     else if (action === "sort-price" || action === "sort-change") {
       const column = action === "sort-price" ? "price" : "change";
       this.sort =

@@ -44,7 +44,7 @@ try{
     await click(`.settings-language-select [data-haolo-select-value="${language}"]`);
     await click(`[data-settings-theme="${theme}"]`);await click('.settings-close-button');
     await fixture();await click('[data-action="open-native-support"]');
-    await wait(()=>window.supportAIQA.device&&document.querySelector('.support-ai-identity'));
+    await wait(()=>window.supportAIQA.device&&document.querySelector('.native-support-messages'));
     await wait(()=>document.body.innerText.includes('haolo')&&document.querySelector('.native-support-message.is-system'));
     const next=theme==='light'?'dark':'light';
     await run(next=>window.supportAIQA.propose([{kind:'set_theme',theme:next}]),next);

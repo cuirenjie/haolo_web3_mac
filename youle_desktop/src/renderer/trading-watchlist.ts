@@ -2,7 +2,7 @@ import type { TradingFavoriteMarketRecord } from "./trading-expert-market.ts";
 
 export const WATCHLIST_NAME_LIMIT = 5;
 export const WATCHLIST_RECOMMENDED_MARKETS: readonly TradingFavoriteMarketRecord[] =
-  ["BTC", "ETH", "ZEC", "BNB", "SNDK", "MU", "SKHYNIX", "XAU"].map((baseAsset) => ({
+  ["BTC", "ETH", "ZEC", "BNB", "SNDK", "MU", "SKHYNIX", "XAU", "KORU", "SPCX", "TSLA"].map((baseAsset) => ({
     id: `BINANCE:FUTURES:${baseAsset}USDT`,
     provider: "binance",
     symbol: `${baseAsset}USDT`,
@@ -11,7 +11,7 @@ export const WATCHLIST_RECOMMENDED_MARKETS: readonly TradingFavoriteMarketRecord
     displaySymbol: `${baseAsset}/USDT`,
     description: `${baseAsset}/USDT 币安永续合约`,
     venue: "币安",
-    assetClass: baseAsset === "XAU" ? "commodity" : ["SNDK", "MU", "SKHYNIX"].includes(baseAsset) ? "stock" : "crypto",
+    assetClass: baseAsset === "XAU" ? "commodity" : baseAsset === "KORU" ? "etf" : ["SNDK", "MU", "SKHYNIX", "SPCX", "TSLA"].includes(baseAsset) ? "stock" : "crypto",
     marketType: "perpetual",
     tag: "永续",
   }));

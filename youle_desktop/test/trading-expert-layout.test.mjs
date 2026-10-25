@@ -220,7 +220,7 @@ test("Trading Expert message action opens its dedicated two-pane presentation", 
   assert.doesNotMatch(chatListBlock, /isTradingExpertThreadId\(state\.currentThreadId\)/);
   assert.match(sidebarActions, /data-conversation-static-action="account"[\s\S]*>账户<\/span>/);
   assert.match(sidebarActions, /data-conversation-static-action="plans"[\s\S]*>计划<\/span>/);
-  assert.match(sidebarActions, /data-conversation-static-action="haobao"[\s\S]*>你的 \$\{escapeHtml\(haoBaoUi\.name\)\}<\/span>/);
+  assert.match(sidebarActions, /data-conversation-static-action="haobao"[\s\S]*>你的 <span data-i18n-skip>\$\{escapeHtml\(haoBaoUi\.name\)\}<\/span><\/span>/);
   assert.match(sidebarActions, /renderConversationListIcon\("account"\)[\s\S]*renderConversationListIcon\("plans"\)/);
   assert.doesNotMatch(sidebarActions, /data-conversation-static-action="knowledge"|renderConversationListIcon\("knowledge"\)|>知识库<\/span>/);
   assert.doesNotMatch(sidebarActions, /data-trading-expert-panel-tab|role="tab"|aria-selected/);
@@ -1700,7 +1700,7 @@ test("Trading Expert market picker is compact, neutral-search, left-aligned, and
   assert.match(identity, /https:\/\/bin\.bnbstatic\.com\/static\/assets\/logos/);
   assert.match(identity, /https:\/\/app\.hyperliquid\.xyz\/coins/);
   assert.match(source, /renderTradingMarketAssetLogo\(market\.baseAsset, market\.provider, false, market\.assetClass, market\.displaySymbol\)/);
-  assert.match(identity, /data-market-logo-stage="binance"/);
+  assert.match(identity, /data-market-logo-primary-stage=/);
   assert.match(identity, /ensureTradingMarketLogos\(\)/);
   assert.match(logos, /image\.addEventListener\("error", \(\) => failed\(image\)\)/);
   assert.match(source, /this\.marketList\.addEventListener\("scroll", this\.handleMarketListScroll, \{ passive: true \}\)/);
@@ -1708,7 +1708,7 @@ test("Trading Expert market picker is compact, neutral-search, left-aligned, and
   assert.match(source, /this\.restoreMarketListScroll\(preservedScrollTop\)/);
   assert.match(source, /restorePreservedViewState\(\)/);
   assert.match(source, /activeWorkspace\.restorePreservedViewState\(\)/);
-  assert.match(logos, /image\.dataset\.marketLogoStage = "hyperliquid"/);
+  assert.match(logos, /image\.dataset\.marketLogoBackupStage \|\| "hyperliquid"/);
   assert.match(source, /class="trading-market-contract-tag">\$\{escapeHtml\(market\.tag\)\}<\/span>/);
   assert.match(source, /class="trading-market-row-venue"[^>]*>\$\{escapeHtml\(market\.venue\)\}<\/span>/);
   assert.match(source, /TRADING_MARKET_CATEGORY_OPTIONS\.map\(\(option\) =>/);

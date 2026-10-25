@@ -1,4 +1,5 @@
 import { ensureTradingMarketLogos } from "./trading-market-logos.ts";
+import { BINANCE_TRADFI_LOGOS, BINANCE_TRADFI_LOGO_ALIASES } from "./trading-tradfi-logo-assets.ts";
 
 export type TradingMarketIdentityProvider = "binance" | "finnhub" | "ifind";
 export type TradingMarketAssetClass = "crypto" | "commodity" | "etf" | "stock" | "preipo" | "index" | "forex" | "a-share";
@@ -58,6 +59,20 @@ function inferredTradFiAssetClass(asset: string, assetClass: unknown) {
   return null;
 }
 
+export function tradingTradFiAssetLogo(asset: string, assetClass: string) {
+  const normalized = asset.trim().toUpperCase();
+  if (assetClass === "crypto" || assetClass === "a-share") return null;
+  // Explicit aliases avoid mistaking real tickers ending in B (e.g. RKLB) for wrappers.
+  const underlying = BINANCE_TRADFI_LOGO_ALIASES[normalized] || normalized;
+  const bundled = BINANCE_TRADFI_LOGOS[underlying];
+  const kind = ["stock", "etf", "preipo"].includes(assetClass) ? "equity" : assetClass;
+  if (bundled?.kind === kind) return bundled;
+  // Never resolve commodity CL to the unrelated Colgate stock with the same ticker.
+  if (!["stock", "etf", "preipo"].includes(assetClass)) return null;
+  const original = `https://bin.bnbstatic.com/static/stock/${encodeURIComponent(underlying)}.png`;
+  return { src: original, original };
+}
+
 function renderTradFiAssetMark(asset: string, assetClass: Exclude<TradingMarketAssetClass, "crypto">) {
   const normalizedAsset = asset.trim().toUpperCase();
   const glyph = normalizedAsset === "SNDK" || normalizedAsset === "SNDKB"
@@ -99,28 +114,34 @@ export function renderTradingMarketAssetLogo(
   const normalizedAsset = asset.trim().toUpperCase();
   const normalizedAssetClass = normalizeAssetClass(assetClass);
   const isAShare = provider === "ifind" || normalizedAssetClass === "a-share";
-  const tradFiAssetClass = !isAShare && provider === "binance"
-    ? inferredTradFiAssetClass(normalizedAsset, assetClass)
+  const tradFiAssetClass = !isAShare
+    ? inferredTradFiAssetClass(normalizedAsset, assetClass || (provider === "finnhub" ? "stock" : ""))
     : null;
-  const remote = provider === "binance" && !tradFiAssetClass && !isAShare;
+  const tradFiLogo = tradFiAssetClass ? tradingTradFiAssetLogo(normalizedAsset, tradFiAssetClass) : null;
+  const remote = !!tradFiLogo || (provider === "binance" && !tradFiAssetClass && !isAShare);
+  const primary = tradFiLogo?.src || binanceTradingMarketAssetLogoUrl(normalizedAsset);
+  const backup = tradFiLogo ? (tradFiLogo.src !== tradFiLogo.original ? tradFiLogo.original : "") : hyperliquidTradingMarketAssetLogoUrl(normalizedAsset);
+  const primaryStage = tradFiLogo && tradFiLogo.src !== tradFiLogo.original ? "bundled" : "binance";
   const key = JSON.stringify([normalizedAsset, provider, current, normalizedAssetClass, displayName]);
   return `
-    <span class="trading-market-asset-logo provider-${provider}${isAShare ? " asset-class-a-share" : ""}${normalizedAssetClass === "index" ? " asset-class-index" : ""}${current ? " current" : ""}" data-market-logo-shell data-market-logo-key="${escapeAttribute(key)}"${remote ? ' data-market-logo-state="pending"' : ''} aria-hidden="true">
+    <span class="trading-market-asset-logo provider-${provider}${tradFiLogo ? " official-tradfi-logo" : ""}${isAShare ? " asset-class-a-share" : ""}${normalizedAssetClass === "index" ? " asset-class-index" : ""}${current ? " current" : ""}" data-market-logo-shell data-market-logo-key="${escapeAttribute(key)}"${remote ? ' data-market-logo-state="pending"' : ''} aria-hidden="true">
       ${isAShare
         ? renderAShareAssetMark(normalizedAsset, displayName)
         : tradFiAssetClass
         ? renderTradFiAssetMark(normalizedAsset, tradFiAssetClass)
         : `<span data-market-logo-fallback>${escapeAttribute(tradingMarketAssetBadge(normalizedAsset))}</span>`}
       ${remote ? `<img
-        data-market-logo-src="${escapeAttribute(binanceTradingMarketAssetLogoUrl(normalizedAsset))}"
-        data-market-logo-backup-src="${escapeAttribute(hyperliquidTradingMarketAssetLogoUrl(normalizedAsset))}"
+        data-market-logo-src="${escapeAttribute(primary)}"
+        data-market-logo-backup-src="${escapeAttribute(backup)}"
+        data-market-logo-primary-stage="${primaryStage}"
+        data-market-logo-backup-stage="${tradFiLogo ? "binance" : "hyperliquid"}"
         alt=""
         loading="${current ? "eager" : "lazy"}"
         decoding="async"
         referrerpolicy="no-referrer"
         data-market-logo
         data-market-logo-asset="${escapeAttribute(normalizedAsset)}"
-        data-market-logo-stage="binance"
+        data-market-logo-stage="${primaryStage}"
       />` : ""}
     </span>
   `;

@@ -87,7 +87,7 @@ test("chart navigation is detached from analysis cancellation and IPC cancellati
   assert.match(renderer, /TRADING_EXPERT_WORKSPACE_SESSION_ALIASES_KEY = "haolo\.trading-market\.workspace-session-aliases\.v1"/);
   assert.match(renderer, /rememberTradingExpertWorkspaceSessionAlias\(previousThreadId, nextThreadId\)[\s\S]*?migrateTradingExpertMarketWorkspaceStorageSession\(previousThreadId, nextThreadId\)/);
   assert.match(renderer, /tradingExpertWorkspaceSessionMigrationSource\([\s\S]*?pendingStorageMigrationSource[\s\S]*?syncTradingExpertMarketWorkspace\([\s\S]*?pendingStorageMigrationSource/);
-  assert.match(renderer, /const storageSessionId = tradingExpertMarketWorkspaceStorageSessionId\(\) \|\| threadId/);
+  assert.match(renderer, /const storageSessionId = haoBaoSessionId \|\| tradingExpertMarketWorkspaceStorageSessionId\(\) \|\| threadId/);
   assert.match(renderer, /sourceStorageSessionId && sourceStorageSessionId !== targetStorageSessionId[\s\S]*?sourceStorageSessionId/);
   const activePatchBlock = renderer.slice(
     renderer.indexOf("function patchActiveChatSurfaces"),
