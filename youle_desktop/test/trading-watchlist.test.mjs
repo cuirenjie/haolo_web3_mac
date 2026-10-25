@@ -220,9 +220,9 @@ test("deleting custom groups persists, falls back only for the active group and 
 });
 
 test("fixed recommendations add only the selected Binance USDT perpetuals once, in order and to the current editable group", () => {
-  assert.deepEqual(WATCHLIST_RECOMMENDED_MARKETS.map(m => m.baseAsset), ["BTC", "ETH", "ZEC", "BNB", "SNDK", "MU", "SKHYNIX", "XAU"]);
+  assert.deepEqual(WATCHLIST_RECOMMENDED_MARKETS.map(m => m.baseAsset), ["BTC", "ETH", "ZEC", "BNB", "SNDK", "MU", "SKHYNIX", "XAU", "KORU", "SPCX", "TSLA"]);
   assert.ok(WATCHLIST_RECOMMENDED_MARKETS.every(m => m.provider === "binance" && m.marketType === "perpetual" && m.quoteAsset === "USDT"));
-  assert.deepEqual(WATCHLIST_RECOMMENDED_MARKETS.slice(4).map(m => m.assetClass), ["stock", "stock", "stock", "commodity"]);
+  assert.deepEqual(WATCHLIST_RECOMMENDED_MARKETS.slice(4).map(m => m.assetClass), ["stock", "stock", "stock", "commodity", "etf", "stock", "stock"]);
   const storage = memoryStorage();
   const store = new TradingWatchlistStore(storage, "recommend", normalize);
   store.setMembership(record("BTC", "spot"), true);
@@ -484,7 +484,7 @@ test("composer sends collapse only the active trading watchlist after content an
   }
 });
 
-test("watchlist surfaces cover both themes and checkbox, hover, focus, selected, open and disabled states", async () => {
+test("watchlist surfaces cover both themes and hover, focus, selected, open and disabled states", async () => {
   const css = await readFile(
     new URL("../src/renderer/trading-watchlist.css", import.meta.url),
     "utf8",
@@ -498,7 +498,6 @@ test("watchlist surfaces cover both themes and checkbox, hover, focus, selected,
     ":active",
     ":focus-visible",
     ":disabled",
-    ":checked",
     '[aria-pressed="true"]',
     '[aria-expanded="true"]',
     ".sorting",

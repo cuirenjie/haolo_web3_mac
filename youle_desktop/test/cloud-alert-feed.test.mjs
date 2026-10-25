@@ -55,3 +55,21 @@ test('invalid recent history and malformed predicates fail before notification o
     assert.equal(s.saved.get(account.ownerId).cursor,10);assert.deepEqual(s.notifications,[]);
   }
 });
+
+test('all three targets and break-even survive the account feed and localized notifications',async()=>{
+  const s=setup();await s.feed.refresh();
+  const updated=structuredClone(alert);
+  updated.rule.targets=[110,120,130];
+  updated.rule.preferenceExitPolicy={version:'preference-exits-v1',moveStopToBreakEven:true,breakEvenPrice:100.2};
+  const events=['break_even','target:0','target:1','target:2'].map((condition,i)=>({...structuredClone(event),sequence:11+i,alert:updated,
+    data:{...structuredClone(event.data),condition,eventId:'exit-'+i,price:105+i*10}}));
+  s.args.api=()=>({async tradingCloudRequest(){return {schemaVersion:1,items:[updated],events,recentEvents:events,nextCursor:14};}});
+  await createCloudAlertFeed(s.args).refresh();
+  assert.deepEqual(s.notifications,['exit-0','exit-1','exit-2','exit-3']);
+  for(const locale of ['zh-CN','zh-Hant','en','ko'])for(const e of events){
+    const notification=cloudAlertNotification({alert:updated,event:e},locale);
+    if(e.data.condition==='break_even')assert.ok(notification.body.includes('100.2'));
+    else assert.ok(notification.body.includes(String(Number(e.data.condition.split(':')[1])+1)));
+    if(locale==='en'||locale==='ko')assert.doesNotMatch(notification.body,/[\u4e00-\u9fff]/);
+  }
+});

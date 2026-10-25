@@ -48,12 +48,13 @@ app.setPath('userData',path.join(__dirname,'profile'));app.disableHardwareAccele
     const bounds=reply.getBoundingClientRect(),style=getComputedStyle(reply),summary=reply.querySelector('summary');
     summary.focus();
     return {replyBelowFooter:bounds.top>=footer.getBoundingClientRect().bottom,
+      formulaRemoved:!reply.querySelector('.plan-probability-formula')&&!reply.textContent.includes('100% −'),
       overflow:[...reply.querySelectorAll('*')].filter(e=>e.scrollWidth>e.clientWidth+1||e.getBoundingClientRect().right>bounds.right+1).map(e=>e.className),
       readable:style.color!==style.backgroundColor&&style.backgroundColor!=='rgba(0, 0, 0, 0)',
       color:style.color,background:style.backgroundColor,focus:document.activeElement===summary,open:reply.querySelector('details').open};
    }).toString()+')('+open+')');
    results.push({id:f.id,open,...result});
-   assert.ok(result.replyBelowFooter,f.id+' overlaps footer');assert.deepEqual(result.overflow,[],f.id+' overflow');
+   assert.ok(result.replyBelowFooter,f.id+' reply must follow plan controls');assert.ok(result.formulaRemoved,f.id+' formula remains');assert.deepEqual(result.overflow,[],f.id+' overflow');
    assert.ok(result.readable&&result.focus&&result.open===open,f.id+' theme/details/focus');
   }
   await win.webContents.executeJavaScript('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');

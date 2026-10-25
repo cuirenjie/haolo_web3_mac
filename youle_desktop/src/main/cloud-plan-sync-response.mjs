@@ -7,6 +7,10 @@ import {diagnosticHash} from './turn-diagnostics.mjs';
 const messages={
   failed:['云端计划暂时无法同步，请稍后再试。','Cloud plans could not be synchronized. Please try again later.','雲端計畫暫時無法同步，請稍後再試。'],
   authentication:['请重新登录后同步云端计划。','Sign in again to synchronize cloud plans.','請重新登入後同步雲端計畫。'],
+  invalid:['云端计划数据校验未通过，已保留本机计划。请更新客户端；若仍失败，请联系客服。',
+    'Cloud plan data could not be validated. Local plans have been kept. Update the app; if this continues, contact support.',
+    '雲端計畫資料驗證未通過，已保留本機計畫。請更新用戶端；若仍失敗，請聯絡客服。',
+    '클라우드 계획 데이터를 검증하지 못했습니다. 로컬 계획은 유지됩니다. 앱을 업데이트한 후에도 문제가 계속되면 고객 지원에 문의하세요.'],
 };
 
 function originalError(error,seen=new Set()) {
@@ -45,7 +49,9 @@ export async function cloudPlanListResponse(plans,{language='zh-CN',accountId,re
     try {
       recordFailure(diagnostic);
     } catch { /* A diagnostic write failure must not interrupt recovery. */ }
+    const copy=messages[policy.category==='authentication'?'authentication':
+      ['CLOUD_RESULT_CONTEXT_INVALID','CLOUD_REPORT_INVALID','CLOUD_PLAN_LIST_INVALID'].includes(policy.code)?'invalid':'failed'];
     return {ok:false,error:{...policy,diagnosticId:diagnostic.diagnosticId,
-      message:localizedChoice(messages[policy.category==='authentication'?'authentication':'failed'],language)}};
+      message:language==='ko'&&copy[3]?copy[3]:localizedChoice(copy,language)}};
   }
 }

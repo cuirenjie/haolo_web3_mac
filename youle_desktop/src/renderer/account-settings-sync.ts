@@ -106,6 +106,11 @@ export function applySettingValues<T>(template: T, values: SettingValues, prefix
 }
 
 type Surface = { snapshot: () => SettingValues; defaults: () => SettingValues; apply: (values: SettingValues) => void };
+function projectSettingsValues(defaults: SettingValues, saved: SettingValues): SettingValues {
+  return { ...defaults, ...saved,
+    ...(saved['chart.hideKlineAnnotations'] === true && !('chart.drawingVisibility.dataHidden' in saved)
+      ? { 'chart.drawingVisibility.dataHidden': true } : {}) };
+}
 type Request = (params: Record<string, unknown>) => Promise<any>;
 export class DesktopSettingsSync {
   private owner = '';
@@ -134,7 +139,7 @@ export class DesktopSettingsSync {
     this.applying = true;
     try {
       const values = this.replica.values();
-      for (const surface of [...this.surfaces.values()]) surface.apply({ ...surface.defaults(), ...values });
+      for (const surface of [...this.surfaces.values()]) surface.apply(projectSettingsValues(surface.defaults(), values));
     } finally { this.applying = false; }
   }
   private migrate(id: string, surface: Surface) {
@@ -153,7 +158,7 @@ export class DesktopSettingsSync {
       try {
         this.migrate(id, surface);
         this.applying = true;
-        surface.apply({ ...surface.defaults(), ...this.replica.values() });
+        surface.apply(projectSettingsValues(surface.defaults(), this.replica.values()));
       } catch { this.status = 'error'; }
       finally { this.applying = applying; }
       void this.sync(true);

@@ -30,7 +30,7 @@ export interface TradingOrderDisplaySettings {
 }
 
 export interface TradingChartSettings {
-  version: 7;
+  version: 8;
   chartStyle: TradingChartStyle;
   priceAdjustment: TradingPriceAdjustment;
   verticalPaddingPercent: number;
@@ -40,6 +40,8 @@ export interface TradingChartSettings {
   showCandleBorder: boolean;
   showWicks: boolean;
   scaleAnchor: TradingScaleAnchor;
+  verticalLocked: boolean;
+  drawingVisibility: TradingDrawingLayerVisibility;
   priceScaleMode: TradingPriceScaleMode;
   autoScale: boolean;
   showPriceLine: boolean;
@@ -117,7 +119,7 @@ export function tradingPriceScaleUsesAutoScale(mode: TradingPriceScaleMode) {
 }
 
 export const DEFAULT_TRADING_CHART_SETTINGS: Readonly<TradingChartSettings> = {
-  version: 7,
+  version: 8,
   chartStyle: "hlc",
   priceAdjustment: "none",
   verticalPaddingPercent: 2,
@@ -127,6 +129,8 @@ export const DEFAULT_TRADING_CHART_SETTINGS: Readonly<TradingChartSettings> = {
   showCandleBorder: true,
   showWicks: true,
   scaleAnchor: "cursor",
+  verticalLocked: false,
+  drawingVisibility: { ...DEFAULT_TRADING_DRAWING_VISIBILITY },
   priceScaleMode: "linear",
   autoScale: true,
   showPriceLine: true,
@@ -278,6 +282,7 @@ export function cloneTradingChartSettings(
 ): TradingChartSettings {
   return {
     ...settings,
+    drawingVisibility: { ...settings.drawingVisibility },
     orderDisplay: { ...settings.orderDisplay },
     themes: {
       light: cloneTheme(settings.themes.light),
@@ -351,7 +356,11 @@ export function normalizeTradingChartSettings(value: unknown): TradingChartSetti
     lightTheme.backgroundColor = defaults.themes.light.backgroundColor;
   }
   return {
-    version: 7,
+    version: 8,
+    verticalLocked: typeof source.verticalLocked === 'boolean' ? source.verticalLocked : false,
+    drawingVisibility: Object.fromEntries(TRADING_VISIBILITY_LAYERS.map(({ key }) => [key,
+      typeof source.drawingVisibility?.[key] === 'boolean' ? source.drawingVisibility[key]
+        : key === 'dataHidden' && source.hideKlineAnnotations === true])) as TradingDrawingLayerVisibility,
     chartStyle: (!Number.isFinite(sourceVersion) || sourceVersion < 3)
       && sourceChartStyle === "candlestick"
       ? "hlc"

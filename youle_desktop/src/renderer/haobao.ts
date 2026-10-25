@@ -1,5 +1,6 @@
 import { HAOBAO_COLORS, HAOBAO_CHARACTERS, HAOBAO_MOODS, haoBaoOutline, renderHaoBaoAvatar, type HaoBaoAppearance } from "./haobao-avatar";
 import "./haobao.css";
+import { translateAppText } from "./app-language.mjs";
 import { renderTradingWatchlistHost } from "./trading-watchlist-ui";
 
 type Profile = HaoBaoAppearance & { name: string; created: boolean; customized: boolean; createdAt: number; conversationStarted: boolean };
@@ -45,9 +46,9 @@ export function createHaoBaoUi(onChange: () => void) {
 
   function welcomeMessages(): PreviewMessage[] {
     return [
-      `嘿！我是你的${profile.name}。`,
-      "有想做的事，随时告诉我。你不在线时，我也会继续忙；有进展，或发现值得关注的行情，就来找你。",
-      "先给我起个名字，选一个你喜欢的模样吧？",
+      translateAppText("嘿！我是你的{name}。").replace("{name}", profile.name),
+      translateAppText("有想做的事，随时告诉我。你不在线时，我也会继续忙；有进展，或发现值得关注的行情，就来找你。"),
+      translateAppText("先给我起个名字，选一个你喜欢的模样吧？"),
     ].map((text, index) => ({ id: `welcome-${index}`, text, from: "hao", createdAt: profile.createdAt }));
   }
 
@@ -124,8 +125,8 @@ export function createHaoBaoUi(onChange: () => void) {
     const dateLabel = date.toDateString() === new Date().toDateString() ? "今天" : `${date.getMonth() + 1}月${date.getDate()}日`;
     const time = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
     const haoAvatar = (messageId?: string) => messageId
-      ? `<button type="button" id="haobao-avatar-${escape(messageId)}" class="message-avatar haobao-message-avatar haobao-message-avatar-editable" data-haobao-action="customize" aria-label="编辑 ${escape(profile.name)} 的头像和昵称" aria-haspopup="dialog">${renderHaoBaoAvatar(profile)}<span class="haobao-edit-badge" aria-hidden="true">${icon("edit")}</span></button>`
-      : `<span class="message-avatar haobao-message-avatar" role="img" aria-label="${escape(profile.name)}的头像">${renderHaoBaoAvatar(profile)}</span>`;
+      ? `<button type="button" id="haobao-avatar-${escape(messageId)}" class="message-avatar haobao-message-avatar haobao-message-avatar-editable" data-haobao-action="customize" aria-label="编辑 hao宝 头像和名称" aria-haspopup="dialog">${renderHaoBaoAvatar(profile)}<span class="haobao-edit-badge" aria-hidden="true">${icon("edit")}</span></button>`
+      : `<span class="message-avatar haobao-message-avatar" role="img" aria-label="hao宝的头像">${renderHaoBaoAvatar(profile)}</span>`;
     const bubble = (message: PreviewMessage) => {
       const fromUser = message.from === "user";
       const sent = new Date(message.createdAt || profile.createdAt);
@@ -140,24 +141,24 @@ export function createHaoBaoUi(onChange: () => void) {
       const fromUser = message.from === "user";
       return `<article class="message-row haobao-message-row ${fromUser ? "from-user" : "from-agent"}">
         ${fromUser ? "" : haoAvatar(message.id)}
-        <div class="message-stack haobao-message-stack"><div class="message-meta">${escape(fromUser ? user.name : profile.name)}</div>${bubble(message)}</div>
+        <div class="message-stack haobao-message-stack"><div class="message-meta" data-i18n-skip>${escape(fromUser ? user.name : profile.name)}</div>${bubble(message)}</div>
         ${fromUser ? user.avatar : ""}
       </article>`;
     };
     return `<main class="haobao-page haobao-chat-page ${profile.conversationStarted ? "haobao-chat-started trading-expert-panel" : ""}" aria-label="你的 hao宝">
-      ${profile.conversationStarted ? `<header class="haobao-session-header trading-expert-panel-header"><div class="trading-expert-panel-heading"><button type="button" id="haobao-session-name" class="haobao-session-title" data-haobao-action="customize" aria-label="编辑 hao宝 头像和名称">${escape(profile.name)}</button></div><div class="trading-expert-panel-header-actions">${headerActions}</div></header>` : ""}
+      ${profile.conversationStarted ? `<header class="haobao-session-header trading-expert-panel-header"><div class="trading-expert-panel-heading"><button type="button" id="haobao-session-name" class="haobao-session-title" data-haobao-action="customize" aria-label="编辑 hao宝 头像和名称"><span data-i18n-skip>${escape(profile.name)}</span></button></div><div class="trading-expert-panel-header-actions">${headerActions}</div></header>` : ""}
       ${profile.conversationStarted ? renderTradingWatchlistHost() : ""}
       <div class="haobao-conversation">
         ${!profile.conversationStarted ? `<header class="haobao-chat-header"><button type="button" id="haobao-identity" class="haobao-identity" data-haobao-action="customize" aria-label="编辑 hao宝 头像和名称">
           <span class="haobao-identity-picture">${renderHaoBaoAvatar(profile)}<span class="haobao-edit-badge">${icon("edit")}</span></span>
-          <strong>${escape(profile.name)}</strong><span class="haobao-status"><i></i>随时待命</span>
+          <strong data-i18n-skip>${escape(profile.name)}</strong><span class="haobao-status"><i></i>随时待命</span>
         </button></header>` : ""}
         <div class="haobao-message-list" role="log" aria-label="与 hao宝 的对话" aria-live="polite">
           ${!profile.conversationStarted ? `<p class="haobao-time">${dateLabel} ${time}</p>
           <article class="message-row haobao-message-row from-agent">
             ${haoAvatar()}
             <div class="message-stack haobao-message-stack">
-              <div class="message-meta">${escape(profile.name)}</div>
+              <div class="message-meta" data-i18n-skip>${escape(profile.name)}</div>
               ${welcomeMessages().map(bubble).join("")}
               <button type="button" id="haobao-customize" class="haobao-customize-link" data-haobao-action="customize">${icon("user")}<span>自定义你的 hao宝</span>${icon("right")}</button>
             </div>
@@ -324,7 +325,7 @@ export function createHaoBaoUi(onChange: () => void) {
       } else {
         const createdAt = Date.now();
         messages.push({ id: crypto.randomUUID(), from: "user", text: composer.trim(), files: [...files], quote, createdAt });
-        messages.push({ id: crypto.randomUUID(), from: "hao", text: "收到啦！这里先陪你体验对话。云端能力接入后，我就能持续帮你做事，并主动带来进展。", createdAt });
+        messages.push({ id: crypto.randomUUID(), from: "hao", text: translateAppText("收到啦！这里先陪你体验对话。云端能力接入后，我就能持续帮你做事，并主动带来进展。"), createdAt });
         profile.conversationStarted = true;
         scrollToEnd = true;
       }

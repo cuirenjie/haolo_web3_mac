@@ -3,6 +3,7 @@ import {isDeepStrictEqual as equal} from 'node:util';
 import {validConditionalWatch} from '../conditional-watch-card.mjs';
 import {validSmtDiagnostics} from '../../shared/smt-diagnostics.mjs';
 import {validAnalysisRequestPlan} from '../../shared/analysis-request-contract.mjs';
+import {validPlanPresentation,validPresentationDrawing,validPresentationReminder} from '../../shared/plan-presentation.mjs';
 
 const hash = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
@@ -17,15 +18,25 @@ function predicate(value, zoneOnly=false) {
 
 // Transport validation only. Selection, risk evaluation and reminder execution
 // remain on the server. No strategy or natural-language parser is included.
-export function validateCloudEntryResult(result, record) {
+export function validateCloudEntryResult(result, record, {savedPlan}={}) {
   const plan=result.executionPlan, cloud=result.cloud, expected=record.body;
   require(cloud.executionPolicy==='entry-v2' && cloud.locale===expected.locale && hash(cloud.resultHash));
   require(plan?.schemaVersion===2 && uuid(plan.planId) && plan.revision===1 && plan.policyVersion==='entry-v2.1');
   require(equal(plan.context,expected.context) && equal(plan.appliedPreferences,cloud.appliedPreferences));
   require(validAnalysisRequestPlan(plan));
+  require(validPlanPresentation(plan)&&validPresentationDrawing(plan,result.analysisPlan?.drawingPatch));
   const request=plan.requestRequirements;
-  if(request) require(request.promptHash===createHash('sha256').update(JSON.stringify(expected.prompt),'utf8').digest('hex')
-    &&request.savedRevision===cloud.appliedPreferences?.revision);
+  if(request) {
+    require(request.savedRevision===cloud.appliedPreferences?.revision);
+    if(savedPlan)require(savedPlan.saved===true&&!savedPlan.deleted&&savedPlan.id===plan.planId
+      &&savedPlan.runId===cloud.runId&&equal(savedPlan.executionPlan,plan)
+      &&equal(savedPlan.appliedPreferences,cloud.appliedPreferences));
+    // A list receipt has no raw prompt. Validate its frozen request contract;
+    // if a full run supplies a prompt, still check it. Missing live prompts and
+    // malformed values are protocol errors, never crypto TypeErrors.
+    if(!savedPlan||Object.hasOwn(expected,'prompt'))require(typeof expected.prompt==='string'
+      &&request.promptHash===createHash('sha256').update(JSON.stringify(expected.prompt),'utf8').digest('hex'));
+  }
   require(modes.has(plan.requestedMode) && plan.requestedMode===(request?.entryMode??record.requestedEntryMode));
   require(['left','right',null].includes(plan.selectedMode) && (plan.requestedMode==='auto'||plan.selectedMode===null||plan.selectedMode===plan.requestedMode));
   require(Array.isArray(plan.scenarios) && plan.scenarios.length<=1 && Array.isArray(cloud.planIds) && Array.isArray(cloud.planRecords) && Array.isArray(cloud.conditionReceipts));
@@ -54,6 +65,7 @@ export function validateCloudEntryResult(result, record) {
   }
   require(outcome.candidateStatus==='qualified' && plan.scenarios.length===1);
   const scenario=plan.scenarios[0], condition=plan.entryCondition, remote=cloud.planRecords[0], receipt=cloud.conditionReceipts[0];
+  require(validPresentationReminder(plan,remote));
   require(condition?.schemaVersion===2 && uuid(condition.conditionId) && condition.revision===1 && hash(plan.conditionHash));
   require(condition.snapshotId===expected.context.snapshotId && condition.marketKey===expected.context.marketKey && condition.interval===plan.executionInterval);
   require(condition.mode===plan.selectedMode && condition.direction===scenario.side && ['long','short'].includes(scenario.side));

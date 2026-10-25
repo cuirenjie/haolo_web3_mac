@@ -3,11 +3,11 @@
   "private": true,
   "description": "Workspace for the youle_desktop Windows desktop app.",
   "scripts": {
-    "dev": "pnpm --filter youle_desktop dev",
-    "typecheck": "pnpm --filter youle_desktop typecheck",
-    "build": "pnpm --filter youle_desktop build",
-    "smoke": "pnpm --filter youle_desktop smoke",
-    "dist:win": "pnpm --filter youle_desktop dist:win",
+    "dev": "pnpm --filter haolo_desktop dev",
+    "typecheck": "pnpm --filter haolo_desktop typecheck",
+    "build": "pnpm --filter haolo_desktop build",
+    "smoke": "pnpm --filter haolo_desktop smoke",
+    "dist:win": "pnpm --filter haolo_desktop dist:win",
     "gateway:start": "pnpm --filter @haolo/binance-gateway start",
     "gateway:test": "pnpm --filter @haolo/binance-gateway test"
   },
@@ -26,6 +26,7 @@
     "path-to-regexp": "8.4.0",
     "picomatch@2.3.1": "2.3.2",
     "picomatch@4.0.3": "4.0.4",
+    "punycode": "^2.3.1",
     "rollup": "4.59.0",
     "semver": "^7.7.1"
   },

@@ -1,0 +1,1245 @@
+{
+  "retrievedAt": "2026-10-25T16:15:27.206Z",
+  "endpoints": {
+    "contracts": "https://fapi.binance.com/fapi/v1/exchangeInfo",
+    "logos": "https://www.binance.com/bapi/apex/v1/public/apex/marketing/futures/asset/logo",
+    "spotAssets": "https://www.binance.com/bapi/asset/v2/public/asset/asset/get-all-asset"
+  },
+  "stockPage": "https://www.binance.com/en/markets/tradfi",
+  "assets": {
+    "AAOI": {
+      "file": "AAOI.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260608/d8f5e281-e5ce-4cc6-95d6-554e0c8dfe70.png",
+      "sha256": "839ce6888e03f0a104a951b2af2b21bb241fe0e7968497e3329449f9b9249c71"
+    },
+    "AAPL": {
+      "file": "AAPL.png",
+      "source": "https://bin.bnbstatic.com/static/stock/AAPL.png",
+      "sha256": "f70bd1540c3736106993787f4ed6d1998466f3bcc6d6f84733604b1490ed1572"
+    },
+    "ACN": {
+      "file": "ACN.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260924/dd94550d-8a63-4d9d-b686-4ef1dfe8685f.png",
+      "sha256": "70ef570fa8e0cb3e249fb87507e920e0d963c5429a1c2e42cc1b61563fb31885"
+    },
+    "ADBE": {
+      "file": "ADBE.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260611/d913eb25-0922-4768-9bec-ef75a58cc5d5.png",
+      "sha256": "224fc2fbe0f7dd72db2fa9bf61462982894583b13f3f25601049d8679c44cd46"
+    },
+    "AGPU": {
+      "file": "AGPU.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260914/c6fa3b81-ef9b-4308-ac46-c8e4e26cdb12.png",
+      "sha256": "cb43e874eaba9ea7e3376e2b35b921f8bb9142e1dc72e2b1cb2526bd8283e46a"
+    },
+    "AKAM": {
+      "file": "AKAM.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260930/487bd453-70c2-41f2-8c21-6783f6d04d66.png",
+      "sha256": "540076409f39ebecca6775306dd74a84a2dc423105d9d5bc8d755ff5374c7a70"
+    },
+    "ALAB": {
+      "file": "ALAB.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260622/bfea2c53-a0ea-43d9-8d1d-d3609ff61fda.png",
+      "sha256": "4fdbf2fda28d307004c241c2637d4a7de1ec16c716f5df25df12e7258fca4092"
+    },
+    "AMAT": {
+      "file": "AMAT.png",
+      "source": "https://bin.bnbstatic.com/static/stock/AMAT.png",
+      "sha256": "b1b4a553104527458953e62d6115d3c356b798079f9396c6eb8763ab35335a09"
+    },
+    "AMC": {
+      "file": "AMC.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260914/c695dbe4-2b96-4749-b494-9bb3e07548a3.png",
+      "sha256": "86191a65184f9e0c63f5510d036d637eccde5169c54ef9735ecb4f8cf6edcd03"
+    },
+    "AMD": {
+      "file": "AMD.png",
+      "source": "https://bin.bnbstatic.com/static/stock/AMD.png",
+      "sha256": "9a538d8f3c60c5dc8080fdeefcbfc0d8812d9575f06bb3a80d0d679efa5bc358"
+    },
+    "AMZN": {
+      "file": "AMZN.png",
+      "source": "https://bin.bnbstatic.com/static/stock/AMZN.png",
+      "sha256": "c64426a754b1e55adf836fbaaa811f1bac8359303af95fb95099dd43cc9b583b"
+    },
+    "ANET": {
+      "file": "ANET.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260914/ecb064ac-ec4d-4bad-9189-2728cd193186.png",
+      "sha256": "55c4b3e0b0a66e250c9b07d247442e854b01fd1b4437eed645df8c6af2a71d16"
+    },
+    "ANTHROPIC": {
+      "file": "ANTHROPIC.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260602/b037af8c-a311-4ffe-adc6-64c91939a89d.png",
+      "sha256": "db384f760cf3fb76bfb74c9ea71fedaae1e334897bb412e0b59f05742e3f574b"
+    },
+    "APLD": {
+      "file": "APLD.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260914/1bb04fcb-61e4-457d-9dc1-d424a54a9e3e.png",
+      "sha256": "53bebf01d79f90fb0b7ed5d66cb1aa0eb96b73bdd9c8ee170a67cbfd97dd2767"
+    },
+    "APP": {
+      "file": "APP.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260710/528d0710-baa6-40db-9350-0e289adce7fb.png",
+      "sha256": "6bd3c8a2e7fdcfe257331280addf68767cb9d2154c6d4732d08028d16b684f68"
+    },
+    "ARM": {
+      "file": "ARM.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260526/11c36e45-50f1-4382-a7dd-ce839206ab53.png",
+      "sha256": "907e0c103a50fa20e4f88a6b32d07d0206f9cfec89690e4cce0daa9eaba23e10"
+    },
+    "ASML": {
+      "file": "ASML.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260611/a2cdec5c-310a-4e01-a30b-201247fca609.png",
+      "sha256": "df425805a8b3c54ec5d2a5cbdb83be6f9c612cfb2063f22904c7274e9f15caab"
+    },
+    "ASTS": {
+      "file": "ASTS.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260601/662b3339-04fe-4a11-a5f8-6f79fd12d322.png",
+      "sha256": "89745125173a15c0411413ddfe2a1b386ffbf7c87f67598a80776bd98dfcfbbd"
+    },
+    "AVGO": {
+      "file": "AVGO.png",
+      "source": "https://bin.bnbstatic.com/static/stock/AVGO.png",
+      "sha256": "da53a74b73364b9804f7425c713fa10adb4cab9f65eeb9b313db1c29492863fe"
+    },
+    "AXTI": {
+      "file": "AXTI.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260608/3cb5e593-f35e-4b6a-a83b-479e26a7f99d.png",
+      "sha256": "f9f89e1193096b68dce91804c1f4b9c0247fb4c778e1908f42dfcb330734570f"
+    },
+    "BABA": {
+      "file": "BABA.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260416/511ee0a2-8a6c-46af-baac-dfbeaf15f502.png",
+      "sha256": "e4de9b7769a232d24340f8f07d16f8d30e4cf85b2d786ff69a9c84c84aea9f79"
+    },
+    "BAC": {
+      "file": "BAC.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20261014/2f94c3a9-6622-4ca3-bf08-4b2f0c229b6f.png",
+      "sha256": "a78c1d261f9cd2d64d736c36675f8b0eef053ec8b56fafd7187729fae5af2365"
+    },
+    "BBX": {
+      "file": "BBX.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260601/c284f0d0-52cd-4bd1-97c5-152cfaa7bcb5.png",
+      "sha256": "f395b06ec68b06ea9ad3ec528b8b36f5c9e842245ff835d5cb4dd0c76af610ea"
+    },
+    "BE": {
+      "file": "BE.png",
+      "source": "https://bin.bnbstatic.com/static/stock/BE.png",
+      "sha256": "a39d49d067cae0e8b1f7ebcbe9a6aafede47da753a02aa646e69c5c0eb483a2c"
+    },
+    "BITO": {
+      "file": "BITO.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260723/31658d4b-b62d-405a-a61d-4f300ab350bf.png",
+      "sha256": "0a7f49159d619e4d9dac4d9a347f2864953213ecea88b18bfbac66a106c728c3"
+    },
+    "BMNR": {
+      "file": "BMNR.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260611/75220077-6653-4561-b916-ea471bd2860a.png",
+      "sha256": "a8bd7c82390d0525801a4ba39187956beaedad600934cfab6a04d57e35fbc8d5"
+    },
+    "BNC": {
+      "file": "BNC.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260709/5f254016-acf5-4db7-9f0d-a5e9b0d3ec62.png",
+      "sha256": "d47697e998ffd238f8c780e02162796a9a1eda080747f731051e12e54292c243"
+    },
+    "BOT": {
+      "file": "BOT.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260709/49fa2598-c712-4ecc-94a1-bb2041330936.png",
+      "sha256": "b1bae4e72c036ed9f5917cb625834d9bce6c0220073c1dbee05e39bb479d6b75"
+    },
+    "BRKB": {
+      "file": "BRKB.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260514/9decc504-1927-4cd0-8734-1888f4520238.png",
+      "sha256": "c32a2e69dbd12956750ec8a76b36fe76212a7c8330fae3975f385acb87c783b9"
+    },
+    "BSP": {
+      "file": "BSP.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260701/818fbbae-14a1-44ba-b76a-d79e37f01ee5.png",
+      "sha256": "49c6d5b00814fa1fe810faded2bf479c84e72e18825b128cee45bd4b2977bb17"
+    },
+    "BWET": {
+      "file": "BWET.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260924/a8085d21-6efd-48d3-a9a6-1f3f2bf5d514.png",
+      "sha256": "9f3417f436b43c5c59bf4a2d183b64f7f042f47d556ae878c2488ceec8e3c54a"
+    },
+    "BX": {
+      "file": "BX.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260608/310ba14e-5bfb-4f9f-b403-d3bad59bd28b.png",
+      "sha256": "2775d5fee6167b39a16bb40e79b017767dcff7ad987049b6237b44f8caed1625"
+    },
+    "BYD": {
+      "file": "BYD.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260904/022cf99b-80c5-43b9-b31a-ebe3f2a79375.png",
+      "sha256": "06090ba2d397f1d2c8cda272cdb243df1fa8bc712c4ecf875410a7428c29ce5c"
+    },
+    "BZ": {
+      "file": "BZ.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260331/4b7057dd-84cb-4f15-a8f5-50c9e98873db.png",
+      "sha256": "741599e251ec9870ff242bc73336f3d29a199cff3f1aa5d6e4f3a7835db8ac63"
+    },
+    "CAT": {
+      "file": "CAT.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260702/6a6a56de-40d2-439c-84ab-0bc6860db5ad.png",
+      "sha256": "56e7074b18d9f04ff4ac040496a28c3777c63dbe0bd3b4c24b9428230f5d49c8"
+    },
+    "CBRS": {
+      "file": "CBRS.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260518/9150d2fd-1350-49d0-bf19-3955b41b15a9.png",
+      "sha256": "800eb149c61d1d1c15b16ef7dc0921d37019074c7d768e8291b4a6466d939c59"
+    },
+    "CEG": {
+      "file": "CEG.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20261014/77a9bc2c-7d64-4d1a-abc2-dac124855dee.png",
+      "sha256": "c33e0d9e152f2f9f7a01ef1f7baadc7d16e9b458aa7b2a5e4889df641099d052"
+    },
+    "CIEN": {
+      "file": "CIEN.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260622/7f3cce46-bc7a-407f-92d2-5adfbe734fcd.png",
+      "sha256": "5e37a0955e6616b3080351dcbced8b7b6f45417ea2a5dacf7796f60f181e8bef"
+    },
+    "CL": {
+      "file": "CL.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260331/b68bd3dd-adec-4eff-86d5-27ee57277605.png",
+      "sha256": "741599e251ec9870ff242bc73336f3d29a199cff3f1aa5d6e4f3a7835db8ac63"
+    },
+    "COHR": {
+      "file": "COHR.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260526/4b2cee2b-ab1c-4975-b730-fc678f7b73fb.png",
+      "sha256": "898af5c808fbec6c0c1cbfe0f33b4916870d24ebe2b028f5a58e2cb71650de31"
+    },
+    "COIN": {
+      "file": "COIN.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260206/9e03d83c-926b-4f2e-b856-0fcdce3a32f5.png",
+      "sha256": "1e4e4b32dff38570558e00189e1473366a0e462cb62afec6e12840403d7b8300"
+    },
+    "COPPER": {
+      "file": "COPPER.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260305/6033ddfe-53cb-46b1-a895-182054036369.png",
+      "sha256": "e3f16131a9cec211455849bf71d4cd190af7232da426ce9fbb05ddc31ce4b9a0"
+    },
+    "COST": {
+      "file": "COST.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260609/ce2163e7-2919-43c3-b9c7-70ffec61befa.png",
+      "sha256": "d2b1b9afe6d633074280b78625b56a7902a6b0afa6a2c8a54e6f70f9842d2043"
+    },
+    "CRCL": {
+      "file": "CRCL.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260520/5a1f68f4-3ccc-43fb-8d79-d100f4fc91b1.png",
+      "sha256": "7de97f1b32149fb9865bb72551ac62e695205877b1edfb8216d5f9f7a61b318e"
+    },
+    "CRDO": {
+      "file": "CRDO.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260608/00a77303-497d-4b88-ae93-d66fc6ea6a9f.png",
+      "sha256": "3671faf59a3f6e8282c89a92ffd91f8ee74263920790fd4bfb4e458340bc34cc"
+    },
+    "CRM": {
+      "file": "CRM.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260603/e3a65df4-7fc2-44b8-a673-8ceee3abb314.png",
+      "sha256": "15405aedcbd4612c61b3cff63c45ff1241663ce0a7fd8e11182b8a33fd12e578"
+    },
+    "CRML": {
+      "file": "CRML.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260924/6fffac89-9ee6-4b3b-8774-2b2fad6d957c.png",
+      "sha256": "7093b13e1494cd7dfb6ed3b7a23144278c7b32423cba884bdbfc8edaf26d4a2a"
+    },
+    "CRWD": {
+      "file": "CRWD.png",
+      "source": "https://bin.bnbstatic.com/static/stock/CRWD.png",
+      "sha256": "9daf8964a65072ed0314d1c3ee8ca09ea348d2710f26f9a7fb3269c9368afe91"
+    },
+    "CRWV": {
+      "file": "CRWV.png",
+      "source": "https://bin.bnbstatic.com/static/stock/CRWV.png",
+      "sha256": "59f22626aa9beaf76bfd1cc375097f76e96acafbbde4a8fe653f1c445685e941"
+    },
+    "CSCO": {
+      "file": "CSCO.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260514/6fb66627-8bc3-48bb-96c7-5146ba0ab025.png",
+      "sha256": "73bf0d341903f58e193bbe1260bc52c1fb77a9d40341f7df8ede37730a5e5bf5"
+    },
+    "CSOPSAMSUNG2L": {
+      "file": "CSOPSAMSUNG2L.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260810/9d586978-b78d-4cbb-99c8-c60e12da3c9b.png",
+      "sha256": "07c7762c9eab3a5f176f05e60c684880fe84996d28e63f34451d8aaf0e75be1e"
+    },
+    "CSOPSKHYNIX2L": {
+      "file": "CSOPSKHYNIX2L.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260810/d78a4991-b8d4-4d00-a24d-7701619bb541.png",
+      "sha256": "07c7762c9eab3a5f176f05e60c684880fe84996d28e63f34451d8aaf0e75be1e"
+    },
+    "CVNA": {
+      "file": "CVNA.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260924/09172c7e-45bb-478a-a632-e876746a69aa.png",
+      "sha256": "236a69e1721773308149363dada8bab11263ad8a07d172007e8194cf47908032"
+    },
+    "CXMT": {
+      "file": "CXMT.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260817/d169239c-02a6-4b7e-9327-b088fef36799.png",
+      "sha256": "844f5399e87351537f105c15a6c07bad190ee2f151a73ef93de7bcaa9e492a67"
+    },
+    "CYPH": {
+      "file": "CYPH.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260914/f8de4112-c466-4dd5-9e3e-2a06eb3d1d6b.png",
+      "sha256": "b5010bc606fa542d38da8f9fc58882f893ad1c2dbd15b3d95ce85e2339ecdec0"
+    },
+    "DDOG": {
+      "file": "DDOG.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260902/2f310e63-c6a4-40d3-bc43-d522d214719c.png",
+      "sha256": "101e68a9d9236aed3b16045de8482fdf6df2f05af904109ac454b2072c897fe6"
+    },
+    "DELL": {
+      "file": "DELL.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260603/77e16dec-e5d4-4b3d-921d-dcfa0363e1b3.png",
+      "sha256": "da83910b894e041017f49e77d50fbb929900e3ec84fc69609ce8cd3112e99912"
+    },
+    "DIS": {
+      "file": "DIS.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260514/ae04ff93-3afe-4983-b1e1-5a96e3f98e99.png",
+      "sha256": "fd213a19d05181c60cdf2f936d630c76e3b74048500434738825d2e4b4eb2736"
+    },
+    "DJT": {
+      "file": "DJT.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260825/53d7c45b-dc18-4deb-85de-e0228944e3d8.png",
+      "sha256": "3cb3951c912dc83bab639fce56190d53f6c472b2523885160a5e1002aee528de"
+    },
+    "DKNG": {
+      "file": "DKNG.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260610/0d5e54ae-e72f-471c-ac44-7bd77f60a553.png",
+      "sha256": "fcd6b1bc0c34e93e0129b1775c0b7cf518885ef599d7a0be232a77ff15f0def2"
+    },
+    "DRAM": {
+      "file": "DRAM.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260611/6ef46e56-270e-402d-b803-d56da48f9774.png",
+      "sha256": "0f86f7e8bc955e4f7a5785ba30c5d69149e615402c1188d13df59e442412fb31"
+    },
+    "EBAY": {
+      "file": "EBAY.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260609/ecb5f1f0-c468-44af-b596-3e85c65fdba5.png",
+      "sha256": "4784d3aab26359beb85f033c7814679ebf348637e83caaabc5bf7857b3520f66"
+    },
+    "EWJ": {
+      "file": "EWJ.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20261022/71a3461a-b1fe-41f2-b2f6-67b9d5cff947.png",
+      "sha256": "ccd98d49a032887ef72dd374c54239ab31a6b5e4eb44027bc79e09f437e9f5b4"
+    },
+    "EWT": {
+      "file": "EWT.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20261022/30753fa5-1114-40df-9bff-52b5f084e8f2.png",
+      "sha256": "ccd98d49a032887ef72dd374c54239ab31a6b5e4eb44027bc79e09f437e9f5b4"
+    },
+    "EWY": {
+      "file": "EWY.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20261022/70040f23-d4d1-4f1c-814e-18c7234a6ae7.png",
+      "sha256": "ccd98d49a032887ef72dd374c54239ab31a6b5e4eb44027bc79e09f437e9f5b4"
+    },
+    "EWZ": {
+      "file": "EWZ.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20261022/99e60694-86a9-486f-bb23-978d9dd4d006.png",
+      "sha256": "ccd98d49a032887ef72dd374c54239ab31a6b5e4eb44027bc79e09f437e9f5b4"
+    },
+    "FLEX": {
+      "file": "FLEX.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260702/d3664178-b676-45bb-a23a-5236a006ba06.png",
+      "sha256": "bce96c7579375f123ab2beac81d01c87d3b172ceff29e24c3fe55e389a97ba05"
+    },
+    "FLNC": {
+      "file": "FLNC.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260518/a89fdaae-0b90-4fbb-a3d2-f59490c29d18.png",
+      "sha256": "4720a9a95e7fbee4f50e2379a309e44e75a86f1966adc9bf4f89f2beb5187377"
+    },
+    "FWDI": {
+      "file": "FWDI.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260709/f762b163-ca8c-4f41-aaac-b37d94af63f1.png",
+      "sha256": "452875d29aa0e6d2947c55696c572d4d67f2b26b5724d3e252672685690ddbc5"
+    },
+    "GDX": {
+      "file": "GDX.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260814/ecc3f46f-a1ae-4a55-938a-5f7fca36c553.png",
+      "sha256": "1e844e34ffc603114a618c2cf136dce292fac7e1e6c5ee167dfe404ccd24bfc2"
+    },
+    "GEV": {
+      "file": "GEV.png",
+      "source": "https://bin.bnbstatic.com/static/stock/GEV.png",
+      "sha256": "cb88f428dca797d59c37af9da907432496b72e4e409c2cf2a17f70bf53d9dbfc"
+    },
+    "GIGADEV": {
+      "file": "GIGADEV.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260731/e436d17e-440e-498c-8058-acbc7a904730.png",
+      "sha256": "250be379507d21efc37968feee5a9646a6eb72013c5dab1882283308a74a1478"
+    },
+    "GLW": {
+      "file": "GLW.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260611/16aa5040-baad-43db-b1f6-a0d85880baaa.png",
+      "sha256": "f7aed254b82809b4eddfba31600ee4349b0c7df0b66339460d3ee986e40fac49"
+    },
+    "GME": {
+      "file": "GME.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260610/b2611099-6943-47d5-9655-e20288565adc.png",
+      "sha256": "a71a33f6a2b018211a96ea52e0cccf8cfbd614beebccffa30d0e87e896116704"
+    },
+    "GOOG": {
+      "file": "GOOG.jpg",
+      "source": "https://bin.bnbstatic.com/static/stock/GOOG-fca8.jpeg",
+      "sha256": "1b20ccf63786e4205596817b75d0dd1e00160fdbd622edab7be7ee9363d428dc"
+    },
+    "GOOGL": {
+      "file": "GOOGL.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260325/204aae50-92e1-4077-92e1-e2b544dcae61.png",
+      "sha256": "e947bd02d106210df9117239f7611fffd8f8308d0c269c6473a28cb654f8e6d1"
+    },
+    "GPRO": {
+      "file": "GPRO.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260903/f9f8f930-4e46-447d-bfcc-69109d7e78a9.png",
+      "sha256": "9f6e5ad301a59a16a02bb00419d202cc215232de35fad91dc745567f56389ce5"
+    },
+    "GS": {
+      "file": "GS.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260724/d1441f1e-a1f6-4b6b-b429-bf5917037566.png",
+      "sha256": "d060b17c3a19fc682695fc446ebf846c4e0d226441242e04fdafda059a413150"
+    },
+    "GTLB": {
+      "file": "GTLB.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260902/37917dab-b263-43f5-8e80-580d7404f0e3.png",
+      "sha256": "e71b1841e1eb88d6f2af4dd35cc6a4e37cf312ee1bdff31dbe09bc85dda1ef59"
+    },
+    "HANMI": {
+      "file": "HANMI.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260812/8645fbec-fb0d-4ead-aa69-f974f2b9bd3b.png",
+      "sha256": "83c0a8779d320c614f5b711a210f68b427f295c6a249b518f63ec4f86d0f3286"
+    },
+    "HD": {
+      "file": "HD.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260514/f9372a91-416e-4ed8-a427-56902af5b1b7.png",
+      "sha256": "78359a5aad1463a5fdcc3e1ff1fde22f6b081706443838333f48c286b69d88ce"
+    },
+    "HIMS": {
+      "file": "HIMS.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260609/f0952ce3-dd84-453e-a9ec-d7eebf718664.png",
+      "sha256": "6167d1be16915c50752b6d889a5e5d623710e750114adf0ea2940fd22a69e030"
+    },
+    "HK0625": {
+      "file": "HK0625.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260825/0be14653-0cd6-45ea-8568-5ca1621e9886.png",
+      "sha256": "7dcc05ab760e89762ec9c677fd41dd3cab3577b60c39d0fc76e2da8d735adb7c"
+    },
+    "HK0700": {
+      "file": "HK0700.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260715/b0e58788-1748-4e3a-8d71-7d56defce865.png",
+      "sha256": "7ffa036fe6d333bf38f64fa4c5f8e4d91a7d7fa2e0c7406a91096401c7a5712f"
+    },
+    "HK0992": {
+      "file": "HK0992.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260903/4ede0350-ce00-4b77-9a08-e202cea81eed.png",
+      "sha256": "f3662c959c9ea946e46703d165a890f28f4264a4af55d4d22552c2d25ea55492"
+    },
+    "HK1810": {
+      "file": "HK1810.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260715/e426bf28-e602-4ad3-bbce-8c05c54231dc.png",
+      "sha256": "6e24729c257cf4efad02caa90d00284ec3e8101252f8c472451fe7ae11d7977d"
+    },
+    "HOOD": {
+      "file": "HOOD.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260202/2ba05e3f-f71d-48b4-a02e-d1236943d4e1.png",
+      "sha256": "8a08afcb02ab7e5241cf2637a96545e6a4bea4259493b806cd2a51ecfe01ea85"
+    },
+    "HPE": {
+      "file": "HPE.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260608/a094db89-dc30-477c-92d3-dc5a5fd825d7.png",
+      "sha256": "833379eaeb801657fbecb96cd73531de16064027dea1416f819cd8682b68ba74"
+    },
+    "HUT": {
+      "file": "HUT.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260914/416b017e-0261-47b4-b057-fa4f35bb236c.png",
+      "sha256": "6003211e3253bc1dde5e2e023f4ae776a6542dc487ad55b6cd6f1d06bcddd0ba"
+    },
+    "HYUNDAI": {
+      "file": "HYUNDAI.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260602/246ccc2a-5a67-46dd-a32b-4bc322d353fc.png",
+      "sha256": "be4f2c06b0a999d75ab54a1bcede5f73058c25002c3f0c9cf8fe3b163dd23950"
+    },
+    "IBKR": {
+      "file": "IBKR.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20261014/87e71236-e8d3-407b-9efe-024bfc2fc531.png",
+      "sha256": "56f5713f4f3568e3512c5a8b3001ec5acf839d1657342b36d589e51c1ca10c97"
+    },
+    "IBM": {
+      "file": "IBM.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260603/24da06e3-a320-4a99-a7c5-cde64f8282d1.png",
+      "sha256": "f2d970e21f52b58e4ee0aabe4cca172af90696fa32dc8631ac3321332ebe871e"
+    },
+    "INTC": {
+      "file": "INTC.png",
+      "source": "https://bin.bnbstatic.com/static/stock/INTC.png",
+      "sha256": "a807c828696104b3cf6a3f1d58a260ec9a2c44fdf023c9d804799dddb158c6b4"
+    },
+    "INTW": {
+      "file": "INTW.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260709/31afe4a8-89f5-48c2-bf74-c9686e84f20a.png",
+      "sha256": "b098b01f159718e6445e30ea774851eced7ac0db28d67c450a5c7c6febb7c5f9"
+    },
+    "IONQ": {
+      "file": "IONQ.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260827/12931dc1-091a-450a-88c7-75447cb76984.png",
+      "sha256": "2455b1f51d1916d711afba7cf6ecdaaf8171043e1837f5735ab6b87a4e3e86b6"
+    },
+    "IREN": {
+      "file": "IREN.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260603/b7596662-813d-47f8-aac8-b2ebe28b635a.png",
+      "sha256": "25585b747e10c2fb3277400cfd3658816d30c04cddbc0bb5dfb68823c0d41f4c"
+    },
+    "IWM": {
+      "file": "IWM.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20261022/481296b6-861b-4d6b-9c81-ff585d6d2469.png",
+      "sha256": "ccd98d49a032887ef72dd374c54239ab31a6b5e4eb44027bc79e09f437e9f5b4"
+    },
+    "JPM": {
+      "file": "JPM.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260514/c220b773-4385-4050-a473-1172ec310356.png",
+      "sha256": "98633e7b784d109390c5b296fa54a8b89737e68474073110ef1381383a6a0396"
+    },
+    "KLAC": {
+      "file": "KLAC.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260710/d3cc2c71-7456-4b7a-a4f6-dbded5aaf56a.png",
+      "sha256": "6391aab9e1ab87af7cbf985cadc000dde10326a54f03d6e2bc2c37a63f21bf9c"
+    },
+    "KO": {
+      "file": "KO.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260805/264438b1-dd49-4b3b-88a1-9781c6ba5b2c.png",
+      "sha256": "cb44827f1937f073def3462279698f60e35103a3ca51ee51ccc5e7c5e11c6743"
+    },
+    "KODEX200": {
+      "file": "KODEX200.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260812/d35e2ef0-80f8-46ed-9e5f-051673ba8cf0.png",
+      "sha256": "3fb4468845d056f669a2b227ae01e38b3ff9ffa867344ec6a3d7e2bdf4c84758"
+    },
+    "KORU": {
+      "file": "KORU.png",
+      "source": "https://bin.bnbstatic.com/static/stock/KORU.png",
+      "sha256": "d16b8f0029b3091f08a6c3bda32872e1d5eafd0c212395cca32b0f416b15a927"
+    },
+    "KSTR": {
+      "file": "KSTR.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260702/3efcbb02-b7b9-444a-8b61-6b997c2c850e.png",
+      "sha256": "4a7ceffe084d3557f65af5586f948603747709397c8291abd4df86b4b6110099"
+    },
+    "KUAISHOU": {
+      "file": "KUAISHOU.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260810/16802a35-d6c7-42d2-8fb2-4a8d687f2ac2.png",
+      "sha256": "474fef29759cf861ad053f83da98e19a12976d04cb5f150313d39e0f81ed8314"
+    },
+    "LGELECTRONICS": {
+      "file": "LGELECTRONICS.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260812/5bb88a15-2a40-4b1d-94f7-5f78eccc5b3c.png",
+      "sha256": "8f1f02f094213a289adba9f0234185bdde96683360017ae29e49b807fcbd6db6"
+    },
+    "LITE": {
+      "file": "LITE.png",
+      "source": "https://bin.bnbstatic.com/static/stock/LITE.png",
+      "sha256": "0626f3f4d10cee0bf76a8c3e8e46134a9c40c3d07e5d48e56514a7fa0bdbbd14"
+    },
+    "LLY": {
+      "file": "LLY.png",
+      "source": "https://bin.bnbstatic.com/static/stock/LLY.png",
+      "sha256": "ce89f4119960dfc9579af09345666866d98fe6b60bfea9c6fcf1d39a761feaaa"
+    },
+    "LRCX": {
+      "file": "LRCX.png",
+      "source": "https://bin.bnbstatic.com/static/stock/LRCX.png",
+      "sha256": "402c76f0edcb4c6d6796aa84dc6ed275cb24d1634a6bf48413e72ab923ef8063"
+    },
+    "LYTE": {
+      "file": "LYTE.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260814/43297526-8ac0-43df-9fb7-fc4c07bcd8a1.png",
+      "sha256": "b8c20dfc693c8495ebaaec6a1cd285fba8a4565f6c7b787b7714bbce26606719"
+    },
+    "MARA": {
+      "file": "MARA.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260827/05028a9c-e33e-43e3-8e72-4cf5921e05f7.png",
+      "sha256": "91ff42be8457af3b435869b8456b7b8bafd829c2a963b5cf2282206e5cec328f"
+    },
+    "MCD": {
+      "file": "MCD.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260930/4dddb74e-89b2-4fa4-8b96-82bfc388f7b6.png",
+      "sha256": "88a05e4642323fa02502a003df8154b52c3d66213b3ec459d450cf78d6bd15ed"
+    },
+    "MDB": {
+      "file": "MDB.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260902/938e8abb-4b26-42c7-b0e0-534d5a0f71a1.png",
+      "sha256": "343e4b530c5717e078254136f9b5167959735f53dbb85b295db890d62cde09a5"
+    },
+    "MDT": {
+      "file": "MDT.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20261014/ead4e6b1-bb50-44ea-8022-23208416fdd9.png",
+      "sha256": "78a067288644239e7a6ee56a4f4ae5631b17696a933138d40e4f04fea6434e82"
+    },
+    "MEITUAN": {
+      "file": "MEITUAN.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260810/30306856-1ef8-48b5-998f-55093379c8df.png",
+      "sha256": "e09035e672711eda25950c07d4511dcdc3037c1960c4879464497ef116482b29"
+    },
+    "META": {
+      "file": "META.png",
+      "source": "https://bin.bnbstatic.com/static/stock/META.png",
+      "sha256": "4c1d1a94d78436f231bf533926e22246b91272bd71410c007070a59e06136f8d"
+    },
+    "MINIMAX": {
+      "file": "MINIMAX.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260715/eaa36254-d436-46fb-8c3c-8c989c348c0b.png",
+      "sha256": "6a4962a421785536170a962c65da1d2a7aeb988181a8a4f7cb4074f79976f84a"
+    },
+    "MOONSHOT": {
+      "file": "MOONSHOT.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260921/b8168bc1-ca4f-4d15-a637-2082f97fe178.png",
+      "sha256": "4a8f1e1ec2b5d6226dd36a6666caee788d014e3c8eb6a4ac7d8b26ac1537177a"
+    },
+    "MP": {
+      "file": "MP.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260924/ffe420ff-5990-417f-bb4a-3910a1a14ab2.png",
+      "sha256": "929c4a0d46821a6bf3996b8ff4c1c7c4fd0e242cdbb4a8af2af6fb7145c0e7d4"
+    },
+    "MRK": {
+      "file": "MRK.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260827/de749402-aa3c-403f-957b-2d1905e341a5.png",
+      "sha256": "a4ce4fb55108ec9152562456a62097fc8e4da9abed49b0de2cb0ef8478d95089"
+    },
+    "MRNA": {
+      "file": "MRNA.png",
+      "source": "https://bin.bnbstatic.com/static/stock/MRNA.png",
+      "sha256": "146463fa2775254c73f8800a5ef088224e19d7ef054204420523d99ddd3a31b9"
+    },
+    "MRVL": {
+      "file": "MRVL.png",
+      "source": "https://bin.bnbstatic.com/static/stock/MRVL-72f5.png",
+      "sha256": "9030dc9302ef04fdfbf1bf5f3caed163f2ea83cd45419e765e8695f7b2344433"
+    },
+    "MSFT": {
+      "file": "MSFT.png",
+      "source": "https://bin.bnbstatic.com/static/stock/MSFT.png",
+      "sha256": "3012fec6d31752c40c18246acd451879058a9dade39c2dc4af586b19dd83692c"
+    },
+    "MSTR": {
+      "file": "MSTR.png",
+      "source": "https://bin.bnbstatic.com/static/stock/MSTR-d6e4.png",
+      "sha256": "6ee7d0b3888849e193fa829de4e764982d37f7981ff5e2c384f58fa7d3fab87d"
+    },
+    "MSTU": {
+      "file": "MSTU.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20261008/c0ac15fe-1edd-445b-b293-12b549a9a39e.png",
+      "sha256": "7a2fa3000938e24b39693dc8bb9acbda4e3b38602261eb3b313c5298da54e9d3"
+    },
+    "MU": {
+      "file": "MU.png",
+      "source": "https://bin.bnbstatic.com/static/stock/MU.png",
+      "sha256": "9a42b9387fdbf5035756c5a8d22dca32ff3856d7cb149fd224424ba7c252a9a2"
+    },
+    "MUU": {
+      "file": "MUU.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260713/f2bff9a1-86d8-4473-8cad-13b0ddfb5989.png",
+      "sha256": "7d4c9794e835a4ccedc5599cc028835b15e0881787eabfb2cfeff8928928b932"
+    },
+    "MVLL": {
+      "file": "MVLL.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260623/6fec0f0c-d746-48ce-92da-5fb6d060fad6.png",
+      "sha256": "154c158c236cc5c152f3cb62008674a77520de423a02d27930f75efa99d2bc9e"
+    },
+    "NATGAS": {
+      "file": "NATGAS.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260331/be8f45b2-2ba9-4694-a11f-77dbc06db7e4.png",
+      "sha256": "31560164a5829b2c6aec70d18c7cec6aa43262dd4934ec268d3074b2139ffb7c"
+    },
+    "NAVER": {
+      "file": "NAVER.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260812/7bd3b658-333b-487f-8fb7-8b86af87b16a.png",
+      "sha256": "1d5d3e735f87e936fd4d70a94b1234b600c86afb3661f6a2edb89456989c9e02"
+    },
+    "NBIS": {
+      "file": "NBIS.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260526/df321470-bc6f-4df8-bfa7-63b79c4b9053.png",
+      "sha256": "405ef5ce445eaee86e7266cda6e3b2a30001a21a154b5e88741ebb56185a0423"
+    },
+    "NET": {
+      "file": "NET.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260814/35a879a1-d195-48bb-aef2-a55eeb7f4436.png",
+      "sha256": "8d4073c01096c38f7e0d97847c150c1823fb3fdfcc800d1c6105255b74bd2763"
+    },
+    "NFLX": {
+      "file": "NFLX.png",
+      "source": "https://bin.bnbstatic.com/static/stock/NFLX.png",
+      "sha256": "4250ad863c2299346443f3b08e4f7942c2414adbb464bb32dfd33e68a07674a2"
+    },
+    "NKE": {
+      "file": "NKE.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260924/75669b85-97c6-42e2-b682-3bd65b30d664.png",
+      "sha256": "48438ab4bbd8841d7a7de3b75337d3c463ca0979721cc9f1dfce55efa39b7734"
+    },
+    "NOK": {
+      "file": "NOK.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260601/765def98-ef39-4520-9a63-02e1be86484b.png",
+      "sha256": "084c7a7dd9076ebef50af302687f639103d490f955cc2435d08b575baae342b5"
+    },
+    "NOW": {
+      "file": "NOW.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260603/7c607a5e-3f58-4d01-921d-f8150ea4bec1.png",
+      "sha256": "76895ebfea11528c8fc04e9f50519c2bf22eb66fd32e3e6b713896517e781f2f"
+    },
+    "NVDA": {
+      "file": "NVDA.png",
+      "source": "https://bin.bnbstatic.com/static/stock/NVDA.png",
+      "sha256": "bdf38bf8e7886ed68e664a7e8545e3aea4d58c3973428c2c4db00f7964ff54bb"
+    },
+    "NVDL": {
+      "file": "NVDL.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260902/e5f04ce4-06ef-43dc-b6f0-dec35a3becd5.png",
+      "sha256": "bc5392968aa134d196fbeab37b99d057f1f62ce710739906c4e57df6262c3804"
+    },
+    "NVO": {
+      "file": "NVO.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260601/218d8ca3-083a-4dc6-b76b-1a7db40ea1ca.png",
+      "sha256": "152df8fd2f847d6c0533ceefefaa03af07803d357bea32600bb2596c3b372ca9"
+    },
+    "OKLO": {
+      "file": "OKLO.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260924/ce71c9e6-49eb-4273-ae3c-f32e879dff37.png",
+      "sha256": "71c7d1de38575a137166e970cd7eb399cb37b1b0775e364341d5d7d65ab325da"
+    },
+    "ONDS": {
+      "file": "ONDS.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260603/3ac66514-56ab-4d28-a6aa-e33c2ced0fb3.png",
+      "sha256": "733deffa820ee0522d66581db1a777d26b68242621417a290c7c8711976a9e0e"
+    },
+    "OPENAI": {
+      "file": "OPENAI.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260604/0697d19e-676d-4b3a-9dee-eedf6c19e7c8.png",
+      "sha256": "d5b616976421af697fb6528cfb4f961a97405942b6b201b019a93438665d5572"
+    },
+    "ORCL": {
+      "file": "ORCL.png",
+      "source": "https://bin.bnbstatic.com/static/stock/ORCL.png",
+      "sha256": "a22032d1b323c63765066a7488b3aac7d25d5634de8ca835d320ee88ff2509f3"
+    },
+    "OURA": {
+      "file": "OURA.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260923/b0f0b48d-c6ce-4383-a430-16b155bad525.png",
+      "sha256": "418cc5a27cb6e09af7f154cd3aa155fe6cf69820e62a22a2e16ba86b39ee32c5"
+    },
+    "PANW": {
+      "file": "PANW.png",
+      "source": "https://bin.bnbstatic.com/static/stock/PANW.png",
+      "sha256": "c2c4eeb8fd16459fa334b4dec7791e681e7173d3fbfeea1ac6918908a4637261"
+    },
+    "PATH": {
+      "file": "PATH.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260914/27705eba-9f40-4cbe-8698-c776ca3fc4d6.png",
+      "sha256": "feb1da7d285323a012281e146e3c5cc38867d6c29467b134bcad3259df1e8fa0"
+    },
+    "PAYP": {
+      "file": "PAYP.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260323/4a23e038-39b5-4a0c-86ea-460887dd8526.png",
+      "sha256": "53a5210a9e30101ef2c246c06a55658154b1053deac12b41841217c95249f267"
+    },
+    "PDD": {
+      "file": "PDD.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260827/5e306066-ca67-4a83-835e-0654198bb251.png",
+      "sha256": "04182703a0ac890986eb303765c772f6560d634ee4e48ac2e6444346577125f0"
+    },
+    "PENG": {
+      "file": "PENG.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20261014/4fd2db93-6cdc-4d8c-92f4-9018765ae314.png",
+      "sha256": "98c57593d6bf0c848f4e538e95b87fa769e80d4ae25c35b2b428cfb753254fc3"
+    },
+    "PLTR": {
+      "file": "PLTR.png",
+      "source": "https://bin.bnbstatic.com/static/stock/PLTR.png",
+      "sha256": "7ff299ca13d37eb10f7c9117a902251fae1447a81a97bd2925cc98ff382cc3fe"
+    },
+    "POPMART": {
+      "file": "POPMART.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260722/0ef6492e-9cb3-4f2d-accf-68e9631fb3dc.png",
+      "sha256": "44776fe63e2d3c124c4bc02ffc4ecce4cbd1aeb48c2738405859abd47bf1950b"
+    },
+    "PYPL": {
+      "file": "PYPL.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260724/b074914f-cfee-440a-9c62-23bf4df9f0e3.png",
+      "sha256": "af3c78ebd9db2d26d7213635ab330db4a871a055a8cf188b80f9e0916b3cd1cf"
+    },
+    "QCOM": {
+      "file": "QCOM.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260504/4edc519f-a909-48da-8abc-6e3ab2ffe487.png",
+      "sha256": "1a0ad3dff4cee7c36024a75fc8b9e75e855afe31e94e36d1cc11f19a07c48fda"
+    },
+    "QNTX": {
+      "file": "QNTX.jpg",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260529/4fa5463f-22fe-4624-b61d-b292e2059ce5.jpg",
+      "sha256": "59c1b3328c40935689b9d3c2d2af561e5f941eedbd407fffea96412b42cebcb8"
+    },
+    "QQQ": {
+      "file": "QQQ.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260611/843775e4-e380-4039-9187-5cb5eea6d027.png",
+      "sha256": "8fd1b2641c5b40c72b049fa077329ca57fa8c224af47d53ff174d611026bb207"
+    },
+    "RAM": {
+      "file": "RAM.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260825/d27e336a-4348-49c7-b6a6-9134387473b5.png",
+      "sha256": "76a9b654c2c82ec2c9df9c1a50be9b82d103e21548fa11f2de8156e0d9451ad6"
+    },
+    "RDDT": {
+      "file": "RDDT.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260805/b2f08e5e-b6d1-4b34-be46-7143b81e2cd9.png",
+      "sha256": "322b8865d0f91ac9e72033798590bdc29eeb13fdcc2cde9869498ff4d6dab4bb"
+    },
+    "RDW": {
+      "file": "RDW.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20261008/43f74e7d-a73d-4486-8ac0-02821206dbad.png",
+      "sha256": "bf0a168ea1b3792c2182f6e50591d5e1dbbfa2e8b1d52e4069ee6ff2d63da885"
+    },
+    "RIVN": {
+      "file": "RIVN.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260610/f2038ffd-e5fe-41e9-8916-c2c4c9a48d70.png",
+      "sha256": "1c9badd020257870687c8bd5cf4d983a2c340e3d15e185075086bb4b616e0360"
+    },
+    "RKLB": {
+      "file": "RKLB.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260518/8df36fa9-14e1-4a2f-badc-a51b0b924e3e.png",
+      "sha256": "1c986962350be16aad5c2d24f31c31578d19c6c1db27fa0e0b6b791f32094fc6"
+    },
+    "RUM": {
+      "file": "RUM.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20261014/4bbaf2ec-c59c-4c13-a031-e424a3b658b3.png",
+      "sha256": "07b4b51d0c2c6ce3092459594655f067b465afa603d24635a126cf96891465fe"
+    },
+    "SAMSUNG": {
+      "file": "SAMSUNG.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260602/e0d70e1c-21b6-47eb-8272-65edb18e5705.png",
+      "sha256": "7d12a716b4c789af65eff911f058f77c47e75d77fdaf0619634ab84e901a9ee2"
+    },
+    "SAMSUNGEM": {
+      "file": "SAMSUNGEM.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260812/7312ebdc-6e1d-4cf2-adb4-a0afa3b860a4.png",
+      "sha256": "469a01eb1a76e045bb79c7ca88e88418ce9c71e0e76396d8900ca21233c0e025"
+    },
+    "SECZ": {
+      "file": "SECZ.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260924/b6879179-daa7-4415-a615-d588fe7ed6af.png",
+      "sha256": "d3b112653f8117c9803957deb9f5bf1d3f1943e35c762e2523b203a688b50d34"
+    },
+    "SHAZ": {
+      "file": "SHAZ.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260720/e561029c-7920-48a0-b033-6676d37b2ffb.png",
+      "sha256": "45192f949855c11000e827db3936b9d240ace30acdb4e226a464e534b3c6018d"
+    },
+    "SHOP": {
+      "file": "SHOP.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260814/18c52daf-b385-4c34-a27a-31a2c56d344d.png",
+      "sha256": "375cf8657b460bc27d209d3d7452aaf1dbebb0fae61f45269864816bdd016af2"
+    },
+    "SKDD": {
+      "file": "SKDD.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260825/b074b900-c0b8-4e33-93c3-4ee4e27cc009.png",
+      "sha256": "898abb38235a021a91a84bbfe1293ae217091e581330f9b1a98ff8ed2aec8a0d"
+    },
+    "SKHY": {
+      "file": "SKHY.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260703/497f6140-62c9-4910-a2ac-759ed1c0eb9a.png",
+      "sha256": "d6b9ea71213625e9d79655e474a0e182f0c435d35e788a97a911d22c4ba64a86"
+    },
+    "SKHYNIX": {
+      "file": "SKHYNIX.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260602/69707ef3-2474-47fb-a757-a85f1d3f9d52.png",
+      "sha256": "72f2c0d5989982c38fe78aa17404aed4bfa3a258296ac31c6bedca096c662011"
+    },
+    "SKUU": {
+      "file": "SKUU.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260825/29eeb609-cc94-4c45-ab2b-f0a45d6bb46d.png",
+      "sha256": "898abb38235a021a91a84bbfe1293ae217091e581330f9b1a98ff8ed2aec8a0d"
+    },
+    "SMCI": {
+      "file": "SMCI.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260622/ee2618fb-9d89-4cf2-a237-64346d9a875b.png",
+      "sha256": "4a2e73a59b1e43d4ad579e104abac67566447a03bd6854eb28cbef19abdbf8da"
+    },
+    "SMH": {
+      "file": "SMH.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260724/489dd317-d784-4645-8c23-4b90dd141f11.png",
+      "sha256": "d3dc0bc02d561190d318b9fb450607aeffc51099b079222886a8380175d139f5"
+    },
+    "SNDK": {
+      "file": "SNDK.png",
+      "source": "https://bin.bnbstatic.com/static/stock/SNDK-3d94.png",
+      "sha256": "51894bea091e6cbaf65ac8749c2a8feda9728cbe4a72dcf31a5e067a480b7260"
+    },
+    "SNOW": {
+      "file": "SNOW.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260709/c4418094-1f8e-4c85-b0f2-8feb84fd90d1.png",
+      "sha256": "af24b9cc3c9055935919a2f12484a553537be71f41918d5a1e7b953384aca7b9"
+    },
+    "SNPS": {
+      "file": "SNPS.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20261008/b25fbbcd-6c50-48b9-a0f6-ca771e1350ed.png",
+      "sha256": "58e8de38d01dd6a226a95be0dc58b0a0180aa18b5aa16bf4d8d5dd81a372508d"
+    },
+    "SNXX": {
+      "file": "SNXX.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260709/bd831610-65d4-4d72-964c-c2096ec316c8.png",
+      "sha256": "7139a1544670ff376ac5db83ebc25560142f2a24b224246ae96a165b53ea8ee4"
+    },
+    "SOFI": {
+      "file": "SOFI.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260720/2f01b825-a399-452f-9142-444f9f81fd88.png",
+      "sha256": "5e61fd847bd60d1cd93c310276eb72e434956541f260018ef98b9bdbc77610e1"
+    },
+    "SONY": {
+      "file": "SONY.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260622/73531276-5a91-48ae-8650-bbb0beb10f73.png",
+      "sha256": "b96f6bcc83350523d56e6663b68cc016e171f4fdf89881dd64a4b0c1e8879617"
+    },
+    "SOXL": {
+      "file": "SOXL.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260520/79ec049e-cb6c-4f6c-9617-5ce130a5b8d2.png",
+      "sha256": "f231c4ac62764b55fa16ce2981fac1931964b1fb4ef0a8ad0d972b821ccccf45"
+    },
+    "SOXS": {
+      "file": "SOXS.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260713/660ea3ea-be98-4f6e-a7e6-9becec94b774.png",
+      "sha256": "7d4c9794e835a4ccedc5599cc028835b15e0881787eabfb2cfeff8928928b932"
+    },
+    "SPCX": {
+      "file": "SPCX.png",
+      "source": "https://bin.bnbstatic.com/static/stock/SPCX-7c71.png",
+      "sha256": "8a11db70e61dada9cd72349e6727b9418dd62d21e5c516103efc1a336059577c"
+    },
+    "SPY": {
+      "file": "SPY.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260611/a01bb028-744a-4fd7-b9e4-b02ded818b4a.png",
+      "sha256": "3ac50e2489bc32544da4d1cbfa37b49022c8cc379fe0a4f86c6c943a62f4ef50"
+    },
+    "SQQQ": {
+      "file": "SQQQ.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260623/400c013d-67f2-49e3-bcd9-8b9a39f61653.png",
+      "sha256": "7986d5f229d3d744ee2a80ef08b8a1c0ee9f417c227f8708b21b40fccc0a68d6"
+    },
+    "STRC": {
+      "file": "STRC.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260710/b171cd57-81b5-48a8-a67f-3f43994988e9.png",
+      "sha256": "031c63e943be419737a39522953d5f9e3ec6afc8ef0aad765f352f0f8d18ab23"
+    },
+    "STX": {
+      "file": "STX.png",
+      "source": "https://bin.bnbstatic.com/static/stock/STX.png",
+      "sha256": "e01ba4414422a6662a9e0d2909682729fb086aa729e8f6791ed4d9930a14562f"
+    },
+    "STXX": {
+      "file": "STXX.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260611/2e8c0b81-9d96-4e3a-ab52-3d5448a04ca7.png",
+      "sha256": "2c6f21377fde62ff8ac11daa785a01af9ec5985e6b008dd8e1741097915ad955"
+    },
+    "TBT": {
+      "file": "TBT.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260721/383feca5-fe97-45a3-b36b-68bb58007ed5.png",
+      "sha256": "d914e39673cc19d2dc7ade36f30a83ba699f3df9719bb402d447b0c07649181f"
+    },
+    "TEAM": {
+      "file": "TEAM.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260902/8834edf9-93a9-4b74-9239-28bcf32da7b0.png",
+      "sha256": "9bdae9f921531521580bd31740c2c0000dd1fda32f623e36606cc5d5fd4dd4de"
+    },
+    "TEM": {
+      "file": "TEM.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260827/7581ab6a-c6c0-480e-aa6f-63b0d516e3ca.png",
+      "sha256": "d1f6ade577158eed51bb8eadd18956846c6fda2cefa24940be035bf6da8deefd"
+    },
+    "TENCENT": {
+      "file": "TENCENT.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260715/093a7018-3818-44aa-a1e1-81e7d9ff65e7.png",
+      "sha256": "7ffa036fe6d333bf38f64fa4c5f8e4d91a7d7fa2e0c7406a91096401c7a5712f"
+    },
+    "TER": {
+      "file": "TER.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260702/fd3082fb-041f-4d83-b4cd-2f996da5b9aa.png",
+      "sha256": "1522b7050c64f65a46ea1b0678c3d89cc40c80861e65199c53a48326a426663d"
+    },
+    "TMF": {
+      "file": "TMF.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260721/187278b0-a848-414c-97e4-0ff2f789fb66.png",
+      "sha256": "7d4c9794e835a4ccedc5599cc028835b15e0881787eabfb2cfeff8928928b932"
+    },
+    "TQQQ": {
+      "file": "TQQQ.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260623/9d0db767-eb24-415b-a1e4-c2a9ee5c439e.png",
+      "sha256": "7986d5f229d3d744ee2a80ef08b8a1c0ee9f417c227f8708b21b40fccc0a68d6"
+    },
+    "TSLA": {
+      "file": "TSLA.png",
+      "source": "https://bin.bnbstatic.com/static/stock/TSLA-de59.png",
+      "sha256": "7778dfe686cbac250917ea457f0e9395234ed3764c077feac316f83aec1c0369"
+    },
+    "TSLL": {
+      "file": "TSLL.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260902/4f55f284-8d42-49e0-a57c-f28c905b81e4.png",
+      "sha256": "c75e4a50187aaf885112b1552be39bec89fa7b75291987db77d66aec1adda220"
+    },
+    "TSM": {
+      "file": "TSM.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260520/bb2594eb-96b7-485f-ad9c-d8e36c2ae45e.png",
+      "sha256": "c73cd9683f6c9101051c1d80402d45b1e45992d9c9aaf02db00ca0db728f8122"
+    },
+    "TTWO": {
+      "file": "TTWO.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260702/4e105b08-8a77-4761-9410-0fa326ce9ba5.png",
+      "sha256": "3d9767401560c5904ad03d7adbaa46c1e03be7c0f8ed5342b0674c6be20a572d"
+    },
+    "TWST": {
+      "file": "TWST.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260924/c4914a1f-cd3c-48ce-9b13-113a8b902db5.png",
+      "sha256": "44738e16fb1dddfef117a6140ee5fa20ee9c5ed30e21776e7d396d8b05ad73f2"
+    },
+    "TXN": {
+      "file": "TXN.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260710/ea2498f5-6c52-447a-9a8e-b50eb0faad34.png",
+      "sha256": "e9cbd0b8e110562552aa4118b547301fd7dfbed3b12e98fcd4aec980c9c7d616"
+    },
+    "TZA": {
+      "file": "TZA.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260713/c2aad7cd-a287-48b3-b56c-c834e529c36f.png",
+      "sha256": "7d4c9794e835a4ccedc5599cc028835b15e0881787eabfb2cfeff8928928b932"
+    },
+    "UBER": {
+      "file": "UBER.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260514/84ea08ef-9618-48b8-827e-775b35ff9aad.png",
+      "sha256": "cc5e14419d918991b2a2fb0c66cbd6d9a2330072c8b259de715495f8acadfc5f"
+    },
+    "UNH": {
+      "file": "UNH.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260924/5dfa8909-41bf-467e-bf83-c655d5ecbcba.png",
+      "sha256": "e3d833614b2f54846732e637f7435c8cb9261cbd42669aec69e816edc18edd10"
+    },
+    "UNITREE": {
+      "file": "UNITREE.jpg",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260819/62cedabb-8985-4d6e-8714-f77c3e954213.jpeg",
+      "sha256": "4dad6a683986754819605dbfb1cb2ce3a04ce698dce1bc058aee1d8484057e6a"
+    },
+    "URNM": {
+      "file": "URNM.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260611/c9efdaa2-6ea6-4710-b4e3-e117024ef953.png",
+      "sha256": "3f5d12da7059310667cb7be27828059d6d4ad51a6e1e010a97d1f5a4ef2b7da7"
+    },
+    "USAR": {
+      "file": "USAR.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260504/17abba26-7a65-4195-a8c8-8105b9868c4a.png",
+      "sha256": "bf2eb6299a31a6094e655010f6a22763b5833681198769a8be73da7145c6dc87"
+    },
+    "USDBRL": {
+      "file": "USDBRL.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20261021/4afa852e-0a92-4c18-8536-9278c41b55d9.png",
+      "sha256": "b829dedbd52e7d152817733aca38502e3c9981a901741b3a1fa415e9122a8e95"
+    },
+    "USDEX": {
+      "file": "USDEX.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20261006/0cdbc6bb-73ec-442e-a222-a0251b6130a5.png",
+      "sha256": "0aeaf004c6af7f2626a405f0668ff4e373d8e76935da9111424ab6ec5e77f089"
+    },
+    "UVXY": {
+      "file": "UVXY.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260611/bd31bfce-2e5f-4c37-9753-302fec484974.png",
+      "sha256": "003be7e532417aaa17e2285d209b61a1e4e4773a2d0c8a1fecf4b8cba5e35071"
+    },
+    "V": {
+      "file": "V.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260514/654539cf-f458-46da-96a3-529a3e2f8cf5.png",
+      "sha256": "c648efcd3059c3fec84dee591b5a4e6df80cdd6e97abbe418e611dd085f5fdad"
+    },
+    "VKTX": {
+      "file": "VKTX.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260930/f8f36abf-9c58-4ef6-b32b-bbfa2dbb25b8.png",
+      "sha256": "a0e11f7a8799bb16c688d9bd309be43e35a034f8108d790397b8e8f3e361a507"
+    },
+    "VRT": {
+      "file": "VRT.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260710/cbe2e544-7dd1-4c48-9efa-63d4594a707f.png",
+      "sha256": "9b0409b04959263d81336f8ad8adbc02376668b9e7b87654c5c0e9650a9c163f"
+    },
+    "VST": {
+      "file": "VST.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260814/17d06bb2-1098-485f-a34f-3ac477012b10.png",
+      "sha256": "d738cd044483c588e2d18127e3cdf4755972d19660e2b838707aec6054dbdf0b"
+    },
+    "WDC": {
+      "file": "WDC.png",
+      "source": "https://bin.bnbstatic.com/static/stock/WDC.png",
+      "sha256": "c95f23e3bb6412d44d199123c5e0599b1727e126cf7e9db559d1b58e0bad7e63"
+    },
+    "WEN": {
+      "file": "WEN.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260709/c0951b22-e93f-4954-b78f-b6d37d969f0a.png",
+      "sha256": "488f0043464c439f6eb36a5e0d2f4a3e7ece3937caeb230cc8dc931020c8ff51"
+    },
+    "WMT": {
+      "file": "WMT.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260514/1b51da20-8bc3-489f-aa4a-b025aac54481.png",
+      "sha256": "9c178df737b5a05ae036f26d45eb3cd8768c47944729dc867906d8648193b8c2"
+    },
+    "XAG": {
+      "file": "XAG.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260106/701ef7e0-47c7-4fbd-b9a3-c741def86b8b.png",
+      "sha256": "b8c9da85aaa5f484b02cd1899a1b482e4d0792cc38d87d6a9f85277ec5cbdaa3"
+    },
+    "XAU": {
+      "file": "XAU.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20251209/cf670a44-5124-4344-a321-0ae7f8b536e9.png",
+      "sha256": "91ffcd689ef7929c9470e15da09dff3ec6e4871a90dbf14e12c60b3713b0425b"
+    },
+    "XAUT": {
+      "file": "XAUT.png",
+      "source": "https://bin.bnbstatic.com/image/admin_mgs_image_upload/20260326/95524eaf-76d3-4928-baab-1c87147e7c79.png",
+      "sha256": "720b77bc1a231187e2fa702cc61465fe67d9bcd4ec1c909eae3486b01ce3010a"
+    },
+    "XBI": {
+      "file": "XBI.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260709/81419260-bdd3-43a6-932d-606924c85688.png",
+      "sha256": "0d913b103eae0c828741afb60c2887e634bd32296b010f6f797cd0c5c6dbb934"
+    },
+    "XLE": {
+      "file": "XLE.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260611/4795bf74-8c5d-45a7-adf0-951301d89a64.png",
+      "sha256": "3ac50e2489bc32544da4d1cbfa37b49022c8cc379fe0a4f86c6c943a62f4ef50"
+    },
+    "XOM": {
+      "file": "XOM.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260924/e10429eb-26d9-410e-a017-aa4a5db1bc72.png",
+      "sha256": "7928b83faa45fb7c4353a8e245cdcdcef18ab381bff5fb426183f5b15df29b8f"
+    },
+    "XPD": {
+      "file": "XPD.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260130/b41704af-4312-4d91-804e-6658ef660d1d.png",
+      "sha256": "0b40deff19106c3ccfc1b10d530fcc4b6ba1e809057242955d54bf8f74d02c6c"
+    },
+    "XPT": {
+      "file": "XPT.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260130/6f7978cd-6d17-406c-a498-6c54a1e8bd76.png",
+      "sha256": "eca7a8d3f7a8503af304f5d5a7fbc3df6471ae71969056ec4654c8c26937bc81"
+    },
+    "ZCSH": {
+      "file": "ZCSH.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20261008/e518afa0-908a-4d8a-97e6-f20cc71ae350.png",
+      "sha256": "9d55762f89232c40a7e4d3f931b6be9fcf4a07b2a4b646cf2432eba85f91d7a0"
+    },
+    "ZHIPU": {
+      "file": "ZHIPU.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260715/f2b1c30f-87ea-4c13-9bd3-23b2bfcbe92b.png",
+      "sha256": "b41f6f22967e8f45dedb964034f4af37f705166f62520933a8c278e80db04b20"
+    },
+    "ZHONGJI": {
+      "file": "ZHONGJI.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260810/dfa573bc-9789-498d-8f59-1b46268adce1.png",
+      "sha256": "2d7166ec56393f492be014a4a53e7bb0157f83e3c9254e6f8e2e14005c6b2a4e"
+    },
+    "ZM": {
+      "file": "ZM.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260611/8bbe4295-a774-4a3b-9b10-38134e9fd62a.png",
+      "sha256": "c8639ad78845a8425281c40a17207f0db8c03524eb61c3a44449ad06343eaa5e"
+    },
+    "ZS": {
+      "file": "ZS.png",
+      "source": "https://public.bnbstatic.com/image/symbol/logo/20260902/2714e1ce-d828-4055-bca7-00e30f12cc6d.png",
+      "sha256": "618148e94881bb9a695df43236144178a8dcb432ef6eb004f23c3da5f2dd9472"
+    }
+  },
+  "aliases": {
+    "TSLAB": "TSLA",
+    "NVDAB": "NVDA",
+    "SNDKB": "SNDK",
+    "MUB": "MU",
+    "CRCLB": "CRCL",
+    "SPCXB": "SPCX",
+    "AMDB": "AMD",
+    "INTCB": "INTC",
+    "MSTRB": "MSTR",
+    "EWYB": "EWY",
+    "MSFTB": "MSFT",
+    "QQQB": "QQQ",
+    "METAB": "META",
+    "LITEB": "LITE",
+    "PLTRB": "PLTR",
+    "GOOGLB": "GOOGL",
+    "QCOMB": "QCOM",
+    "COINB": "COIN",
+    "SPYB": "SPY",
+    "WDCB": "WDC",
+    "GLWB": "GLW",
+    "NBISB": "NBIS",
+    "SOXLB": "SOXL",
+    "DRAMB": "DRAM",
+    "CBRSB": "CBRS",
+    "SKHYB": "SKHYNIX",
+    "ARMB": "ARM",
+    "AAOIB": "AAOI",
+    "IBMB": "IBM",
+    "RKLBB": "RKLB",
+    "NOKB": "NOK",
+    "TSMB": "TSM",
+    "BABAB": "BABA",
+    "AVGOB": "AVGO",
+    "MRVLB": "MRVL",
+    "HOODB": "HOOD",
+    "MVLLB": "MVLL",
+    "KORUB": "KORU",
+    "AXTIB": "AXTI",
+    "CRWVB": "CRWV",
+    "MUUB": "MUU",
+    "SNXXB": "SNXX",
+    "INTWB": "INTW",
+    "TQQQB": "TQQQ",
+    "ORCLB": "ORCL",
+    "AAPLB": "AAPL",
+    "BEB": "BE",
+    "AMZNB": "AMZN",
+    "SOXSB": "SOXS",
+    "DELLB": "DELL",
+    "FLNCB": "FLNC",
+    "AMATB": "AMAT",
+    "PYPLB": "PYPL",
+    "GSB": "GS",
+    "SMHB": "SMH",
+    "ALABB": "ALAB",
+    "USARB": "USAR",
+    "CRDOB": "CRDO",
+    "COHRB": "COHR",
+    "ASTSB": "ASTS",
+    "NFLXB": "NFLX",
+    "ASMLB": "ASML",
+    "IRENB": "IREN",
+    "SMCIB": "SMCI",
+    "BMNRB": "BMNR",
+    "GMEB": "GME",
+    "DJTB": "DJT",
+    "CRWDB": "CRWD",
+    "STXB": "STX",
+    "SQQQB": "SQQQ",
+    "MRNAB": "MRNA",
+    "HIMSB": "HIMS",
+    "CRMB": "CRM",
+    "BNCB": "BNC",
+    "GPROB": "GPRO",
+    "RDDTB": "RDDT",
+    "CYPHB": "CYPH",
+    "AMCB": "AMC",
+    "AGPUB": "AGPU",
+    "ZMB": "ZM",
+    "HPEB": "HPE",
+    "ADBEB": "ADBE",
+    "SHAZB": "SHAZ",
+    "FWDIB": "FWDI",
+    "PDDB": "PDD",
+    "WENB": "WEN",
+    "SECZB": "SECZ",
+    "JPMB": "JPM",
+    "LLYB": "LLY",
+    "MDBB": "MDB",
+    "PENGB": "PENG",
+    "UVXYB": "UVXY",
+    "KSTRB": "KSTR",
+    "BOTB": "BOT",
+    "TMFB": "TMF",
+    "VSTB": "VST",
+    "BRKBB": "BRKB"
+  }
+}

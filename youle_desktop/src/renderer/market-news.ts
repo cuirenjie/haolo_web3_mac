@@ -1,11 +1,11 @@
 import QRCode from 'qrcode';
 import { appLanguageLocale } from './app-language.mjs';
-import './market-news.css';
+import { NEWS_CATEGORIES, type NewsCategory } from '../shared/market-news-categories.mjs';
 
 export type NewsMarket = { coin: string; quote: string; symbol: string; venue: string; marketType: string; changePercent: number | null };
 export type NewsItem = { id: string; title: string; content: string; timestamp: number; important: boolean; source: string; url: string; markets: NewsMarket[]; bullish: number; bearish: number; vote: number };
-export type NewsPage = { items: NewsItem[]; nextCursor: string | null; status: string; fetchedAt: number | null };
-export type NewsQuery = { day?: string; cursor?: string; language?: string };
+export type NewsPage = { items: NewsItem[]; nextCursor: string | null; status: string; fetchedAt: number | null; category?: NewsCategory };
+export type NewsQuery = { day?: string; cursor?: string; language?: string; category?: NewsCategory };
 const messages = {
   'zh-CN': ['K线','快讯','浏览器','正在开发中，还未上线','选择日期','取消','确定','今','利好','利空','分享','加载中…','暂无快讯','加载失败，请重试','重试','加载更多','最新快讯','数据更新暂时延迟','关闭','复制图片','X','Telegram','下载','链接','图片已复制，可粘贴分享','链接已复制','图片已保存','操作失败，请重试','查看详情','来源','扫码阅读快讯','该交易对暂未提供行情','打开K线失败，请重试','群聊','上一年','上个月','下个月','下一年','日,一,二,三,四,五,六'],
   'zh-TW': ['K線','快訊','瀏覽器','正在開發中，尚未上線','選擇日期','取消','確定','今','利好','利空','分享','載入中…','暫無快訊','載入失敗，請重試','重試','載入更多','最新快訊','資料更新暫時延遲','關閉','複製圖片','X','Telegram','下載','連結','圖片已複製，可貼上分享','連結已複製','圖片已儲存','操作失敗，請重試','查看詳情','來源','掃碼閱讀快訊','此交易對暫未提供行情','開啟K線失敗，請重試','群聊','上一年','上個月','下個月','下一年','日,一,二,三,四,五,六'],
@@ -14,9 +14,17 @@ const messages = {
 };
 const language = () => { const l = appLanguageLocale(); return l === 'zh-CN' || l === 'zh-TW' ? l : l === 'ko-KR' ? 'ko' : 'en'; };
 const words = () => messages[language()];
+const categoryLabels = {
+  'zh-CN': ['精选','巨鲸','主力','市场','上新','美联储','特朗普'],
+  'zh-TW': ['精選','巨鯨','主力','市場','上新','美聯儲','特朗普'],
+  en: ['Featured','Whales','Large orders','Markets','Listings','Fed','Trump'],
+  ko: ['주요 뉴스','고래','큰손','시장','신규 상장','연준','트럼프'],
+};
+const categoryGroupLabels = { 'zh-CN':'快讯分类', 'zh-TW':'快訊分類', en:'News categories', ko:'속보 카테고리' };
+const expandLabels = { 'zh-CN':['展开全文','收起'], 'zh-TW':['展開全文','收起'], en:['Show more','Show less'], ko:['더 보기','접기'] };
 const NEWS_BRAND = 'Haolo';
 const brandedText = (value: string) => value.replace(/aicoin/gi, NEWS_BRAND);
-const newsShareUrl = (id: string) => 'https://haolo.com/api/market-data/news/share/' + encodeURIComponent(id);
+const newsShareUrl = (id: string) => 'https://haolo.com/api/news/read/flash-' + encodeURIComponent(id);
 const brandedItem = (item: NewsItem): NewsItem => ({...item, title:brandedText(item.title), content:brandedText(item.content), source:NEWS_BRAND, url:newsShareUrl(item.id)});
 const escape = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
 export const newsDay = (stamp = Date.now()) => new Intl.DateTimeFormat('en-CA', {timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(stamp);
@@ -26,8 +34,11 @@ const paths: Record<string,string> = {
   chart:'<path d="M7 2v3m0 14v3M17 2v5m0 12v3"/><rect x="4" y="5" width="6" height="14" rx=".5"/><rect x="14" y="7" width="6" height="10" rx=".5"/>',
   news:'<path d="M3 2h16v20H3zM19 7h3v15h-3M7 6h3v4H7zM13 6h3M13 10h3M7 14h9M7 18h9"/>',
   browser:'<circle cx="12" cy="12" r="10"/><ellipse cx="12" cy="12" rx="4" ry="10"/><path d="M2 12h20"/>',
-  up:'<path d="m12 2 9 10h-6v10H9V12H3z"/>', down:'<path d="m12 22 9-10h-6V2H9v10H3z"/>',
-  share:'<path d="M10 4H3v17h17v-8M14 3h7v7M21 3 11 13"/>',
+  up:'<path d="m6 10 6-6 6 6M12 4v16"/>', down:'<path d="m6 14 6 6 6-6M12 20V4"/>',
+  share:'<path d="M12 16V3m-5 5 5-5 5 5M4 14v6a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-6"/>',
+  external:'<path d="M10 5H4v15h15v-6M14 4h6v6M20 4 11 13"/>',
+  calendar:'<rect x="3" y="5" width="18" height="16" rx="3"/><path d="M7 3v4m10-4v4M3 11h18M8 15h2m4 0h2"/>',
+  refresh:'<path d="M20 7v5h-5M4 17a8 8 0 0 0 14 1M20 12A8 8 0 0 0 6 6L3 9m0-5v5h5"/>',
   copy:'<rect x="7" y="7" width="14" height="14" rx="2"/><path d="M17 7V3H3v14h4M10 12h8M10 16h8"/>',
   download:'<path d="M12 2v13m-5-5 5 5 5-5M3 14v7h18v-7"/>',
   chat:'<path d="M3 3h18v14h-7l-6 4v-4H3zM7 8h10M7 12h7"/>',
@@ -46,14 +57,17 @@ export class MarketNewsController {
   private items: NewsItem[] = [];
   private cursor: string | null = null;
   private day = '';
+  private category: NewsCategory = 'featured';
   private loading = false;
   private failure = false;
   private stale = false;
   private generation = 0;
   private voteBusy = new Set<string>();
+  private expanded = new Set<string>();
   private voteRevision = 0;
   private disposed = false;
   private calendar: {month: string; selected: string} | null = null;
+  private calendarAnchor: DOMRect | null = null;
   private timer: number;
   private toastTimer = 0;
   private observer: MutationObserver;
@@ -67,6 +81,7 @@ export class MarketNewsController {
     host.addEventListener('click', this.click);
     document.addEventListener('pointerdown', this.outside);
     document.addEventListener('keydown', this.keydown);
+    window.addEventListener('resize', this.positionCalendar);
     this.observer = new MutationObserver(() => {
       if (this.locale === language()) return;
       this.locale = language(); this.renderSwitch(); this.closeShare();
@@ -83,6 +98,7 @@ export class MarketNewsController {
     this.switchHost.innerHTML = `<button type="button" class="market-page-trigger" data-news-action="menu" aria-haspopup="menu" aria-expanded="${this.menu}" aria-label="${t[this.mode === 'chart' ? 0 : 1]}" title="${t[this.mode === 'chart' ? 0 : 1]}">${icon(this.mode)}</button>${this.menu ? `<div class="market-page-menu" role="menu">${['chart','news','browser'].map((mode,i) => `<button type="button" role="menuitemradio" aria-checked="${this.mode === mode}" data-news-action="${mode}">${icon(mode)}<span>${t[i]}</span>${this.mode === mode ? '<span class="market-page-check">✓</span>' : ''}</button>`).join('')}</div>` : ''}`;
   }
   setMode(mode: 'chart' | 'news') {
+    this.panel.querySelector<HTMLElement>('.market-news-calendar')?.hidePopover();
     this.mode = mode; this.menu = false; this.calendar = null;
     this.host.classList.toggle('market-news-active', mode === 'news');
     this.panel.hidden = mode !== 'news';
@@ -98,9 +114,12 @@ export class MarketNewsController {
     this.loading = true; this.failure = false;
     if (!quiet) this.render();
     try {
-      const result = await window.codexDesktop?.getMarketNews?.({day:this.day || undefined,cursor:more ? this.cursor || undefined : undefined,language:language() === 'en' ? 'en' : 'cn'});
+      const result = await window.codexDesktop?.getMarketNews?.({day:this.day || undefined,cursor:more ? this.cursor || undefined : undefined,language:language() === 'en' ? 'en' : 'cn',category:this.category});
       if (this.disposed || generation !== this.generation) return;
       if (!result || result.status === 'unavailable') throw Error('NEWS_UNAVAILABLE');
+      // Older APIs ignore unknown query parameters. Never show an unfiltered
+      // feed as if it belongs to the selected category.
+      if (result.category !== this.category && !(this.category === 'featured' && result.category == null)) throw Error('NEWS_CATEGORY_UNAVAILABLE');
       result.items = result.items.map(brandedItem);
       if (voteRevision !== this.voteRevision || this.voteBusy.size) {
         for (const item of result.items) {
@@ -114,23 +133,65 @@ export class MarketNewsController {
     finally { if (!this.disposed && generation === this.generation) { this.loading = false; this.render(); } }
   }
   private dateButton(day: string) {
-    return `<button type="button" class="market-news-date" data-news-action="calendar" data-day="${day}" aria-label="${words()[4]}: ${day}"><strong>${Number(day.slice(8))}</strong><small>${escape(dateLabel(day,{month:'short'}))}</small></button>`;
+    return `<button type="button" class="market-news-date" data-news-action="calendar" data-day="${day}" aria-label="${words()[4]}: ${day}" aria-haspopup="dialog" title="${words()[4]}">${icon('calendar')}<span>${escape(dateLabel(day,{month:'short',day:'numeric'}))}</span></button>`;
   }
   private render() {
-    const t = words(); let previous = '';
-    this.panel.innerHTML = `<div class="market-news-top"><strong>${t[1]}</strong><div><button type="button" data-news-action="latest">${t[16]}</button><button type="button" data-news-action="calendar" aria-label="${t[4]}">${escape(this.day || newsDay())} ▾</button></div></div>
+    const t = words();
+    const headerDay = this.day || (this.items[0] ? newsDay(this.items[0].timestamp * 1000) : newsDay());
+    let previous = headerDay;
+    const categoryScroll = this.panel.querySelector('.market-news-categories')?.scrollLeft || 0;
+    const focusedCategory = this.panel.contains(document.activeElement) ? (document.activeElement as HTMLElement)?.dataset.category : undefined;
+    const refresh = `<button type="button" class="market-news-refresh" data-news-action="latest" aria-label="${t[16]}" title="${t[16]}">${icon('refresh')}</button>`;
+    this.panel.innerHTML = `
+      <header class="market-news-header"><div class="market-news-header-inner">
+        <nav class="market-news-categories" aria-label="${categoryGroupLabels[language()]}">${NEWS_CATEGORIES.map((category,index) => `<button type="button" class="market-news-category" data-news-action="category" data-category="${category}" aria-pressed="${category === this.category}">${categoryLabels[language()][index]}</button>`).join('')}</nav>
+        <div class="market-news-date-actions">${this.dateButton(headerDay)}${refresh}</div>
+      </div></header>
       ${this.failure || this.stale ? `<div class="market-news-notice" role="status">${this.failure ? t[13] : t[17]} <button type="button" data-news-action="retry">${t[14]}</button></div>` : ''}
-      <div class="market-news-timeline">${this.items.map(item => {
+      <div class="market-news-timeline" aria-busy="${this.loading}">${this.items.map(item => {
         const day = newsDay(item.timestamp * 1000), date = previous !== day ? this.dateButton(day) : ''; previous = day;
-        return `<article class="market-news-row" data-news-id="${item.id}"><div class="market-news-date-slot">${date}</div><time datetime="${new Date(item.timestamp * 1000).toISOString()}">${timeLabel(item.timestamp)}</time><div class="market-news-dot"></div><div class="market-news-copy"><h2 class="${item.important ? 'important' : ''}">${escape(item.title)}</h2><p>${escape(item.content)}</p><div class="market-news-markets">${item.markets.map((market,index) => `<button type="button" data-news-action="market" data-index="${index}" class="${(market.changePercent || 0) < 0 ? 'negative' : 'positive'}" title="${escape(market.coin+'/'+market.quote)}">${escape(market.coin)}${market.changePercent == null ? '' : ` ${market.changePercent >= 0 ? '+' : ''}${market.changePercent.toFixed(2)}%`}</button>`).join('')}</div><div class="market-news-actions">${[1,-1].map((direction,index) => `<button type="button" data-news-action="vote" data-direction="${direction}" aria-pressed="${item.vote === direction}" class="${index ? 'bearish' : 'bullish'}" ${this.voteBusy.has(item.id) ? 'disabled' : ''}>${icon(index ? 'down' : 'up')} ${t[8+index]} <span>${index ? item.bearish : item.bullish}</span></button>`).join('')}<button type="button" data-news-action="share">${icon('share')}${t[10]}</button><button type="button" class="market-news-source" data-news-action="source" title="${t[28]}">↗ ${escape(item.source)}</button></div></div></article>`;
-      }).join('')}</div><div class="market-news-bottom" role="status">${this.loading ? t[11] : !this.items.length && !this.failure ? `${this.dateButton(this.day || newsDay())}<p>${t[12]}</p>` : this.cursor ? `<button type="button" data-news-action="more">${t[15]}</button>` : ''}</div>${this.calendar ? this.renderCalendar() : ''}`;
+        const collapsible = item.content.length > 300 || item.content.split('\n').length > 5, expanded = this.expanded.has(item.id);
+        const body = collapsible && !expanded ? item.content.replace(/\n[ \t]*\n+/g,'\n') : item.content;
+        return `${date ? `<div class="market-news-date-actions">${date}</div>` : ''}<article class="market-news-row" data-news-id="${item.id}" data-news-action="source">
+          <div class="market-news-copy">
+            <h2${item.important ? ' class="important"' : ''}><a class="market-news-article-link" href="${escape(item.url)}" data-news-action="source">${escape(item.title)}</a></h2>
+            <p id="market-news-content-${item.id}"${collapsible && !expanded ? ' class="market-news-collapsed"' : ''}>${escape(body)}</p>
+            ${collapsible ? `<button type="button" class="market-news-expand" data-news-action="expand" aria-controls="market-news-content-${item.id}" aria-expanded="${expanded}">${expandLabels[language()][expanded ? 1 : 0]}</button>` : ''}
+            ${item.markets.length ? `<div class="market-news-markets">${item.markets.map((market,index) => `<button type="button" data-news-action="market" data-index="${index}" class="${(market.changePercent || 0) < 0 ? 'negative' : 'positive'}" title="${escape(market.coin+'/'+market.quote)}"><span class="market-news-ticker">${escape(market.coin)}</span>${market.changePercent == null ? '' : `<span class="market-news-change">${market.changePercent >= 0 ? '+' : ''}${market.changePercent.toFixed(2)}%</span>`}</button>`).join('')}</div>` : ''}
+            <div class="market-news-actions">
+              <div class="market-news-votes">
+              ${[1,-1].map((direction,index) => `<button type="button" data-news-action="vote" data-direction="${direction}" aria-pressed="${item.vote === direction}" class="${index ? 'bearish' : 'bullish'}" ${this.voteBusy.has(item.id) ? 'disabled' : ''}>${icon(index ? 'down' : 'up')}<span class="market-news-action-label">${t[8+index]}</span><span class="market-news-count">${index ? item.bearish : item.bullish}</span></button>`).join('')}
+              </div>
+              <div class="market-news-trailing-actions">
+                <button type="button" data-news-action="share">${icon('share')}<span class="market-news-action-label">${t[10]}</span></button>
+                <time class="market-news-time" datetime="${new Date(item.timestamp * 1000).toISOString()}">${timeLabel(item.timestamp)}</time>
+              </div>
+            </div>
+          </div>
+        </article>`;
+      }).join('')}</div>
+      <div class="market-news-bottom" role="status">${this.loading ? `<span class="market-news-loader" aria-hidden="true"></span>${t[11]}` : this.cursor ? `<button type="button" data-news-action="more">${t[15]}</button>` : !this.items.length && !this.failure ? `<p>${t[12]}</p>` : ''}</div>
+      ${this.calendar ? this.renderCalendar() : ''}`;
+    this.panel.querySelector('.market-news-categories')!.scrollLeft = categoryScroll;
+    if (focusedCategory) this.panel.querySelector<HTMLButtonElement>(`[data-category="${focusedCategory}"]`)?.focus({preventScroll:true});
+    if (this.calendar) {
+      this.panel.querySelector<HTMLElement>('.market-news-calendar')!.showPopover();
+      this.positionCalendar();
+    }
   }
+  private positionCalendar = () => {
+    const calendar = this.panel.querySelector<HTMLElement>('.market-news-calendar');
+    if (!calendar || !this.calendarAnchor) return;
+    const anchor = this.calendarAnchor, rect = calendar.getBoundingClientRect();
+    calendar.style.left = `${Math.max(12, Math.min(anchor.right - rect.width, window.innerWidth - rect.width - 12))}px`;
+    calendar.style.top = `${Math.max(12, Math.min(anchor.bottom + 10, window.innerHeight - rect.height - 12))}px`;
+  };
   private renderCalendar() {
     const t = words(), current = this.calendar!;
     const first = new Date(current.month + '-01T12:00:00Z'), start = new Date(first);
     start.setUTCDate(1-first.getUTCDay());
     const days = Array.from({length:42},(_,i) => { const d = new Date(start); d.setUTCDate(start.getUTCDate()+i); const day=d.toISOString().slice(0,10); return `<button type="button" data-news-action="day" data-day="${day}" class="${day.slice(0,7)!==current.month ? 'outside' : ''} ${day === current.selected ? 'selected' : ''}" aria-pressed="${day === current.selected}" aria-label="${day}" ${day > newsDay() ? 'disabled' : ''}>${day===newsDay() ? t[7] : d.getUTCDate()}</button>`; }).join('');
-    return `<div class="market-news-calendar" role="dialog" aria-label="${t[4]}"><header>${[-12,-1].map((step,i) => `<button type="button" data-news-action="month" data-step="${step}" aria-label="${t[34+i]}">${i ? '‹' : '«'}</button>`).join('')}<strong>${escape(dateLabel(current.month+'-01',{year:'numeric',month:'long'}))}</strong>${[1,12].map((step,i) => `<button type="button" data-news-action="month" data-step="${step}" aria-label="${t[36+i]}">${i ? '»' : '›'}</button>`).join('')}</header><div class="market-news-week">${t[38].split(',').map(s=>`<span>${s}</span>`).join('')}</div><div class="market-news-days">${days}</div><footer><button type="button" data-news-action="cancel-date">${t[5]}</button><button type="button" data-news-action="confirm-date">${t[6]}</button></footer></div>`;
+    return `<div class="market-news-calendar" popover="manual" role="dialog" aria-label="${t[4]}"><header>${[-12,-1].map((step,i) => `<button type="button" data-news-action="month" data-step="${step}" aria-label="${t[34+i]}">${i ? '‹' : '«'}</button>`).join('')}<strong>${escape(dateLabel(current.month+'-01',{year:'numeric',month:'long'}))}</strong>${[1,12].map((step,i) => `<button type="button" data-news-action="month" data-step="${step}" aria-label="${t[36+i]}">${i ? '»' : '›'}</button>`).join('')}</header><div class="market-news-week">${t[38].split(',').map(s=>`<span>${s}</span>`).join('')}</div><div class="market-news-days">${days}</div><footer><button type="button" data-news-action="cancel-date">${t[5]}</button><button type="button" data-news-action="confirm-date">${t[6]}</button></footer></div>`;
   }
   private click = (event: Event) => {
     const button = (event.target as Element)?.closest<HTMLElement>('[data-news-action]');
@@ -140,15 +201,29 @@ export class MarketNewsController {
     if (action === 'menu') { this.menu=!this.menu; this.renderSwitch(); }
     else if (action === 'chart' || action === 'news') this.setMode(action);
     else if (action === 'browser') { this.menu=false; this.renderSwitch(); this.toast(words()[3]); }
-    else if (action === 'calendar') { const day=button.dataset.day || this.day || newsDay(); this.calendar={month:day.slice(0,7),selected:day}; this.render(); this.panel.querySelector<HTMLButtonElement>('.market-news-days .selected')?.focus(); }
+    else if (action === 'category' && NEWS_CATEGORIES.includes(button.dataset.category as NewsCategory)) {
+      const category = button.dataset.category as NewsCategory;
+      if (category === this.category) return;
+      this.category=category; this.calendar=null; this.items=[]; this.cursor=null; this.stale=false;
+      this.expanded.clear(); this.closeShare(); this.panel.scrollTop=0;
+      void this.load();
+      this.panel.querySelector<HTMLButtonElement>(`[data-category="${category}"]`)?.scrollIntoView({block:'nearest',inline:'nearest'});
+    }
+    else if (action === 'calendar') { const day=button.dataset.day || this.day || newsDay(); this.calendarAnchor=button.getBoundingClientRect(); this.calendar={month:day.slice(0,7),selected:day}; this.render(); this.panel.querySelector<HTMLButtonElement>('.market-news-days .selected')?.focus(); }
     else if (action === 'cancel-date') { this.calendar=null; this.render(); }
     else if (action === 'day' && this.calendar) { this.calendar.selected=button.dataset.day!; this.render(); }
     else if (action === 'month' && this.calendar) { const d=new Date(this.calendar.month+'-01T12:00:00Z'); d.setUTCMonth(d.getUTCMonth()+Number(button.dataset.step)); this.calendar.month=d.toISOString().slice(0,7); this.render(); }
-    else if (action === 'confirm-date' || action === 'latest') { this.day=action==='latest' ? '' : this.calendar!.selected; this.calendar=null; this.items=[]; this.cursor=null; this.panel.scrollTop=0; void this.load(); }
+    else if (action === 'confirm-date' || action === 'latest') { this.day=action==='latest' ? '' : this.calendar!.selected; this.calendar=null; this.items=[]; this.cursor=null; this.stale=false; this.panel.scrollTop=0; void this.load(); }
     else if (action === 'more' || action === 'retry') void this.load(action==='more');
+    else if (action === 'expand' && item) { this.expanded.has(item.id) ? this.expanded.delete(item.id) : this.expanded.add(item.id); this.render(); }
     else if (action === 'vote' && item) void this.vote(item,Number(button.dataset.direction));
     else if (action === 'share' && item) void this.share(item, button);
-    else if (action === 'source' && item) void window.codexDesktop?.openExternal(item.url);
+    else if (action === 'source' && item) {
+      event.preventDefault();
+      const selection = window.getSelection();
+      if (selection && !selection.isCollapsed && this.panel.contains(selection.anchorNode)) return;
+      void window.codexDesktop?.openExternal(item.url);
+    }
     else if (action === 'market' && item) {
       const market = item.markets[Number(button.dataset.index)];
       if (market) { button.setAttribute('disabled',''); void this.openMarket(market).then(()=> { if(!this.disposed) this.setMode('chart'); }).catch((error)=>this.toast(words()[String(error?.message)==='NEWS_MARKET_UNAVAILABLE' ? 31 : 32])).finally(()=>button.removeAttribute('disabled')); }
@@ -210,6 +285,8 @@ export class MarketNewsController {
     }catch{status.textContent=t[27];}
   }
   destroy() {
+    this.panel.querySelector<HTMLElement>('.market-news-calendar')?.hidePopover();
+    window.removeEventListener('resize', this.positionCalendar);
     this.disposed=true;this.generation++;clearInterval(this.timer);clearTimeout(this.toastTimer);this.observer.disconnect();this.closeShare();
     this.host.removeEventListener('click',this.click);document.removeEventListener('pointerdown',this.outside);document.removeEventListener('keydown',this.keydown);
   }
@@ -229,16 +306,13 @@ export async function renderNewsShareImage(item: NewsItem) {
     if(line)lines.push(line);return lines;
   };
   const title=wrap(item.title,32,536,true),body=wrap(item.content,26,536);
-  canvas.width=640;canvas.height=320+title.length*44+body.length*38+180;
-  const gradient=ctx.createLinearGradient(0,0,0,canvas.height);gradient.addColorStop(0,'#eaf8ff');gradient.addColorStop(1,'#ffffff');ctx.fillStyle=gradient;ctx.fillRect(0,0,640,canvas.height);
-  ctx.fillStyle='#111';ctx.font='700 44px "Segoe UI", "Microsoft YaHei", sans-serif';ctx.fillText(`${NEWS_BRAND} · ${t[1]}`,36,84);
-  ctx.fillStyle='#fff';ctx.beginPath();ctx.roundRect(24,120,592,canvas.height-144,22);ctx.fill();ctx.strokeStyle='#dedede';ctx.stroke();
-  ctx.fillStyle='#888';ctx.font='20px "Segoe UI", "Microsoft YaHei", sans-serif';ctx.fillText(`${newsDay(item.timestamp*1000)} ${timeLabel(item.timestamp)}`,52,165);
-  ctx.fillText(`${t[29]}: ${item.source}`,52,195,536);
-  let y=250;ctx.textBaseline='top';
+  canvas.width=640;canvas.height=170+title.length*44+body.length*38+180;
+  ctx.fillStyle='#fff';ctx.fillRect(0,0,640,canvas.height);
+  ctx.fillStyle='#888';ctx.font='20px "Segoe UI", "Microsoft YaHei", sans-serif';ctx.fillText(`${newsDay(item.timestamp*1000)} ${timeLabel(item.timestamp)}`,52,55);
+  let y=100;ctx.textBaseline='top';
   const draw=(lines:string[],size:number,lineHeight:number,color:string,bold=false)=>{ctx.fillStyle=color;ctx.font=`${bold?700:400} ${size}px "Segoe UI", "Microsoft YaHei", sans-serif`;for(const line of lines){ctx.fillText(line,52,y);y+=lineHeight;}};
-  draw(title,32,44,'#171717',true);y+=24;draw(body,26,38,'#777');y+=35;
-  ctx.strokeStyle='#ececec';ctx.beginPath();ctx.moveTo(52,y);ctx.lineTo(588,y);ctx.stroke();y+=30;
+  draw(title,32,44,'#171717',true);y+=24;draw(body,26,38,'#53616b');y+=35;
+  y+=30;
   const qr=await QRCode.toDataURL(item.url,{width:130,margin:1,errorCorrectionLevel:'M'});const img=new Image();img.src=qr;await img.decode();ctx.drawImage(img,458,y,130,130);
   ctx.fillStyle='#777';ctx.font='23px "Segoe UI", "Microsoft YaHei", sans-serif';ctx.fillText(t[30],52,y+35,380);ctx.font='21px "Segoe UI", sans-serif';ctx.fillText('haolo.com',52,y+76);
   return canvas.toDataURL('image/png');

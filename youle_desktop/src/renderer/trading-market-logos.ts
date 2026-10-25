@@ -15,8 +15,12 @@ function logosIn(node: Node): HTMLElement[] {
   return [...(node.matches(selector) ? [node as HTMLElement] : []), ...node.querySelectorAll<HTMLElement>(selector)];
 }
 
+function sourceKey(image: HTMLImageElement) {
+  return JSON.stringify([image.dataset.marketLogoSrc, image.dataset.marketLogoBackupSrc]);
+}
+
 function rememberSource(image: HTMLImageElement, failed = false) {
-  const asset = image.dataset.marketLogoAsset!;
+  const asset = sourceKey(image);
   sources.delete(asset);
   sources.set(asset, { stage: image.dataset.marketLogoStage!, ...(failed ? { failedAt: Date.now() } : {}) });
   if (sources.size > 512) sources.delete(sources.keys().next().value!);
@@ -37,8 +41,8 @@ function failed(image: HTMLImageElement) {
   const shell = image.closest<HTMLElement>(selector);
   if (!shell) return;
   shell.classList.remove("loading", "loaded");
-  if (image.dataset.marketLogoStage === "binance") {
-    image.dataset.marketLogoStage = "hyperliquid";
+  if (image.dataset.marketLogoStage === (image.dataset.marketLogoPrimaryStage || "binance") && image.dataset.marketLogoBackupSrc) {
+    image.dataset.marketLogoStage = image.dataset.marketLogoBackupStage || "hyperliquid";
     shell.dataset.marketLogoState = "pending";
     rememberSource(image);
     image.src = image.dataset.marketLogoBackupSrc!;
@@ -52,7 +56,7 @@ function failed(image: HTMLImageElement) {
 
 function hydrateImage(image: HTMLImageElement) {
   const shell = image.closest<HTMLElement>(selector)!;
-  const previous = sources.get(image.dataset.marketLogoAsset!);
+  const previous = sources.get(sourceKey(image));
   if (boundImages.has(image)) {
     // Preserve pending/loaded images when their containing UI refreshes.
     if (!image.hidden || (previous?.failedAt && Date.now() - previous.failedAt < retryAfterMs)) return;
@@ -70,9 +74,10 @@ function hydrateImage(image: HTMLImageElement) {
   }
   image.hidden = false;
   shell.dataset.marketLogoState = "pending";
-  image.dataset.marketLogoStage = previous?.failedAt ? "binance" : previous?.stage || "binance";
-  image.src = image.dataset.marketLogoStage === "hyperliquid"
-    ? image.dataset.marketLogoBackupSrc! : image.dataset.marketLogoSrc!;
+  const primaryStage = image.dataset.marketLogoPrimaryStage || "binance";
+  image.dataset.marketLogoStage = previous?.failedAt ? primaryStage : previous?.stage || primaryStage;
+  image.src = image.dataset.marketLogoStage === primaryStage
+    ? image.dataset.marketLogoSrc! : image.dataset.marketLogoBackupSrc!;
   loaded(image);
 }
 

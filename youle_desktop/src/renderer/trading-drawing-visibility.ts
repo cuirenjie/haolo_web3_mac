@@ -1,5 +1,5 @@
-// Display preferences are local to a conversation. Never put them in drawing
-// geometry, cloud synchronization payloads or the manual undo/redo history.
+// Layer preferences can be projected from the account settings document.
+// Individual object visibility stays local; neither belongs to geometry/undo.
 type DrawingIdentity = { id: string; symbol: string; drawingScope?: string };
 export const TRADING_VISIBILITY_LAYERS = [
   { key: 'aiHidden', label: '隐藏AI绘图' },
@@ -28,9 +28,9 @@ function identity(drawing: DrawingIdentity) {
 export class TradingDrawingVisibility {
   private session: string;
   private state: VisibilityState;
-  private readonly onChange: () => void;
+  private readonly onChange: (layersEdited?: boolean) => void;
 
-  constructor(session: string, onChange: () => void) {
+  constructor(session: string, onChange: (layersEdited?: boolean) => void) {
     this.session = session.trim() || 'trading-expert-unassigned';
     this.state = this.read();
     this.onChange = onChange;
@@ -51,7 +51,7 @@ export class TradingDrawingVisibility {
     return { ...local, ...layersFrom(shared) };
   }
 
-  private save() {
+  private save(layersEdited = false) {
     try {
       window.localStorage.setItem(prefix + encodeURIComponent(this.session), JSON.stringify(this.state));
       const root = conversation(this.session);
@@ -64,15 +64,15 @@ export class TradingDrawingVisibility {
       }
     }
     catch { /* Keep the current session usable if local storage is unavailable. */ }
-    window.dispatchEvent(new CustomEvent(changed, { detail: { session: this.session, state: this.state } }));
+    window.dispatchEvent(new CustomEvent(changed, { detail: { session: this.session, state: this.state, layersEdited } }));
   }
 
   private readonly receive = (event: Event) => {
-    const detail = (event as CustomEvent<{ session: string; state: VisibilityState }>).detail;
+    const detail = (event as CustomEvent<{ session: string; state: VisibilityState; layersEdited?: boolean }>).detail;
     if (conversation(detail.session) !== conversation(this.session)) return;
     this.state = { ...layersFrom(detail.state),
       hidden: detail.session === this.session ? [...detail.state.hidden] : this.state.hidden };
-    this.onChange();
+    this.onChange(detail.layersEdited === true);
   };
 
   get aiHidden() { return this.state.aiHidden; }
@@ -82,11 +82,17 @@ export class TradingDrawingVisibility {
   get plansHidden() { return this.state.plansHidden; }
   get allHidden() { return TRADING_VISIBILITY_LAYERS.every(({ key }) => this.state[key]); }
   layers(): TradingDrawingLayerVisibility { return layersFrom(this.state); }
+  applyAccountLayers(layers: TradingDrawingLayerVisibility) {
+    const next = layersFrom(layers);
+    if (TRADING_VISIBILITY_LAYERS.every(({ key }) => next[key] === this.state[key])) return;
+    this.state = { ...this.state, ...next };
+    this.save();
+  }
   setLayers(update: Partial<TradingDrawingLayerVisibility>) {
     const next = { ...this.layers(), ...update };
     if (TRADING_VISIBILITY_LAYERS.every(({ key }) => next[key] === this.state[key])) return;
     this.state = { ...this.state, ...next };
-    this.save();
+    this.save(true);
   }
   setAll(hidden: boolean) { this.setLayers(layersFrom(Object.fromEntries(TRADING_VISIBILITY_LAYERS.map(({ key }) => [key, hidden])))); }
   // Older chart settings kept this preference globally. Use it only as the

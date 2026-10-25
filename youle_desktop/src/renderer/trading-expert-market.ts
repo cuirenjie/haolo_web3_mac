@@ -5225,7 +5225,13 @@ class TradingExpertMarketWorkspace {
     this.favoriteStorageAccountIdentity = favoriteStorageAccountIdentity;
     this.indexFavorites = new TradingIndexFavorites(window.localStorage, favoriteStorageAccountIdentity);
     this.drawingStorageSessionId = drawingStorageSessionId;
-    this.drawingVisibilitySettings = new TradingDrawingVisibility(drawingStorageSessionId, () => this.syncDrawingVisibilityControls());
+    this.drawingVisibilitySettings = new TradingDrawingVisibility(drawingStorageSessionId, (edited) => {
+      this.syncDrawingVisibilityControls();
+      if (edited) {
+        this.chartSettings.drawingVisibility = this.drawingVisibilitySettings.layers();
+        this.persistAndApplyChartSettings();
+      }
+    });
     this.chartElement = this.requireElement("[data-market-chart]");
     this.viewport = this.requireElement("[data-market-chart-viewport]");
     this.drawingLayer = this.requireElement<SVGSVGElement>("[data-drawing-layer]");
@@ -5488,8 +5494,6 @@ class TradingExpertMarketWorkspace {
       return;
     }
     if (action === "restore-chart-settings") {
-      this.chartSettingsNavigation()?.setVerticalLocked(false);
-      this.drawingVisibilitySettings.setAll(false);
       this.chartSettings = cloneTradingChartSettings(DEFAULT_TRADING_CHART_SETTINGS);
       this.persistAndApplyChartSettings({ rebuildSeries: true });
       this.refreshChartSettingsDialog();
@@ -5837,7 +5841,8 @@ class TradingExpertMarketWorkspace {
     const continuousInput = target.hasAttribute("data-color-picker-input") || target.type === "number";
     if ((event.type === "input") !== continuousInput) return;
     if (key === "verticalLocked") {
-      this.chartSettingsNavigation()?.setVerticalLocked(target.checked);
+      this.chartSettings.verticalLocked = target.checked;
+      this.persistAndApplyChartSettings();
       this.syncChartNavigationControls();
       return;
     }
@@ -5998,6 +6003,7 @@ class TradingExpertMarketWorkspace {
     }
     if (options.rebuildSeries) this.rebuildPrimarySeries();
     this.chartNavigation?.setAutoScale(this.chartSettings.autoScale);
+    this.chartNavigation?.setVerticalLocked(this.chartSettings.verticalLocked);
     this.applyChartTheme();
     this.applyKlineAnnotationVisibility();
     this.applyDrawingToolsSetting();
@@ -6006,7 +6012,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private applyKlineAnnotationVisibility() {
-    this.drawingVisibilitySettings.migrateLegacyDataVisibility(this.chartSettings.hideKlineAnnotations);
+    this.drawingVisibilitySettings.applyAccountLayers(this.chartSettings.drawingVisibility);
     this.syncDrawingVisibilityControls();
   }
 
@@ -6922,6 +6928,7 @@ class TradingExpertMarketWorkspace {
     if (chartChanged) {
       if (styleChanged) this.rebuildPrimarySeries();
       this.chartNavigation?.setAutoScale(this.chartSettings.autoScale);
+      this.chartNavigation?.setVerticalLocked(this.chartSettings.verticalLocked);
       this.applyChartTheme();
       this.applyKlineAnnotationVisibility();
       this.applyDrawingToolsSetting();
@@ -8964,6 +8971,7 @@ class TradingExpertMarketWorkspace {
     if(migrateFromSessionId)migrateCloudIndicatorPatches(migrateFromSessionId,drawingStorageSessionId);
     this.drawingStorageSessionId = drawingStorageSessionId;
     this.drawingVisibilitySettings.switchSession(drawingStorageSessionId, Boolean(migrateFromSessionId) && migrateFromSessionId === previousStorageSessionId);
+    this.applyKlineAnnotationVisibility();
     this.applyKlineAnnotationVisibility();
     this.drawingController?.switchStorageSession(drawingStorageSessionId, {
       migrateFromSessionId: migrateFromSessionId || undefined,
@@ -12780,6 +12788,7 @@ class TradingExpertMarketWorkspace {
         },
       },
     );
+    this.chartNavigation.setVerticalLocked(this.chartSettings.verticalLocked);
     this.resizeObserver = new ResizeObserver(() => {
       const width = this.chartElement.clientWidth;
       const height = this.chartElement.clientHeight;

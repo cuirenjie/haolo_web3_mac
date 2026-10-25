@@ -110,7 +110,7 @@ test("price controls default to Auto, migrate frozen legacy defaults and persist
   const legacy = { ...settings, version: 6, chartStyle: 'bars', scaleAnchor: 'right' };
   const migrated = normalizeTradingChartSettings(legacy);
   assert.equal(migrated.autoScale, true);
-  assert.equal(migrated.version, 7);
+  assert.equal(migrated.version, 8);
   assert.equal(migrated.chartStyle, 'bars'); assert.equal(migrated.scaleAnchor, 'cursor');
   assert.equal(migrated.priceScaleMode, 'logarithmic');
   assert.deepEqual(migrated.themes, normalizeTradingChartSettings(settings).themes);
@@ -164,7 +164,7 @@ test("light chart canvas defaults to white and migrates the former gray default"
     [TRADING_CHART_SETTINGS_STORAGE_KEY]: JSON.stringify(legacy),
   });
   const migrated = loadTradingChartSettings(storage);
-  assert.equal(migrated.version, 7);
+  assert.equal(migrated.version, 8);
   assert.equal(migrated.themes.light.backgroundColor, "#ffffff");
   assert.equal(migrated.themes.dark.backgroundColor, "#0B0C0F");
 });
@@ -351,7 +351,7 @@ test("settings dialog contains nine categories with order display last", () => {
   assert.match(renderTradingChartSettingsDialog(cloneTradingChartSettings(), "dark"), /当前正在编辑暗色主题/);
 });
 
-test("drawing visibility switches render independent conversation state without changing chart preferences", () => {
+test("drawing visibility switches render projected account state without mutating settings", () => {
   const settings = cloneTradingChartSettings();
   const before = JSON.stringify(settings);
   for (let mask = 0; mask < 32; mask++) {
@@ -371,7 +371,7 @@ test("drawing visibility switches render independent conversation state without 
     }
   }
   assert.equal(JSON.stringify(settings), before);
-  assert.equal('drawingVisibility' in settings, false);
+  assert.equal('drawingVisibility' in settings, true);
 });
 
 test("order display settings independently filter every canvas order-line category", () => {

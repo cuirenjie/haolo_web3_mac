@@ -1,0 +1,1407 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "valid-RelationshipPreferences",
+      "contract": "RelationshipPreferences",
+      "value": {
+        "schema_version": 1
+      },
+      "valid": true
+    },
+    {
+      "id": "valid-AppraisalEvent",
+      "contract": "AppraisalEvent",
+      "value": {
+        "id": "event-1",
+        "source_refs": [
+          {
+            "kind": "message",
+            "id": "user-1",
+            "revision": 1
+          }
+        ],
+        "speech_act": "chat",
+        "target": "user",
+        "confidence": "high",
+        "topic": "招呼",
+        "interpretation": "用户打招呼"
+      },
+      "valid": true
+    },
+    {
+      "id": "valid-InteractionEpisode",
+      "contract": "InteractionEpisode",
+      "value": {
+        "schema_version": 1,
+        "id": "episode-1",
+        "version": 1,
+        "topic": "误会澄清",
+        "target": "companion",
+        "attribution": "用户说的是指标",
+        "stance": "误会解开",
+        "status": "resolved",
+        "source_refs": [
+          {
+            "kind": "message",
+            "id": "user-1",
+            "revision": 1
+          }
+        ],
+        "expires_at": "2026-10-25T12:00:00Z"
+      },
+      "valid": true
+    },
+    {
+      "id": "valid-ExpressionFrame",
+      "contract": "ExpressionFrame",
+      "value": {
+        "tones": [
+          {
+            "emotion": "calm",
+            "intensity": "light"
+          }
+        ],
+        "mode": "natural",
+        "stance": "自然接话"
+      },
+      "valid": true
+    },
+    {
+      "id": "valid-AffectState",
+      "contract": "AffectState",
+      "value": {
+        "schema_version": 1,
+        "version": 0,
+        "updated_at": "2026-10-25T12:00:00Z",
+        "frame": {
+          "tones": [
+            {
+              "emotion": "calm",
+              "intensity": "light"
+            }
+          ],
+          "mode": "natural",
+          "stance": "自然接话"
+        }
+      },
+      "valid": true
+    },
+    {
+      "id": "valid-AppraisalProposal",
+      "contract": "AppraisalProposal",
+      "value": {
+        "schema_version": 1,
+        "snapshot_id": "snapshot-1",
+        "appraisal_events": [
+          {
+            "id": "event-1",
+            "source_refs": [
+              {
+                "kind": "message",
+                "id": "user-1",
+                "revision": 1
+              }
+            ],
+            "speech_act": "chat",
+            "target": "user",
+            "confidence": "high",
+            "topic": "招呼",
+            "interpretation": "用户打招呼"
+          }
+        ],
+        "expression_basis": {
+          "tones": [
+            {
+              "emotion": "calm",
+              "intensity": "light"
+            }
+          ],
+          "mode": "natural",
+          "stance": "自然接话"
+        }
+      },
+      "valid": true
+    },
+    {
+      "id": "valid-BubbleProposal",
+      "contract": "BubbleProposal",
+      "value": {
+        "schema_version": 1,
+        "bubbles": [
+          {
+            "id": "bubble-1",
+            "text": " 在。 "
+          }
+        ]
+      },
+      "valid": true
+    },
+    {
+      "id": "valid-TurnProposal",
+      "contract": "TurnProposal",
+      "value": {
+        "schema_version": 1,
+        "snapshot_id": "snapshot-1",
+        "appraisal_events": [
+          {
+            "id": "event-1",
+            "source_refs": [
+              {
+                "kind": "message",
+                "id": "user-1",
+                "revision": 1
+              }
+            ],
+            "speech_act": "chat",
+            "target": "user",
+            "confidence": "high",
+            "topic": "招呼",
+            "interpretation": "用户打招呼"
+          }
+        ],
+        "expression_basis": {
+          "tones": [
+            {
+              "emotion": "calm",
+              "intensity": "light"
+            }
+          ],
+          "mode": "natural",
+          "stance": "自然接话"
+        },
+        "bubbles": [
+          {
+            "id": "bubble-1",
+            "text": " 在。 "
+          }
+        ]
+      },
+      "valid": true
+    },
+    {
+      "id": "valid-TurnContextSnapshot",
+      "contract": "TurnContextSnapshot",
+      "value": {
+        "schema_version": 1,
+        "id": "snapshot-1",
+        "owner_id": "12345678-1234-4234-8234-123456789abc",
+        "companion_id": "12345678-1234-4234-8234-123456789abc",
+        "conversation_id": "12345678-1234-4234-8234-123456789abc",
+        "input_batch_id": "batch-1",
+        "input_watermark": 1,
+        "state_version": 0,
+        "memory_epoch": 0,
+        "persona_version": "haobao-persona-v1",
+        "settings_version": 1,
+        "messages": [
+          {
+            "id": "user-1",
+            "revision": 1,
+            "role": "user",
+            "text": "在吗",
+            "visibility": "user_input"
+          }
+        ],
+        "allowed_refs": [
+          {
+            "kind": "message",
+            "id": "user-1",
+            "revision": 1
+          }
+        ],
+        "input_refs": [
+          {
+            "kind": "message",
+            "id": "user-1",
+            "revision": 1
+          }
+        ]
+      },
+      "valid": true
+    },
+    {
+      "id": "valid-ReplyEnvelope",
+      "contract": "ReplyEnvelope",
+      "value": {
+        "schema_version": 1,
+        "id": "reply-1",
+        "owner_id": "12345678-1234-4234-8234-123456789abc",
+        "companion_id": "12345678-1234-4234-8234-123456789abc",
+        "conversation_id": "12345678-1234-4234-8234-123456789abc",
+        "input_batch_id": "batch-1",
+        "input_refs": [
+          {
+            "kind": "message",
+            "id": "user-1",
+            "revision": 1
+          }
+        ],
+        "state_version": 1,
+        "memory_epoch": 0,
+        "persona_version": "haobao-persona-v1",
+        "bubbles": [
+          {
+            "id": "bubble-1",
+            "text": " 在。 "
+          }
+        ],
+        "presentation_hint": "neutral",
+        "created_at": "2026-10-25T12:00:00Z"
+      },
+      "valid": true
+    },
+    {
+      "id": "valid-TheoryConsensusRuleV1",
+      "contract": "TheoryConsensusRuleV1",
+      "value": {
+        "schema_version": 1,
+        "market": {
+          "provider": "binance",
+          "venue": "binance",
+          "market_type": "spot",
+          "symbol": "BTCUSDT",
+          "interval": "1h"
+        },
+        "price_action_version": "pa-v1",
+        "wyckoff_version": "wyckoff-v1",
+        "direction": "either",
+        "max_data_age_seconds": 300,
+        "cooldown_seconds": 600,
+        "expires_at": "2026-10-25T12:00:00Z"
+      },
+      "valid": true
+    },
+    {
+      "id": "valid-TaskFacts",
+      "contract": "TaskFacts",
+      "value": {
+        "schema_version": 1,
+        "task_id": "task-1",
+        "version": 1,
+        "state": "queued",
+        "summary": "排队中",
+        "observed_at": "2026-10-25T12:00:00Z"
+      },
+      "valid": true
+    },
+    {
+      "id": "valid-MessageRequest",
+      "contract": "MessageRequest",
+      "value": {
+        "schema_version": 1,
+        "client_message_id": "12345678-1234-4234-8234-123456789abc",
+        "conversation_id": "12345678-1234-4234-8234-123456789abc",
+        "text": "在吗"
+      },
+      "valid": true
+    },
+    {
+      "id": "boolean-version",
+      "contract": "TurnProposal",
+      "value": {
+        "schema_version": true,
+        "snapshot_id": "snapshot-1",
+        "appraisal_events": [
+          {
+            "id": "event-1",
+            "source_refs": [
+              {
+                "kind": "message",
+                "id": "user-1",
+                "revision": 1
+              }
+            ],
+            "speech_act": "chat",
+            "target": "user",
+            "confidence": "high",
+            "topic": "招呼",
+            "interpretation": "用户打招呼"
+          }
+        ],
+        "expression_basis": {
+          "tones": [
+            {
+              "emotion": "calm",
+              "intensity": "light"
+            }
+          ],
+          "mode": "natural",
+          "stance": "自然接话"
+        },
+        "bubbles": [
+          {
+            "id": "bubble-1",
+            "text": " 在。 "
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "id": "string-version",
+      "contract": "TurnProposal",
+      "value": {
+        "schema_version": "1",
+        "snapshot_id": "snapshot-1",
+        "appraisal_events": [
+          {
+            "id": "event-1",
+            "source_refs": [
+              {
+                "kind": "message",
+                "id": "user-1",
+                "revision": 1
+              }
+            ],
+            "speech_act": "chat",
+            "target": "user",
+            "confidence": "high",
+            "topic": "招呼",
+            "interpretation": "用户打招呼"
+          }
+        ],
+        "expression_basis": {
+          "tones": [
+            {
+              "emotion": "calm",
+              "intensity": "light"
+            }
+          ],
+          "mode": "natural",
+          "stance": "自然接话"
+        },
+        "bubbles": [
+          {
+            "id": "bubble-1",
+            "text": " 在。 "
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "id": "missing-version",
+      "contract": "TurnProposal",
+      "value": {
+        "snapshot_id": "snapshot-1",
+        "appraisal_events": [
+          {
+            "id": "event-1",
+            "source_refs": [
+              {
+                "kind": "message",
+                "id": "user-1",
+                "revision": 1
+              }
+            ],
+            "speech_act": "chat",
+            "target": "user",
+            "confidence": "high",
+            "topic": "招呼",
+            "interpretation": "用户打招呼"
+          }
+        ],
+        "expression_basis": {
+          "tones": [
+            {
+              "emotion": "calm",
+              "intensity": "light"
+            }
+          ],
+          "mode": "natural",
+          "stance": "自然接话"
+        },
+        "bubbles": [
+          {
+            "id": "bubble-1",
+            "text": " 在。 "
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "id": "unknown-authority",
+      "contract": "TurnProposal",
+      "value": {
+        "schema_version": 1,
+        "snapshot_id": "snapshot-1",
+        "appraisal_events": [
+          {
+            "id": "event-1",
+            "source_refs": [
+              {
+                "kind": "message",
+                "id": "user-1",
+                "revision": 1
+              }
+            ],
+            "speech_act": "chat",
+            "target": "user",
+            "confidence": "high",
+            "topic": "招呼",
+            "interpretation": "用户打招呼"
+          }
+        ],
+        "expression_basis": {
+          "tones": [
+            {
+              "emotion": "calm",
+              "intensity": "light"
+            }
+          ],
+          "mode": "natural",
+          "stance": "自然接话"
+        },
+        "bubbles": [
+          {
+            "id": "bubble-1",
+            "text": " 在。 "
+          }
+        ],
+        "command": "arbitrary"
+      },
+      "valid": false
+    },
+    {
+      "id": "coerced-care",
+      "contract": "RelationshipPreferences",
+      "value": {
+        "schema_version": 1,
+        "proactive_care": "false"
+      },
+      "valid": false
+    },
+    {
+      "id": "coerced-teasing",
+      "contract": "RelationshipPreferences",
+      "value": {
+        "schema_version": 1,
+        "teasing": 1
+      },
+      "valid": false
+    },
+    {
+      "id": "unsafe-version",
+      "contract": "TaskFacts",
+      "value": {
+        "schema_version": 1,
+        "task_id": "task-1",
+        "version": 9007199254740992,
+        "state": "queued",
+        "summary": "排队中",
+        "observed_at": "2026-10-25T12:00:00Z"
+      },
+      "valid": false
+    },
+    {
+      "id": "string-revision",
+      "contract": "TurnProposal",
+      "value": {
+        "schema_version": 1,
+        "snapshot_id": "snapshot-1",
+        "appraisal_events": [
+          {
+            "id": "event-1",
+            "source_refs": [
+              {
+                "kind": "message",
+                "id": "user-1",
+                "revision": "1"
+              }
+            ],
+            "speech_act": "chat",
+            "target": "user",
+            "confidence": "high",
+            "topic": "招呼",
+            "interpretation": "用户打招呼"
+          }
+        ],
+        "expression_basis": {
+          "tones": [
+            {
+              "emotion": "calm",
+              "intensity": "light"
+            }
+          ],
+          "mode": "natural",
+          "stance": "自然接话"
+        },
+        "bubbles": [
+          {
+            "id": "bubble-1",
+            "text": " 在。 "
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "id": "duplicate-events",
+      "contract": "TurnProposal",
+      "value": {
+        "schema_version": 1,
+        "snapshot_id": "snapshot-1",
+        "appraisal_events": [
+          {
+            "id": "event-1",
+            "source_refs": [
+              {
+                "kind": "message",
+                "id": "user-1",
+                "revision": 1
+              }
+            ],
+            "speech_act": "chat",
+            "target": "user",
+            "confidence": "high",
+            "topic": "招呼",
+            "interpretation": "用户打招呼"
+          },
+          {
+            "id": "event-1",
+            "source_refs": [
+              {
+                "kind": "message",
+                "id": "user-1",
+                "revision": 1
+              }
+            ],
+            "speech_act": "chat",
+            "target": "user",
+            "confidence": "high",
+            "topic": "招呼",
+            "interpretation": "用户打招呼"
+          }
+        ],
+        "expression_basis": {
+          "tones": [
+            {
+              "emotion": "calm",
+              "intensity": "light"
+            }
+          ],
+          "mode": "natural",
+          "stance": "自然接话"
+        },
+        "bubbles": [
+          {
+            "id": "bubble-1",
+            "text": " 在。 "
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "id": "duplicate-bubbles",
+      "contract": "BubbleProposal",
+      "value": {
+        "schema_version": 1,
+        "bubbles": [
+          {
+            "id": "bubble-1",
+            "text": " 在。 "
+          },
+          {
+            "id": "bubble-1",
+            "text": " 在。 "
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "id": "duplicate-envelope-bubbles",
+      "contract": "ReplyEnvelope",
+      "value": {
+        "schema_version": 1,
+        "id": "reply-1",
+        "owner_id": "12345678-1234-4234-8234-123456789abc",
+        "companion_id": "12345678-1234-4234-8234-123456789abc",
+        "conversation_id": "12345678-1234-4234-8234-123456789abc",
+        "input_batch_id": "batch-1",
+        "input_refs": [
+          {
+            "kind": "message",
+            "id": "user-1",
+            "revision": 1
+          }
+        ],
+        "state_version": 1,
+        "memory_epoch": 0,
+        "persona_version": "haobao-persona-v1",
+        "bubbles": [
+          {
+            "id": "bubble-1",
+            "text": " 在。 "
+          },
+          {
+            "id": "bubble-1",
+            "text": " 在。 "
+          }
+        ],
+        "presentation_hint": "neutral",
+        "created_at": "2026-10-25T12:00:00Z"
+      },
+      "valid": false
+    },
+    {
+      "id": "message-as-task-fact",
+      "contract": "TurnProposal",
+      "value": {
+        "schema_version": 1,
+        "snapshot_id": "snapshot-1",
+        "appraisal_events": [
+          {
+            "id": "event-1",
+            "source_refs": [
+              {
+                "kind": "message",
+                "id": "user-1",
+                "revision": 1
+              }
+            ],
+            "speech_act": "chat",
+            "target": "user",
+            "confidence": "high",
+            "topic": "招呼",
+            "interpretation": "用户打招呼"
+          }
+        ],
+        "expression_basis": {
+          "tones": [
+            {
+              "emotion": "calm",
+              "intensity": "light"
+            }
+          ],
+          "mode": "natural",
+          "stance": "自然接话"
+        },
+        "bubbles": [
+          {
+            "id": "bubble-1",
+            "text": " 在。 ",
+            "fact_refs": [
+              {
+                "kind": "message",
+                "id": "user-1",
+                "revision": 1
+              }
+            ]
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "id": "blank-stance",
+      "contract": "ExpressionFrame",
+      "value": {
+        "tones": [
+          {
+            "emotion": "calm",
+            "intensity": "light"
+          }
+        ],
+        "mode": "natural",
+        "stance": "   "
+      },
+      "valid": false
+    },
+    {
+      "id": "blank-message",
+      "contract": "MessageRequest",
+      "value": {
+        "schema_version": 1,
+        "client_message_id": "12345678-1234-4234-8234-123456789abc",
+        "conversation_id": "12345678-1234-4234-8234-123456789abc",
+        "text": " \t\n"
+      },
+      "valid": false
+    },
+    {
+      "id": "control-bubble",
+      "contract": "BubbleProposal",
+      "value": {
+        "schema_version": 1,
+        "bubbles": [
+          {
+            "id": "bubble-1",
+            "text": "a\u0000b"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "id": "numeric-datetime",
+      "contract": "TaskFacts",
+      "value": {
+        "schema_version": 1,
+        "task_id": "task-1",
+        "version": 1,
+        "state": "queued",
+        "summary": "排队中",
+        "observed_at": 1729857600
+      },
+      "valid": false
+    },
+    {
+      "id": "naive-datetime",
+      "contract": "TaskFacts",
+      "value": {
+        "schema_version": 1,
+        "task_id": "task-1",
+        "version": 1,
+        "state": "queued",
+        "summary": "排队中",
+        "observed_at": "2026-10-25T12:00:00"
+      },
+      "valid": false
+    },
+    {
+      "id": "noncanonical-uuid",
+      "contract": "MessageRequest",
+      "value": {
+        "schema_version": 1,
+        "client_message_id": "12345678123442348234123456789abc",
+        "conversation_id": "12345678-1234-4234-8234-123456789abc",
+        "text": "在吗"
+      },
+      "valid": false
+    },
+    {
+      "id": "missing-episode-status",
+      "contract": "ExpressionFrame",
+      "value": {
+        "tones": [
+          {
+            "emotion": "calm",
+            "intensity": "light"
+          }
+        ],
+        "mode": "natural",
+        "stance": "自然接话",
+        "episode_id": "ep"
+      },
+      "valid": false
+    },
+    {
+      "id": "duplicate-emotion",
+      "contract": "ExpressionFrame",
+      "value": {
+        "tones": [
+          {
+            "emotion": "calm",
+            "intensity": "light"
+          },
+          {
+            "emotion": "calm",
+            "intensity": "light"
+          }
+        ],
+        "mode": "natural",
+        "stance": "自然接话"
+      },
+      "valid": false
+    },
+    {
+      "id": "duplicate-context-message",
+      "contract": "TurnContextSnapshot",
+      "value": {
+        "schema_version": 1,
+        "id": "snapshot-1",
+        "owner_id": "12345678-1234-4234-8234-123456789abc",
+        "companion_id": "12345678-1234-4234-8234-123456789abc",
+        "conversation_id": "12345678-1234-4234-8234-123456789abc",
+        "input_batch_id": "batch-1",
+        "input_watermark": 1,
+        "state_version": 0,
+        "memory_epoch": 0,
+        "persona_version": "haobao-persona-v1",
+        "settings_version": 1,
+        "messages": [
+          {
+            "id": "user-1",
+            "revision": 1,
+            "role": "user",
+            "text": "在吗",
+            "visibility": "user_input"
+          },
+          {
+            "id": "user-1",
+            "revision": 1,
+            "role": "user",
+            "text": "在吗",
+            "visibility": "user_input"
+          }
+        ],
+        "allowed_refs": [
+          {
+            "kind": "message",
+            "id": "user-1",
+            "revision": 1
+          }
+        ],
+        "input_refs": [
+          {
+            "kind": "message",
+            "id": "user-1",
+            "revision": 1
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "id": "input-from-assistant",
+      "contract": "TurnContextSnapshot",
+      "value": {
+        "schema_version": 1,
+        "id": "snapshot-1",
+        "owner_id": "12345678-1234-4234-8234-123456789abc",
+        "companion_id": "12345678-1234-4234-8234-123456789abc",
+        "conversation_id": "12345678-1234-4234-8234-123456789abc",
+        "input_batch_id": "batch-1",
+        "input_watermark": 1,
+        "state_version": 0,
+        "memory_epoch": 0,
+        "persona_version": "haobao-persona-v1",
+        "settings_version": 1,
+        "messages": [
+          {
+            "id": "user-1",
+            "revision": 1,
+            "role": "assistant",
+            "text": "在吗",
+            "visibility": "presented"
+          }
+        ],
+        "allowed_refs": [
+          {
+            "kind": "message",
+            "id": "user-1",
+            "revision": 1
+          }
+        ],
+        "input_refs": [
+          {
+            "kind": "message",
+            "id": "user-1",
+            "revision": 1
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "id": "unallowed-input",
+      "contract": "TurnContextSnapshot",
+      "value": {
+        "schema_version": 1,
+        "id": "snapshot-1",
+        "owner_id": "12345678-1234-4234-8234-123456789abc",
+        "companion_id": "12345678-1234-4234-8234-123456789abc",
+        "conversation_id": "12345678-1234-4234-8234-123456789abc",
+        "input_batch_id": "batch-1",
+        "input_watermark": 1,
+        "state_version": 0,
+        "memory_epoch": 0,
+        "persona_version": "haobao-persona-v1",
+        "settings_version": 1,
+        "messages": [
+          {
+            "id": "user-1",
+            "revision": 1,
+            "role": "user",
+            "text": "在吗",
+            "visibility": "user_input"
+          }
+        ],
+        "allowed_refs": [],
+        "input_refs": [
+          {
+            "kind": "message",
+            "id": "user-1",
+            "revision": 1
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "id": "unknown-visibility",
+      "contract": "TurnContextSnapshot",
+      "value": {
+        "schema_version": 1,
+        "id": "snapshot-1",
+        "owner_id": "12345678-1234-4234-8234-123456789abc",
+        "companion_id": "12345678-1234-4234-8234-123456789abc",
+        "conversation_id": "12345678-1234-4234-8234-123456789abc",
+        "input_batch_id": "batch-1",
+        "input_watermark": 1,
+        "state_version": 0,
+        "memory_epoch": 0,
+        "persona_version": "haobao-persona-v1",
+        "settings_version": 1,
+        "messages": [
+          {
+            "id": "user-1",
+            "revision": 1,
+            "role": "user",
+            "text": "在吗",
+            "visibility": "delivery_unknown"
+          }
+        ],
+        "allowed_refs": [
+          {
+            "kind": "message",
+            "id": "user-1",
+            "revision": 1
+          }
+        ],
+        "input_refs": [
+          {
+            "kind": "message",
+            "id": "user-1",
+            "revision": 1
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "id": "review-time-0",
+      "contract": "TaskFacts",
+      "value": {
+        "schema_version": 1,
+        "task_id": "task-1",
+        "version": 1,
+        "state": "queued",
+        "summary": "排队中",
+        "observed_at": "1729857600"
+      },
+      "valid": false
+    },
+    {
+      "id": "review-time-1",
+      "contract": "TaskFacts",
+      "value": {
+        "schema_version": 1,
+        "task_id": "task-1",
+        "version": 1,
+        "state": "queued",
+        "summary": "排队中",
+        "observed_at": "2026-10-25T12:00Z"
+      },
+      "valid": false
+    },
+    {
+      "id": "review-time-2",
+      "contract": "TaskFacts",
+      "value": {
+        "schema_version": 1,
+        "task_id": "task-1",
+        "version": 1,
+        "state": "queued",
+        "summary": "排队中",
+        "observed_at": "2026-10-25T23:59:60Z"
+      },
+      "valid": false
+    },
+    {
+      "id": "review-time-3",
+      "contract": "TaskFacts",
+      "value": {
+        "schema_version": 1,
+        "task_id": "task-1",
+        "version": 1,
+        "state": "queued",
+        "summary": "排队中",
+        "observed_at": "0000-01-01T00:00:00Z"
+      },
+      "valid": false
+    },
+    {
+      "id": "review-time-4",
+      "contract": "TaskFacts",
+      "value": {
+        "schema_version": 1,
+        "task_id": "task-1",
+        "version": 1,
+        "state": "queued",
+        "summary": "排队中",
+        "observed_at": "2026-02-30T12:00:00Z"
+      },
+      "valid": false
+    },
+    {
+      "id": "review-blank-ExpressionFrame0",
+      "contract": "ExpressionFrame",
+      "value": {
+        "tones": [
+          {
+            "emotion": "calm",
+            "intensity": "light"
+          }
+        ],
+        "mode": "natural",
+        "stance": "﻿"
+      },
+      "valid": false
+    },
+    {
+      "id": "review-blank-ExpressionFrame1",
+      "contract": "ExpressionFrame",
+      "value": {
+        "tones": [
+          {
+            "emotion": "calm",
+            "intensity": "light"
+          }
+        ],
+        "mode": "natural",
+        "stance": ""
+      },
+      "valid": false
+    },
+    {
+      "id": "review-blank-MessageRequest0",
+      "contract": "MessageRequest",
+      "value": {
+        "schema_version": 1,
+        "client_message_id": "12345678-1234-4234-8234-123456789abc",
+        "conversation_id": "12345678-1234-4234-8234-123456789abc",
+        "text": "﻿"
+      },
+      "valid": false
+    },
+    {
+      "id": "review-blank-MessageRequest1",
+      "contract": "MessageRequest",
+      "value": {
+        "schema_version": 1,
+        "client_message_id": "12345678-1234-4234-8234-123456789abc",
+        "conversation_id": "12345678-1234-4234-8234-123456789abc",
+        "text": ""
+      },
+      "valid": false
+    },
+    {
+      "id": "review-blank-BubbleProposal0",
+      "contract": "BubbleProposal",
+      "value": {
+        "schema_version": 1,
+        "bubbles": [
+          {
+            "id": "bubble-1",
+            "text": "﻿"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "id": "review-blank-BubbleProposal1",
+      "contract": "BubbleProposal",
+      "value": {
+        "schema_version": 1,
+        "bubbles": [
+          {
+            "id": "bubble-1",
+            "text": ""
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "id": "review-valid-fraction-offset",
+      "contract": "TaskFacts",
+      "value": {
+        "schema_version": 1,
+        "task_id": "task-1",
+        "version": 1,
+        "state": "queued",
+        "summary": "排队中",
+        "observed_at": "2026-10-26T08:00:00.123456+08:00"
+      },
+      "valid": true
+    },
+    {
+      "id": "review-duplicate-input-ref",
+      "contract": "TurnContextSnapshot",
+      "value": {
+        "schema_version": 1,
+        "id": "snapshot-1",
+        "owner_id": "12345678-1234-4234-8234-123456789abc",
+        "companion_id": "12345678-1234-4234-8234-123456789abc",
+        "conversation_id": "12345678-1234-4234-8234-123456789abc",
+        "input_batch_id": "batch-1",
+        "input_watermark": 1,
+        "state_version": 0,
+        "memory_epoch": 0,
+        "persona_version": "haobao-persona-v1",
+        "settings_version": 1,
+        "messages": [
+          {
+            "id": "user-1",
+            "revision": 1,
+            "role": "user",
+            "text": "在吗",
+            "visibility": "user_input"
+          }
+        ],
+        "allowed_refs": [
+          {
+            "kind": "message",
+            "id": "user-1",
+            "revision": 1
+          }
+        ],
+        "input_refs": [
+          {
+            "kind": "message",
+            "id": "user-1",
+            "revision": 1
+          },
+          {
+            "kind": "message",
+            "id": "user-1",
+            "revision": 1
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "id": "review-conflicting-source-version",
+      "contract": "TurnContextSnapshot",
+      "value": {
+        "schema_version": 1,
+        "id": "snapshot-1",
+        "owner_id": "12345678-1234-4234-8234-123456789abc",
+        "companion_id": "12345678-1234-4234-8234-123456789abc",
+        "conversation_id": "12345678-1234-4234-8234-123456789abc",
+        "input_batch_id": "batch-1",
+        "input_watermark": 1,
+        "state_version": 0,
+        "memory_epoch": 0,
+        "persona_version": "haobao-persona-v1",
+        "settings_version": 1,
+        "messages": [
+          {
+            "id": "user-1",
+            "revision": 1,
+            "role": "user",
+            "text": "在吗",
+            "visibility": "user_input"
+          }
+        ],
+        "allowed_refs": [
+          {
+            "kind": "message",
+            "id": "user-1",
+            "revision": 1
+          },
+          {
+            "kind": "message",
+            "id": "user-1",
+            "revision": 2
+          }
+        ],
+        "input_refs": [
+          {
+            "kind": "message",
+            "id": "user-1",
+            "revision": 1
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "id": "review-unknown-delivery-not-evidence",
+      "contract": "TurnContextSnapshot",
+      "value": {
+        "schema_version": 1,
+        "id": "snapshot-1",
+        "owner_id": "12345678-1234-4234-8234-123456789abc",
+        "companion_id": "12345678-1234-4234-8234-123456789abc",
+        "conversation_id": "12345678-1234-4234-8234-123456789abc",
+        "input_batch_id": "batch-1",
+        "input_watermark": 1,
+        "state_version": 0,
+        "memory_epoch": 0,
+        "persona_version": "haobao-persona-v1",
+        "settings_version": 1,
+        "messages": [
+          {
+            "id": "user-1",
+            "revision": 1,
+            "role": "user",
+            "text": "在吗",
+            "visibility": "user_input"
+          },
+          {
+            "id": "assistant-unconfirmed",
+            "revision": 1,
+            "role": "assistant",
+            "text": "未确认送达",
+            "visibility": "delivery_unknown"
+          }
+        ],
+        "allowed_refs": [
+          {
+            "kind": "message",
+            "id": "user-1",
+            "revision": 1
+          },
+          {
+            "kind": "message",
+            "id": "assistant-unconfirmed",
+            "revision": 1
+          }
+        ],
+        "input_refs": [
+          {
+            "kind": "message",
+            "id": "user-1",
+            "revision": 1
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "id": "review-unknown-delivery-retained",
+      "contract": "TurnContextSnapshot",
+      "value": {
+        "schema_version": 1,
+        "id": "snapshot-1",
+        "owner_id": "12345678-1234-4234-8234-123456789abc",
+        "companion_id": "12345678-1234-4234-8234-123456789abc",
+        "conversation_id": "12345678-1234-4234-8234-123456789abc",
+        "input_batch_id": "batch-1",
+        "input_watermark": 1,
+        "state_version": 0,
+        "memory_epoch": 0,
+        "persona_version": "haobao-persona-v1",
+        "settings_version": 1,
+        "messages": [
+          {
+            "id": "user-1",
+            "revision": 1,
+            "role": "user",
+            "text": "在吗",
+            "visibility": "user_input"
+          },
+          {
+            "id": "assistant-unconfirmed",
+            "revision": 1,
+            "role": "assistant",
+            "text": "未确认送达",
+            "visibility": "delivery_unknown"
+          }
+        ],
+        "allowed_refs": [
+          {
+            "kind": "message",
+            "id": "user-1",
+            "revision": 1
+          }
+        ],
+        "input_refs": [
+          {
+            "kind": "message",
+            "id": "user-1",
+            "revision": 1
+          }
+        ]
+      },
+      "valid": true
+    },
+    {
+      "id": "review-duplicate-episodes",
+      "contract": "TurnContextSnapshot",
+      "value": {
+        "schema_version": 1,
+        "id": "snapshot-1",
+        "owner_id": "12345678-1234-4234-8234-123456789abc",
+        "companion_id": "12345678-1234-4234-8234-123456789abc",
+        "conversation_id": "12345678-1234-4234-8234-123456789abc",
+        "input_batch_id": "batch-1",
+        "input_watermark": 1,
+        "state_version": 0,
+        "memory_epoch": 0,
+        "persona_version": "haobao-persona-v1",
+        "settings_version": 1,
+        "messages": [
+          {
+            "id": "user-1",
+            "revision": 1,
+            "role": "user",
+            "text": "在吗",
+            "visibility": "user_input"
+          }
+        ],
+        "allowed_refs": [
+          {
+            "kind": "message",
+            "id": "user-1",
+            "revision": 1
+          }
+        ],
+        "input_refs": [
+          {
+            "kind": "message",
+            "id": "user-1",
+            "revision": 1
+          }
+        ],
+        "episodes": [
+          {
+            "schema_version": 1,
+            "id": "episode-1",
+            "version": 1,
+            "topic": "误会澄清",
+            "target": "companion",
+            "attribution": "用户说的是指标",
+            "stance": "误会解开",
+            "status": "resolved",
+            "source_refs": [
+              {
+                "kind": "message",
+                "id": "user-1",
+                "revision": 1
+              }
+            ],
+            "expires_at": "2026-10-25T12:00:00Z"
+          },
+          {
+            "schema_version": 1,
+            "id": "episode-1",
+            "version": 1,
+            "topic": "误会澄清",
+            "target": "companion",
+            "attribution": "用户说的是指标",
+            "stance": "误会解开",
+            "status": "resolved",
+            "source_refs": [
+              {
+                "kind": "message",
+                "id": "user-1",
+                "revision": 1
+              }
+            ],
+            "expires_at": "2026-10-25T12:00:00Z"
+          }
+        ]
+      },
+      "valid": false
+    }
+  ]
+}

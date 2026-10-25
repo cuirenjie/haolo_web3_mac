@@ -77,10 +77,9 @@ test("the skills and plugins page stays beside the conversation sidebar without 
   assert.doesNotMatch(renderer, /function renderSkillsPlazaHeader/);
   assert.doesNotMatch(pluginPage, /skills-plaza-header|skills-plaza-search|id="skillsSearch"/);
   assert.doesNotMatch(skillsPage, /skills-plaza-header|skills-plaza-search|id="skillsSearch"/);
-  assert.match(
-    actionsBlock,
-    /const skillsActive = state\.activeView === "skillsPlaza";[\s\S]*data-conversation-static-action="skills"[\s\S]*aria-current="page"/,
-  );
+  assert.doesNotMatch(actionsBlock, /data-conversation-static-action="skills"/);
+  assert.match(renderer, /data-open-strategy-plaza[\s\S]*data-open-indicator-plaza/);
+  assert.match(renderer, /function openMyConfigPage[\s\S]*state\.activeView = "skillsPlaza"/);
   assert.match(
     styles,
     /\.conversation-list-action\.active,[\s\S]*background:\s*var\(--conversation-action-hover\);/,

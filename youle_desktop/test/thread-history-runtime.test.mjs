@@ -140,7 +140,12 @@ for (const { separateSqliteHome, roamingHome = false } of [
     // Native recovery may rebuild an index from real messages. Our empty-task
     // workaround must not run on it or hide any recovered history.
     const db = new DatabaseSync(path.join(sqliteHome, "state_5.sqlite"));
-    try { db.prepare("DELETE FROM threads WHERE id = ?").run(thread.id); } finally { db.close(); }
+    try {
+      // turn/completed precedes the runtime's asynchronous SQLite projection.
+      // Wait for its write lock before injecting the missing-index fixture.
+      db.exec("PRAGMA busy_timeout = 5000");
+      db.prepare("DELETE FROM threads WHERE id = ?").run(thread.id);
+    } finally { db.close(); }
     const before = fs.readFileSync(thread.path);
     const updates = client.updates();
     const recovered = await client.request("thread/read", { threadId: thread.id, includeTurns: true });
