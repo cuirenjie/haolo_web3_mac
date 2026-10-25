@@ -175,7 +175,7 @@ test("Trading Expert message action opens its dedicated two-pane presentation", 
   assert.match(messageBlock, /contact\?\.id === TRADING_EXPERT_CONTACT_ID/);
   assert.match(messageBlock, /await openTradingExpertWorkspace\(\)/);
   assert.match(source, /function initializeTradingExpertTaskThread[\s\S]*tradingExpertThreadIds\.add\(threadId\)/);
-  assert.match(renderBlock, /tradingExpertLayout \? "trading-expert-layout" : ""/);
+  assert.match(renderBlock, /marketLayout \? "trading-expert-layout" : ""/);
   assert.match(renderBlock, /tradingExpertLayout && state\.tradingExpertChartCollapsed[\s\S]*?\? "trading-expert-chart-collapsed"/);
   assert.match(
     renderBlock,
@@ -220,8 +220,8 @@ test("Trading Expert message action opens its dedicated two-pane presentation", 
   assert.doesNotMatch(chatListBlock, /isTradingExpertThreadId\(state\.currentThreadId\)/);
   assert.match(sidebarActions, /data-conversation-static-action="account"[\s\S]*>账户<\/span>/);
   assert.match(sidebarActions, /data-conversation-static-action="plans"[\s\S]*>计划<\/span>/);
-  assert.match(sidebarActions, /data-conversation-static-action="skills"[\s\S]*>策略<\/span>/);
-  assert.match(sidebarActions, /renderConversationListIcon\("account"\)[\s\S]*renderConversationListIcon\("plans"\)[\s\S]*renderConversationListIcon\("skills"\)/);
+  assert.match(sidebarActions, /data-conversation-static-action="haobao"[\s\S]*>你的 \$\{escapeHtml\(haoBaoUi\.name\)\}<\/span>/);
+  assert.match(sidebarActions, /renderConversationListIcon\("account"\)[\s\S]*renderConversationListIcon\("plans"\)/);
   assert.doesNotMatch(sidebarActions, /data-conversation-static-action="knowledge"|renderConversationListIcon\("knowledge"\)|>知识库<\/span>/);
   assert.doesNotMatch(sidebarActions, /data-trading-expert-panel-tab|role="tab"|aria-selected/);
   assert.match(titlebarActions, /toggle-external-channel-menu[\s\S]*renderTitlebarPlugIcon\(\)/);
@@ -755,7 +755,7 @@ test("Trading Expert layout keeps the conversation independent and covers light 
   assert.match(styles, /\.trading-expert-collapse-button:focus-visible\s*\{[^}]*box-shadow: inset 0 0 0 2px var\(--conversation-action-focus\);/s);
   assert.match(styles, /\.trading-expert-layout\.right-panel-collapsed:not\(\.trading-expert-chart-collapsed\)[\s\S]*?> \.trading-expert-collapse-controls\s*\{[^}]*right: 5px;/s);
   assert.doesNotMatch(styles, /\.trading-expert-chart-collapsed[\s\S]*?> \.trading-expert-collapse-controls\s*\{[^}]*left:/s);
-  assert.match(renderBlock, /tradingExpertLayout \? "trading-expert-shell" : ""/);
+  assert.match(renderBlock, /marketLayout \? "trading-expert-shell" : ""/);
   assert.match(styles, /\.app-titlebar\s*\{[^}]*height: 38px;/s);
   assert.match(styles, /\.small-icon-button\s*\{[^}]*height: 26px;/s);
   assert.match(styles, /\.desktop-body > \.left-panel-toggle\s*\{[^}]*top: 4px;[^}]*left: calc\(var\(--conversation-list-width\) \+ 4px\);[^}]*z-index: 70;[^}]*left 0\.24s ease,/s);
@@ -771,7 +771,7 @@ test("Trading Expert layout keeps the conversation independent and covers light 
   assert.match(styles, /\.desktop-body\.trading-expert-layout\.trading-expert-chart-collapsed\s*> \.trading-expert-chat-panel\s*\{\s*display: none;/s);
   assert.doesNotMatch(styles, /binance-account-page-expansion-toggle/);
   assert.match(styles, /\.trading-expert-chart-collapsed:not\(\.right-panel-collapsed\)[\s\S]*?> \.trading-expert-panel\s*\{[^}]*width: auto;[^}]*max-width: none;[^}]*flex: 1 1 auto;[^}]*border-top-left-radius: 16px;/s);
-  assert.match(styles, /\.trading-expert-layout\.trading-expert-chart-collapsed[\s\S]*?> \.trading-expert-panel[\s\S]*?\.trading-expert-panel-header\s*\{[^}]*padding-left: 44px;/s);
+  assert.match(styles, /\.trading-expert-layout\.trading-expert-chart-collapsed[\s\S]*?> \.trading-expert-panel[\s\S]*?\.trading-expert-panel-header\s*\{[^}]*padding-left: 14px;/s);
   assert.match(styles, /\.desktop-body\.right-panel-collapsed > \.agent-panel\.collapsed\s*\{\s*display: none;/s);
   assert.match(styles, /\.panel-toggle:is\([\s\S]*?\[data-action="toggle-trading-expert-chart"\][\s\S]*?\)\s*\{[^}]*color: var\(--text-placeholder\);/s);
   assert.match(styles, /\.panel-toggle:is\([\s\S]*?\[data-action="toggle-trading-expert-chart"\][\s\S]*?\)\[aria-expanded="true"\]\s*\{[^}]*color: var\(--text-tertiary\);/s);
@@ -1853,7 +1853,7 @@ test("Trading Expert favorites persist, lead the next open, and remain available
   assert.match(styles, /\.titlebar-market-favorites-host\s*\{[^}]*--trading-market-selected-background: #fff;/s);
   assert.match(styles, /\.titlebar-market-favorites-host\[hidden\]\s*\{\s*display: none;/s);
   assert.match(styles, /html\[data-theme="dark"\] \.titlebar-market-favorites-host\s*\{[^}]*--trading-market-positive: #52dc88;[^}]*--trading-market-negative: #ff718e;[^}]*--trading-market-selected-background: #1b1e23;/s);
-  assert.match(renderer, /const showTradingExpertFavoriteTickers =\s*state\.activeView === "chat"\s*&& !state\.chatPreview\s*&& !state\.tradingExpertChartCollapsed\s*&& isTradingExpertSurfaceThreadId\(state\.currentThreadId\)/s);
+  assert.match(renderer, /const showTradingExpertFavoriteTickers = showTradingExpertLeftPanelToggle;/);
   assert.match(renderer, /data-titlebar-market-favorites-host\$\{showTradingExpertFavoriteTickers \? "" : " hidden"\}/);
   assert.match(styles, /\.trading-market-favorite-tickers\s*\{[^}]*flex: 1 1 auto;[^}]*gap: 4px;[^}]*overflow-x: hidden;[^}]*overflow-y: hidden;[^}]*overscroll-behavior-x: contain;[^}]*scrollbar-width: none;[^}]*touch-action: pan-x;/s);
   assert.match(styles, /\.trading-market-favorite-tickers\.sorting\s*\{[^}]*cursor: grabbing;[^}]*user-select: none;/s);
@@ -1886,7 +1886,7 @@ test("Trading Expert favorites persist, lead the next open, and remain available
   assert.match(styles, /\.trading-market-favorite-add:disabled\s*\{[^}]*cursor: not-allowed;[^}]*opacity: 0\.45;/s);
   assert.match(styles, /--trading-market-favorite-fill: var\(--interaction-accent\);[\s\S]*html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*--trading-market-favorite-fill: var\(--interaction-accent\);/s);
   assert.doesNotMatch(styles, /--trading-market-favorite-(?:fill|soft): #[fF](?:5b800|fd24a|ff5cc)/);
-  assert.match(source, /syncTitlebarFavoriteTickerHost\(\)[\s\S]*?\[data-titlebar-market-favorites-host\][\s\S]*?titlebarHost\.append\(this\.favoriteTickerBar\)/);
+  assert.match(source, /syncTitlebarFavoriteTickerHost\(\)[\s\S]*?\[data-titlebar-market-favorites-host\][\s\S]*?titlebarHost\.replaceChildren\(this\.favoriteTickerBar\)/);
   assert.match(source, /private revealSelectedFavoriteTicker\(\)[\s\S]*?favoriteTickerBar\.scrollLeft[\s\S]*?private renderFavoriteTickerBar\(\)[\s\S]*?this\.revealSelectedFavoriteTicker\(\)/);
   assert.match(source, /host === activeWorkspaceHost[\s\S]*?activeWorkspace\.syncTitlebarFavoriteTickerHost\(\)/);
   assert.match(source, /this\.favoriteTickerBar\.addEventListener\("click", this\.handleFavoriteTickerClick\)/);

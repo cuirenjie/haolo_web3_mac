@@ -1,6 +1,21 @@
 groups:
   - name: haolo-market-traffic
     rules:
+      # tier is a legacy routing label, not verified payment history. Preserve
+      # old dashboards, but use these versioned rules for commercial attribution.
+      - record: haolo_market_paid_or_gift_v1:payload_bytes:rate5m
+        expr: sum by (node,payer,entitlement,activity,transport,market,family,codec,candle) (rate(haolo_market_traffic_payload_bytes_total{classification="paid_or_gift_v1"}[5m]))
+      - record: haolo_market_paid_or_gift_v1:payload_bytes:increase1d
+        expr: sum by (node,payer,entitlement,activity,transport,market,family,codec,candle) (increase(haolo_market_traffic_payload_bytes_total{classification="paid_or_gift_v1"}[1d]))
+      - record: haolo_market_paid_or_gift_v1:socket_bytes:rate5m
+        expr: sum by (node,payer,entitlement,activity,transport,market) (rate(haolo_market_socket_bytes_total{classification="paid_or_gift_v1"}[5m]))
+      - alert: HaoloMarketPayerSchemaMissing
+        expr: up{job="haolo-market"} == 1 unless on(job,instance) haolo_market_traffic_schema_info{classification="paid_or_gift_v1"}
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Payment and visibility attribution is incomplete on this instance
       # increase BEFORE sum retains reset handling for every replica.
       - record: haolo_market:payload_bytes:rate5m
         expr: sum by (node,tier,transport,market,family,codec,legacy) (rate(haolo_market_traffic_payload_bytes_total[5m]))

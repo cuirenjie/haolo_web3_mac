@@ -23,6 +23,7 @@ test('the five measured auth tails reproduce twelve 503s at 5s and recover at th
     const tokens=samples.map((_,i)=>createJwt(config.jwtSecret,{sub:`fixture-${i}`}));
     let authReads=0,upstreamReads=0;const diagnostics=[];
     const profile=await listen((request,response)=>{
+      if(request.url==='/api/profile/me/market-traffic') {response.writeHead(404);response.end();return;}
       authReads++;
       const index=tokens.indexOf(String(request.headers.authorization).slice(7));
       assert.ok(index>=0);

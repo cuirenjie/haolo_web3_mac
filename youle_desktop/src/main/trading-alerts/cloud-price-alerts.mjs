@@ -1,4 +1,5 @@
 import {isDeepStrictEqual as equal} from 'node:util';
+import {createHash} from 'node:crypto';
 import {parsePriceAlertInput, buildPriceAlertRule} from './price-alert.mjs';
 
 const prefix = 'cloud-price-';
@@ -49,6 +50,20 @@ export function createCloudPriceAlerts({owner, api}) {
     if (!Array.isArray(response?.items)) fail('CLOUD_RESULT_CONTEXT_INVALID');
     return response.items;
   }
+  async function mutate(captured, action, {alertId,version}) {
+    if (!['pause','resume','delete'].includes(action) || !isCloudPriceAlert(alertId) || !uuid.test(alertId.slice(prefix.length))
+      || !Number.isSafeInteger(version) || version < 1) fail('CLOUD_RESULT_CONTEXT_INVALID');
+    const id = alertId.slice(prefix.length);
+    const current = (await list(captured)).find(a => a.id === id);
+    if (!current && action === 'delete') return {deleted:true};
+    if (!current || !cloudPriceAlertCard(current)) fail('RESOURCE_NOT_FOUND');
+    const desired = action === 'pause' ? 'paused' : action === 'resume' ? 'arming' : 'deleted';
+    if (current.state === desired || action === 'resume' && current.state === 'monitoring') return {alert:cloudPriceAlertCard(current)};
+    if (current.version !== version) fail('VERSION_CONFLICT');
+    const result = await request(captured, 'priceAlertAction', {alertId:id,action,version}, `price-${action}:${id}:${version}`);
+    if (result?.id !== id || result.state !== desired) fail('CLOUD_RESULT_CONTEXT_INVALID');
+    return {alert:cloudPriceAlertCard(result)};
+  }
   return {
     async snapshot() {
       const captured = await owner();
@@ -57,6 +72,12 @@ export function createCloudPriceAlerts({owner, api}) {
     },
     async create(params) {
       const spec = parsePriceAlertInput(params), captured = await owner();
+      if (params.replacesAlertId != null) {
+        if (!isCloudPriceAlert(params.replacesAlertId) || !uuid.test(params.replacesAlertId.slice(prefix.length))
+          || !Number.isSafeInteger(params.replacesVersion) || params.replacesVersion < 1) fail('CLOUD_RESULT_CONTEXT_INVALID');
+        spec.replacesAlertId = params.replacesAlertId;
+        spec.replacesVersion = params.replacesVersion;
+      }
       if (!captured.email) fail('PRICE_ALERT_EMAIL_REQUIRED');
       const lock = `${captured.ownerId}:${spec.requestId}`;
       if (pending.has(lock)) {
@@ -69,32 +90,38 @@ export function createCloudPriceAlerts({owner, api}) {
         if (caps.priceAlerts !== 'inclusive-intrabar-v1') fail('PRICE_ALERT_CLOUD_UNAVAILABLE');
         const rule = {marketKey:spec.marketId.replace('BINANCE:FUTURES:','binance:usdm:').replace('BINANCE:SPOT:','binance:spot:'),
           interval:spec.interval, operator:spec.price >= spec.referencePrice ? 'gte' : 'lte', threshold:spec.price, confirmation:'intrabar'};
+        if (spec.replacesAlertId) {
+          const original = (await list(captured)).find(a => prefix + a.id === spec.replacesAlertId);
+          if (original && (!cloudPriceAlertCard(original) || original.rule.marketKey !== rule.marketKey)) fail('CLOUD_RESULT_CONTEXT_INVALID');
+          if (original && original.version !== spec.replacesVersion) fail('VERSION_CONFLICT');
+        }
         const symbol = spec.marketId.split(':')[2].replace(/(USDT|USDC|FDUSD|BUSD|TUSD|BTC|ETH|BNB|EUR|USD)$/, '/$1');
+        // Bind replacement retries to the same original without changing the server API.
+        const receiptId = spec.replacesAlertId
+          ? createHash('sha256').update(JSON.stringify([spec.requestId,spec.replacesAlertId,spec.replacesVersion])).digest('hex') : spec.requestId;
         const body = {rule, title:`${symbol} · ${spec.price.toLocaleString('en-US', {maximumFractionDigits:12})}`, locale:spec.locale};
-        const draft = await request(captured, 'createPriceAlertDraft', body, `price-create:${spec.requestId}`);
+        const draft = await request(captured, 'createPriceAlertDraft', body, `price-create:${receiptId}`);
         if (!uuid.test(draft?.id) || !equal(draft.rule,rule) || !Number.isSafeInteger(draft.version) || !/^[a-f0-9]{64}$/.test(draft.ruleHash)) fail('CLOUD_RESULT_CONTEXT_INVALID');
-        const confirmed = await request(captured, 'confirmPriceAlert', {alertId:draft.id, version:draft.version, ruleHash:draft.ruleHash}, `price-confirm:${spec.requestId}`);
+        const confirmed = await request(captured, 'confirmPriceAlert', {alertId:draft.id, version:draft.version, ruleHash:draft.ruleHash}, `price-confirm:${receiptId}`);
         if (confirmed?.id !== draft.id || confirmed.ruleHash !== draft.ruleHash || confirmed.confirmedVersion == null) fail('CLOUD_RESULT_CONTEXT_INVALID');
         const saved = (await list(captured)).find(a => a.id === draft.id);
         if (!saved || saved.ruleHash !== draft.ruleHash || saved.confirmedVersion == null || ['draft','deleted'].includes(saved.state)) fail('PRICE_ALERT_READBACK_FAILED');
+        if (spec.replacesAlertId) {
+          try {
+            await mutate(captured, 'delete', {alertId:spec.replacesAlertId,version:spec.replacesVersion});
+            if ((await list(captured)).some(a => prefix + a.id === spec.replacesAlertId && a.state !== 'deleted')) fail('PRICE_ALERT_READBACK_FAILED');
+          } catch (error) {
+            if (error.code === 'TRADING_PREFERENCE_OWNER_CHANGED') throw error;
+            fail('PRICE_ALERT_REPLACEMENT_INCOMPLETE');
+          }
+        }
         return {alert:cloudPriceAlertCard(saved), monitoringReady:['arming','monitoring','completed'].includes(saved.state)};
       })();
       pending.set(lock, {spec,promise});
       try { return await promise; } finally { pending.delete(lock); }
     },
     async mutate(action, {alertId,version}) {
-      if (!['pause','resume','delete'].includes(action) || !isCloudPriceAlert(alertId) || !uuid.test(alertId.slice(prefix.length))
-        || !Number.isSafeInteger(version) || version < 1) fail('CLOUD_RESULT_CONTEXT_INVALID');
-      const captured = await owner(), id = alertId.slice(prefix.length);
-      const current = (await list(captured)).find(a => a.id === id);
-      if (!current && action === 'delete') return {deleted:true};
-      if (!current || !cloudPriceAlertCard(current)) fail('RESOURCE_NOT_FOUND');
-      const desired = action === 'pause' ? 'paused' : action === 'resume' ? 'arming' : 'deleted';
-      if (current.state === desired || action === 'resume' && current.state === 'monitoring') return {alert:cloudPriceAlertCard(current)};
-      if (current.version !== version) fail('VERSION_CONFLICT');
-      const result = await request(captured, 'priceAlertAction', {alertId:id,action,version}, `price-${action}:${id}:${version}`);
-      if (result?.id !== id || result.state !== desired) fail('CLOUD_RESULT_CONTEXT_INVALID');
-      return {alert:cloudPriceAlertCard(result)};
+      return mutate(await owner(), action, {alertId,version});
     },
   };
 }

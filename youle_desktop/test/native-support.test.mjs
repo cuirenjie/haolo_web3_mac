@@ -3,12 +3,23 @@ import test from "node:test";
 import { mkdtemp, readdir, rm, readFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import { NativeSupport, supportFileType, supportMediaUrl } from "../src/renderer/native-support.ts";
+import { NativeSupport, supportFileType, supportMediaUrl, supportDisplayMessages } from "../src/renderer/native-support.ts";
 import { supportRoute, createSupportUploads } from "../src/main/native-support.mjs";
 import { YouleApiClient } from "../src/main/youle-api-client.mjs";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const OTHER = "22222222-2222-4222-8222-222222222222";
+test("legacy tied join follows its triggering user without moving older history or later human events", () => {
+  const old = { id: "old", role: "user", created_at: "2026-10-24T01:00:00Z" };
+  const joined = { id: "joined", role: "human_support", support_event: "joined", created_at: "2026-10-25T01:00:00Z" };
+  const user = { id: "user", role: "user", created_at: joined.created_at };
+  const reply = { id: "reply", role: "human_support", created_at: "2026-10-25T01:00:15Z" };
+  const input = [old, joined, user, reply];
+  assert.deepEqual(supportDisplayMessages(input), [old, user, joined, reply]);
+  assert.deepEqual(input, [old, joined, user, reply]);
+  assert.deepEqual(supportDisplayMessages([old, user, joined, reply]), [old, user, joined, reply]);
+  assert.deepEqual(supportDisplayMessages([joined, old]), [joined, old]);
+});
 const payload = (id = ID, messages = []) => ({ session: { id, status: "active", created_at: "2026-10-24T01:00:00Z" }, messages, support_online: true });
 function fixture(t, request, context) {
   const calls = [], stored = new Map();

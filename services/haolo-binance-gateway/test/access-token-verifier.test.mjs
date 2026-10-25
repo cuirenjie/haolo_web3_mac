@@ -22,6 +22,7 @@ test("authoritative Haolo profile verification accepts current two-part access t
     config,
     cache,
     async fetchImpl(url, options) {
+      if (url.endsWith("/market-traffic")) return new Response("not deployed", { status: 404 });
       requests.push({ url, authorization: options.headers.authorization });
       return new Response(JSON.stringify({ id: "00000000-0000-0000-0000-000000000042" }), {
         status: 200,

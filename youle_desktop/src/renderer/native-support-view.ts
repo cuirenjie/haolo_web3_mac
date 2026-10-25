@@ -1,5 +1,5 @@
 import { withKoreanVariants } from '../shared/korean.mjs';
-import { NativeSupport, SUPPORT_ACCEPT, supportMediaUrl, supportFileType, type SupportMessage, type SupportRecord } from "./native-support.ts";
+import { NativeSupport, SUPPORT_ACCEPT, supportMediaUrl, supportFileType, supportDisplayMessages, type SupportMessage, type SupportRecord } from "./native-support.ts";
 import "./native-support.css";
 import "./support-assist.css";
 import { assistText, describeSupportAction, supportIsTyping } from "./support-assist.ts";
@@ -15,12 +15,28 @@ export class NativeSupportView {
   private element?: HTMLElement;
   private signature = "";
   private renderedId = "";
+  private messagesSignature = "";
+  private scroll = { top: 0, bottom: true };
+  private resizeObserver?: ResizeObserver;
+  private scrollFrame = 0;
   composing = false;
   private focus?: { start: number; end: number };
   constructor(private support: NativeSupport, private options: { language: () => string; openExternal: (url: string) => Promise<unknown>; requestRender: () => void }) {}
   captureFocus() {
+    // The main renderer removes our host next. Read geometry while attached.
+    this.captureScroll();
     const input = this.element?.querySelector("textarea");
     if (input && input === document.activeElement) this.focus = { start: input.selectionStart, end: input.selectionEnd };
+  }
+  private captureScroll() {
+    const scroller = this.element?.querySelector<HTMLElement>(".native-support-messages");
+    if (!scroller?.isConnected || !scroller.clientHeight) return;
+    this.scroll = { top: scroller.scrollTop, bottom: scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 64 };
+  }
+  private restoreScroll() {
+    const scroller = this.element?.querySelector<HTMLElement>(".native-support-messages");
+    if (!scroller?.isConnected || !scroller.clientHeight) return;
+    scroller.scrollTop = this.scroll.bottom ? scroller.scrollHeight : this.scroll.top;
   }
   text(key: string) {
     if (key === "conversation" && supportIsTyping(this.support.entry().payload?.ai)) return assistText(this.support.replyLocale(), "typing");
@@ -35,15 +51,23 @@ export class NativeSupportView {
   mount(host: HTMLElement | null) {
     if (!host) return;
     if (!this.element) { this.element = document.createElement("section"); this.element.className = "native-support"; }
-    if (this.element.parentElement !== host) host.replaceChildren(this.element);
+    if (this.element.parentElement !== host) {
+      this.captureScroll();
+      host.replaceChildren(this.element);
+      // Reattaching can reset scrollTop even when update() skips identical data.
+      this.restoreScroll();
+    }
     this.update();
+    this.restoreScroll();
+    cancelAnimationFrame(this.scrollFrame);
+    this.scrollFrame = requestAnimationFrame(() => this.restoreScroll());
     if (this.focus) {
       const input = this.element.querySelector<HTMLTextAreaElement>("textarea");
       if (input && !input.disabled) { input.focus({ preventScroll: true }); input.setSelectionRange(this.focus.start, this.focus.end); }
       this.focus = undefined;
     }
   }
-  reset() { this.element?.remove(); this.element = undefined; this.signature = ""; this.renderedId = ""; this.focus = undefined; this.composing = false; }
+  reset() { cancelAnimationFrame(this.scrollFrame); this.resizeObserver?.disconnect(); this.element?.remove(); this.element = undefined; this.signature = ""; this.renderedId = ""; this.messagesSignature = ""; this.scroll = { top: 0, bottom: true }; this.focus = undefined; this.composing = false; }
   update() {
     const element = this.element;
     if (!element || !this.support.active || this.composing) return;
@@ -55,9 +79,11 @@ export class NativeSupportView {
     const input = element.querySelector<HTMLTextAreaElement>("textarea");
     const focused = input === document.activeElement;
     const start = input?.selectionStart || 0, end = input?.selectionEnd || 0;
-    const scroller = element.querySelector<HTMLElement>(".native-support-messages");
-    const oldTop = scroller?.scrollTop || 0;
-    const bottom = !scroller || scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 64 || this.renderedId !== this.support.currentId;
+    this.captureScroll();
+    const messages = supportDisplayMessages(payload?.messages || []);
+    const messagesSignature = JSON.stringify(messages);
+    if (this.renderedId !== this.support.currentId || this.messagesSignature !== messagesSignature) this.scroll = { top: 0, bottom: true };
+    this.messagesSignature = messagesSignature;
     this.renderedId = this.support.currentId;
     const closed = ["resolved", "closed"].includes(payload?.session.status || "");
     const error = entry.error || this.support.error;
@@ -66,7 +92,7 @@ export class NativeSupportView {
     element.setAttribute("aria-label", this.text("conversation"));
     element.innerHTML = `
       ${payload?.ai?.mode === "ai" ? `<div class="support-ai-identity">${assistText(this.support.replyLocale(), "identity")}</div>` : ""}
-      <div class="native-support-messages" role="log" aria-live="polite" aria-relevant="additions text">${payload?.messages.length ? payload.messages.map((message) => this.message(message)).join("") : `<p class="native-support-welcome">${this.text(this.support.opening ? "loading" : "welcome")}</p>`}</div>
+      <div class="native-support-messages" role="log" aria-live="polite" aria-relevant="additions text"><div class="native-support-message-content">${messages.length ? messages.map((message) => this.message(message)).join("") : `<p class="native-support-welcome">${this.text(this.support.opening ? "loading" : "welcome")}</p>`}</div></div>
       ${proposal ? `<div class="support-consent"><strong>${assistText(this.support.replyLocale(), "consent")}</strong><p data-i18n-skip>${escape(proposal.title)}</p><ol>${proposal.plan.map(action => `<li>${escape(describeSupportAction(action, proposal.reply_locale || this.support.replyLocale()))}</li>`).join("")}</ol><button type="button" data-support-consent="accept" ${this.support.assisting ? "disabled" : ""}>${assistText(this.support.replyLocale(), "accept")}</button><button type="button" data-support-consent="decline" ${this.support.assisting ? "disabled" : ""}>${assistText(this.support.replyLocale(), "decline")}</button></div>` : ""}
       ${error ? `<div class="native-support-error" role="alert">${this.text(error)} <button type="button" data-support-retry>${this.text("retry")}</button></div>` : ""}
       ${closed ? `<div class="native-support-ended">${this.text("ended")} <button type="button" data-support-continue>${this.text("continue")}</button></div>` : ""}
@@ -108,7 +134,12 @@ export class NativeSupportView {
     element.ondrop = (event) => { event.preventDefault(); event.stopPropagation(); element.classList.remove("is-file-drag"); this.files([...(event.dataTransfer?.files || [])]); };
     if (focused && !disabled) { nextInput.focus({ preventScroll: true }); nextInput.setSelectionRange(start, end); }
     const nextScroller = element.querySelector<HTMLElement>(".native-support-messages")!;
-    nextScroller.scrollTop = bottom ? nextScroller.scrollHeight : oldTop;
+    nextScroller.addEventListener("scroll", () => this.captureScroll(), { passive: true });
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = new ResizeObserver(() => this.restoreScroll());
+    this.resizeObserver.observe(nextScroller);
+    this.resizeObserver.observe(element.querySelector(".native-support-message-content")!);
+    this.restoreScroll();
   }
   private files(files: File[]) {
     if (files.length > 1) { this.support.entry().error = "oneFile"; this.update(); }

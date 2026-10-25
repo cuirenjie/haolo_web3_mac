@@ -1,0 +1,163 @@
+.desktop-body > .haobao-page {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  border-radius: 16px 0 0;
+  background: var(--surface-primary);
+  color: var(--text-primary);
+}
+.haobao-avatar { display: block; width: 100%; height: 100%; overflow: visible; }
+.haobao-sidebar-avatar { width: 22px; height: 22px; flex: 0 0 22px; margin: 0 -2px; }
+.haobao-page svg:not(.haobao-avatar, .trading-watchlist svg, .trading-watchlist-toggle svg), .haobao-dialog svg:not(.haobao-avatar) {
+  width: 22px; height: 22px; flex: 0 0 22px; fill: none; stroke: currentColor;
+  stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round;
+}
+.haobao-page button, .haobao-dialog button { cursor: pointer; }
+.haobao-page button:focus-visible, .haobao-dialog button:focus-visible {
+  outline: 2px solid #5599ef; outline-offset: 3px;
+}
+.haobao-page button:disabled, .haobao-dialog button:disabled { cursor: default; opacity: .4; }
+.desktop-body > .haobao-intro-page { overflow-y: auto; padding: 32px; }
+.haobao-intro { width: min(100%, 480px); margin: auto; transform: translateY(-60px); }
+.haobao-intro-avatar { width: 56px; height: 56px; margin: 0 auto 18px; color: #8999b6; }
+.haobao-intro-avatar svg { width: 100% !important; height: 100% !important; stroke-width: 1.25 !important; }
+.haobao-intro h1 { margin: 0; text-align: center; font-size: 26px; line-height: 1.35; letter-spacing: -.5px; font-weight: 600; }
+.haobao-subtitle { margin: 10px 0 28px; color: var(--text-tertiary); text-align: center; font-size: 14px; }
+.haobao-features { display: grid; gap: 22px; margin-bottom: 28px; }
+.haobao-features section { display: flex; align-items: flex-start; gap: 14px; }
+.haobao-feature-icon { display: grid; place-items: center; width: 36px; height: 36px; flex: 0 0 36px; border-radius: 11px; background: var(--surface-hover); color: #4b91ff; }
+.haobao-feature-icon svg { width: 19px !important; height: 19px !important; }
+.haobao-features h2 { margin: 0 0 4px; font-size: 14px; font-weight: 600; line-height: 1.45; }
+.haobao-features p { margin: 0; color: var(--text-tertiary); font-size: 13px; line-height: 1.65; }
+.haobao-primary { display: flex; width: 100%; height: 46px; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 25px; background: #1c1e21; color: #fff; font-size: 15px; font-weight: 600; transition: background .15s, transform .15s; }
+.haobao-primary:hover { background: #35383d; }
+.haobao-primary:active { transform: scale(.99); }
+.haobao-intro .haobao-primary { height: 38px; border-radius: 20px; font-size: 14px; }
+.haobao-chat-page { flex-direction: column; --haobao-chat-width: 820px; }
+.haobao-chat-page svg:not(.haobao-avatar, .trading-watchlist svg, .trading-watchlist-toggle svg) { width: 18px; height: 18px; flex-basis: 18px; }
+.haobao-conversation { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 24px 24px; }
+.haobao-chat-header { display: flex; justify-content: center; padding: clamp(28px, 4vh, 48px) 0 22px; }
+.haobao-identity { display: flex; max-width: 90%; flex-direction: column; align-items: center; border: 0; background: none; color: inherit; border-radius: 16px; padding: 0 12px 6px; }
+.haobao-identity-picture { position: relative; width: 72px; height: 64px; margin-bottom: 2px; transition: transform .2s; }
+.haobao-identity:hover .haobao-identity-picture { transform: translateY(-3px); }
+.haobao-edit-badge { position: absolute; right: -1px; top: 5px; display: grid; place-items: center; width: 19px; height: 19px; border: 1px solid var(--border-subtle); border-radius: 50%; background: var(--surface-primary); color: var(--text-tertiary); }
+.haobao-edit-badge svg { width: 11px !important; height: 11px !important; }
+.haobao-identity strong { max-width: 100%; overflow-wrap: anywhere; font-size: 18px; font-weight: 600; line-height: 1.4; }
+.haobao-status { display: flex; align-items: center; gap: 4px; margin-top: 2px; color: var(--text-tertiary); font-size: 11px; }
+.haobao-status i { width: 5px; height: 5px; border-radius: 50%; background: #6db897; }
+.haobao-message-list { display: flex; width: 100%; max-width: var(--haobao-chat-width); margin: 0 auto; flex-direction: column; align-items: stretch; gap: 16px; }
+.haobao-time { align-self: center; margin: 4px 0 16px; color: var(--text-tertiary); font-size: 11px; }
+.haobao-message-row { margin: 0; align-items: flex-start; }
+.haobao-message-row::after { display: none; }
+.haobao-message-stack { display: flex; min-width: 0; max-width: min(680px, calc(100% - 44px)); flex-direction: column; align-items: flex-start; gap: 6px; }
+.haobao-message-stack .message-meta { margin-bottom: 0; }
+.haobao-message-avatar { display: grid; place-items: center; background: var(--surface-hover); }
+.haobao-message-avatar .haobao-avatar { width: 32px; height: 30px; }
+.haobao-message-avatar-editable { position: relative; overflow: visible; border: 0; padding: 0; }
+.haobao-message-avatar-editable .haobao-edit-badge { top: -5px; right: -5px; opacity: 0; pointer-events: none; }
+.haobao-message-avatar-editable:hover .haobao-edit-badge,
+.haobao-message-avatar-editable:focus-visible .haobao-edit-badge { opacity: 1; pointer-events: auto; }
+.haobao-page .haobao-message-avatar-editable:focus-visible { outline-color: var(--interaction-focus-ring); }
+.haobao-bubble { padding: 9px 12px; font-size: calc(13px + var(--app-font-size-offset)); line-height: 1.65; white-space: pre-wrap; }
+.haobao-bubble-wrap { display: flex; max-width: 100%; flex-direction: column; align-items: stretch; gap: 4px; }
+.haobao-bubble-wrap .haobao-bubble { width: 100%; }
+.haobao-bubble-actions { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px; padding: 0 2px; color: var(--message-action-color); font-size: var(--message-action-font-size); line-height: var(--message-action-line-height); opacity: 0; pointer-events: none; }
+/* Keep the action row's space so hovering never shifts the conversation. */
+.haobao-bubble-wrap:hover .haobao-bubble-actions,
+.haobao-bubble-wrap:has(:focus-visible) .haobao-bubble-actions { opacity: 1; pointer-events: auto; }
+.haobao-bubble-actions time { color: var(--text-muted); }
+.haobao-bubble-actions button[aria-pressed="true"] { color: var(--interaction-accent); }
+.haobao-message-quote { display: grid; gap: 3px; margin: 0 0 8px; padding: 6px 9px; border-left: 2px solid var(--border-subtle); color: var(--text-tertiary); font-size: 12px; }
+.haobao-message-quote strong { font-weight: 500; }
+.haobao-message-quote span { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.haobao-message-file { display: block; margin-top: 5px; padding: 5px 10px; border: 1px solid #b9ccdf; border-radius: 9px; font-size: 13px; }
+.haobao-customize-link { display: flex; align-items: center; gap: 8px; border: 0; padding: 9px 12px; background: #f0f5fb; border-radius: 12px; color: #4d77aa; font-size: calc(13px + var(--app-font-size-offset)); line-height: 1.6; }
+.haobao-customize-link:hover { background: #e4eef9; }
+.haobao-customize-link > svg:last-child { width: 14px !important; height: 14px !important; flex-basis: 14px; margin-left: 2px; }
+.haobao-chat-footer { flex-shrink: 0; align-self: center; width: 100%; max-width: calc(var(--haobao-chat-width) + 48px); padding: 0 24px 20px; }
+.haobao-notice { text-align: center; font-size: 11px; color: var(--text-tertiary); padding: 0 4px 8px; }
+.haobao-composer { display: flex; flex-direction: column; align-items: stretch; gap: 8px; padding: 11px 12px 8px; border: 1px solid var(--composer-border); border-radius: 12px; background: var(--surface-primary); box-shadow: 0 2px 10px #0f172a0f, 0 0 0 1px #0f172a04; }
+.haobao-composer button:focus-visible { outline-color: var(--interaction-focus-ring); }
+.haobao-composer textarea { width: 100%; min-width: 0; min-height: 44px; max-height: 120px; padding: 0; border: 0; border-radius: 0; outline: 0; resize: none; background: none; color: var(--text-primary); box-shadow: none; font: inherit; font-size: calc(13px + var(--app-font-size-offset)); line-height: 1.65; }
+.haobao-composer-actions { display: flex; align-items: center; gap: 8px; }
+.haobao-composer-spacer { flex: 1; }
+.haobao-composer-context { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 9px; border-radius: 6px; background: var(--surface-hover); color: var(--text-tertiary); font-size: 12px; }
+.haobao-composer-context > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.haobao-composer-context strong { display: block; margin-bottom: 3px; font-weight: 500; }
+.haobao-composer-context button { flex-shrink: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; }
+.haobao-quote-preview button { display: grid; place-items: center; }
+.haobao-session-header { display: grid; height: 36.4px; min-height: 36.4px; flex: 0 0 36.4px; grid-template-columns: minmax(0, 1fr) auto; align-items: center; padding: 0 14px; }
+.haobao-session-header .haobao-session-title { justify-self: start; max-width: 100%; padding: 0; border: 0; background: transparent; text-align: left; }
+.haobao-session-header .haobao-panel-toggle { position: relative; left: 5px; }
+.haobao-session-header .haobao-panel-toggle:focus-visible { outline: 0; }
+.haobao-session-header .haobao-panel-toggle > .panel-layout-icon { width: 13.5px; height: 12px; flex-basis: auto; stroke-width: 1.65; }
+.desktop-body.trading-expert-layout:not(.trading-expert-chart-collapsed) > .haobao-page { border-top-left-radius: 0; }
+.haobao-page > .trading-watchlist[data-watchlist-host]:not([hidden]) { flex: 1 1 auto; min-height: 0; max-height: none; }
+.haobao-page > [data-watchlist-host]:not([hidden]) ~ .haobao-conversation { display: none; }
+.haobao-chat-started .haobao-conversation { padding: 18px 12px 28px; }
+.haobao-chat-started .haobao-message-list { max-width: none; gap: 20px; }
+.haobao-chat-started .haobao-message-stack { max-width: min(680px, calc(100% - 44px)); }
+.haobao-chat-started .haobao-bubble { padding: 10px 12px; font-size: calc(14px + var(--app-font-size-offset)); }
+.haobao-chat-started .haobao-chat-footer { max-width: none; padding: 0 12px 14px; }
+.haobao-chat-started .haobao-composer { min-height: 158px; }
+.haobao-chat-started .haobao-composer textarea { flex: 1; min-height: 96px; }
+.haobao-composer textarea::placeholder { color: var(--text-muted); }
+.haobao-icon-button { display: grid; width: 32px; height: 32px; flex: 0 0 32px; place-items: center; border: 0; padding: 6px; border-radius: 50%; background: transparent; color: var(--text-secondary); }
+.haobao-icon-button:hover { background: var(--surface-hover); }
+.haobao-composer .haobao-icon-button { width: 28px; height: 28px; flex-basis: 28px; padding: 5px; color: var(--interaction-accent); }
+.haobao-send { display: grid; width: 28px; height: 28px; flex: 0 0 28px; place-items: center; border-radius: 50%; padding: 5px; background: var(--interaction-accent); color: var(--interaction-on-accent); }
+.haobao-send:hover:not(:disabled) { background: var(--interaction-accent-hover); }
+.haobao-composer .haobao-send:disabled { background: var(--surface-disabled); color: var(--text-muted); opacity: .6; }
+.haobao-pending-files { display: flex; gap: 6px; flex-wrap: wrap; padding: 5px 10px; }
+.haobao-pending-files button { display: flex; align-items: center; gap: 5px; max-width: 100%; padding: 5px 10px; border-radius: 10px; background: var(--surface-hover); color: var(--text-secondary); overflow-wrap: anywhere; }
+.haobao-pending-files svg { width: 13px !important; height: 13px !important; }
+.haobao-backdrop { position: fixed; inset: 0; z-index: 2500; display: grid; place-items: center; padding: 24px; background: #00000028; backdrop-filter: blur(2px); }
+.haobao-dialog { position: relative; display: grid; grid-template-columns: 60% 40%; width: min(1000px, 94vw); max-height: 90vh; min-height: min(570px, 86vh); overflow: hidden; border-radius: 26px; background: var(--surface-primary); color: var(--text-primary); box-shadow: 0 20px 70px #00000020; }
+.haobao-dialog-close { position: absolute; right: 14px; top: 14px; z-index: 2; }
+.haobao-options { min-width: 0; overflow-y: auto; padding: 28px 30px 32px; }
+.haobao-options > h2 { margin: 0 0 32px; font-size: 27px; line-height: 1.4; font-weight: 650; letter-spacing: -.5px; }
+.haobao-option-section + .haobao-option-section { margin-top: 20px; }
+.haobao-option-heading { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.haobao-option-heading h3 { margin: 0; font-weight: 400; font-size: 14px; color: var(--text-tertiary); }
+.haobao-option-heading > div { display: flex; }
+.haobao-option-heading .haobao-icon-button { width: 27px; height: 27px; color: var(--text-muted); }
+.haobao-option-heading svg { width: 15px !important; height: 15px !important; }
+.haobao-option-row { display: flex; gap: 10px; overflow-x: auto; padding: 4px 3px 8px; scrollbar-width: none; scroll-snap-type: x proximity; }
+.haobao-option-row::-webkit-scrollbar { display: none; }
+.haobao-option { display: flex; flex: 0 0 84px; min-width: 0; flex-direction: column; align-items: center; border: 1.5px solid transparent; border-radius: 17px; padding: 4px 4px 7px; background: transparent; color: var(--text-tertiary); scroll-snap-align: start; }
+.haobao-option .haobao-avatar { width: 72px; height: 67px; transition: transform .15s; }
+.haobao-option span { margin-top: 2px; font-size: 11px; }
+.haobao-option:hover { background: var(--surface-hover); }
+.haobao-option:hover .haobao-avatar { transform: translateY(-2px); }
+.haobao-option.selected { border-color: var(--text-tertiary); background: var(--surface-faint); color: var(--text-primary); }
+.haobao-preview { display: flex; min-width: 0; flex-direction: column; align-items: center; padding: 58px 36px 32px; border-left: 1px solid var(--border-subtle); background: var(--surface-soft); }
+.haobao-preview label { color: var(--text-tertiary); font-size: 12px; }
+.haobao-preview input { width: 100%; min-width: 0; margin-top: 8px; border: 0; border-bottom: 1px solid transparent; border-radius: 0; outline: 0; background: transparent; padding: 5px 2px; color: var(--text-secondary); text-align: center; font-size: 40px; font-weight: 600; box-shadow: none; }
+.haobao-preview input:focus { border-bottom-color: #9bb8dc; }
+.haobao-preview > p { margin: 6px 0 0; color: var(--text-muted); font-size: 11px; }
+.haobao-avatar-preview { display: grid; width: min(240px, 100%); min-height: 160px; flex: 1; align-items: center; padding: 20px 0 28px; }
+.haobao-avatar-preview .haobao-avatar { height: auto; filter: drop-shadow(0 12px 10px #00000006); }
+.haobao-strategy-plaza { display: flex !important; align-items: center; gap: 9px; border-bottom: 1px solid var(--border-subtle) !important; border-radius: 6px 6px 0 0 !important; margin-bottom: 5px; padding-bottom: 12px !important; }
+.haobao-strategy-plaza .conversation-list-icon { width: 18px; height: 18px; }
+html[data-theme="dark"] .haobao-primary { background: #e5e7eb; color: #1c1e21; }
+html[data-theme="dark"] .haobao-primary:hover { background: #fff; }
+html[data-theme="dark"] .haobao-customize-link { background: #263548; color: #b6d2f4; }
+@media (max-height: 760px) {
+  .haobao-intro-avatar { width: 48px; height: 48px; margin-bottom: 14px; }
+  .haobao-subtitle { margin-bottom: 24px; }
+  .haobao-features { gap: 18px; margin-bottom: 24px; }
+  .haobao-options { padding-top: 22px; padding-bottom: 18px; }
+  .haobao-options > h2 { margin-bottom: 18px; }
+  .haobao-option-section + .haobao-option-section { margin-top: 10px; }
+}
+@media (max-width: 800px) {
+  .haobao-dialog { grid-template-columns: 58% 42%; }
+  .haobao-options { padding: 25px 18px; }
+  .haobao-options > h2 { font-size: 22px; }
+  .haobao-preview { padding-right: 20px; padding-left: 20px; }
+  .haobao-preview input { font-size: 30px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .haobao-page *, .haobao-dialog * { transition: none !important; scroll-behavior: auto !important; }
+}

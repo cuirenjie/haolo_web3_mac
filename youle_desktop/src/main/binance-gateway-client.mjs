@@ -78,6 +78,9 @@ export function createBinanceGatewayClient({ config, apiClient, fetchImpl = glob
     let target = new URL(url.pathname + url.search, cached);
     const headers = new Headers(init.headers || {});
     headers.set("X-Haolo-Market-Routing", "1");
+    if (["foreground", "background", "service", "mixed"].includes(init.haoloTrafficActivity)) {
+      headers.set("X-Haolo-Market-Activity", init.haoloTrafficActivity);
+    }
     for (let hop = 0; hop < 2; hop++) {
       const response = await authenticatedFetch(target.href, { ...init, headers }, token);
       if (response.status !== 409) {

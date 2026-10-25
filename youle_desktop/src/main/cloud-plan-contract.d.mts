@@ -11,6 +11,7 @@ export interface CloudTradingReport {
   report: string;
   executionPlan: Record<string, any>;
   planRecords: Array<Record<string, any>>;
+  profitProbability?: Record<string, any>;
   origin: {sourceThreadId: string; storageSessionId: string; analysisJobId: string} | null;
   drawingPatch: Record<string, any> | null;
   indicatorDrawingPatch: Record<string, any> | null;

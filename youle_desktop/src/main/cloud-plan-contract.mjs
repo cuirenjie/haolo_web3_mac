@@ -8,6 +8,8 @@ import {executionPlanCardHeading,executionPlanCardBody,executionPlanStructuredCa
 import {cloudPlanAccountView,cloudPlanEntryBasisMismatch} from './cloud-plan-account-view.mjs';
 import {validLeftObservation,leftRouteView} from './price-action-left-card.mjs';
 import {validConditionalWatch} from './conditional-watch-card.mjs';
+import {normalizePlanProbability} from './plan-probability-view.mjs';
+import {validAnalysisRequestPlan} from '../shared/analysis-request-contract.mjs';
 const uuid = value => typeof value==='string' && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
 const hash = value => typeof value==='string' && /^[a-f0-9]{64}$/.test(value);
 const positive=value=>typeof value==='number'&&Number.isFinite(value)&&value>0;
@@ -26,6 +28,7 @@ export function normalizeCloudReports(value) {
       ||typeof row.strategyId!=='string'||typeof row.report!=='string'||row.report.length>500000
       ||!Array.isArray(row.planRecords)) fail();
     seen.add(row.runId);
+    const profitProbability = normalizePlanProbability(row.profitProbability,row);
     if(row.executionPolicy==='right-legacy-v1') {
       const candidates=legacyReportCandidates(row.report);
       if(row.executionPlan?.schemaVersion!==1||!Array.isArray(row.executionPlan.scenarios)
@@ -44,11 +47,17 @@ export function normalizeCloudReports(value) {
       return {schemaVersion:1,executionPolicy:'right-legacy-v1',...(selected===undefined?{}:{selectedCardIndex:selected}),
         runId:row.runId,resultHash:row.resultHash,locale:row.locale,marketId:row.marketId,interval:row.interval,
         strategyId:row.strategyId,report:row.report,executionPlan:row.executionPlan,planRecords:row.planRecords,
+        ...(profitProbability?{profitProbability}:{}),
         origin:row.origin||null,drawingPatch:row.drawingPatch||null,indicatorDrawingPatch:row.indicatorDrawingPatch||null};
     }
     if(row.executionPlan?.schemaVersion!==2||!Array.isArray(row.executionPlan.scenarios)||row.executionPlan.scenarios.length>1
       ||row.planRecords.length!==row.executionPlan.scenarios.length)fail();
     const plan=row.executionPlan;
+    if(!validAnalysisRequestPlan(plan))fail();
+    for(const remote of row.planRecords) {
+      if(plan.requestRequirements && (remote.scenario?.side!==plan.scenarios[0]?.side
+        ||!validAnalysisRequestPlan(remote.executionPlan)))fail();
+    }
     if(plan.conditionalWatch!==undefined && (plan.scenarios.length || !validConditionalWatch(plan.conditionalWatch,plan,row.strategyId)))fail();
     if(plan.leftObservation!==undefined&&(!validLeftObservation(plan.leftObservation)||row.strategyId!=='price-action'
       ||!['left',null].includes(plan.selectedMode)))fail();
@@ -69,6 +78,7 @@ export function normalizeCloudReports(value) {
     }
     return {schemaVersion:1,runId:row.runId,resultHash:row.resultHash,locale:row.locale,marketId:row.marketId,interval:row.interval,
       strategyId:row.strategyId,report:row.report,executionPlan:row.executionPlan,planRecords:row.planRecords,
+      ...(profitProbability?{profitProbability}:{}),
       origin:row.origin||null,drawingPatch:row.drawingPatch||null,indicatorDrawingPatch:row.indicatorDrawingPatch||null};
   });
 }
@@ -77,6 +87,7 @@ export function cloudReportFromResponse(response) {
   return normalizeCloudReports([{schemaVersion:1,executionPolicy:response.cloud.executionPolicy,runId:response.cloud.runId,resultHash:response.cloud.resultHash,locale:response.cloud.locale,
     marketId:response.snapshot?.marketId,interval:response.snapshot?.interval,strategyId:response.strategy?.id,
     report:response.analysisPlan?.report,executionPlan:response.executionPlan,planRecords:response.cloud.planRecords,
+    profitProbability:response.analysisPlan?.profitProbability,
     origin:response.cloud.origin,drawingPatch:response.analysisPlan?.drawingPatch,indicatorDrawingPatch:response.analysisPlan?.indicatorDrawingPatch}]);
 }
 

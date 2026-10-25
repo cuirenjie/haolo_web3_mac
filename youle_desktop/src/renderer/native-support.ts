@@ -2,6 +2,19 @@ export type SupportAttachment = { kind: string; name?: string; file_name?: strin
 import { SupportAssist, SUPPORT_EXECUTOR_VERSIONS, validateSupportProposal, type SupportAI, type SupportProposal } from "./support-assist.ts";
 import { supportRuntime } from "./support-runtime.ts";
 export type SupportMessage = { id: string; role: string; text?: string; created_at?: string; attachments?: SupportAttachment[]; sender_type?: string; support_event?: string };
+// Older servers gave the first user message and the joined event the same
+// transaction timestamp, then sorted their UUIDs. Repair only that tied pair.
+export function supportDisplayMessages(messages: SupportMessage[]) {
+  const ordered = [...messages];
+  for (let i = 0; i < ordered.length - 1; i++) {
+    const joined = ordered[i], user = ordered[i + 1];
+    if (joined.support_event === "joined" && user.role === "user" && joined.created_at &&
+        joined.created_at === user.created_at) {
+      ordered[i] = user; ordered[i + 1] = joined; i++;
+    }
+  }
+  return ordered;
+}
 export type SupportPayload = { session: { id: string; status: string; created_at?: string; updated_at?: string }; messages: SupportMessage[]; support_online?: boolean; ai?: SupportAI | null };
 export type SupportRecord = { id: string; title: string; status: string; updatedAt: number; readIds: string[]; unread: number };
 export type SupportResult = { ok: boolean; data?: any; status?: number; code?: string };

@@ -48,3 +48,105 @@
 html[data-theme="dark"] .trading-price-alert-dialog { background: #20232a; border-color: #414650; color: #f5f5f5; }
 html[data-theme="dark"] .trading-price-alert-dialog small { color: #b3bbca; }
 html[data-theme="dark"] .trading-price-alert-dialog [data-price-alert-confirm] { background: #e9edf5; color: #172033; }
+
+.trading-price-alert-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 7;
+  overflow: hidden;
+  pointer-events: none;
+  color: #131313;
+  --price-alert-background: #fff;
+}
+.trading-price-alert-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 12px;
+  transform: translateY(-50%);
+  cursor: ns-resize;
+  touch-action: none;
+  user-select: none;
+  pointer-events: auto;
+  outline: none;
+}
+.trading-price-alert-line[hidden] { display: none; }
+.trading-price-alert-dash {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 8px;
+  height: 1px;
+  background: repeating-linear-gradient(to right, currentColor 0 5px, transparent 5px 11px);
+  pointer-events: none;
+}
+.trading-price-alert-tip {
+  position: absolute;
+  right: 1px;
+  top: 50%;
+  width: 8px;
+  height: 12px;
+  transform: translateY(-50%);
+  background: currentColor;
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+  pointer-events: none;
+}
+.trading-price-alert-caption {
+  position: absolute;
+  top: 50%;
+  left: 30%;
+  max-width: calc(70% - 18px);
+  transform: translateY(-50%);
+  display: none;
+  align-items: center;
+  border: 1px solid currentColor;
+  border-radius: 5px;
+  background: var(--price-alert-background);
+  font-size: 12px;
+  line-height: 26px;
+  white-space: nowrap;
+}
+.trading-price-alert-caption > span { padding: 0 9px; overflow: hidden; text-overflow: ellipsis; }
+.trading-price-alert-caption button {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  padding: 4px;
+  border: 0;
+  border-left: 1px solid #8885;
+  border-radius: 0 4px 4px 0;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+.trading-price-alert-caption button:hover { background: #8882; }
+.trading-price-alert-caption svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.4; }
+.trading-price-alert-line:is(:hover, :focus-within) { z-index: 1; }
+.trading-price-alert-line:is(:hover, :focus-within) .trading-price-alert-caption { display: flex; }
+.trading-price-alert-line:is(:hover, :focus-within) .trading-price-alert-tip {
+  width: 9px;
+  height: 9px;
+  right: 9px;
+  clip-path: none;
+  background: var(--price-alert-background);
+  border: 2px solid #3977ff;
+  border-radius: 50%;
+}
+.trading-price-alert-layer.is-dragging .trading-price-alert-caption,
+.trading-price-alert-line.is-pending .trading-price-alert-caption { display: none; }
+.trading-price-alert-delete-dialog { width: min(520px, calc(100vw - 40px)); padding: 40px; border-radius: 10px; }
+.trading-price-alert-delete-dialog h2 { padding-right: 24px; }
+.trading-price-alert-dialog .trading-price-alert-close { position: absolute; top: 10px; right: 12px; padding: 0 6px; border: 0; font-size: 28px; line-height: 30px; }
+.trading-price-alert-close svg { display: block; width: 26px; height: 30px; fill: none; stroke: currentColor; stroke-width: 1.5; }
+.trading-price-alert-delete-dialog [data-price-alert-confirm],
+html[data-theme="dark"] .trading-price-alert-delete-dialog [data-price-alert-confirm] { background: #f23545; border-color: #f23545; color: #fff; }
+html[data-theme="dark"] .trading-price-alert-layer { color: #eceef4; --price-alert-background: #20232a; }
+html[data-theme="dark"] dialog.trading-price-alert-dialog.trading-price-alert-delete-dialog[open] footer button[data-price-alert-confirm]:not(:disabled) {
+  background: #f23545;
+  border-color: #f23545;
+  border-radius: 8px;
+  color: #fff;
+}

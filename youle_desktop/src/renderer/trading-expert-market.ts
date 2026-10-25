@@ -1,3 +1,4 @@
+import { customChartSurface } from './custom-theme.ts';
 import { requestIndexChart, INDEX_RESOLUTIONS, indexPeriodFor } from "./trading-index-chart.ts";
 import { deferInteractionRender } from "./interaction-render-guard.ts";
 import { openBoundAnalysisChart } from "./trading-analysis-chart-context.ts";
@@ -5304,7 +5305,8 @@ class TradingExpertMarketWorkspace {
     this.priceAlertControl = new TradingPriceAlertControl(this.crosshairPriceElement, () =>
       this.loadedMarketId === this.selectedMarketId && this.loadedInterval === this.activeInterval && !this.selectedIndex
         ? { marketId: this.selectedMarketId, interval: this.activeInterval, referencePrice: this.candles.at(-1)?.close || 0 }
-        : null);
+        : null, { root: this.viewport, chartElement: this.chartElement,
+          getChart: () => this.chart, getSeries: () => this.candleSeries });
     this.currentPriceElement = this.requireElement("[data-market-current-price]");
     this.candleCountdownElement = this.requireElement<HTMLTimeElement>("[data-market-candle-countdown]");
     this.picker = this.requireElement("[data-market-picker]");
@@ -5524,7 +5526,7 @@ class TradingExpertMarketWorkspace {
     });
     this.themeObserver.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ["data-theme", "lang"],
+      attributeFilter: ["data-theme", "data-custom-theme", "lang"],
     });
   }
 
@@ -6044,11 +6046,15 @@ class TradingExpertMarketWorkspace {
   };
 
   syncTitlebarFavoriteTickerHost() {
+    if (this.disposed || !this.host.isConnected) return;
     const titlebarHost = document.querySelector<HTMLElement>(
       "[data-titlebar-market-favorites-host]",
     );
-    if (!titlebarHost || this.favoriteTickerBar.parentElement === titlebarHost) return;
-    titlebarHost.append(this.favoriteTickerBar);
+    if (!titlebarHost) return;
+    if (this.favoriteTickerBar.parentElement === titlebarHost && titlebarHost.childElementCount === 1) return;
+    // This slot belongs to the current workspace, including after a delayed
+    // callback from a replaced chart or a renderer refresh.
+    titlebarHost.replaceChildren(this.favoriteTickerBar);
   }
 
   private persistAndApplyChartSettings(options: { rebuildSeries?: boolean } = {}) {
@@ -7060,15 +7066,18 @@ class TradingExpertMarketWorkspace {
   }
 
   private async syncFavoriteServer(force = false) {
+    if (this.disposed) return;
     const client = (window as any).codexDesktop;
     if (!this.favoriteStorageAccountIdentity || typeof client?.listTradingFavorites !== "function") return;
     if (!force && Date.now() - this.favoriteServerLastSyncAt < 10_000) return;
     return this.queueFavoriteServer(async () => {
+      if (this.disposed) return;
       try {
         // A refresh can overlap a checkbox click or drag reorder. Keep the
         // response from replacing newer local state; the queued mutation will
         // upload that state after this read completes.
         let response = await client.listTradingFavorites();
+        if (this.disposed) return;
         const initialized = response?.initialized === true;
         // Initialize from the local default list before flushing changes: an
         // add can itself initialize the server and must not drop existing rows.
@@ -7077,12 +7086,16 @@ class TradingExpertMarketWorkspace {
           for (const record of localRecords) {
             const market = marketFromFavoriteRecord(record);
             if (market) await client.addTradingFavorite(tradingFavoriteApiPayload(market));
+            if (this.disposed) return;
           }
           response = await client.listTradingFavorites();
+          if (this.disposed) return;
         }
         if (this.watchlist.pendingMemberships.size) {
           await this.flushFavoriteServerMemberships();
+          if (this.disposed) return;
           response = await client.listTradingFavorites();
+          if (this.disposed) return;
         }
         if (!hasTradingFavoriteApiItems(response)) {
           throw new Error("Trading favorites response has no items collection");
@@ -7216,6 +7229,7 @@ class TradingExpertMarketWorkspace {
   }
 
   syncWatchlistHost() {
+    if (this.disposed || !this.host.isConnected) return;
     this.watchlistPanel.attach();
     this.syncWatchlistPicker();
     if (this.watchlistQuoteTimer === null && this.visibleWatchlistRecords().some((record) => record.provider !== "binance")) {
@@ -7344,6 +7358,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private renderFavoriteTickerBar() {
+    if (this.disposed) return;
     if (deferInteractionRender(this.favoriteTickerBar, () => this.renderFavoriteTickerBar())) return;
     this.watchlistPanel.paintQuotes();
     this.favoriteTickerSortController.cancel();
@@ -12767,7 +12782,7 @@ class TradingExpertMarketWorkspace {
       width: Math.max(this.chartElement.clientWidth, 1),
       height: Math.max(this.chartElement.clientHeight, 1),
       layout: {
-        background: { type: ColorType.Solid, color: chartTheme.backgroundColor },
+        background: { type: ColorType.Solid, color: customChartSurface(chartTheme.backgroundColor) },
         textColor: theme.text,
         fontSize: 11,
         fontFamily: MARKET_FONT_FAMILY,
@@ -12831,8 +12846,8 @@ class TradingExpertMarketWorkspace {
       crosshairMarkerVisible: false,
     });
     this.bandLowerSeries = this.chart.addSeries(AreaSeries, {
-      topColor: chartTheme.backgroundColor,
-      bottomColor: chartTheme.backgroundColor,
+      topColor: customChartSurface(chartTheme.backgroundColor),
+      bottomColor: customChartSurface(chartTheme.backgroundColor),
       lineColor: theme.bandLine,
       lineWidth: 1,
       priceFormat: { ...MARKET_PRICE_FORMAT },
@@ -13539,7 +13554,7 @@ class TradingExpertMarketWorkspace {
     const chartTheme = this.chartSettings.themes[themeName];
     this.chart.applyOptions({
       layout: {
-        background: { type: ColorType.Solid, color: chartTheme.backgroundColor },
+        background: { type: ColorType.Solid, color: customChartSurface(chartTheme.backgroundColor) },
         textColor: theme.text,
         fontFamily: MARKET_FONT_FAMILY,
         panes: {
@@ -13600,8 +13615,8 @@ class TradingExpertMarketWorkspace {
       lineColor: theme.bandLine,
     });
     this.bandLowerSeries?.applyOptions({
-      topColor: chartTheme.backgroundColor,
-      bottomColor: chartTheme.backgroundColor,
+      topColor: customChartSurface(chartTheme.backgroundColor),
+      bottomColor: customChartSurface(chartTheme.backgroundColor),
       lineColor: theme.bandLine,
     });
     const simulationColors = isDarkTheme()
@@ -13900,6 +13915,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private updateCurrentPriceLabel() {
+    this.priceAlertControl.updateMarkers();
     const candle = this.chartCandles[this.chartCandles.length - 1];
     const y = candle && this.candleSeries
       ? Number(this.candleSeries.priceToCoordinate(candle.close))
@@ -14187,6 +14203,8 @@ class TradingExpertMarketWorkspace {
   }
 
   destroy() {
+    if (this.disposed) return;
+    this.disposed = true;
     this.priceAlertControl.destroy();
     this.drawingVisibilitySettings.destroy();
     this.unregisterSettingsSync?.();
@@ -14194,8 +14212,6 @@ class TradingExpertMarketWorkspace {
     this.pickerPriceFlash.clear();
     this.watchlistPanel.destroy();
     if (this.watchlistQuoteTimer !== null) window.clearInterval(this.watchlistQuoteTimer);
-    if (this.disposed) return;
-    this.disposed = true;
     if (this.taskbarQuoteTimer !== null) window.clearInterval(this.taskbarQuoteTimer);
     this.taskbarQuoteTimer = null;
     void window.codexDesktop?.setTaskbarMarketQuote?.(null).catch(() => {});

@@ -1,0 +1,496 @@
+{
+  "passed": true,
+  "at": 1792924769.1060982,
+  "source": "cbfe575a962cd5c3039a367e29edd28dca17f64a",
+  "image": "sha256:fce316d4200104f0cb2fc40edc36aa595ea7b3c2974952e7687153455f1c89f3",
+  "runtime": {
+    "commit": "cbfe575a962cd5c3039a367e29edd28dca17f64a",
+    "files": 24
+  },
+  "redisUnchanged": true,
+  "targetCount": 6,
+  "schemaEndpoints": 2,
+  "activityMetrics": [
+    {
+      "metric": {
+        "activity": "unknown",
+        "entitlement": "active",
+        "payer": "paid",
+        "transport": "rest"
+      },
+      "value": [
+        1792924769.058,
+        "1177733"
+      ]
+    },
+    {
+      "metric": {
+        "activity": "unknown",
+        "entitlement": "active",
+        "payer": "paid",
+        "transport": "ws"
+      },
+      "value": [
+        1792924769.058,
+        "1715186"
+      ]
+    },
+    {
+      "metric": {
+        "activity": "unknown",
+        "entitlement": "unknown",
+        "payer": "unknown",
+        "transport": "rest"
+      },
+      "value": [
+        1792924769.058,
+        "1657238"
+      ]
+    },
+    {
+      "metric": {
+        "activity": "unknown",
+        "entitlement": "inactive",
+        "payer": "free",
+        "transport": "rest"
+      },
+      "value": [
+        1792924769.058,
+        "8798540"
+      ]
+    },
+    {
+      "metric": {
+        "activity": "unknown",
+        "entitlement": "unknown",
+        "payer": "unknown",
+        "transport": "ws"
+      },
+      "value": [
+        1792924769.058,
+        "2513"
+      ]
+    },
+    {
+      "metric": {
+        "activity": "unknown",
+        "entitlement": "inactive",
+        "payer": "free",
+        "transport": "ws"
+      },
+      "value": [
+        1792924769.058,
+        "1147767"
+      ]
+    },
+    {
+      "metric": {
+        "activity": "unknown",
+        "entitlement": "inactive",
+        "payer": "paid",
+        "transport": "rest"
+      },
+      "value": [
+        1792924769.058,
+        "4742089"
+      ]
+    },
+    {
+      "metric": {
+        "activity": "foreground",
+        "entitlement": "active",
+        "payer": "paid",
+        "transport": "ws"
+      },
+      "value": [
+        1792924769.058,
+        "325"
+      ]
+    },
+    {
+      "metric": {
+        "activity": "background",
+        "entitlement": "active",
+        "payer": "paid",
+        "transport": "ws"
+      },
+      "value": [
+        1792924769.058,
+        "650"
+      ]
+    },
+    {
+      "metric": {
+        "activity": "unknown",
+        "entitlement": "unknown",
+        "payer": "paid",
+        "transport": "rest"
+      },
+      "value": [
+        1792924769.058,
+        "97912"
+      ]
+    }
+  ],
+  "retained": [
+    {
+      "container": "haolo-binance-gateway-efficiency-1fe4546",
+      "phase": "accepted_retirement_pending",
+      "runtime": "running",
+      "watcher": "active",
+      "retirement": {
+        "phase": "waiting_for_natural_zero",
+        "container": "haolo-binance-gateway-efficiency-1fe4546",
+        "snapshots": [
+          {
+            "at": 1792924762.1088257,
+            "established": 30,
+            "websocketClients": 28
+          }
+        ]
+      }
+    },
+    {
+      "container": "haolo-binance-gateway-xau-20261024",
+      "phase": "accepted_retirement_pending",
+      "runtime": "running",
+      "watcher": "active",
+      "retirement": {
+        "phase": "waiting_for_natural_zero",
+        "container": "haolo-binance-gateway-xau-20261024",
+        "snapshots": [
+          {
+            "at": 1792924745.007218,
+            "established": 299,
+            "websocketClients": 299
+          }
+        ]
+      }
+    }
+  ],
+  "recoveryTimer": "inactive",
+  "sourceTests": {
+    "passed": true,
+    "commit": "cbfe575a962cd5c3039a367e29edd28dca17f64a",
+    "image": "sha256:fce316d4200104f0cb2fc40edc36aa595ea7b3c2974952e7687153455f1c89f3",
+    "runtime_files": 24,
+    "baseline_files_verified": 21,
+    "isolated_redis": true,
+    "production_candidate_started": false,
+    "tests": [
+      "  ...",
+      "1..120",
+      "# tests 120",
+      "# suites 0",
+      "# pass 120",
+      "# fail 0",
+      "# cancelled 0",
+      "# skipped 0",
+      "# todo 0",
+      "# duration_ms 68236.893417"
+    ],
+    "retirement": {
+      "phase": "waiting_for_natural_zero",
+      "container": "haolo-binance-gateway-efficiency-1fe4546",
+      "snapshots": [
+        {
+          "at": 1792923494.249042,
+          "established": 30,
+          "websocketClients": 30
+        }
+      ]
+    }
+  },
+  "window": {
+    "at": 1792924732.838528,
+    "candidate": "haolo-binance-gateway-batch-cbfe575a",
+    "switched_at": 1792924593.6580627,
+    "seconds": 139.18046522140503,
+    "statuses": {
+      "200": 5852,
+      "304": 763,
+      "404": 805,
+      "201": 33,
+      "202": 21,
+      "429": 57,
+      "101": 1
+    },
+    "new5xx": [],
+    "passed": true
+  },
+  "public_business": {
+    "at": "2026-10-25T10:37:20.576Z",
+    "clientSourceCommit": "cbfe575a962cd5c3039a367e29edd28dca17f64a",
+    "testNetwork": "process-local DIRECT policy; TLS bound to physical WLAN 192.168.1.82; system VPN unchanged",
+    "sockets": [
+      {
+        "local": "192.168.1.82",
+        "remote": "8.217.125.71",
+        "servername": "market.youle.pro",
+        "authorized": true
+      },
+      {
+        "local": "192.168.1.82",
+        "remote": "8.217.125.71",
+        "servername": "market.youle.pro",
+        "authorized": true
+      },
+      {
+        "local": "192.168.1.82",
+        "remote": "8.217.125.71",
+        "servername": "market.youle.pro",
+        "authorized": true
+      },
+      {
+        "local": "192.168.1.82",
+        "remote": "8.217.125.71",
+        "servername": "sg-a.binance-egress.waduo.com",
+        "authorized": true
+      },
+      {
+        "local": "192.168.1.82",
+        "remote": "8.217.125.71",
+        "servername": "fapi.binance.com",
+        "authorized": true
+      }
+    ],
+    "routes": [
+      {
+        "hostname": "market.youle.pro",
+        "route": "ordinary",
+        "proxy": false
+      },
+      {
+        "hostname": "market.youle.pro",
+        "route": "ordinary",
+        "proxy": false
+      },
+      {
+        "hostname": "market.youle.pro",
+        "route": "ordinary",
+        "proxy": false
+      },
+      {
+        "hostname": "market.youle.pro",
+        "route": "ordinary",
+        "proxy": false
+      },
+      {
+        "hostname": "market.youle.pro",
+        "route": "ordinary",
+        "proxy": false
+      },
+      {
+        "hostname": "market.youle.pro",
+        "route": "ordinary",
+        "proxy": false
+      },
+      {
+        "hostname": "market.youle.pro",
+        "route": "ordinary",
+        "proxy": false
+      },
+      {
+        "hostname": "market.youle.pro",
+        "route": "ordinary",
+        "proxy": false
+      },
+      {
+        "hostname": "market.youle.pro",
+        "route": "ordinary",
+        "proxy": false
+      },
+      {
+        "hostname": "market.youle.pro",
+        "route": "ordinary",
+        "proxy": false
+      },
+      {
+        "hostname": "sg-a.binance-egress.waduo.com",
+        "route": "ordinary",
+        "proxy": false
+      }
+    ],
+    "checks": [
+      {
+        "kind": "REST",
+        "market": "futures",
+        "symbol": "XAUUSDT",
+        "interval": "15m",
+        "limit": 501,
+        "status": 200,
+        "rows": 501,
+        "ms": 270,
+        "cache": "MISS"
+      },
+      {
+        "kind": "REST",
+        "market": "futures",
+        "symbol": "XAUUSDT",
+        "interval": "15m",
+        "limit": 501,
+        "status": 200,
+        "rows": 501,
+        "ms": 33,
+        "cache": "HIT"
+      },
+      {
+        "kind": "REST",
+        "market": "futures",
+        "symbol": "XAUUSDT",
+        "interval": "5m",
+        "limit": 501,
+        "status": 200,
+        "rows": 501,
+        "ms": 108,
+        "cache": "MISS"
+      },
+      {
+        "kind": "REST",
+        "market": "futures",
+        "symbol": "XAUUSDT",
+        "interval": "1h",
+        "limit": 501,
+        "status": 200,
+        "rows": 501,
+        "ms": 107,
+        "cache": "MISS"
+      },
+      {
+        "kind": "REST",
+        "market": "futures",
+        "symbol": "BTCUSDT",
+        "interval": "15m",
+        "limit": 501,
+        "status": 200,
+        "rows": 501,
+        "ms": 98,
+        "cache": "MISS"
+      },
+      {
+        "kind": "REST",
+        "market": "spot",
+        "symbol": "ETHUSDT",
+        "interval": "1m",
+        "limit": 1000,
+        "status": 200,
+        "rows": 1000,
+        "ms": 405,
+        "cache": "MISS"
+      },
+      {
+        "kind": "WS",
+        "symbol": "XAUUSDT",
+        "interval": "15m",
+        "eventLagMs": 725
+      },
+      {
+        "kind": "authorized CONNECT",
+        "tlsVerified": true
+      }
+    ],
+    "passed": true
+  },
+  "monitoring_publication": {
+    "passed": true,
+    "rules": 10,
+    "containerUnchanged": true,
+    "rulesSha256": "fc2d9970f758abfb8e75039adb17a0750634680e08cd83750dc38a971896c125",
+    "at": 1792924749.0753713
+  },
+  "retirement_watch": {
+    "unit": "haolo-batch-20261025-1732-drain-watch.service",
+    "accepted": true,
+    "guardSha256": "8a636ac26833dd60095daed2f8e2f01644f346d10ebbead323fa007f38373e09",
+    "forceStop": false
+  },
+  "publication": {
+    "phase": "accepted_retirement_pending",
+    "candidate": "haolo-binance-gateway-batch-cbfe575a",
+    "commit": "cbfe575a962cd5c3039a367e29edd28dca17f64a",
+    "image_id": "sha256:fce316d4200104f0cb2fc40edc36aa595ea7b3c2974952e7687153455f1c89f3",
+    "ports": {
+      "public": 51187,
+      "private": 51188
+    },
+    "redis_backup_sha256": "74e60e0fed4bbaf9859d7949abdbd9bace7f7e51cb329d2bbe0a1812ad5f5dc2",
+    "overlap_authorized_by_user": "2026-10-25 user explicitly authorized retaining all old connections and containers while publishing a new gateway instance.",
+    "prepared_at": 1792924110.600884,
+    "switched_at": 1792924593.6580627,
+    "accepted_at": 1792924735.938198
+  },
+  "authorization": "用户原文：允许本次保留旧连接并继续发布。仅适用于本批次；不授权强制断开、发布安装包或后续叠加版本。",
+  "attempts": [
+    {
+      "stage": "before_switch",
+      "at": "2026-10-25T10:35:49.722Z",
+      "passed": false,
+      "result": "首个候选真实 REST 返回 429，保护器未切流。随后完整真实 REST/WS/CONNECT 验证通过。该次未捕获限流来源响应头，不断言具体来源。"
+    },
+    {
+      "at": "2026-10-25T10:36:49.883Z",
+      "clientSourceCommit": "cbfe575a962cd5c3039a367e29edd28dca17f64a",
+      "testNetwork": "process-local DIRECT policy; TLS bound to physical WLAN 192.168.1.82; system VPN unchanged",
+      "sockets": [
+        {
+          "local": "192.168.1.82",
+          "remote": "8.217.125.71",
+          "servername": "market.youle.pro",
+          "authorized": true
+        }
+      ],
+      "routes": [
+        {
+          "hostname": "market.youle.pro",
+          "route": "ordinary",
+          "proxy": false
+        },
+        {
+          "hostname": "market.youle.pro",
+          "route": "ordinary",
+          "proxy": false
+        },
+        {
+          "hostname": "market.youle.pro",
+          "route": "ordinary",
+          "proxy": false
+        }
+      ],
+      "checks": [
+        {
+          "kind": "REST",
+          "market": "futures",
+          "symbol": "XAUUSDT",
+          "interval": "15m",
+          "limit": 501,
+          "status": 200,
+          "rows": 501,
+          "ms": 315,
+          "cache": "MISS"
+        },
+        {
+          "kind": "REST",
+          "market": "futures",
+          "symbol": "XAUUSDT",
+          "interval": "15m",
+          "limit": 501,
+          "status": 200,
+          "rows": 501,
+          "ms": 27,
+          "cache": "HIT"
+        }
+      ],
+      "passed": false,
+      "error": {
+        "name": "AssertionError",
+        "message": "Expected \"actual\" to be strictly unequal to:\n\n'STALE'"
+      }
+    }
+  ],
+  "limitations": [
+    "旧连接保持原版本，旧实例不具备新版身份/窗口维度；不得把缺失值计为免费或后台。",
+    "新 Windows 源码已推送但未发布安装包；前后台指标的本次真实公网验收来自当前源码验证器，不能声称全量已安装客户端覆盖。",
+    "网关稳定窗口有 404/429，完整状态计数保留；零 5xx 不等于所有请求均为 200。",
+    "应用和 Socket 字节不是云厂商计费字节，不据此推算节省金额。"
+  ]
+}

@@ -99,6 +99,7 @@ const ENGLISH_UI_PHRASES = Object.freeze({
   "画布提交暂时不可用，分析结果已保留；图表恢复后可按同一目标重新绘制。": "Canvas submission is temporarily unavailable. The analysis result was preserved and can be redrawn for the same target after the chart recovers.",
   "绘图目标与任务快照不一致：": "The drawing target does not match the task snapshot: ",
   "Drawing Patch 未能应用到目标会话": "The drawing patch could not be applied to the target conversation",
+  "自定义": "Custom",
   "更新中": "Updating",
   "等待更新": "Waiting for update",
   "桌面快捷方式": "Desktop shortcut",

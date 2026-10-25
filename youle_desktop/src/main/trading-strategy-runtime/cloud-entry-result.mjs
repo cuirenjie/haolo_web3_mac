@@ -2,6 +2,7 @@ import {createHash} from 'node:crypto';
 import {isDeepStrictEqual as equal} from 'node:util';
 import {validConditionalWatch} from '../conditional-watch-card.mjs';
 import {validSmtDiagnostics} from '../../shared/smt-diagnostics.mjs';
+import {validAnalysisRequestPlan} from '../../shared/analysis-request-contract.mjs';
 
 const hash = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
@@ -21,7 +22,11 @@ export function validateCloudEntryResult(result, record) {
   require(cloud.executionPolicy==='entry-v2' && cloud.locale===expected.locale && hash(cloud.resultHash));
   require(plan?.schemaVersion===2 && uuid(plan.planId) && plan.revision===1 && plan.policyVersion==='entry-v2.1');
   require(equal(plan.context,expected.context) && equal(plan.appliedPreferences,cloud.appliedPreferences));
-  require(modes.has(plan.requestedMode) && plan.requestedMode===record.requestedEntryMode);
+  require(validAnalysisRequestPlan(plan));
+  const request=plan.requestRequirements;
+  if(request) require(request.promptHash===createHash('sha256').update(JSON.stringify(expected.prompt),'utf8').digest('hex')
+    &&request.savedRevision===cloud.appliedPreferences?.revision);
+  require(modes.has(plan.requestedMode) && plan.requestedMode===(request?.entryMode??record.requestedEntryMode));
   require(['left','right',null].includes(plan.selectedMode) && (plan.requestedMode==='auto'||plan.selectedMode===null||plan.selectedMode===plan.requestedMode));
   require(Array.isArray(plan.scenarios) && plan.scenarios.length<=1 && Array.isArray(cloud.planIds) && Array.isArray(cloud.planRecords) && Array.isArray(cloud.conditionReceipts));
   require(cloud.planIds.length===plan.scenarios.length && cloud.planRecords.length===plan.scenarios.length && cloud.conditionReceipts.length===plan.scenarios.length);

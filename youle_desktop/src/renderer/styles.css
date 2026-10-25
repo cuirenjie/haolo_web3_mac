@@ -8977,6 +8977,7 @@ html[data-theme="dark"] .thread-history-search-clear img {
 
 .panel-toggle:is(
     .left-panel-toggle,
+    [data-action="toggle-haobao-chart"],
     [data-action="toggle-right-panel"],
     [data-action="toggle-trading-expert-chart"],
     [data-action="toggle-trading-expert-chart-focus"]
@@ -8992,6 +8993,7 @@ html[data-theme="dark"] .thread-history-search-clear img {
 
 .panel-toggle:is(
     .left-panel-toggle,
+    [data-action="toggle-haobao-chart"],
     [data-action="toggle-right-panel"],
     [data-action="toggle-trading-expert-chart"],
     [data-action="toggle-trading-expert-chart-focus"]
@@ -9001,12 +9003,14 @@ html[data-theme="dark"] .thread-history-search-clear img {
 
 .panel-toggle:is(
     .left-panel-toggle,
+    [data-action="toggle-haobao-chart"],
     [data-action="toggle-right-panel"],
     [data-action="toggle-trading-expert-chart"],
     [data-action="toggle-trading-expert-chart-focus"]
   ):hover:not(:disabled),
 .panel-toggle:is(
     .left-panel-toggle,
+    [data-action="toggle-haobao-chart"],
     [data-action="toggle-right-panel"],
     [data-action="toggle-trading-expert-chart"],
     [data-action="toggle-trading-expert-chart-focus"]
@@ -25228,10 +25232,11 @@ html[data-theme="dark"] .settings-trading-actions {
 
 .settings-theme-options {
   display: grid;
-  width: 196px;
+  width: max-content;
+  min-width: 260px;
   height: 36px;
   flex: 0 0 auto;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, max-content);
   align-items: center;
   gap: 2px;
   border: 1px solid #dde1e7;
@@ -25245,6 +25250,7 @@ html[data-theme="dark"] .settings-trading-actions {
   align-items: center;
   justify-content: center;
   gap: 6px;
+  padding-inline: 8px;
   height: 28px;
   border: 1px solid transparent;
   border-radius: 7px;
@@ -25264,7 +25270,7 @@ html[data-theme="dark"] .settings-trading-actions {
 html[data-language="ko"] .settings-theme-options {
   width: max-content;
   min-width: 196px;
-  grid-template-columns: repeat(2, max-content);
+  grid-template-columns: repeat(3, max-content);
 }
 
 html[data-language="ko"] .settings-theme-option {
@@ -33285,6 +33291,7 @@ html[data-theme="dark"] .github-settings-actions button:disabled {
   padding: 0 14px;
 }
 
+.haobao-session-title,
 .trading-expert-panel-title {
   min-width: 0;
   flex: 1 1 auto;
@@ -33366,7 +33373,7 @@ html[data-theme="dark"] .github-settings-actions button:disabled {
 .desktop-body.trading-expert-layout.trading-expert-chart-collapsed
   > .trading-expert-panel
   .trading-expert-panel-header {
-  padding-left: 44px;
+  padding-left: 14px;
 }
 
 .desktop-body.trading-expert-layout > .trading-expert-panel .agent-panel-inner,
@@ -40434,6 +40441,21 @@ html[data-theme="dark"] .conversation-row-wrap.conversation-row-minimal.active {
   color: var(--conversation-analysis-context);
 }
 
+.execution-plan-surface.execution-plan-card > header:has(.execution-plan-card-status.expired) {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-right: 0;
+}
+
+.execution-plan-card-status.expired {
+  position: static;
+  order: -1;
+  max-width: 100%;
+  white-space: normal;
+  text-align: left;
+}
+
 .execution-plan-surface.execution-plan-card > header:has(.execution-plan-card-status.inactive) {
   padding-right: 0;
 }
@@ -41271,6 +41293,8 @@ html[data-theme="dark"] .desktop-body > .binance-account-page {
    uses a nearly-white gradient, which visually fills the clipped corner and
    makes the 16px radius look like a protruding square in light mode. */
 html[data-theme] .desktop-body:has(> :is(
+  .binance-account-page,
+  .haobao-page,
   .trading-alerts-page,
   .execution-plans-page,
   .skills-plaza-page
