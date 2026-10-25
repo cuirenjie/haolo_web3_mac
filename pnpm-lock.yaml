@@ -87,6 +87,9 @@ importers:
       ws:
         specifier: ^8.18.3
         version: 8.20.1
+      yargs:
+        specifier: 15.4.1
+        version: 15.4.1
     devDependencies:
       '@electron/asar':
         specifier: 3.4.1
