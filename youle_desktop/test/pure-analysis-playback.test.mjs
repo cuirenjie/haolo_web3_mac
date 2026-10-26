@@ -15,7 +15,7 @@ async function clocked(run, reducedMotion = false) {
   }finally{globalThis.window=previous;}
 }
 
-test('reduced motion draws intermediate geometry without moving or flashing the cursor',async()=>{
+test('reduced motion draws intermediate geometry with a tracking cursor',async()=>{
   const commits=[],drafts=[],cursors=[];
   await clocked(async()=>{
     const playback=new TradingAiDrawingPlaybackController({setDraft:d=>drafts.push(d),commit:d=>commits.push(d.id),setCursor:p=>cursors.push(p)});
@@ -27,7 +27,8 @@ test('reduced motion draws intermediate geometry without moving or flashing the 
   assert.deepEqual(commits,['a','b']);
   assert.deepEqual([...new Set(drafts.filter(Boolean).map(d=>d.id))],['a','b']);
   for(const id of ['a','b'])assert.ok(drafts.some(d=>d?.id===id&&d.points.at(-1).price>10&&d.points.at(-1).price<20));
-  assert.ok(cursors.every(p=>p===null));
+  assert.ok(cursors.some(p=>p?.price>10&&p.price<20));
+  assert.equal(cursors.at(-1),null);
 });
 
 test('reduced motion cancellation does not commit the pending object or the rest of the batch',async()=>{

@@ -370,17 +370,19 @@ test("a gateway downstream 429 cannot win a hedge while direct Binance is still 
 
 test("gateway stale data waits for a fresh direct hedge and remains the final fallback", async () => {
   let directMode = "healthy";
+  const currentCandles = [[1, "10", "12", "9", "11", "5"]];
+  const staleCandles = [[1, "10", "12", "9", "10", "4"]];
   const router = new BinanceNetworkRouter({
     config: autoConfig(),
     publicHedgeDelayMs: 10,
     directFetch: async () => {
       await new Promise((resolve) => setTimeout(resolve, 30));
       if (directMode === "failed") throw new Error("direct unavailable");
-      return new Response(JSON.stringify({ source: "direct" }), { status: 200 });
+      return new Response(JSON.stringify(currentCandles), { status: 200 });
     },
     gatewayClient: {
       async fetch() {
-        return new Response(JSON.stringify({ source: "stale" }), {
+        return new Response(JSON.stringify(staleCandles), {
           status: 200,
           headers: { "x-haolo-cache": "STALE" },
         });
@@ -391,12 +393,12 @@ test("gateway stale data waits for a fresh direct hedge and remains the final fa
   });
   const input = "https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT";
   const fresh = await router.publicFetch(input);
-  assert.deepEqual(await fresh.json(), { source: "direct" });
+  assert.deepEqual(await fresh.json(), currentCandles);
   assert.equal(fresh.headers.get("x-haolo-binance-route"), "direct");
 
   directMode = "failed";
   const fallback = await router.publicHedgedFetch(new URL(input), {}, "futures");
-  assert.deepEqual(await fallback.json(), { source: "stale" });
+  assert.deepEqual(await fallback.json(), staleCandles);
   assert.equal(fallback.headers.get("x-haolo-cache"), "STALE");
 });
 

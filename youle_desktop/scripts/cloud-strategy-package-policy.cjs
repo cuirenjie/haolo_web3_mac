@@ -6,7 +6,7 @@ const analysisFiles = Object.freeze([
 const cloudFiles = Object.freeze([
   'cloud-alert-feed.mjs', 'cloud-catalog.mjs', 'cloud-entry-result.mjs', 'cloud-error.mjs',
   'cloud-plans.mjs', 'cloud-run-journal.mjs', 'cloud-runtime.mjs', 'cloud-right-result.mjs',
-  'run-event-stream.mjs', 'market-recovery.mjs', 'cloud-task-chat.mjs', 'cloud-task-history.mjs',
+  'run-event-stream.mjs', 'market-recovery.mjs', 'admission-recovery.mjs', 'cloud-task-chat.mjs', 'cloud-task-history.mjs',
 ]);
 function forbiddenPath(value) {
   const name=String(value).replaceAll('\\','/').replace(/^\/+/, '');

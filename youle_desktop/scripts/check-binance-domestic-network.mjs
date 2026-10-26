@@ -59,7 +59,7 @@ if (args["session-file"]) {
   let socketInfo;
   const transport = new BinancePrivateProxyTransport({
     proxyUrl: "https://sg-a.binance-egress.waduo.com",
-    permitProvider: (u, o) => client.privateRequestPermit(u, o), usageReporter: r => client.reportPrivateUsage(r),
+    permitProvider: (u, o) => client.privateRequestPermit(u, o), usageReporter: (r, o) => client.reportPrivateUsage(r, o),
     connectOuter: (input, { signal } = {}) => new Promise((resolve, reject) => {
       const url = new URL(input);
       if (!origins.has(url.origin)) return reject(new Error("Unapproved diagnostic proxy"));

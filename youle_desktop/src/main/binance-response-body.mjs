@@ -26,12 +26,15 @@ export function fetchBinanceResponse(fetchImpl, input, init = {}) {
 
 // Binance REST returns finite JSON, so keep the concurrency slot and deadline
 // until all bytes arrive. Model/SSE/WebSocket traffic never enters this helper.
-export async function bufferBinanceResponse(response, { signal, maxBytes = MAX_BINANCE_RESPONSE_BYTES } = {}) {
+export async function bufferBinanceResponse(response, { signal, maxBytes = MAX_BINANCE_RESPONSE_BYTES, validateData } = {}) {
   if (signal?.aborted) {
     discardBinanceResponse(response, signal.reason);
     throw signal.reason;
   }
-  if (!response?.body) return response;
+  if (!response?.body) {
+    validateData?.(null);
+    return response;
+  }
   const reader = response.body.getReader();
   const cancel = (reason) => { void reader.cancel(reason).catch(() => {}); };
   const abort = () => cancel(signal.reason);
@@ -47,7 +50,11 @@ export async function bufferBinanceResponse(response, { signal, maxBytes = MAX_B
       if (size > maxBytes) throw new Error(`Binance response exceeded ${maxBytes} bytes`);
       chunks.push(Buffer.from(value));
     }
-    return new Response(Buffer.concat(chunks, size), {
+    const body = Buffer.concat(chunks, size);
+    // Validate finite public REST payloads before a route can win. Reuse the
+    // bounded buffer instead of cloning/teeing the network stream to parse it.
+    if (validateData) validateData(JSON.parse(body.toString("utf8")));
+    return new Response(body, {
       status: response.status, statusText: response.statusText, headers: response.headers,
     });
   } catch (error) {

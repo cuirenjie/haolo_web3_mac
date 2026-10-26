@@ -15,7 +15,7 @@ async function collectVisibleTextFiles(target) {
   for (const entry of entries) {
     const entryPath = path.join(target, entry.name);
     if (entry.isDirectory()) {
-      if ([".cache", "dist", "node_modules"].includes(entry.name)) continue;
+      if ([".cache", "dist", "output", "outputs", "node_modules"].includes(entry.name)) continue;
       files.push(...await collectVisibleTextFiles(entryPath));
     } else if (visibleTextExtensions.has(path.extname(entry.name).toLowerCase())) {
       files.push(entryPath);

@@ -1,5 +1,7 @@
 // Presentation only: copy the final plan's prices, never recalculate trading
 // decisions. Also used by the cloud desktop projection before receipt signing.
+import {normalizePlanProbability} from '../main/plan-probability-view.mjs';
+import {wyckoffPlans} from './wyckoff-plan-set.mjs';
 const positive = value => typeof value === 'number' && Number.isFinite(value) && value > 0;
 const roles = new Set(['strategy-entry', 'strategy-stop', 'strategy-target']);
 export const isExecutionPlanLevel = drawing => roles.has(drawing?.colorToken)
@@ -74,6 +76,43 @@ export function cloudPlanDrawingPatch(report) {
 
 export function cloudAnalysisDrawingPlan(response) {
   const analysis = response.analysisPlan;
+  if (response.executionPlan?.wyckoffPlanSet && response.strategy?.id === 'wyckoff') {
+    const plans = wyckoffPlans(response.executionPlan, 'wyckoff');
+    return {...analysis, drawingPatch: projectWyckoffPlanDrawings(analysis?.drawingPatch,
+      plans, response.cloud?.planRecords, analysis?.profitProbability)};
+  }
   if (response.cloud?.executionPolicy !== 'right-legacy-v1' || !response.cloud.planRecords?.length) return analysis;
   return {...analysis, drawingPatch: projectExecutionPlanDrawings(analysis.drawingPatch, response.executionPlan, response.cloud.locale)};
+}
+
+// Only price markers are selected. Both cards, structural drawings and frozen
+// reminder conditions remain intact. Missing/tied estimates use continuation.
+export function projectWyckoffPlanDrawings(patch, plans, records, probability) {
+  if (!patch || plans.length < 2) return patch;
+  const candidates = plans.filter(p => {
+    const s = p.scenarios?.[0] || p.planPresentation?.scenario;
+    return p.wyckoffScenario?.version === 'wyckoff-dual-v1' && s
+      && ['long', 'short'].includes(s.side) && positive(s.entry) && positive(s.stop)
+      && Array.isArray(s.targets) && s.targets.length === 3 && s.targets.every(positive);
+  });
+  if (!candidates.length) return patch;
+  const assessed = normalizePlanProbability(probability, {planRecords: records})?.assessments || [];
+  const score = p => assessed.find(a => a.planId === p.planId)?.profitProbabilityPercent ?? -1;
+  const priority = p => p.wyckoffScenario.kind === 'continuation' ? 0 : 1;
+  const selected = [...candidates].sort((a,b) => score(b)-score(a) || priority(a)-priority(b)
+    || (a.planId < b.planId ? -1 : a.planId > b.planId ? 1 : 0))[0];
+  const c = selected.entryCondition;
+  const evidence = c ? `condition:${c.conditionId}:${c.revision}:${selected.conditionHash}`
+    : `presentation:${selected.planPresentation?.presentationHash}`;
+  const scenario = selected.scenarios?.[0] || selected.planPresentation.scenario;
+  let targetIndex = 0;
+  return {...patch, operations: patch.operations.filter(op => !isExecutionPlanLevel(op.drawing)
+    || op.drawing.evidenceIds?.includes(evidence)).map(op => {
+      if (!isExecutionPlanLevel(op.drawing)) return op;
+      const role = op.drawing.colorToken.slice('strategy-'.length);
+      return {...op, drawing: {...op.drawing, planLevel: normalizePlanLevel({
+        planId: selected.planId, scenarioId: scenario.id || scenario.side, role,
+        ...(role === 'target' ? {targetIndex: ++targetIndex} : {}),
+      })}};
+    })};
 }

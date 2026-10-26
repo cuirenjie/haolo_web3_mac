@@ -4,7 +4,9 @@ const fs = require('node:fs'), path = require('node:path'), assert = require('no
 const { execFileSync } = require('node:child_process');
 const root = path.resolve(__dirname, '..');
 const baseline = process.argv.includes('--baseline');
-const output = path.join(root, '.cache/ai-playback-motion-M1-446', baseline ? 'baseline' : 'fixed');
+const output = process.env.HAOLO_AI_MOTION_QA_OUTPUT
+  ? path.resolve(process.env.HAOLO_AI_MOTION_QA_OUTPUT)
+  : path.join(root, '.cache/ai-playback-motion-M1-446', baseline ? 'baseline' : 'fixed');
 fs.mkdirSync(output, { recursive: true });
 app.setPath('userData', path.join(output, `profile-${Date.now()}`));
 app.disableHardwareAcceleration();
@@ -64,8 +66,12 @@ const check = (name, ok) => report.checks.push({ name, ok: Boolean(ok) });
         nativeRaf(()=>{
           const node=controller.aiContent.querySelector('[data-drawing-id="'+copy.id+'"]');
           if(!node)return;
+          const cursor=controller.aiCursorContent.querySelector('.trading-ai-cursor');
+          const cursorRect=cursor?.getBoundingClientRect();
           frames.push({id:copy.id,points:copy.points,text:copy.text,opacity:Number(node.parentElement.getAttribute('opacity')??1),
-            svg:node.innerHTML,visible:node.getBoundingClientRect().width>0,cursor:controller.aiCursorContent.childElementCount});
+            svg:node.innerHTML,visible:node.getBoundingClientRect().width>0,cursor:controller.aiCursorContent.childElementCount,
+            cursorVisible:Boolean(cursorRect?.width>0&&cursorRect?.height>0&&getComputedStyle(cursor).visibility!=='hidden'),
+            cursorTransform:cursor?.getAttribute('transform'),cursorPulse:cursor?.classList.contains('pulse')??false});
         });
         if(copy.id==='path'&&copy.points.at(-1).time>patch.operations[0].drawing.points[0].time&&copy.points.at(-1).time<patch.operations[0].drawing.points[1].time){
           window.motionCapture=true;
@@ -112,7 +118,9 @@ const check = (name, ok) => report.checks.push({ name, ok: Boolean(ok) });
           check(`${name}/${id} intermediate painted SVG`, new Set(rows.map(row=>row.svg)).size>=4);
         }
         for(const id of ['mark','text'])check(`${name}/${id} actual SVG fade`, result.frames.filter(frame=>frame.id===id&&frame.opacity>0&&frame.opacity<1).length>=4);
-        if(reduced)check(`${name} no cursor movement or pulses`,result.frames.every(frame=>frame.cursor===0));
+        for(const id of ['path','box','ellipse','circle','mark','text','note'])check(`${name}/${id} visible cursor`,result.frames.some(frame=>frame.id===id&&frame.cursorVisible));
+        check(`${name} cursor follows the stroke`,new Set(result.frames.filter(frame=>frame.id==='path'&&frame.cursorVisible).map(frame=>frame.cursorTransform)).size>=5);
+        if(reduced)check(`${name} no click pulses`,result.frames.every(frame=>!frame.cursorPulse));
         check(`${name} final accepted geometry and manual undo preserved`,result.patchUnchanged&&result.finalUnchanged&&result.manualUnchanged&&result.cursorCleared);
         check(`${name} seven ordered object commits`,result.commits.length===7&&result.commits.every((time,i)=>!i||time>result.commits[i-1]));
         if(slow)check(`${name} real 400ms main-thread stall exercised`,result.stalled);
@@ -122,12 +130,19 @@ const check = (name, ok) => report.checks.push({ name, ok: Boolean(ok) });
   }
   await js(`workspace.splitLayoutId='2-columns';workspace.applySplitLayout();`);
   for(let i=0;i<100&&!await js('return Boolean(workspace.splitPanes[0]?.candles.length)');i++)await pause(50);
-  await js(`window.sd=workspace.splitPanes[0].getDrawingController();void runMotion(sd,1,false,1.5);`);
-  while(!await js('return motionDone'))await pause(50);
-  assert.equal(await js('return motionError'),null);
-  const split=await js('return motionResult');report.scenarios.push({name:'split-reduced',...split});
-  check('split pane uses progressive geometry',new Set(split.frames.filter(frame=>frame.id==='path').map(frame=>frame.svg)).size>=5);
-  check('split pane final geometry/manual layer preserved',split.finalUnchanged&&split.manualUnchanged);
+  await js(`window.sd=workspace.splitPanes[0].getDrawingController();`);
+  for(const theme of ['light','dark'])for(const reduced of [false,true]){
+    const name=`split-${theme}-${reduced?'reduced':'normal'}`;
+    await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:reduced?'reduce':'no-preference'}]});
+    await js(`document.documentElement.dataset.theme='${theme}';sd.redraw();void runMotion(sd,1,false,1.5);`);
+    while(!await js('return motionDone'))await pause(50);
+    assert.equal(await js('return motionError'),null);
+    const split=await js('return motionResult');report.scenarios.push({name,...split});
+    check(`${name} progressive geometry`,new Set(split.frames.filter(frame=>frame.id==='path').map(frame=>frame.svg)).size>=5);
+    for(const id of ['path','box','ellipse','circle','mark','text','note'])check(`${name}/${id} visible cursor`,split.frames.some(frame=>frame.id===id&&frame.cursorVisible));
+    check(`${name} cursor follows the stroke`,new Set(split.frames.filter(frame=>frame.id==='path'&&frame.cursorVisible).map(frame=>frame.cursorTransform)).size>=5);
+    check(`${name} final geometry/manual layer and cursor cleanup`,split.finalUnchanged&&split.manualUnchanged&&split.cursorCleared);
+  }
   check('no renderer errors', !await js('return window.qaError'));
   fs.writeFileSync(path.join(output,'report.json'),JSON.stringify(report,null,2));
   const failures=report.checks.filter(check=>!check.ok);

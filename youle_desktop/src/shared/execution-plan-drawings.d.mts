@@ -5,6 +5,7 @@ export interface PlanLevel {
   targetIndex?: number;
 }
 export function isExecutionPlanLevel(drawing: any): boolean;
+export function projectWyckoffPlanDrawings<T>(patch: T, plans: any[], records: any[], probability: any): T;
 export function normalizePlanLevel(value: unknown): PlanLevel | undefined;
 export function projectExecutionPlanDrawings<T>(patch: T, plan: any, language?: string): T;
 export function cloudPlanDrawingPatch<T extends {drawingPatch: any}>(report: T): T['drawingPatch'];

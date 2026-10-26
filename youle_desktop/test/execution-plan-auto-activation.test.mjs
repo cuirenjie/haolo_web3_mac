@@ -111,5 +111,5 @@ test('production account sync refreshes cloud state before migrating old plans w
   await run.refreshCloudExecutionPlans();assert.deepEqual(calls,['list']);assert.equal(state.executionPlans[0].linkedAlertId,null);
   listFails=false;await run.refreshCloudExecutionPlans();await run.executionPlanAutoActivation.reconcile();
   assert.deepEqual(calls,['list','list','activate']);assert.equal(state.executionPlans[0].linkedAlertId,'auto-alert');
-  assert.ok(cache.every(scope=>scope==='A'));assert.equal(notices.length,1,'batch success does not spam one toast per plan');
+  assert.ok(cache.every(scope=>scope==='A'));assert.deepEqual(notices,[],'event-driven sync and background activation remain silent');
 });

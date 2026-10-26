@@ -153,7 +153,7 @@ export function createBinanceGatewayClient({ config, apiClient, fetchImpl = glob
       }
       return payload;
     },
-    async reportPrivateUsage(report = {}) {
+    async reportPrivateUsage(report = {}, { signal } = {}) {
       if (!config.privateUsageUrl) return false;
       const { response } = await controlJson(config.privateUsageUrl, {
         method: "POST",
@@ -165,6 +165,7 @@ export function createBinanceGatewayClient({ config, apiClient, fetchImpl = glob
           retryAfterMs: Number(report.retryAfterMs || 0),
         }),
         cache: "no-store",
+        signal,
       });
       return response.ok;
     },

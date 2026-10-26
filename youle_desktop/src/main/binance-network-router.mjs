@@ -115,7 +115,19 @@ function normalizedStreamClass(value) {
   throw new TypeError("unsupported Binance WebSocket stream class");
 }
 
-async function fetchWithDeadline(fetchImpl, input, init, timeoutMs) {
+function completePublicResponse(response, url, signal) {
+  return bufferBinanceResponse(response, {
+    signal,
+    validateData(data) {
+      if (data === null || typeof data !== "object"
+        || (/\/(?:klines|aggTrades)$/.test(url.pathname) && !Array.isArray(data))) {
+        throw new Error("Binance market response does not contain valid JSON market data");
+      }
+    },
+  });
+}
+
+async function fetchWithDeadline(fetchImpl, input, init, timeoutMs, timeoutMessage = "Direct Binance attempt timed out") {
   if (init?.signal?.aborted) throw init.signal.reason || new DOMException("The operation was aborted", "AbortError");
   const timeoutController = new AbortController();
   const signals = [timeoutController.signal, init?.signal].filter(Boolean);
@@ -131,7 +143,7 @@ async function fetchWithDeadline(fetchImpl, input, init, timeoutMs) {
   const request = fetchBinanceResponse(fetchImpl, input, { ...init, signal });
   const deadline = new Promise((_, reject) => {
     timer = setTimeout(() => {
-      const error = new Error("Direct Binance attempt timed out");
+      const error = new Error(timeoutMessage);
       error.name = "TimeoutError";
       timeoutController.abort(error);
       reject(error);
@@ -157,8 +169,7 @@ function linkedAbortController(parentSignal) {
   const controller = new AbortController();
   return {
     controller,
-    // Keep caller cancellation connected after headers win the hedge. Native
-    // composition does not require removing a forwarding listener prematurely.
+    // Keep caller cancellation connected while a candidate's body is read.
     signal: parentSignal ? AbortSignal.any([parentSignal, controller.signal]) : controller.signal,
   };
 }
@@ -176,6 +187,7 @@ export class BinanceNetworkRouter {
     routePreferenceTtlMs = config?.routePreferenceTtlMs || 30 * 60_000,
     slowRoutePreferenceTtlMs = 5 * 60_000,
     publicHedgeDelayMs = config?.publicHedgeDelayMs || 200,
+    chartGatewayAttemptTimeoutMs = 10_000,
     backgroundProbeIntervalMs = config?.backgroundProbeIntervalMs || 45_000,
     initialState = null,
     onStateChange = null,
@@ -197,6 +209,7 @@ export class BinanceNetworkRouter {
       Math.min(this.routePreferenceTtlMs, Number(slowRoutePreferenceTtlMs) || 5 * 60_000),
     );
     this.publicHedgeDelayMs = Math.max(25, Number(publicHedgeDelayMs) || 200);
+    this.chartGatewayAttemptTimeoutMs = Math.max(1, Number(chartGatewayAttemptTimeoutMs) || 10_000);
     this.backgroundProbeIntervalMs = Math.max(1_000, Number(backgroundProbeIntervalMs) || 45_000);
     this.onStateChange = typeof onStateChange === "function" ? onStateChange : null;
     this.directCooldownRemaining = directCooldownRemaining;
@@ -347,7 +360,24 @@ export class BinanceNetworkRouter {
 
   async publicGatewayFetch(url, init) {
     if (!this.gatewayClient) throw new Error("Haolo market gateway is not configured");
-    return fetchBinanceResponse(this.gatewayClient.fetch.bind(this.gatewayClient), this.gatewayPublicUrl(url), init);
+    const target = this.gatewayPublicUrl(url);
+    if ((this.config.routingMode || this.config.mode) !== "auto") {
+      return fetchBinanceResponse(this.gatewayClient.fetch.bind(this.gatewayClient), target, init);
+    }
+    const readGateway = async (input, options) => {
+      const response = await fetchBinanceResponse(this.gatewayClient.fetch.bind(this.gatewayClient), input, options);
+      // HTTP errors and stale candidates must still allow direct recovery
+      // immediately, even when their bodies are stalled. The governor handles
+      // their bounded bodies if they end up being the final fallback response.
+      if (!response.ok || isGatewayRetryableResponse(response, url)) return response;
+      return completePublicResponse(response, url, options.signal);
+    };
+    // A remembered gateway must not occupy the entire 30-second chart loading
+    // window. Leave time for direct fallback and another foreground attempt.
+    // Large metadata responses retain their existing, longer execution budget.
+    const timeoutMs = Math.min(this.config.gatewayRequestTimeoutMs || 45_000,
+      /\/(?:klines|aggTrades)$/.test(url.pathname) ? this.chartGatewayAttemptTimeoutMs : 45_000);
+    return fetchWithDeadline(readGateway, target, init, timeoutMs, "Haolo market gateway attempt timed out");
   }
 
   canUsePublicGateway() {
@@ -509,6 +539,11 @@ export class BinanceNetworkRouter {
       this.observeDirectRateLimit(marketType, response, {
         managed: init?.[BINANCE_REQUEST_GOVERNOR_MANAGED] === true,
       });
+      if (kind === "public" && autoFallback && response.ok) {
+        // Keep the direct attempt deadline through body validation. Neither a
+        // hedge winner nor a healthy lease may be based on headers alone.
+        return completePublicResponse(response, url, options.signal);
+      }
       if (kind === "private" && autoFallback
         && !isRouteBlockingResponse(response) && ![418, 429].includes(Number(response.status))) {
         // A private direct route is successful only after its finite JSON body

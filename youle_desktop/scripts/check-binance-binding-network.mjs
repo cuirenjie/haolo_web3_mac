@@ -51,7 +51,7 @@ const physicalSocket = (input, decision, { signal } = {}) => new Promise((resolv
 const network = createHaoloNetworkTransport({ resolveProxy: async () => "DIRECT", openSocket: physicalSocket });
 const client = createBinanceGatewayClient({ config, apiClient: { getTrustedAccessToken: async () => token }, fetchImpl: network.fetch });
 const transport = new BinancePrivateProxyTransport({ proxyUrl: config.privateProxyUrl,
-  permitProvider: (u, o) => client.privateRequestPermit(u, o), usageReporter: r => client.reportPrivateUsage(r),
+  permitProvider: (u, o) => client.privateRequestPermit(u, o), usageReporter: (r, o) => client.reportPrivateUsage(r, o),
   connectOuter: (u, o) => network.connect(u, o) });
 
 function directFetch(input, init = {}) {

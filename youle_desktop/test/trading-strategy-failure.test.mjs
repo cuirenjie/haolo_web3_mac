@@ -17,9 +17,10 @@ const javascript = ts.transpileModule(names.map((name) => {
 
 // Execute the production send orchestration, with only app I/O replaced.
 function harness(error, result, language = "zh-CN") {
-  const state = { strategyCalls: [], generalCalls: 0, reports: [], persisted: [], progress: [], finished: 0, quotas: 0 };
+  const state = { strategyCalls: [], generalCalls: 0, reports: [], persisted: [], progress: [], finished: 0, quotas: 0, cancelledPreludes: [] };
   const deps = {
     tradingAnalysisCompletionText,
+    tradingPreludePacer: { cancelThread: id => state.cancelledPreludes.push(id) },
     state: { currentThreadId: "thread-one" },
     codexTradingTools: { isToolTurn: () => false },
     isQuotaFailure,
@@ -112,6 +113,7 @@ test("cancellation and insufficient credit keep their existing UI and never gene
     assert.equal(state.generalCalls, 0);
     assert.equal(state.reports.length, 0);
     assert.equal(state.quotas, code === "INSUFFICIENT_BALANCE" ? 1 : 0);
+    assert.deepEqual(state.cancelledPreludes, code === "TRADING_ANALYSIS_CANCELLED" ? ["thread-one"] : []);
     assert.equal(state.finished, 1);
   }
 });
