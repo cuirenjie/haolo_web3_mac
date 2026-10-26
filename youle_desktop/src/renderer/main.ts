@@ -23,6 +23,7 @@ import {createExecutionPlanAutoActivator} from './execution-plan-auto-activation
 import { accountSettingsSync, type SettingValues } from './account-settings-sync.ts';
 import type { CloudRecoveryApi } from "./cloud-task-recovery.ts";
 import {normalizeCloudReports, cloudReportFromResponse, cloudPlanCard, cloudPlanControls, bindLegacyCloudCandidate, type CloudTradingReport} from '../main/cloud-plan-contract.mjs';
+import {createProbabilitySupplementWatcher} from './probability-supplement';
 import {rememberTradingPlanDrawingHistory} from './trading-plan-drawing-history.ts';
 import {createSavedPlanSourceResolver, resolveSavedPlanSource, linkSavedPlanSource, isGeneratedPlanRecord, isObsoletePlanRecoveryNotice} from './saved-plan-source.ts';
 import {createExecutionPlanMenu, createPlanDialog, planMenuText, planChartContext} from './execution-plan-menu.ts';
@@ -2041,7 +2042,7 @@ type DesktopApi = {
   }): Promise<any>;
   tradingCloudRecovery?: CloudRecoveryApi;
   tradingCloudTaskChat?: (action:'read'|'send'|'cancel',input:Record<string,unknown>)=>Promise<any>;
-  tradingCloudPlans?: (action:'list'|'read'|'save'|'activate'|'lifecycle'|'delete'|'source'|'history',input?:Record<string,unknown>)=>Promise<any>;
+  tradingCloudPlans?: (action:'list'|'read'|'save'|'activate'|'lifecycle'|'delete'|'source'|'history'|'probability',input?:Record<string,unknown>)=>Promise<any>;
   getCloudAlertFeed?:()=>Promise<any>;
   onCloudAlertFeed?:(callback:(value:any)=>void)=>()=>void;
   onSyncChanges?:(callback:(value:any)=>void)=>()=>void;
@@ -23985,6 +23986,7 @@ function upsertItem(threadId: string, item: CodexItem, options: { updateThreadPr
     state.itemOrder[threadId].push(id);
   }
   const savedItem = state.items[threadId][id];
+  observeProbabilitySupplement(threadId, savedItem);
   if (savedItem.__youleCloudReports?.length) rememberTradingPlanDrawingHistory(threadId, savedItem.__youleCloudReports);
   if (savedItem.__youleCloudReports?.length && state.auth.authenticated && !isGeneratedPlanRecord(savedItem.id)) {
     let linked = false;
@@ -24044,6 +24046,22 @@ function upsertItem(threadId: string, item: CodexItem, options: { updateThreadPr
     patchThreadPreviewFromItem(threadId, state.items[threadId][id], { forceTitle: wasBlankThread });
   }
   if (taskAnchorChanged && shouldPersistThreadPreferenceId(threadId)) saveThreadPreferences();
+}
+
+var probabilitySupplementWatcher: ReturnType<typeof createProbabilitySupplementWatcher> | undefined;
+function observeProbabilitySupplement(threadId: string, item: CodexItem) {
+  probabilitySupplementWatcher ||= createProbabilitySupplementWatcher({
+    scope: () => state.auth.authenticated ? `${currentExecutionPlanStorageScope()}:${authenticatedWorkspaceGeneration}` : null,
+    read: (runId, resultHash) => api.tradingCloudPlans!('probability', {runId, resultHash}),
+    items: id => state.items[id] || {},
+    apply: (id, updated) => {
+      const itemId = String(updated.id || '');
+      if (!state.items[id]?.[itemId]) return;
+      state.items[id][itemId] = updated as CodexItem;
+      refreshTradingExpertConversationSurface(id);
+    },
+  });
+  probabilitySupplementWatcher(threadId, item);
 }
 
 function removeMatchingLocalUserItem(threadId: string, item: CodexItem) {
@@ -61363,7 +61381,7 @@ function renderSettingsAboutPanel() {
           ${renderSettingsLinkRow("用户协议", USER_AGREEMENT_URL)}
           ${renderSettingsLinkRow("隐私政策", PRIVACY_POLICY_URL)}
           ${renderSettingsLinkRow("进入官网", HAOLO_HOME_URL)}
-          ${renderSettingsLinkRow("联系客服", "", "open-website-support")}
+          ${renderSettingsLinkRow("联系客服", "", "open-native-support")}
         </div>
       </div>
     </div>
@@ -66720,6 +66738,7 @@ function openNativeSupport(sessionId = "") {
   if (shouldShowLoginWindow()) return;
   syncNativeSupportAccount();
   if (!nativeSupportController?.account) return;
+  state.settingsOpen = false;
   if (!nativeSupportController.active) {
     rememberActiveComposerDraft();
     nativeSupportReturn = { rightCollapsed: state.rightCollapsed, chartFocus: state.tradingExpertChartFocusMode, chatPreview: state.chatPreview };

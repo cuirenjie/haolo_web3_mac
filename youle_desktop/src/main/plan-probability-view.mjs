@@ -21,8 +21,8 @@ export function normalizePlanProbability(value, report) {
       || !finite(item.entry) || item.entry <= 0 || item.entry !== scenario.entry
       || !finite(item.stop) || item.stop <= 0 || item.stop !== scenario.stop || !samePrices(item.targets,scenario.targets)
       || (item.conditionHash ?? null) !== (scenario.conditionHash ?? null)
-      || !finite(stop) || stop < 0 || stop > 100 || !finite(profit) || profit <= 50 || profit > 100
-      || Math.abs(stop + profit - 100) > 1e-9 || Math.round(profit * 100) <= 5000
+      || !finite(stop) || stop < 0 || stop > 100 || !finite(profit) || profit < 0 || profit > 100
+      || Math.abs(stop + profit - 100) > 1e-9
       || typeof item.summary !== 'string' || !item.summary.trim() || item.summary.length > 800
       || !Array.isArray(item.evidenceIds) || item.evidenceIds.length > 16 || !item.evidenceIds.includes('history-window')
       || !item.evidenceIds.every(id => typeof id === 'string' && id.length <= 240)) return false;
@@ -36,6 +36,9 @@ export function normalizePlanProbability(value, report) {
 }
 
 const copy = {
+  ja: ['モデルによる確率評価','利益到達確率（モデル推定）','確定足 {count} 本に基づく · {interval}',
+    'エントリー成立後、有効期限内に第1利確目標または損切り価格のいずれかに到達することを条件として、第1利確目標に先に到達する確率を推定します。未エントリー、未決済、および分割決済による最終的な純損益は対象外です。',
+    '過去のバックテストによる較正は行われておらず、実際の取引勝率を示すものではありません。','データ基準時刻'],
   'zh-CN': ['模型概率评估','盈利概率（模型估算）','依据 {count} 根已收盘 K 线 · {interval}',
     '口径：入场后，在有效期内第1止盈或止损至少触达一个的条件下，估算第1止盈先于止损的概率。未触发、未退出及分批退出的最终净盈亏不在此口径内。',
     '未经历史回测校准，不代表实际交易胜率。','数据截至'],
@@ -50,23 +53,28 @@ const copy = {
     '과거 백테스트로 보정되지 않은 추정치이며 실제 거래 승률이 아닙니다.','데이터 기준'],
 };
 
+const pendingCopy = {'zh-CN':'模型正在分析盈利概率...', 'zh-TW':'模型正在分析獲利機率...',
+  en:'The model is analyzing profit probability...', ko:'모델이 수익 확률을 분석하고 있습니다...',
+  ja:'モデルが利益到達確率を分析しています...'};
+
 export function renderPlanProbabilityReply(report, language = 'zh-CN') {
   if (!report) return '';
   const value = normalizePlanProbability(report.profitProbability,report);
-  if (!value) return '';
+  if (!value) {
+    const supplement=report.probabilitySupplement;
+    if (supplement?.schemaVersion!==1 || supplement.state!=='pending' || supplement.baseResultHash!==report.resultHash) return '';
+    const label=pendingCopy[language==='zh-Hant'?'zh-TW':language]||pendingCopy.en;
+    return `<div class="plan-probability-pending" role="status" aria-live="polite">${escape(label)}</div>`;
+  }
   const remote = report.planRecords.find(plan => report.executionPolicy !== 'right-legacy-v1'
     || plan.cardIndex === (report.selectedCardIndex ?? 0));
   const item = value.assessments.find(row => row.planId === remote?.id);
   if (!item) return '';
   const t = copy[language === 'zh-Hant' ? 'zh-TW' : language] || copy.en;
   const percent = value => `${Number(value.toFixed(2))}%`;
-  const history = t[2].replace('{count}',String(value.history.candleCount)).replace('{interval}',value.history.interval);
-  const date = new Date(value.history.to).toISOString().replace('T',' ').replace('.000Z',' UTC').replace('Z',' UTC');
-  return `<section class="plan-probability-reply" aria-label="${escape(t[0])}" data-plan-probability-id="${escape(item.planId)}">
-    <div class="plan-probability-heading">${escape(t[0])}</div>
+  return `<section class="plan-probability-reply" aria-label="${escape(t[1])}" data-plan-probability-id="${escape(item.planId)}">
     <p class="plan-probability-value">${escape(t[1])} <strong>${percent(item.profitProbabilityPercent)}</strong></p>
     <p class="plan-probability-summary">${escape(item.summary)}</p>
-    <p class="plan-probability-history">${escape(history)}<br>${escape(t[5])} ${escape(date)}</p>
     <details class="plan-probability-basis"><summary>${escape(t[4])}</summary><p>${escape(t[3])}</p></details>
   </section>`;
 }

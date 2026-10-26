@@ -194,6 +194,7 @@
     ],
     "asar": true,
     "afterPack": "scripts/after-pack-cloud.cjs",
+    "artifactBuildCompleted": "scripts/seal-support-artifact.cjs",
     "win": {
       "icon": "resources/haolo-logo.ico",
       "signAndEditExecutable": true,

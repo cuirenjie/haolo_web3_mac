@@ -4,6 +4,30 @@
   "surface": "windows",
   "features": [
     {
+      "id": "support-publication-integrity-zh-cn",
+      "title": "客户端发布与客服能力同步",
+      "body": "新版Windows安装包发布将同步同次构建的客服知识和已实现的代操作能力。代操作仍需用户点击同意；拒绝或版本不匹配时不执行。K线红涨绿跌使用既有改色能力，授权后检查上涨红色、下跌绿色均已保存。本项为待发布的发布流程修复，不代表旧安装包的客服能力已启用。",
+      "category": "support", "locale": "zh-CN", "status": "pending", "requires_login": false,
+      "platforms": ["windows"], "actions": {},
+      "sources": ["tools/windows-support-artifact.mjs", "tools/publish-windows-support.mjs", "tools/release-windows.ps1", "tools/upload-windows-release.ps1", "youle_desktop/scripts/seal-support-artifact.cjs"]
+    },
+    {
+      "id": "support-publication-integrity-zh-hant",
+      "title": "用戶端發布與客服能力同步",
+      "body": "新版Windows安裝包發布將同步同次建置的客服知識和已實作的代操作能力。代操作仍須使用者點選同意；拒絕或版本不符時不執行。K線紅漲綠跌沿用改色能力，授權後確認上漲紅色、下跌綠色均已儲存。此發布流程修正尚待發布，不代表舊安裝包已啟用客服能力。",
+      "category": "support", "locale": "zh-Hant", "status": "pending", "requires_login": false,
+      "platforms": ["windows"], "actions": {},
+      "sources": ["tools/windows-support-artifact.mjs", "tools/publish-windows-support.mjs", "tools/release-windows.ps1", "tools/upload-windows-release.ps1", "youle_desktop/scripts/seal-support-artifact.cjs"]
+    },
+    {
+      "id": "support-publication-integrity-en",
+      "title": "Desktop release and support capability synchronization",
+      "body": "New Windows installer publications synchronize the support knowledge and implemented actions from the same build. Assisted changes still require explicit consent; declining or a version mismatch prevents execution. Red-up/green-down candles use the existing color action and verify both saved colors. This publication fix is pending release and does not imply support actions are activated for older installers.",
+      "category": "support", "locale": "en", "status": "pending", "requires_login": false,
+      "platforms": ["windows"], "actions": {},
+      "sources": ["tools/windows-support-artifact.mjs", "tools/publish-windows-support.mjs", "tools/release-windows.ps1", "tools/upload-windows-release.ps1", "youle_desktop/scripts/seal-support-artifact.cjs"]
+    },
+    {
       "id": "alert-email-desktop-zh-cn",
       "title": "预警邮件与桌面浮窗",
       "body": "Windows 预警保留邮箱提醒，客户端在线且消息弹窗开启时同步桌面浮窗。覆盖云端价格、复合条件及交易计划新触发；退出客户端仍由云端发邮件。浮窗连续排队，标题仅显示交易对（如 BTCUSDT），不显示 binance:usdm: 或 binance:spot:；点击价格预警可回到对应图表。过期事件只记历史。需配套后端迁移和新版客户端；当前为待发布源码候选。客服可说明设置和行为，无新增代操作。",
@@ -1021,8 +1045,8 @@
     },
     {
       "id": "plan-probability-reply",
-      "title": "计划卡片下方的模型概率评估",
-      "body": "配套客户端和云端版本启用后，左右侧策略、指标或纯文字通用分析（无需@）生成有效正式计划时，可在对应计划卡片及操作栏下方展示模型概率评估。卡片显示盈利概率及评估说明，不展示止损概率补集公式行。基于已收盘历史行情和冻结计划，盈利概率按100%减止损概率计算，仅严格大于50%才展示；小于或等于50%、依据不足或评估失败时不追加回复，计划卡片照常保留。结果明确标识为未经过历史回测校准的条件模型估算：仅表示入场后、有效期内第1止盈或止损至少触达一个时，第1止盈先触达的概率，不是分批交易的最终净胜率。不会随机抬高结果，不修改计划价格，不自动交易。重新打开历史沿用原结果，不重新估算。客服可说明功能，不能代为分析行情或调整概率。源码候选尚不代表发布。",
+      "title": "非阻塞概率补充与状态气泡",
+      "body": "配套Windows、Android/iOS和云端版本启用后，先完成绘图、主分析和计划，概率评估独立执行，不占用主分析等待状态。计划卡下方显示“模型正在分析盈利概率...”气泡，完成后由概率卡替换；失败、无有效估算或等待超时会结束气泡，原计划和操作保持可用。有效盈利概率在0%至100%范围全部展示，包括低于或等于50%的结果，不随机抬高。仍校验原运行、账号、结果哈希及计划价格绑定；晚到结果只更新对应卡片，不重播正文或绘图，不改变计划价格、版本、保存或激活行为。仅为未经历史回测校准的条件模型估算，不代表真实交易胜率。历史恢复读取已保存补充，不重新收费推演。此为未发布源码候选，无新增客服代操作。",
       "category": "plans",
       "locale": "zh-CN",
       "status": "pending",
@@ -1034,7 +1058,8 @@
       "sources": [
         "youle_desktop/src/main/plan-probability-view.mjs",
         "youle_desktop/src/main/cloud-plan-contract.mjs",
-        "youle_desktop/src/renderer/plan-probability-reply.css"
+        "youle_desktop/src/renderer/plan-probability-reply.css",
+        "youle_desktop/src/renderer/probability-supplement.ts"
       ]
     },
     {
@@ -1202,7 +1227,7 @@
     {
       "id": "support-service",
       "title": "客服 haolo 的范围、费用与身份",
-      "body": "客服 haolo 是智能客服，处理 Haolo 安装、账号、页面操作、图表功能、积分会员、邀请与产品故障；客服本身免费且不扣用户积分。行情预测、通用写作等独立任务不在客服范围。用户询问如何使用产品的分析功能属于产品咨询。模糊表述先追问，不能仅因出现BTC等币种名称而拒答。配套客户端与后端发布后，加入会话提示位于触发它的用户消息下方；AI和人工新回复会定位到会话底部，界面刷新保持位置。AI回复以收到消息后10至20秒呈现为目标，计入生成时间，较慢的模型不再额外等待；人工回复不增加节奏延迟。源码修改不代表线上已生效。",
+      "body": "客服 haolo 是智能客服，处理 Haolo 安装、账号、页面操作、图表功能、积分会员、邀请与产品故障；客服本身免费且不扣用户积分。登录后可通过 Windows 左下角“客服”或“设置 → 关于&反馈 → 联系客服”打开同一原生客服会话；从设置进入时关闭设置弹窗，不跳转网页。登录和充值页面的网页客服入口保留，操作协议不变。行情预测、通用写作等独立任务不在客服范围。用户询问如何使用产品的分析功能属于产品咨询。模糊表述先追问，不能仅因出现BTC等币种名称而拒答。配套客户端与后端发布后，加入会话提示位于触发它的用户消息下方；AI和人工新回复会定位到会话底部，界面刷新保持位置。AI回复以收到消息后10至20秒呈现为目标，计入生成时间，较慢的模型不再额外等待；人工回复不增加节奏延迟。源码修改不代表线上已生效。",
       "category": "support-service",
       "locale": "zh-CN",
       "status": "approved",
@@ -1213,6 +1238,7 @@
       "actions": {},
       "sources": [
         "youle_desktop/docs/native-support.zh-CN.md",
+        "youle_desktop/src/renderer/main.ts",
         "youle_desktop/src/renderer/native-support.ts",
         "youle_desktop/src/renderer/native-support-view.ts"
       ]
@@ -1974,6 +2000,82 @@
         "youle_desktop/src/main/conditional-poll-fetch.mjs",
         "youle_desktop/src/main/poll-request-coordinator.mjs",
         "youle_desktop/src/renderer/manual-drawing-sync.ts"
+      ]
+    },
+    {
+      "id": "plan-probability-reply-ja",
+      "title": "主分析を待たせない確率補足と状態バブル",
+      "body": "対応するWindows、Android/iOSとクラウドでは、描画、主分析、プランを先に完了し、確率を別途評価します。プランカードの下に「モデルが利益到達確率を分析しています...」という状態バブルを表示し、完了時に確率カードへ置き換えます。失敗、有効な推定なし、待機時間超過ではバブルを消し、元のプランと操作を利用可能なままにします。50%以下を含む0%～100%のすべての有効な値を表示し、推定値を引き上げません。アカウント、実行、結果ハッシュとプラン価格の照合を維持します。遅延結果は対応カードのみ更新し、本文や描画の再生、価格、版、保存、通知有効化を変更しません。過去のバックテストで較正されていない条件付きモデル推定で、実際の勝率ではありません。履歴は保存済み補足を読み、課金対象の再分析は行いません。未公開のソース候補で、新しいサポート代行操作はありません。",
+      "category": "plans",
+      "locale": "ja",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/plan-probability-view.mjs",
+        "youle_desktop/src/main/cloud-plan-contract.mjs",
+        "youle_desktop/src/renderer/plan-probability-reply.css",
+        "youle_desktop/src/renderer/probability-supplement.ts"
+      ]
+    },
+    {
+      "id": "plan-probability-reply-en",
+      "title": "Nonblocking probability supplements and status bubbles",
+      "body": "Matching Windows, Android/iOS and cloud versions complete drawings, the main analysis and plans before independently assessing probability. A bubble below the plan says “The model is analyzing profit probability...” and is replaced by the probability card when ready. Failure, unavailable estimates or timeout remove the bubble while the original plan and its actions remain usable. All valid values from 0% to 100% are shown, including 50% and lower, without inflating estimates. Account, run, result hash and plan-price binding remain enforced. Late results update only the matching card without replaying text or drawings or changing plan prices, versions, saving or activation. These conditional model estimates are not calibrated backtest win rates. History reads the saved supplement without another paid assessment. Unpublished source candidate; no new support actions.",
+      "category": "plans",
+      "locale": "en",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/plan-probability-view.mjs",
+        "youle_desktop/src/main/cloud-plan-contract.mjs",
+        "youle_desktop/src/renderer/plan-probability-reply.css",
+        "youle_desktop/src/renderer/probability-supplement.ts"
+      ]
+    },
+    {
+      "id": "plan-probability-reply-ko",
+      "title": "주 분석을 막지 않는 확률 보충 및 상태 말풍선",
+      "body": "호환되는 Windows, Android/iOS 및 클라우드 버전은 차트, 주 분석과 계획을 먼저 완료하고 확률을 별도로 평가합니다. 계획 카드 아래에 “모델이 수익 확률을 분석하고 있습니다...” 말풍선을 표시하고 완료 시 확률 카드로 바꿉니다. 실패, 유효한 추정치 없음 또는 대기 시간 초과 시 말풍선이 사라지며 원래 계획과 작업은 계속 사용할 수 있습니다. 50% 이하를 포함한 0%~100%의 모든 유효한 결과를 표시하며 확률을 부풀리지 않습니다. 계정, 실행, 결과 해시와 계획 가격 검증을 유지합니다. 늦은 결과는 해당 카드만 갱신하며 본문이나 차트를 재생하거나 계획 가격, 버전, 저장 및 활성화를 변경하지 않습니다. 과거 백테스트로 보정되지 않은 조건부 모델 추정치이며 실제 승률이 아닙니다. 기록은 저장된 결과를 읽고 유료 분석을 반복하지 않습니다. 미출시 소스 후보이며 새 고객지원 대행 작업은 없습니다.",
+      "category": "plans",
+      "locale": "ko",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/plan-probability-view.mjs",
+        "youle_desktop/src/main/cloud-plan-contract.mjs",
+        "youle_desktop/src/renderer/plan-probability-reply.css",
+        "youle_desktop/src/renderer/probability-supplement.ts"
+      ]
+    },
+    {
+      "id": "plan-probability-reply-zh-hant",
+      "title": "非阻塞機率補充與狀態氣泡",
+      "body": "配套Windows、Android/iOS及雲端版本啟用後，先完成繪圖、主分析與計畫，機率評估獨立執行。計畫卡下方顯示「模型正在分析獲利機率...」氣泡，完成後由機率卡取代；失敗、無有效估算或等待逾時會結束氣泡，原計畫與操作保持可用。0%至100%的有效獲利機率全部顯示，包括低於或等於50%的結果，不隨機提高。保留帳號、執行、結果雜湊與計畫價位綁定；延遲結果只更新對應卡片，不重播正文或繪圖，不更動價位、版本、儲存及啟用行為。僅為未經歷史回測校準的條件模型估算，不代表實際交易勝率。歷史讀取已儲存補充，不重新收費推演。尚未發布的原始碼候選，無新增客服代操作。",
+      "category": "plans",
+      "locale": "zh-Hant",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/plan-probability-view.mjs",
+        "youle_desktop/src/main/cloud-plan-contract.mjs",
+        "youle_desktop/src/renderer/plan-probability-reply.css",
+        "youle_desktop/src/renderer/probability-supplement.ts"
       ]
     }
   ]

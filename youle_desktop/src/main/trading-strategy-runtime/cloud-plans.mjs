@@ -15,6 +15,14 @@ export function createCloudPlans({owner,api,sources}) {
   }
   return {async perform(action,input={}) {
     const captured=await owner();
+    if(action==='probability') {
+      if(!/^[a-f0-9-]{36}$/i.test(input.runId||'')||!/^[a-f0-9]{64}$/.test(input.resultHash||''))fail('CLOUD_RESULT_CONTEXT_INVALID');
+      const run=await request(captured,'run',{runId:input.runId});
+      if(run.id!==input.runId||run.state!=='succeeded'||run.desktopResult?.cloud?.resultHash!==input.resultHash)fail('CLOUD_RESULT_CONTEXT_INVALID');
+      const supplement=run.probabilitySupplement;
+      if(supplement && (supplement.schemaVersion!==1||supplement.baseResultHash!==input.resultHash))fail('CLOUD_RESULT_CONTEXT_INVALID');
+      return {runId:run.id,resultHash:input.resultHash,supplement:supplement||null};
+    }
     if(action==='history') {
       let taskId = input.taskId, runId;
       if (input.planId) {

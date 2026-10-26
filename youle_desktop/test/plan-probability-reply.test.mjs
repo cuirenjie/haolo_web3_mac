@@ -33,10 +33,8 @@ test('left, right and legacy replies appear after the unchanged plan and control
   }
 });
 
-test('50 percent, lower, missing, invalid or unrelated estimates leave the plan intact',()=>{
-  const bad=[row=>{row.profitProbabilityPercent=50;row.stopLossProbabilityPercent=50;},
-    row=>{row.profitProbabilityPercent=49;row.stopLossProbabilityPercent=51;},
-    row=>{row.profitProbabilityPercent=50.001;row.stopLossProbabilityPercent=49.999;},
+test('missing, invalid or unrelated estimates leave the plan intact',()=>{
+  const bad=[row=>{row.profitProbabilityPercent=-1;row.stopLossProbabilityPercent=101;},
     row=>{row.profitProbabilityPercent=70;},row=>{row.stopLossProbabilityPercent=null;},
     row=>{row.entry+=1;},row=>{row.side='short';},row=>{row.targets[0]+=1;},
     row=>{row.conditionHash='wrong';},row=>{row.planId='wrong';},row=>{row.summary='';},row=>{row.evidenceIds=[];}];
@@ -49,13 +47,40 @@ test('50 percent, lower, missing, invalid or unrelated estimates leave the plan 
   }
 });
 
+test('all valid percentages are displayed, including zero, fifty and low estimates',()=>{
+  for(const percent of [0,1,49,50,50.001,100]) {
+    const report=probabilityReport(),row=report.profitProbability.assessments[0];
+    row.profitProbabilityPercent=percent;row.stopLossProbabilityPercent=100-percent;
+    assert.equal(normalizeCloudReports([report])[0].profitProbability.assessments[0].profitProbabilityPercent,percent);
+    assert.match(renderPlanProbabilityReply(report),new RegExp(`${Number(percent.toFixed(2))}%`));
+  }
+});
+
+test('all five languages show the pending bubble after plan controls and replace it on completion',()=>{
+  for(const locale of ['zh-CN','zh-Hant','en','ko','ja']) {
+    const report=probabilityReport(locale),estimate=report.profitProbability;delete report.profitProbability;
+    report.probabilitySupplement={schemaVersion:1,state:'pending',baseResultHash:report.resultHash};
+    const html=renderCurrentReports([report],{allowPlanAction:true}).rendered.cards;
+    assert.ok(html.indexOf('plan-probability-pending')>html.indexOf('message-execution-plan-controls'));
+    const pending=renderPlanProbabilityReply(report,locale);assert.match(pending,/role="status"/);
+    assert.equal(pending.includes('模型正在分析盈利概率...'),locale==='zh-CN');
+    report.profitProbability=estimate;
+    assert.doesNotMatch(renderPlanProbabilityReply(report,locale),/plan-probability-pending/);
+    assert.match(renderPlanProbabilityReply(report,locale),/62.75%/);
+  }
+});
+
 test('escapes model text and provides four localized descriptions without rendering raw HTML',()=>{
   for(const locale of ['zh-CN','en','zh-Hant','ko']) {
     const report=probabilityReport(locale);
     report.profitProbability.assessments[0].summary='<img src=x onerror=alert(1)> & evidence';
+    const frozen = structuredClone(report.profitProbability);
     const html=renderPlanProbabilityReply(report,locale);
     assert.ok(html.includes('&lt;img'));assert.ok(!html.includes('<img'));
     assert.doesNotMatch(html,/plan-probability-formula|100% −|37\.25%/);
+    assert.doesNotMatch(html,/plan-probability-heading|plan-probability-history|Data through|数据截至|資料截至|데이터 기준| UTC/);
+    assert.ok(html.includes('&lt;img src=x onerror=alert(1)&gt; &amp; evidence'));
+    assert.deepEqual(report.profitProbability,frozen);
     assert.match(html,/<strong>62\.75%<\/strong>/);
     assert.ok(html.includes(locale==='en'?'Not calibrated':locale==='ko'?'백테스트':locale==='zh-Hant'?'回測':'回测'));
   }

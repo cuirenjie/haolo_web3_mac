@@ -4,6 +4,7 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { tradingChartLibraryPlugin } from './scripts/trading-chart-library-patch.mjs';
+import { supportBundlePlugin } from '../tools/windows-support-artifact.mjs';
 
 // Resolve the renderer root through the filesystem so Vite uses the canonical
 // Windows path even when the workspace is launched through a subst drive
@@ -18,7 +19,7 @@ const manualDevelopmentRestart =
   process.env.HAOLO_DESKTOP_MANUAL_RESTART === "1";
 
 export default defineConfig({
-  plugins: [tradingChartLibraryPlugin(chartLibrary)],
+  plugins: [tradingChartLibraryPlugin(chartLibrary), supportBundlePlugin()],
   optimizeDeps: { exclude: ['lightweight-charts'] },
   root,
   base: "./",

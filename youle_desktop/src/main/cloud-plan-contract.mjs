@@ -45,7 +45,11 @@ export function normalizeCloudReports(value) {
       ||typeof row.strategyId!=='string'||typeof row.report!=='string'||row.report.length>500000
       ||!Array.isArray(row.planRecords)) fail();
     seen.add(identity);
-    const profitProbability = normalizePlanProbability(row.profitProbability,row);
+    const supplement=row.probabilitySupplement;
+    const probabilitySupplement=supplement?.schemaVersion===1&&supplement.baseResultHash===row.resultHash
+      &&['pending','ready','omitted'].includes(supplement.state)?supplement:undefined;
+    const profitProbability = normalizePlanProbability(probabilitySupplement?.state==='ready'
+      ? probabilitySupplement.estimate : row.profitProbability,row);
     if(row.executionPolicy==='right-legacy-v1') {
       const candidates=legacyReportCandidates(row.report);
       if(row.executionPlan?.schemaVersion!==1||!Array.isArray(row.executionPlan.scenarios)
@@ -64,7 +68,7 @@ export function normalizeCloudReports(value) {
       return {schemaVersion:1,executionPolicy:'right-legacy-v1',...(selected===undefined?{}:{selectedCardIndex:selected}),
         runId:row.runId,resultHash:row.resultHash,locale:row.locale,marketId:row.marketId,interval:row.interval,
         strategyId:row.strategyId,report:row.report,executionPlan:row.executionPlan,planRecords:row.planRecords,
-        ...(profitProbability?{profitProbability}:{}),
+        ...(profitProbability?{profitProbability}:{}),...(probabilitySupplement?{probabilitySupplement}:{}),
         origin:row.origin||null,drawingPatch:row.drawingPatch||null,indicatorDrawingPatch:row.indicatorDrawingPatch||null};
     }
     if(row.executionPlan?.schemaVersion!==2||!Array.isArray(row.executionPlan.scenarios)||row.executionPlan.scenarios.length>1
@@ -98,7 +102,7 @@ export function normalizeCloudReports(value) {
     }
     return {schemaVersion:1,runId:row.runId,resultHash:row.resultHash,locale:row.locale,marketId:row.marketId,interval:row.interval,
       strategyId:row.strategyId,report:row.report,executionPlan:row.executionPlan,planRecords:row.planRecords,
-      ...(profitProbability?{profitProbability}:{}),
+      ...(profitProbability?{profitProbability}:{}),...(probabilitySupplement?{probabilitySupplement}:{}),
       origin:row.origin||null,drawingPatch:row.drawingPatch||null,indicatorDrawingPatch:row.indicatorDrawingPatch||null};
   });
 }
@@ -108,6 +112,7 @@ export function cloudReportFromResponse(response) {
     marketId:response.snapshot?.marketId,interval:response.snapshot?.interval,strategyId:response.strategy?.id,
     report:response.analysisPlan?.report,executionPlan:response.executionPlan,planRecords:response.cloud.planRecords,
     profitProbability:response.analysisPlan?.profitProbability,
+    probabilitySupplement:response.cloud.probabilitySupplement,
     origin:response.cloud.origin,drawingPatch:response.analysisPlan?.drawingPatch,indicatorDrawingPatch:response.analysisPlan?.indicatorDrawingPatch}]);
 }
 

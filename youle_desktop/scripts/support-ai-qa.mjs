@@ -1,12 +1,19 @@
 import { app, BrowserWindow, session } from "electron/main";
 import assert from "node:assert/strict";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 async function main() {
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),"..");
-const output=path.join(root,"output/support-ai-qa");await mkdir(output,{recursive:true});
+const evidencePath=process.env.HAOLO_SUPPORT_COLOR_MODEL_EVIDENCE;
+const output=path.join(root,evidencePath?"output/support-ai-qa-model":"output/support-ai-qa");await mkdir(output,{recursive:true});
+const modelEvidence=evidencePath?JSON.parse(await readFile(evidencePath,'utf8')):null;
+const modelCase=modelEvidence?.cases?.find(c=>c.message==='设置K线红涨绿跌'&&c.passed&&c.decision?.kind==='operate');
+if(evidencePath)assert.ok(modelCase,'Real model evidence must contain the exact request and an operate decision');
+const colorPlan=modelCase?.decision.actions
+  || [{kind:'set_candle_colors',up_color:'#F6465D',down_color:'#2EBD85'}];
+assert.ok(colorPlan.some(a=>a.kind==='set_candle_colors'&&a.up_color.toUpperCase()==='#F6465D'&&a.down_color.toUpperCase()==='#2EBD85'));
 app.setPath("userData",path.join(output,"profile"));await app.whenReady();
 const partition=session.fromPartition(`support-ai-qa-${Date.now()}`);
 partition.webRequest.onBeforeRequest({urls:["http://*/*","https://*/*","ws://*/*","wss://*/*"]},(_,cb)=>cb({cancel:true}));
@@ -19,7 +26,7 @@ const results=[];
 async function fixture(){await run(()=>{
   const sid="11111111-1111-4111-8111-111111111111";
   const qa=window.supportAIQA={calls:[],ai:{mode:"ai",epoch:0,phase:"thinking",actions:[]},messages:[{id:crypto.randomUUID(),role:"human_support",sender_type:"ai",support_event:"joined",text:"客服 haolo 加入会话"}],device:"",failStep:false};
-  qa.propose=(plan)=>{qa.ai.actions=[{id:crypto.randomUUID(),epoch:qa.ai.epoch,title:JSON.stringify(plan),plan,status:"proposed",device_id:qa.device,next_step:0}];qa.ai.phase="awaiting_consent";};
+  qa.propose=(plan)=>{qa.ai.actions=[{id:crypto.randomUUID(),epoch:qa.ai.epoch,title:JSON.stringify(plan),plan,status:"proposed",device_id:qa.device,next_step:0,context_binding:structuredClone(qa.context)}];qa.ai.phase="awaiting_consent";};
   window.codexDesktop.supportRequest=async p=>{
     qa.calls.push(p);
     if(p.action==="aiContext"){qa.device=p.context.device_id;qa.context=p.context;return{ok:true,data:{ai:qa.ai}};}
@@ -60,7 +67,27 @@ try{
     assert.equal(await run(()=>document.documentElement.dataset.theme),next);
     assert.equal(await run(()=>localStorage.getItem('haolo.appearance.theme')),next);
     results.push({language,theme,decline:true,consentedThemePersisted:true});
-    await click('.settings-close-button');await click('[data-support-exit]');
+    await click('.settings-close-button');
+    const beforeColors=await run(()=>localStorage.getItem('haolo.trading-market.chart-settings.v1'));
+    await run(plan=>window.supportAIQA.propose(plan),colorPlan);
+    await wait(()=>document.querySelector('[data-support-consent="accept"]'));
+    assert.equal(await run(()=>localStorage.getItem('haolo.trading-market.chart-settings.v1')),beforeColors);
+    await writeFile(path.join(output,`${language}-${next}-candle-consent.png`),(await win.webContents.capturePage()).toPNG());
+    await click('[data-support-consent="decline"]');await wait(()=>!document.querySelector('[data-support-consent="decline"]'));
+    assert.equal(await run(()=>localStorage.getItem('haolo.trading-market.chart-settings.v1')),beforeColors);
+    await run(plan=>window.supportAIQA.propose(plan),colorPlan);
+    await wait(()=>document.querySelector('[data-support-consent="accept"]'));await click('[data-support-consent="accept"]');
+    await wait(()=>window.supportAIQA.ai.actions[0].status==='succeeded'&&!document.querySelector('.support-assist-overlay'));
+    const colors=await run(()=>JSON.parse(localStorage.getItem('haolo.trading-market.chart-settings.v1')));
+    assert.equal(colors.risingColor.toUpperCase(),'#F6465D');assert.equal(colors.fallingColor.toUpperCase(),'#2EBD85');
+    await click('[data-market-settings-tab="main-style"]');
+    const controls=await run(()=>Object.fromEntries(['risingColor','fallingColor'].map(key=>[key,
+      [...document.querySelectorAll(`[data-chart-setting="${key}"]`)].filter(el=>el.getClientRects().length).map(el=>el.value.toUpperCase())])));
+    assert.ok(controls.risingColor.length&&controls.fallingColor.length,'Color controls must be visible');
+    assert.ok(controls.risingColor.every(value=>value==='#F6465D')&&controls.fallingColor.every(value=>value==='#2EBD85'));
+    await writeFile(path.join(output,`${language}-${next}-candle-complete.png`),(await win.webContents.capturePage()).toPNG());
+    results.push({language,theme:next,action:'set_candle_colors',protocol:2,consentRequired:true,declineUnchanged:true,up:colors.risingColor,down:colors.fallingColor,persisted:true,visibleControls:controls});
+    await click('[data-market-action="close-chart-settings"]');await click('[data-support-exit]');
   }
   for (const plan of [
     [{kind:'set_indicator',indicator:'sub:rsi',parameters:{'0':9}}],
@@ -88,7 +115,7 @@ try{
   await wait(()=>!document.querySelector('.support-assist-overlay'));
   assert.equal(await run(()=>window.supportAIQA.calls.some(p=>p.action==='aiStep'&&p.body.stage==='complete')),false);
   results.push({humanTakeoverUnlocks:true});
-  await writeFile(path.join(output,'results.json'),JSON.stringify({passed:true,results},null,2));
+  await writeFile(path.join(output,'results.json'),JSON.stringify({passed:true,modelEvidence:evidencePath||null,scope:'Isolated real renderer and controls; support HTTP responses are fixtures.',results},null,2));
   console.log(JSON.stringify({passed:true,results}));win.destroy();app.exit(0);
 }catch(error){await writeFile(path.join(output,'failure.png'),(await win.webContents.capturePage()).toPNG());await writeFile(path.join(output,'failure.json'),JSON.stringify({error:String(error.stack),body:await run(()=>document.body.innerText.slice(0,10000)),calls:await run(()=>window.supportAIQA?.calls)},null,2));console.error(error);win.destroy();app.exit(1);}
 }

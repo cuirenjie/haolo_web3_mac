@@ -17,7 +17,8 @@ export function cloudTaskHistory(task, expectedRunId) {
     if (typeof run.prompt === 'string' && run.prompt.trim()) {
       items.push({id:`cloud-task-user:${run.id}`,type:'userMessage',text:run.prompt,content:[{text:run.prompt}],createdAt});
     }
-    const reports = run.desktopResult ? cloudReportFromResponse(run.desktopResult).map(report => ({...report,
+    const reports = run.desktopResult ? cloudReportFromResponse({...run.desktopResult,
+      cloud:{...run.desktopResult.cloud,probabilitySupplement:run.probabilitySupplement}}).map(report => ({...report,
       origin:{sourceThreadId:id,storageSessionId:id,analysisJobId:''}})) : [];
     if (reports.some(report => report.runId !== run.id)) throw new Error('CLOUD_TASK_HISTORY_INVALID');
     if (typeof run.text === 'string' && run.text.trim() || reports.length) {

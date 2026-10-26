@@ -18,6 +18,8 @@ on:
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - "youle_desktop/**"
+      - "tools/**"
+      - "support/**"
   pull_request:
     branches:
       - main
@@ -28,6 +30,8 @@ on:
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - "youle_desktop/**"
+      - "tools/**"
+      - "support/**"
 
 permissions:
   contents: read
@@ -81,6 +85,9 @@ jobs:
       - name: Test Windows signing workflow
         run: pnpm --filter haolo_desktop exec node --test test/evsign.test.cjs test/windows-dev-executable.test.mjs
 
+      - name: Test support publication contract
+        run: pnpm --filter haolo_desktop exec node --test test/support-release-publication.test.mjs
+
       - name: Build renderer
         run: pnpm --filter haolo_desktop build
 
@@ -126,6 +133,8 @@ jobs:
           path: |
             youle_desktop/release/*-Setup.exe
             youle_desktop/release/*-Setup.exe.blockmap
+            youle_desktop/release/*-Setup.exe.support-bundle.json
+            youle_desktop/release/*-Setup.exe.support-build.json
             youle_desktop/release/ev-signatures-*.json
           if-no-files-found: error
           retention-days: 14

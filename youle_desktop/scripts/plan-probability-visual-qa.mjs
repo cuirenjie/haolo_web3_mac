@@ -49,6 +49,7 @@ app.setPath('userData',path.join(__dirname,'profile'));app.disableHardwareAccele
     summary.focus();
     return {replyBelowFooter:bounds.top>=footer.getBoundingClientRect().bottom,
       formulaRemoved:!reply.querySelector('.plan-probability-formula')&&!reply.textContent.includes('100% −'),
+      metadataRemoved:!reply.querySelector('.plan-probability-heading,.plan-probability-history'),
       overflow:[...reply.querySelectorAll('*')].filter(e=>e.scrollWidth>e.clientWidth+1||e.getBoundingClientRect().right>bounds.right+1).map(e=>e.className),
       readable:style.color!==style.backgroundColor&&style.backgroundColor!=='rgba(0, 0, 0, 0)',
       color:style.color,background:style.backgroundColor,focus:document.activeElement===summary,open:reply.querySelector('details').open};
@@ -56,6 +57,7 @@ app.setPath('userData',path.join(__dirname,'profile'));app.disableHardwareAccele
    results.push({id:f.id,open,...result});
    assert.ok(result.replyBelowFooter,f.id+' reply must follow plan controls');assert.ok(result.formulaRemoved,f.id+' formula remains');assert.deepEqual(result.overflow,[],f.id+' overflow');
    assert.ok(result.readable&&result.focus&&result.open===open,f.id+' theme/details/focus');
+   assert.ok(result.metadataRemoved,f.id+' fixed heading/history must be removed');
   }
   await win.webContents.executeJavaScript('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
   if(f.id.startsWith('zh-CN')&&f.width===410)fs.writeFileSync(path.join(__dirname,f.id+'.png'),(await win.webContents.capturePage()).toPNG());

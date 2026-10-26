@@ -90,7 +90,9 @@ function validateResult(run, record, savedPlan) {
   }
   if (record.body.executionPolicy==='entry-v2') validateCloudEntryResult(result,record,{savedPlan});
   if (record.body.executionPolicy==='right-legacy-v1') validateCloudRightResult(result,record);
-  return {...result,cloud:{...result.cloud,...(record.origin ? {origin:record.origin} : {})}};
+  return {...result,cloud:{...result.cloud,
+    ...(run.probabilitySupplement ? {probabilitySupplement:run.probabilitySupplement} : {}),
+    ...(record.origin ? {origin:record.origin} : {})}};
 }
 
 export function createCloudStrategyRuntime({owner, api, journal, connection, wait=delay, pollMs=1000, timeoutMs=1860000, now=Date.now, random=Math.random, busyTimeoutMs=120000}) {
