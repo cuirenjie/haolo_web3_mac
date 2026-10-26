@@ -70,7 +70,7 @@ test("theme application updates the root color scheme and persists an explicit s
   assert.match(selectBlock, /render\(\)/);
 });
 
-test("general settings renders the day and night selector in the requested position", async () => {
+test("general settings exposes one accessible theme selector before storage controls", async () => {
   const source = await rendererSource;
   const styles = await stylesSource;
   const dialogBlock = sourceBlock(source, "function renderSettingsDialog", "function renderSettingsUserDataRow");
@@ -99,7 +99,11 @@ test("general settings renders the day and night selector in the requested posit
   const popupIndex = dialogBlock.indexOf("renderSettingsTaskCompletionPopupRow()");
   const themeIndex = dialogBlock.indexOf("renderSettingsThemeRow()");
   const storageIndex = dialogBlock.indexOf('class="settings-storage-row"');
-  assert.ok(popupIndex < themeIndex && themeIndex < storageIndex);
+  // Theme now belongs with language/font preferences; completion notices are
+  // independent controls and may follow that group. Neither control may vanish.
+  assert.ok(popupIndex >= 0, "completion notice control remains available");
+  assert.ok(themeIndex >= 0 && themeIndex < storageIndex, "theme precedes storage controls");
+  assert.equal(dialogBlock.split("renderSettingsThemeRow()").length - 1, 1);
   assert.match(selectorBlock, /主题外观/);
   assert.match(selectorBlock, /data-settings-theme="light"[\s\S]*白天模式/);
   assert.match(selectorBlock, /data-settings-theme="dark"[\s\S]*夜间模式/);

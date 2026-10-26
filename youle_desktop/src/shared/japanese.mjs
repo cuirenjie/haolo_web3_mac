@@ -14,24 +14,31 @@ const phrases = entries.filter(([source]) => /\p{Script=Han}/u.test(source) && s
 const phrasePattern = phrases.length ? new RegExp(phrases.map(([source]) => escape(source)).join('|'), 'gu') : null;
 const cache = new Map();
 
-/** Application-authored presentation copy only. Never pass arbitrary API objects or user messages. */
-export function japaneseText(value) {
+/** Application-authored presentation copy only. Never pass arbitrary API objects or user messages.
+ * Enable translateSystemValues only for structured system-generated plan fields;
+ * normal UI interpolation keeps captured user values verbatim. */
+export function japaneseText(value, translateSystemValues = false) {
+  translateSystemValues = translateSystemValues === true;
   const source = String(value ?? '');
   const key = source.trim();
   if (!key || /^[\d\s.,+−\-/%:()–—]+$/.test(key)) return source;
-  if (cache.has(source)) return cache.get(source);
+  const cacheKey = `${translateSystemValues ? 'system:' : 'display:'}${source}`;
+  if (cache.has(cacheKey)) return cache.get(cacheKey);
   let translated = JAPANESE_CATALOG[key];
-  if (translated === undefined && source.includes('\n')) return source.split('\n').map(japaneseText).join('\n');
+  if (translated === undefined && source.includes('\n')) return source.split('\n').map(line=>japaneseText(line,translateSystemValues)).join('\n');
   if (translated === undefined) {
     const marker = /^(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+)/.exec(key)?.[0];
-    if (marker) return source.replace(key, () => marker + japaneseText(key.slice(marker.length)));
+    if (marker) return source.replace(key, () => marker + japaneseText(key.slice(marker.length),translateSystemValues));
   }
+  if (translated === undefined && translateSystemValues && /[，；]/u.test(key))
+    return source.split(/([，；])/u).map(part=>/[，；]/u.test(part)?part:japaneseText(part,true)).join('');
   if (translated === undefined) {
     for (const template of templates) {
       const match = template.pattern.exec(key);
       if (!match) continue;
       const values = Object.fromEntries(template.names.map((name, index) => [name, match[index + 1]]));
-      translated = template.target.replace(slot, (token, name) => values[name] ?? token);
+      translated = template.target.replace(slot, (token, name) => values[name] === undefined ? token
+        : translateSystemValues ? japaneseText(values[name],true) : values[name]);
       break;
     }
   }
@@ -41,7 +48,7 @@ export function japaneseText(value) {
     translated = key.replace(phrasePattern, match => JAPANESE_CATALOG[match]);
   const result = translated === undefined ? source : source.replace(key, () => translated);
   if (cache.size >= 6000) cache.clear();
-  cache.set(source, result);
+  cache.set(cacheKey, result);
   return result;
 }
 

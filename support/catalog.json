@@ -1052,7 +1052,12 @@
       "sources": [
         "youle_desktop/src/renderer/app-language.mjs",
         "youle_desktop/src/shared/japanese.mjs",
-        "youle_desktop/src/main/assistant-output-language.mjs"
+        "youle_desktop/src/main/assistant-output-language.mjs",
+        "youle_desktop/src/main/cloud-plan-contract.mjs",
+        "youle_desktop/src/main/execution-plan-card-view.mjs",
+        "youle_desktop/src/shared/execution-plan-language.mjs",
+        "youle_desktop/src/main/legacy-execution-plan-presentation.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/execution-plan-builder.mjs"
       ]
     }
   ]

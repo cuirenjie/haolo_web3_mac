@@ -1794,7 +1794,7 @@ function formatExecutionPlanMarkdownEnglish(validated) {
 
 export function formatExecutionPlanMarkdown(plan, options = {}) {
   const validated = validateExecutionPlan(plan);
-  if (options?.language === "ja") return japaneseText(formatExecutionPlanMarkdown(validated, {...options, language: "zh-CN"}));
+  if (options?.language === "ja") return japaneseText(formatExecutionPlanMarkdown(validated, {...options, language: "zh-CN"}), true);
   if (options?.language === "ko") return koreanText(formatExecutionPlanMarkdown(validated, {...options, language: "zh-CN"}));
   if (options?.language === "en") return formatExecutionPlanMarkdownEnglish(validated);
   const bilateralScenarios = validated.preferredSide === "neutral"
