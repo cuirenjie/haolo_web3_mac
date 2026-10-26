@@ -4,6 +4,591 @@
   "surface": "windows",
   "features": [
     {
+      "id": "wyckoff-dual-plan-zh-cn",
+      "title": "威科夫破位后的双向条件计划",
+      "body": "Windows及Android／iOS在已确认且仍有效的威科夫箱体破位后，可同时展示做多和做空两个独立条件计划，沿用原计划卡片样式。跌破箱底的空头方案等待反抽测试及后续收盘转弱；多头反转预案须先收盘收回箱底、回踩测试，再由后续收盘转强确认。上破箱顶按对称条件处理。每张卡有独立触发、止损、三档止盈及提醒；触及价位本身不代表触发，反转预案不代表吸筹／派发已经确认。用户明确只要一侧时遵从该方向；风险不合格保留原只读参考或等待卡，不能激活。保存及开启提醒仍需原有操作，不自动下单。需要匹配的API、全部策略Worker及客户端版本；本地源码候选尚未上线，无新增客服动作。",
+      "category": "analysis",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/shared/wyckoff-plan-set.mjs",
+        "youle_desktop/src/main/cloud-plan-contract.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs"
+      ]
+    },
+    {
+      "id": "wyckoff-dual-plan-en",
+      "title": "Wyckoff conditional plans after a range break",
+      "body": "Windows and Android/iOS can show independent long and short conditional plans for a confirmed, still-valid Wyckoff range break, using the existing card styles. Below a broken floor, the short plan requires a retest and a later weak close. A reversal long requires a closing reclaim, a retest and a later strong close. An upside break uses symmetric conditions. Each card has its own entry condition, stop, three targets and alert binding. Touch alone cannot trigger entry, and a reversal scenario does not confirm accumulation or distribution. Explicit single-direction requests remain binding. Risk-rejected scenarios use existing read-only or waiting cards and cannot activate. Saving and enabling reminders still require the existing user actions; no orders are placed. Matching API, all strategy workers and client versions are required. This is an unpublished source candidate with no new support actions.",
+      "category": "analysis",
+      "locale": "en",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/shared/wyckoff-plan-set.mjs",
+        "youle_desktop/src/main/cloud-plan-contract.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs"
+      ]
+    },
+    {
+      "id": "wyckoff-dual-plan-zh-hant",
+      "title": "威科夫破位後的雙向條件計畫",
+      "body": "Windows及Android／iOS在已確認且仍有效的威科夫箱體破位後，可同時顯示做多與做空兩個獨立條件計畫，沿用原計畫卡片樣式。跌破箱底的空頭方案等待反抽測試及後續收盤轉弱；多頭反轉預案須先收盤收回箱底、回踩測試，再由後續收盤轉強確認。上破箱頂按對稱條件處理。每張卡有獨立觸發、停損、三檔停利與提醒；觸及價位本身不代表觸發，反轉預案不代表吸籌／派發已確認。明確單一方向請求仍須遵從；風險不合格使用原唯讀參考或等待卡，不能啟用。儲存及開啟提醒仍需原有操作，不自動下單。需要配套API、全部策略Worker與用戶端版本；本機原始碼候選尚未上線，無新增客服動作。",
+      "category": "analysis",
+      "locale": "zh-Hant",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/shared/wyckoff-plan-set.mjs",
+        "youle_desktop/src/main/cloud-plan-contract.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs"
+      ]
+    },
+    {
+      "id": "wyckoff-dual-plan-ko",
+      "title": "와이코프 박스 이탈 후 양방향 조건부 계획",
+      "body": "Windows와 Android/iOS는 확정된 유효 와이코프 박스의 이탈 이후 기존 카드 스타일로 독립적인 롱·숏 조건부 계획을 표시합니다. 하단 이탈 후 숏은 되돌림 테스트와 후속 약세 종가가 필요합니다. 반전 롱은 종가 회복, 재시험, 후속 강세 종가를 순서대로 확인합니다. 상단 돌파에는 대칭 조건을 적용합니다. 각 카드의 진입 조건, 손절, 3단계 목표와 알림은 독립적입니다. 가격 접촉만으로 발동하지 않으며 반전 시나리오가 매집이나 분산의 확정을 뜻하지 않습니다. 명시한 단일 방향 요청과 위험 제한을 준수하고 부적격 계획은 기존 읽기 전용 또는 대기 카드로 표시합니다. 저장·알림 활성화는 기존 사용자 조작이 필요하며 주문하지 않습니다. API, 모든 전략 Worker와 클라이언트의 호환 버전이 필요합니다. 미출시 소스 후보이며 신규 고객지원 조작은 없습니다.",
+      "category": "analysis",
+      "locale": "ko",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/shared/wyckoff-plan-set.mjs",
+        "youle_desktop/src/main/cloud-plan-contract.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs"
+      ]
+    },
+    {
+      "id": "wyckoff-dual-plan-ja",
+      "title": "ワイコフのレンジ突破後の双方向条件付きプラン",
+      "body": "WindowsとAndroid/iOSでは、確定済みで有効なワイコフのレンジ突破後に、既存カードのスタイルで買い・売りの独立した条件付きプランを表示します。下限割れ後の売りは戻りのテストと後続足の弱い終値が必要です。反転買いは終値での下限回復、再テスト、後続足の強い終値を順に確認します。上限突破には対称の条件を適用します。各カードのエントリー条件、損切り、3段階の利確目標、通知は独立しています。価格への接触だけでは発動せず、反転シナリオは蓄積や分配の確定を意味しません。明示された一方向の指定とリスク制限を守り、不適格なプランは既存の参照専用または待機カードで表示します。保存と通知の有効化には従来のユーザー操作が必要で、自動発注は行いません。API、すべての戦略Worker、クライアントの対応版が必要です。未公開のソース候補で、サポートの新しい操作権限はありません。",
+      "category": "analysis",
+      "locale": "ja",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/shared/wyckoff-plan-set.mjs",
+        "youle_desktop/src/main/cloud-plan-contract.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs"
+      ]
+    },
+    {
+      "id": "trading-preference-restore-defaults",
+      "title": "交易偏好恢复默认",
+      "body": "Windows 客户端设置→交易偏好底部，在「保存修改」左侧提供轻量「恢复默认」按钮。点击后恢复并保存全部默认交易偏好：右侧入场、单笔最大亏损占账户净值2%、浮盈1R移动保本、最低净盈亏比1:0.4、简洁分析、完整分析栏目、基础交易纪律，同时清空自定义内容和补充说明。保存成功后用于新分析；失败保留默认值草稿，可重试保存。加载失败、正在保存、本地云端偏好待核对或保存结果待确认时不能恢复默认。沿用交易偏好保存协议，客服可说明操作，无新增代操作能力。待发布源码候选，以实际客户端版本为准。",
+      "category": "trading-preferences",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-preference-settings.ts",
+        "youle_desktop/src/shared/trading-preference-fields.mjs",
+        "youle_desktop/src/main/personal-context/cloud-trading-preferences.mjs"
+      ]
+    },
+    {
+      "id": "account-sync-events-zh-cn",
+      "title": "静默同步与可靠计划提醒",
+      "body": "设置、手绘、计划和预警列表使用在线变更通知与约24小时兜底读取，离线端不排队推送，上线读取最新状态。同步完全静默，不新增界面、状态标记、加载提示或错误弹窗。失败保留本地修改。关闭Windows联系人后台同步；原有交易计划触发提醒保留，接收进度持久化并支持断线补收，过期事件仅内部记录。移动提醒保持原有FCM/APNs通道。补收不创建分析、订单或模型费用。未部署候选，须先发布兼容后端再更新客户端。 后台变更只唤醒对应在线账号，保留限流冷却；无效提醒留下失败回执后继续接收，不能视为成功通知。移动画线按字节分批，无效修改留在本机并停止原样重试。 计划列表暂时读取失败后会有限次静默补读；异常短连接逐步退避。移动设置遵守服务器冷却，后台暂停，未完成修改保留。",
+      "category": "account-sync",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/account-event-client.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-alert-feed.mjs",
+        "youle_desktop/src/renderer/background-sync.ts",
+        "youle_desktop/src/main/conditional-poll-fetch.mjs",
+        "youle_desktop/src/renderer/cloud-plan-sync.ts"
+      ]
+    },
+    {
+      "id": "account-sync-events-en",
+      "title": "Quiet synchronization and reliable plan reminders",
+      "body": "Settings, drawings, plan and alert lists use online change hints and an approximately daily fallback. Offline devices have no ordinary push queue and fetch current state on return. Sync stays silent with no new UI, status badges, loading indicators or error popups; local edits survive failures. Windows contact background sync is disabled. Existing plan trigger notifications remain, with durable receipt cursors and reconnect recovery; expired events are recorded internally only. Mobile retains FCM/APNs. Replay creates no analyses, orders or model charges. Unpublished candidate; deploy the compatible backend before clients. Background changes wake only the matching online account and preserve retry cooldowns. Invalid reminders retain failed receipts before later events continue; they are not successful notifications. Mobile drawing uploads use byte-bounded batches and retain invalid edits locally without repeating them unchanged. Temporary plan-list read failures receive a limited number of silent retries; unusually short connections back off. Mobile settings honor server cooldowns, pause in the background, and retain pending edits.",
+      "category": "account-sync",
+      "locale": "en",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/account-event-client.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-alert-feed.mjs",
+        "youle_desktop/src/renderer/background-sync.ts",
+        "youle_desktop/src/main/conditional-poll-fetch.mjs",
+        "youle_desktop/src/renderer/cloud-plan-sync.ts"
+      ]
+    },
+    {
+      "id": "account-sync-events-zh-hant",
+      "title": "靜默同步與可靠計畫提醒",
+      "body": "設定、手繪、計畫與預警清單使用線上變更通知與約24小時兜底讀取，離線端不排隊推送，上線讀取最新狀態。同步完全靜默，不新增介面、狀態標記、載入提示或錯誤彈窗。失敗保留本機修改。關閉Windows聯絡人背景同步；保留原有交易計畫觸發提醒、持久接收進度與斷線補收，過期事件僅內部記錄。行動提醒沿用FCM/APNs。補收不建立分析、訂單或模型費用。未部署候選，須先發布相容後端再更新用戶端。 背景變更只喚醒對應線上帳號，保留限流冷卻；無效提醒留下失敗回執後繼續接收，不視為成功通知。行動畫線依位元組分批，無效修改保留本機並停止原樣重試。 計畫列表暫時讀取失敗後會有限次靜默補讀；異常短連線逐步退避。行動端設定遵守伺服器冷卻，背景暫停，未完成修改保留。",
+      "category": "account-sync",
+      "locale": "zh-Hant",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/account-event-client.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-alert-feed.mjs",
+        "youle_desktop/src/renderer/background-sync.ts",
+        "youle_desktop/src/main/conditional-poll-fetch.mjs",
+        "youle_desktop/src/renderer/cloud-plan-sync.ts"
+      ]
+    },
+    {
+      "id": "account-sync-events-ko",
+      "title": "조용한 동기화와 안정적인 계획 알림",
+      "body": "설정, 도형, 계획 및 알림 목록은 온라인 변경 통지와 약 하루 간격의 보완 조회로 조용히 동기화됩니다. 오프라인 기기는 일반 푸시 대기열 없이 재접속 시 최신 상태를 읽습니다. 동기화용 화면, 상태 표시, 로딩 표시 또는 오류 팝업을 추가하지 않으며 실패 시 로컬 수정을 유지합니다. Windows 연락처 동기화는 중지됩니다. 기존 계획 조건 알림은 수신 위치 저장과 재접속 복구로 유지하며 오래된 이벤트는 내부에만 기록합니다. 모바일은 FCM/APNs를 유지합니다. 재전송은 분석, 주문 또는 모델 비용을 만들지 않습니다. 미배포 후보이며 호환 백엔드 배포가 먼저 필요합니다. 백그라운드 변경은 해당 온라인 계정만 깨우며 재시도 대기 시간을 유지합니다. 잘못된 알림은 실패 기록을 남긴 후 후속 이벤트를 처리하며 전달 성공으로 간주하지 않습니다. 모바일 그림 업로드는 바이트 단위로 나누고 잘못된 편집은 기기에 보관하여 동일한 요청을 반복하지 않습니다. 계획 목록의 일시적인 조회 실패는 제한된 횟수만 조용히 재시도하며, 비정상적으로 짧은 연결은 재연결 간격을 늘립니다. 모바일 설정은 서버 대기 시간을 준수하고 백그라운드에서 일시 중지하며 미완료 변경을 보존합니다.",
+      "category": "account-sync",
+      "locale": "ko",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/account-event-client.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-alert-feed.mjs",
+        "youle_desktop/src/renderer/background-sync.ts",
+        "youle_desktop/src/main/conditional-poll-fetch.mjs",
+        "youle_desktop/src/renderer/cloud-plan-sync.ts"
+      ]
+    },
+    {
+      "id": "account-sync-events-ja",
+      "title": "静かな同期と信頼性の高いプラン通知",
+      "body": "設定、描画、プランとアラート一覧はオンラインの変更通知と約24時間ごとの補完取得で静かに同期します。オフライン端末への通常プッシュは待機させず、再接続時に最新状態を取得します。同期用の画面、状態表示、読込表示、エラーポップアップを追加せず、失敗時はローカル変更を保持します。Windowsの連絡先同期は停止します。既存のプラン条件通知は受信位置の保存と再接続時の復旧で維持し、古いイベントは内部記録のみです。モバイルはFCM/APNsを維持します。再送による分析、注文、モデル課金は発生しません。未配備の候補で、互換バックエンドの公開が先に必要です。 バックグラウンドの変更は該当するオンラインアカウントだけに通知し、再試行の待機時間を維持します。不正な通知は失敗記録を保存して後続イベントを受信し、通知成功とは扱いません。モバイルの描画はバイト数で分割し、不正な編集は端末に保存して同じ要求を繰り返しません。 計画一覧の一時的な取得失敗は回数を制限して通知なしで再試行し、異常に短い接続では再接続間隔を延ばします。モバイル設定はサーバーの待機時間を守り、バックグラウンドでは停止して未完了の変更を保持します。",
+      "category": "account-sync",
+      "locale": "ja",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/account-event-client.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-alert-feed.mjs",
+        "youle_desktop/src/renderer/background-sync.ts",
+        "youle_desktop/src/main/conditional-poll-fetch.mjs",
+        "youle_desktop/src/renderer/cloud-plan-sync.ts"
+      ]
+    },
+    {
+      "id": "wyckoff-complete-chart-zh-cn",
+      "title": "威科夫完整形态展示",
+      "body": "Windows 威科夫 AI 绘图会按已识别的完整形态定位，尽量同时展示交易区间、各阶段、关键事件和预测路径，并为标注留白。绘制前、绘制结束和主动打开已保存计划使用同一范围；没有交易计划时也容纳威科夫形态。其他策略的定位规则保持不变，用户仍可手动缩放。本项为待发布的客户端源码，无新增客服代操作。",
+      "category": "analysis",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-analysis-viewport.mjs",
+        "youle_desktop/src/renderer/trading-ai-plan-autoscale.ts"
+      ]
+    },
+    {
+      "id": "wyckoff-complete-chart-zh-hant",
+      "title": "威科夫完整形態顯示",
+      "body": "Windows 威科夫 AI 繪圖會依已辨識的完整形態定位，盡量同時顯示交易區間、各階段、關鍵事件及預測路徑，並為標註留白。繪製前、繪製完成及主動開啟已儲存計畫使用相同範圍；沒有交易計畫時也容納威科夫形態。其他策略定位規則不變，使用者仍可手動縮放。此項為待發布的用戶端原始碼，無新增客服代操作。",
+      "category": "analysis",
+      "locale": "zh-Hant",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-analysis-viewport.mjs",
+        "youle_desktop/src/renderer/trading-ai-plan-autoscale.ts"
+      ]
+    },
+    {
+      "id": "wyckoff-complete-chart-en",
+      "title": "Complete Wyckoff chart view",
+      "body": "Windows Wyckoff AI drawings fit the full identified structure, including the trading range, phases, key events and projection, with space for labels. The same framing applies before and after drawing and when opening a saved plan. Wyckoff structures also fit when no trading plan is available. Other strategies retain their existing framing, and manual zoom remains available. This is an unpublished client source candidate with no new delegated support action.",
+      "category": "analysis",
+      "locale": "en",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-analysis-viewport.mjs",
+        "youle_desktop/src/renderer/trading-ai-plan-autoscale.ts"
+      ]
+    },
+    {
+      "id": "wyckoff-complete-chart-ja",
+      "title": "ワイコフ構造全体のチャート表示",
+      "body": "WindowsのワイコフAI描画では、認識した取引レンジ、各フェーズ、主要イベント、予測経路ができるだけ全体表示されるように表示範囲を調整し、注釈用の余白を確保します。描画前、描画完了後、保存済みプランを開く際に同じ範囲を使用します。取引プランがない場合もワイコフ構造を表示範囲に収めます。他の戦略の表示範囲は変更せず、手動ズームも引き続き利用できます。未公開のクライアント修正候補で、新たなサポート代行操作はありません。",
+      "category": "analysis",
+      "locale": "ja",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-analysis-viewport.mjs",
+        "youle_desktop/src/renderer/trading-ai-plan-autoscale.ts"
+      ]
+    },
+    {
+      "id": "wyckoff-complete-chart-ko",
+      "title": "와이코프 전체 구조 차트 표시",
+      "body": "Windows 와이코프 AI 차트는 식별된 거래 범위, 단계, 주요 이벤트와 예상 경로를 가능한 한 함께 보여 주고 주석 공간을 확보합니다. 그리기 전후와 저장된 계획을 열 때 같은 표시 범위를 적용하며, 거래 계획이 없어도 와이코프 구조를 표시 범위에 포함합니다. 다른 전략의 표시 규칙은 유지되고 수동 확대·축소도 계속 사용할 수 있습니다. 아직 배포되지 않은 클라이언트 소스 변경이며 새로운 고객 지원 대행 기능은 없습니다.",
+      "category": "analysis",
+      "locale": "ko",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-analysis-viewport.mjs",
+        "youle_desktop/src/renderer/trading-ai-plan-autoscale.ts"
+      ]
+    },
+    {
+      "id": "send-receipt-retained-zh-cn",
+      "title": "发送后的首条响应气泡",
+      "body": "三条前置气泡以1秒展示间隔逐条呈现；后台分析照常运行，停止或错误立即显示。Windows 交易会话发送后立即显示收到请求的气泡；后续进度和回复显示在它下方，首条气泡保留。回执按账号保存在本机，重新打开同一会话仍显示，不额外调用模型。发送前准备失败时仍显示原发送错误。本条为待发布客户端源码，客服可说明显示方式，无新增代操作能力。",
+      "category": "analysis",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-send-receipt.ts",
+        "youle_desktop/src/renderer/trading-prelude-pacing.ts"
+      ]
+    },
+    {
+      "id": "send-receipt-retained-zh-hant",
+      "title": "傳送後的首則回應氣泡",
+      "body": "三則前置氣泡以1秒顯示間隔逐則呈現；背景分析照常執行，停止或錯誤立即顯示。Windows 交易會話傳送後立即顯示收到請求的氣泡；後續進度及回覆顯示在其下方，首則氣泡保留。回執依帳號儲存在本機，重新開啟同一會話仍顯示，不額外呼叫模型。傳送前準備失敗時仍顯示原傳送錯誤。本條為待發布用戶端原始碼，客服可說明顯示方式，無新增代操作能力。",
+      "category": "analysis",
+      "locale": "zh-Hant",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-send-receipt.ts",
+        "youle_desktop/src/renderer/trading-prelude-pacing.ts"
+      ]
+    },
+    {
+      "id": "send-receipt-retained-en",
+      "title": "The first response bubble after sending",
+      "body": "The three introductory bubbles appear one at a time at one-second display intervals. Analysis runs in parallel; stops and errors appear immediately. Windows trading chats immediately acknowledge a sent request. Later progress and replies appear below that bubble, which remains visible. Receipts are stored locally per account and remain when reopening the same chat, with no additional model call. Preparation failures still show the original send error. This is an unpublished client source candidate; support can explain the display but has no new remote action.",
+      "category": "analysis",
+      "locale": "en",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-send-receipt.ts",
+        "youle_desktop/src/renderer/trading-prelude-pacing.ts"
+      ]
+    },
+    {
+      "id": "send-receipt-retained-ja",
+      "title": "送信直後の応答バブル",
+      "body": "最初の3つのバブルは1秒間隔で順に表示されます。分析は並行して進み、停止やエラーは直ちに表示されます。Windowsの取引チャットでは、送信直後に受付メッセージを表示します。そのバブルを保持し、進捗と回答は下に追加します。受付記録はアカウント別に端末へ保存され、同じ会話を開き直しても表示されます。モデル呼び出しは増えません。送信準備に失敗した場合は元の送信エラーを表示します。未公開のクライアント修正候補です。サポートは表示方法を説明できますが、新たな代行操作はありません。",
+      "category": "analysis",
+      "locale": "ja",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-send-receipt.ts",
+        "youle_desktop/src/renderer/trading-prelude-pacing.ts"
+      ]
+    },
+    {
+      "id": "send-receipt-retained-ko",
+      "title": "전송 직후의 첫 응답 말풍선",
+      "body": "처음 세 말풍선은 1초 간격으로 순서대로 표시됩니다. 분석은 동시에 계속 진행되며 중지나 오류는 즉시 표시됩니다. Windows 거래 채팅은 전송 직후 요청 접수 말풍선을 표시합니다. 첫 말풍선을 유지하고 이후 진행 상황과 답변을 아래에 추가합니다. 접수 기록은 계정별로 기기에 저장되어 같은 대화를 다시 열어도 표시되며 모델 호출은 추가되지 않습니다. 전송 준비에 실패하면 기존 전송 오류를 표시합니다. 아직 배포되지 않은 클라이언트 수정 후보이며 고객지원은 표시 방식을 안내할 수 있으나 새 대행 작업은 없습니다.",
+      "category": "analysis",
+      "locale": "ko",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-send-receipt.ts",
+        "youle_desktop/src/renderer/trading-prelude-pacing.ts"
+      ]
+    },
+    {
+      "id": "preference-save-busy-zh-cn",
+      "title": "交易偏好保存繁忙恢复",
+      "body": "交易偏好遇到明确的服务繁忙拒绝时，会保留同一份修改并自动等待重试，每个阶段最多等待30秒；收到保存回执后还会读取云端配置核验。持续繁忙时保留草稿并提示稍后重试，保存已受理但确认中断时显示结果待确认。账号切换会停止重试，版本冲突及未知网络提交不自动重复保存。配套API为手动保存保留前台请求名额。本条为待发布源码候选，完整生效需要后端上线及客户端更新。",
+      "category": "trading-preferences",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/personal-context/cloud-trading-preferences.mjs",
+        "youle_desktop/src/renderer/trading-preference-settings.ts"
+      ]
+    },
+    {
+      "id": "preference-save-busy-en",
+      "title": "Recovery when saving trading preferences is busy",
+      "body": "When the service explicitly rejects a preference request as busy, the client retains the same edits and retries for up to 30 seconds per phase. A save receipt is verified by reading the cloud configuration. Persistent busy responses retain the draft; an interrupted confirmation is shown as unconfirmed. Account changes stop retries; version conflicts and uncertain network writes are not automatically replayed. The matching API protects capacity for interactive saves. This is an unpublished source candidate requiring backend and client updates.",
+      "category": "trading-preferences",
+      "locale": "en",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/personal-context/cloud-trading-preferences.mjs",
+        "youle_desktop/src/renderer/trading-preference-settings.ts"
+      ]
+    },
+    {
+      "id": "preference-save-busy-zh-hant",
+      "title": "交易偏好儲存忙碌恢復",
+      "body": "交易偏好遇到明確的服務忙碌拒絕時，會保留同一份修改並自動等待重試，每個階段最多等待30秒；收到儲存回執後還會讀取雲端設定核驗。持續忙碌時保留草稿並提示稍後重試，儲存已受理但確認中斷時顯示結果待確認。帳號切換會停止重試，版本衝突及未知網路提交不自動重複儲存。配套API為手動儲存保留前台請求名額。本條為待發布原始碼候選，完整生效需要後端上線及用戶端更新。",
+      "category": "trading-preferences",
+      "locale": "zh-Hant",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/personal-context/cloud-trading-preferences.mjs",
+        "youle_desktop/src/renderer/trading-preference-settings.ts"
+      ]
+    },
+    {
+      "id": "preference-save-busy-ko",
+      "title": "거래 설정 저장 혼잡 복구",
+      "body": "서비스가 혼잡으로 요청을 명시적으로 거부하면 같은 변경 내용을 유지하며 단계별 최대 30초 동안 재시도합니다. 저장 응답 후 클라우드 설정을 다시 읽어 확인합니다. 계속 혼잡하면 초안을 보관하고, 저장 확인이 중단되면 확인 대기로 표시합니다. 계정 변경 시 재시도를 중지하며 버전 충돌이나 결과가 불확실한 저장 요청은 자동 반복하지 않습니다. 대응 API는 수동 저장용 요청 용량을 보호합니다. 서버와 클라이언트 업데이트가 필요한 미배포 소스 후보입니다.",
+      "category": "trading-preferences",
+      "locale": "ko",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/personal-context/cloud-trading-preferences.mjs",
+        "youle_desktop/src/renderer/trading-preference-settings.ts"
+      ]
+    },
+    {
+      "id": "preference-save-busy-ja",
+      "title": "取引設定の保存混雑からの復旧",
+      "body": "サービスが混雑として明示的に拒否した場合、同じ編集内容を保持し、段階ごとに最大30秒待機して再試行します。保存応答後にクラウド設定を読み直して確認します。混雑が続く場合は下書きを保持し、保存後の確認が中断した場合は確認待ちを表示します。アカウント変更時は再試行を停止し、バージョン競合や結果不明の保存を自動で繰り返しません。対応APIは手動保存の処理枠を保護します。サーバーとクライアントの更新が必要な未公開ソース候補です。",
+      "category": "trading-preferences",
+      "locale": "ja",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/personal-context/cloud-trading-preferences.mjs",
+        "youle_desktop/src/renderer/trading-preference-settings.ts"
+      ]
+    },
+    {
+      "id": "analysis-entry-recovery-zh-cn",
+      "title": "分析服务繁忙时的恢复",
+      "body": "配套版本会在分析开始前遇到短暂服务繁忙时等待并继续，等待期间可停止。后台设置和画线同步不会占满分析入口。恢复会沿用原任务标识，不重复创建分析；积分不足、权限错误和无法确认的网络提交不会当作可重试的繁忙错误。当前为待发布源码，需更新后端并重启到修复后的客户端才能完整生效。",
+      "category": "analysis",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/trading-strategy-runtime/admission-recovery.mjs",
+        "youle_desktop/src/main/personal-context/cloud-trading-preferences.mjs",
+        "youle_desktop/src/main/main.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-runtime.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-task-chat.mjs",
+        "youle_desktop/src/renderer/cloud-task-chat.ts"
+      ]
+    },
+    {
+      "id": "analysis-entry-recovery-en",
+      "title": "Recovery when the analysis service is busy",
+      "body": "Matching versions wait and continue when the analysis service temporarily rejects preparation or submission as busy. You can stop while waiting. Background settings and drawing sync have separate capacity. Recovery preserves the original task identity without creating another analysis. Credit, permission and uncertain submission errors are not retried as busy responses. This is an unpublished source candidate; full behavior requires the backend update and a restarted, updated client.",
+      "category": "analysis",
+      "locale": "en",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/trading-strategy-runtime/admission-recovery.mjs",
+        "youle_desktop/src/main/personal-context/cloud-trading-preferences.mjs",
+        "youle_desktop/src/main/main.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-runtime.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-task-chat.mjs",
+        "youle_desktop/src/renderer/cloud-task-chat.ts"
+      ]
+    },
+    {
+      "id": "analysis-entry-recovery-zh-hant",
+      "title": "分析服務繁忙時的恢復",
+      "body": "配套版本會在分析開始前遇到短暫服務繁忙時等待並繼續，等待期間可停止。背景設定與畫線同步不會占滿分析入口。恢復沿用原任務識別碼，不重複建立分析；點數不足、權限錯誤與無法確認的網路提交不會當作可重試的繁忙錯誤。目前為待發布原始碼，須更新後端並重新啟動修復後的用戶端才能完整生效。",
+      "category": "analysis",
+      "locale": "zh-Hant",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/trading-strategy-runtime/admission-recovery.mjs",
+        "youle_desktop/src/main/personal-context/cloud-trading-preferences.mjs",
+        "youle_desktop/src/main/main.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-runtime.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-task-chat.mjs",
+        "youle_desktop/src/renderer/cloud-task-chat.ts"
+      ]
+    },
+    {
+      "id": "analysis-entry-recovery-ko",
+      "title": "분석 서비스 혼잡 시 복구",
+      "body": "지원 버전에서는 분석 준비 또는 제출 시 일시적인 서비스 혼잡이 발생하면 기다린 뒤 계속 진행합니다. 대기 중 중지할 수 있으며 설정 및 그리기 동기화는 별도의 용량을 사용합니다. 복구 시 원래 작업 식별자를 유지하여 분석을 중복 생성하지 않습니다. 포인트 부족, 권한 오류 및 제출 여부를 알 수 없는 네트워크 오류는 혼잡 오류로 재시도하지 않습니다. 아직 배포되지 않은 소스로, 서버 업데이트와 수정된 클라이언트 재시작이 필요합니다.",
+      "category": "analysis",
+      "locale": "ko",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/trading-strategy-runtime/admission-recovery.mjs",
+        "youle_desktop/src/main/personal-context/cloud-trading-preferences.mjs",
+        "youle_desktop/src/main/main.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-runtime.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-task-chat.mjs",
+        "youle_desktop/src/renderer/cloud-task-chat.ts"
+      ]
+    },
+    {
+      "id": "analysis-entry-recovery-ja",
+      "title": "分析サービス混雑時の復旧",
+      "body": "対応バージョンでは、分析の準備や送信が一時的な混雑で拒否された場合、待機してから続行します。待機中は停止できます。設定や描画の同期には別の処理枠を使用します。元のタスクIDを維持し、分析を重複して作成しません。ポイント不足、権限エラー、送信結果が不明な通信エラーは混雑として再試行しません。未公開のソースコード候補であり、サーバーの更新と修正済みクライアントの再起動が必要です。",
+      "category": "analysis",
+      "locale": "ja",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/trading-strategy-runtime/admission-recovery.mjs",
+        "youle_desktop/src/main/personal-context/cloud-trading-preferences.mjs",
+        "youle_desktop/src/main/main.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-runtime.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-task-chat.mjs",
+        "youle_desktop/src/renderer/cloud-task-chat.ts"
+      ]
+    },
+    {
+      "id": "windows-workspace-ui-refinement",
+      "title": "交易对搜索、底部入口与设置布局",
+      "body": "Windows 客户端交易对搜索采用紧凑圆角面板、分类筛选及右对齐价格与涨幅，保留搜索、分类、收藏和自选添加功能。左侧底部保留设置、客服、会员充值三个文字入口，采用轻量无底色按钮。设置弹窗左侧保留个人资料、交易偏好、消耗明细、通用设置、关于&反馈，邀请有礼和退出登录改为底部文字行；右侧标题及关闭按钮随内容滚动保持可见。通用设置先展示语言、主题外观和字体大小，随后展示桌面快捷方式、固定任务栏、固定开始菜单和开机启动，末组保留消息弹窗、用户数据导入导出和安装目录。仅布局样式调整，原有操作协议和设置同步方式不变。客服可说明入口与位置，无新增代操作能力；本条为待发布源码候选，以实际安装版本为准。",
+      "category": "workspace",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/main.ts",
+        "youle_desktop/src/renderer/workspace-ui-refinement.css"
+      ]
+    },
+    {
       "id": "watchlist-follow-recommendations",
       "title": "自选关注列表与逐项添加",
       "body": "Windows 默认自选为空时展示紧凑单列关注列表，提供全部11个推荐交易对，新增 KORU、SPCX、TSLA；去掉引导标题、说明、热门交易对标签及底部分隔线，缩小图标、文字、按钮和行距。每行「添加」立即加入自选并变成「已添加」，再次点击可移出；添加后仍可继续选择，点击「查看自选」或重新点击自选分组进入行情列表。推荐状态隐藏价格和涨幅表头及列表滚动条，底部「已添加」计数与「查看自选」独立保留空间，完整显示；添加推荐页固定展示，禁用滚轮及程序滚动，刷新时保持顶部位置。进入已有自选行情列表后，内容超出时恢复滚动条，保留行情、排序及分组功能；顶部「添加」继续打开市场搜索。Windows 客户端主图、分屏、自选、市场搜索和预警共用币安传统金融原始品牌图标，随客户端内置并保留官方来源及哈希，明暗主题不改色；未收录或加载失败时保留兜底标识。客服可说明操作，无新增代操作协议；此条为待发布源码候选，以实际安装版本为准。",
@@ -183,7 +768,7 @@
     {
       "id": "expanded-conversation-header",
       "title": "展开会话的标题栏与交易对列表",
-      "body": "Windows 展开任务会话后隐藏左上角的左侧栏控件，顶部交易对列表也同时隐藏，恢复左侧K线图加右侧会话后再显示。收起会话恢复图表布局时，左侧栏按钮回到图表工具栏上方。hao宝 完整会话同样隐藏左上角控件，并统一标题字体、高度和间距；右上角自定义改为会话展开/收起控件，可切换完整会话与左侧K线图加右侧hao宝会话。hao宝 首次有效发送后自动显示左侧K线图加右侧会话；后续每次进入及重启后打开均默认这个布局。右上角提供与新任务相同的展开/收起自选，展开时显示已有自选列表，收起后返回消息；切换保留消息和草稿，仍可点击会话标题或 hao宝 消息头像修改头像和昵称。顶部交易对区域只挂载当前有效图表的一份列表，旧图表销毁后的延迟回调不会追加重复列表。客服可说明入口，无新增代操作协议；以实际安装版本为准。",
+      "body": "hao宝 入口当前暂时关闭，点击侧栏“你的 hao宝”（或已保存昵称）只显示“即将上线，敬请期待”，不切换页面；下述 hao宝 布局为保留实现，待重新开放后可用。Windows 展开任务会话后隐藏左上角的左侧栏控件，顶部交易对列表也同时隐藏，恢复左侧K线图加右侧会话后再显示。收起会话恢复图表布局时，左侧栏按钮回到图表工具栏上方。hao宝 完整会话同样隐藏左上角控件，并统一标题字体、高度和间距；右上角自定义改为会话展开/收起控件，可切换完整会话与左侧K线图加右侧hao宝会话。hao宝 首次有效发送后自动显示左侧K线图加右侧会话；后续每次进入及重启后打开均默认这个布局。右上角提供与新任务相同的展开/收起自选，展开时显示已有自选列表，收起后返回消息；切换保留消息和草稿，仍可点击会话标题或 hao宝 消息头像修改头像和昵称。顶部交易对区域只挂载当前有效图表的一份列表，旧图表销毁后的延迟回调不会追加重复列表。客服可说明入口，无新增代操作协议；以实际安装版本为准。",
       "category": "workspace",
       "locale": "zh-CN",
       "status": "pending",
@@ -204,7 +789,7 @@
     {
       "id": "plan-probability-reply",
       "title": "计划卡片下方的模型概率评估",
-      "body": "配套客户端和云端版本启用后，左右侧策略或指标分析生成正式计划时，可在对应计划卡片及操作栏下方展示模型概率评估。卡片显示盈利概率及评估说明，不展示止损概率补集公式行。基于已收盘历史行情和冻结计划，盈利概率按100%减止损概率计算，仅严格大于50%才展示；小于或等于50%、依据不足或评估失败时不追加回复，计划卡片照常保留。结果明确标识为未经过历史回测校准的条件模型估算：仅表示入场后、有效期内第1止盈或止损至少触达一个时，第1止盈先触达的概率，不是分批交易的最终净胜率。不会随机抬高结果，不修改计划价格，不自动交易。重新打开历史沿用原结果，不重新估算。客服可说明功能，不能代为分析行情或调整概率。源码候选尚不代表发布。",
+      "body": "配套客户端和云端版本启用后，左右侧策略、指标或纯文字通用分析（无需@）生成有效正式计划时，可在对应计划卡片及操作栏下方展示模型概率评估。卡片显示盈利概率及评估说明，不展示止损概率补集公式行。基于已收盘历史行情和冻结计划，盈利概率按100%减止损概率计算，仅严格大于50%才展示；小于或等于50%、依据不足或评估失败时不追加回复，计划卡片照常保留。结果明确标识为未经过历史回测校准的条件模型估算：仅表示入场后、有效期内第1止盈或止损至少触达一个时，第1止盈先触达的概率，不是分批交易的最终净胜率。不会随机抬高结果，不修改计划价格，不自动交易。重新打开历史沿用原结果，不重新估算。客服可说明功能，不能代为分析行情或调整概率。源码候选尚不代表发布。",
       "category": "plans",
       "locale": "zh-CN",
       "status": "pending",
@@ -222,7 +807,7 @@
     {
       "id": "haobao-preview",
       "title": "你的 hao宝、策略广场与指标广场入口",
-      "body": "Windows 新任务下方新增固定悬浮入口“你的 hao宝”。首次进入展示介绍，点击继续进入欢迎页；点击顶部头像、名称或“自定义你的 hao宝”可选择云朵颜色、角色、表情及1–5字符名称，侧栏与消息头像同步更新；保存昵称后，侧栏入口同步显示“你的 新昵称”，重新打开时恢复当前账户已保存的名称。首条消息发出后切换为左侧K线图加右侧会话，之后每次进入均默认此布局；可通过右上角控件展开完整会话。欢迎大头像、名称、待命状态及欢迎内容收起，重新进入也不再出现；完整会话标题行与新任务展开后的标题行统一高度、字体和间距，展开时隐藏左上角控件；右上角自定义替换为展开/收起控件，可切换完整会话与左侧K线图加右侧hao宝会话。可通过会话标题继续修改外观。悬停在会话中的 hao宝 消息头像上，右上角显示铅笔图标，点击头像或铅笔打开同一头像和昵称设置弹窗；键盘聚焦头像也会显示，保存或取消后焦点返回原头像。消息左右排列并显示双方头像名称，鼠标悬停在气泡时，右下角显示灰色时间、复制和引用，用户消息另有本地收藏及编辑；移开自动隐藏，键盘聚焦操作时也会显示。外观、聊天状态、最近200条演示消息及其引用和收藏标记按账户保存在本机，草稿仅保留于当前会话。欢迎页无常驻创建成功或前端体验提示。当前仅为前端体验：不上传消息或文件、不执行监控、不创建云电脑、不发送主动消息，语音尚未接入，收藏不与云端收藏夹同步。侧栏原策略入口移至输入框加号→策略的选项框顶部，名称为“策略广场”，进入原策略页面；加号→指标的选项框顶部新增“指标广场”，直接进入策略页面的指标分类。客服只能说明操作，尚无 hao宝 代操作协议；代码候选不代表正式发布。",
+      "body": "当前 Windows 侧栏“你的 hao宝”（或已保存昵称）入口暂时关闭，点击仅弹出 Toast“即将上线，敬请期待”，停留在当前页面。原有功能代码、外观设置和本地消息保留，完善后再开放。以下 hao宝 操作说明仅对应保留实现，当前不可从该入口访问；策略广场与指标广场入口仍可使用。Windows 新任务下方新增固定悬浮入口“你的 hao宝”。首次进入展示介绍，点击继续进入欢迎页；点击顶部头像、名称或“自定义你的 hao宝”可选择云朵颜色、角色、表情及1–5字符名称，侧栏与消息头像同步更新；保存昵称后，侧栏入口同步显示“你的 新昵称”，重新打开时恢复当前账户已保存的名称。首条消息发出后切换为左侧K线图加右侧会话，之后每次进入均默认此布局；可通过右上角控件展开完整会话。欢迎大头像、名称、待命状态及欢迎内容收起，重新进入也不再出现；完整会话标题行与新任务展开后的标题行统一高度、字体和间距，展开时隐藏左上角控件；右上角自定义替换为展开/收起控件，可切换完整会话与左侧K线图加右侧hao宝会话。可通过会话标题继续修改外观。悬停在会话中的 hao宝 消息头像上，右上角显示铅笔图标，点击头像或铅笔打开同一头像和昵称设置弹窗；键盘聚焦头像也会显示，保存或取消后焦点返回原头像。消息左右排列并显示双方头像名称，鼠标悬停在气泡时，右下角显示灰色时间、复制和引用，用户消息另有本地收藏及编辑；移开自动隐藏，键盘聚焦操作时也会显示。外观、聊天状态、最近200条演示消息及其引用和收藏标记按账户保存在本机，草稿仅保留于当前会话。欢迎页无常驻创建成功或前端体验提示。当前仅为前端体验：不上传消息或文件、不执行监控、不创建云电脑、不发送主动消息，语音尚未接入，收藏不与云端收藏夹同步。侧栏原策略入口移至输入框加号→策略的选项框顶部，名称为“策略广场”，进入原策略页面；加号→指标的选项框顶部新增“指标广场”，直接进入策略页面的指标分类。客服只能说明操作，尚无 hao宝 代操作协议；代码候选不代表正式发布。",
       "category": "haobao",
       "locale": "zh-CN",
       "status": "pending",
@@ -241,7 +826,7 @@
     {
       "id": "haobao-language-ko",
       "title": "HaoBao 인터페이스 언어 및 사용자 지정 이름",
-      "body": "HaoBao 소개, 환영 문구, 외형의 색상·캐릭터·표정, 설정 안내와 접근성 레이블은 중국어 간체·번체, 영어, 한국어를 지원합니다. 환영 문구는 인터페이스 언어에 맞게 바뀌며 사용자 지정 이름, 저장된 메시지와 사용자 입력은 원문을 유지합니다. 전략 및 지표 갤러리는 입력창의 더하기 메뉴에서 계속 열 수 있습니다. 기존 계획 카드의 스타일은 유지됩니다. HaoBao는 로컬 프런트엔드 미리보기이며 클라우드 모니터링, 선제적 메시지 또는 고객 지원 대행 기능이 추가되지 않습니다. 아직 출시되지 않은 소스 후보입니다.",
+      "body": "현재 HaoBao 사이드바 입구는 임시로 닫혀 있습니다. 클릭하면 출시 예정 알림만 표시하며 현재 페이지를 유지합니다. 기존 코드, 사용자 지정 이름과 저장된 메시지는 보존됩니다. 아래 인터페이스 및 언어 기능은 재개를 위해 보존되지만 현재 이 입구로 접근할 수 없습니다. 새 고객 지원 대행 기능은 없습니다. HaoBao 소개, 환영 문구, 외형의 색상·캐릭터·표정, 설정 안내와 접근성 레이블은 중국어 간체·번체, 영어, 한국어를 지원합니다. 환영 문구는 인터페이스 언어에 맞게 바뀌며 사용자 지정 이름, 저장된 메시지와 사용자 입력은 원문을 유지합니다. 전략 및 지표 갤러리는 입력창의 더하기 메뉴에서 계속 열 수 있습니다. 기존 계획 카드의 스타일은 유지됩니다. HaoBao는 로컬 프런트엔드 미리보기이며 클라우드 모니터링, 선제적 메시지 또는 고객 지원 대행 기능이 추가되지 않습니다. 아직 출시되지 않은 소스 후보입니다.",
       "category": "haobao",
       "locale": "ko",
       "status": "pending",
@@ -262,7 +847,7 @@
     {
       "id": "haobao-language-en",
       "title": "HaoBao interface language and custom names",
-      "body": "HaoBao introductions, welcome text, appearance colours, characters, expressions, settings messages and accessibility labels support Simplified Chinese, Traditional Chinese, English and Korean. Welcome text follows the interface language; custom names, saved messages and user input keep their original text. Strategy and indicator galleries remain accessible from the composer plus menu. Existing plan card styling is unchanged. HaoBao remains a local frontend preview, with no new cloud monitoring, proactive messages or support actions. This is an unpublished source candidate.",
+      "body": "The HaoBao sidebar entry is temporarily closed. Clicking it only shows a coming-soon toast and stays on the current page. The implementation, custom names and saved messages are retained for reopening later. The interface and language features described below are retained but unavailable through this entry. No support action is added. HaoBao introductions, welcome text, appearance colours, characters, expressions, settings messages and accessibility labels support Simplified Chinese, Traditional Chinese, English and Korean. Welcome text follows the interface language; custom names, saved messages and user input keep their original text. Strategy and indicator galleries remain accessible from the composer plus menu. Existing plan card styling is unchanged. HaoBao remains a local frontend preview, with no new cloud monitoring, proactive messages or support actions. This is an unpublished source candidate.",
       "category": "haobao",
       "locale": "en",
       "status": "pending",
@@ -283,7 +868,7 @@
     {
       "id": "haobao-language-zh-hant",
       "title": "hao寶介面語言與暱稱保護",
-      "body": "hao寶的介紹、歡迎內容、外觀顏色／角色／表情、設定提示及無障礙標籤支援簡體中文、繁體中文、英語和韓語。切換語言後歡迎內容隨介面更新；使用者自訂名稱、已儲存訊息和使用者輸入保留原文。策略廣場與指標廣場繼續透過輸入框加號中的對應入口開啟，原計畫卡片樣式不變。目前 hao寶 仍是本機前端體驗，不新增雲端監控、主動訊息或客服代操作。本項為尚未發布的原始碼候選。",
+      "body": "目前 hao寶 入口暫時關閉，點擊側欄入口只顯示即將上線提示，不進入頁面。以下介面與語言功能保留，待重新開放；既有名稱和訊息保留，無新增客服代操作。hao寶的介紹、歡迎內容、外觀顏色／角色／表情、設定提示及無障礙標籤支援簡體中文、繁體中文、英語和韓語。切換語言後歡迎內容隨介面更新；使用者自訂名稱、已儲存訊息和使用者輸入保留原文。策略廣場與指標廣場繼續透過輸入框加號中的對應入口開啟，原計畫卡片樣式不變。目前 hao寶 仍是本機前端體驗，不新增雲端監控、主動訊息或客服代操作。本項為尚未發布的原始碼候選。",
       "category": "haobao",
       "locale": "zh-Hant",
       "status": "pending",
@@ -304,7 +889,7 @@
     {
       "id": "haobao-language-zh-cn",
       "title": "hao宝界面语言与昵称保护",
-      "body": "hao宝的介绍、欢迎内容、外观颜色/角色/表情、设置提示及无障碍标签支持简体中文、繁体中文、英语和韩语。切换语言后欢迎内容随界面更新；用户自定义名称、已保存消息和用户输入保留原文。策略广场与指标广场继续通过输入框加号中的对应入口打开，原计划卡片样式不变。当前 hao宝 仍是本地前端体验，不新增云端监控、主动消息或客服代操作。此项为未发布源码候选。",
+      "body": "当前 hao宝 入口暂时关闭，点击侧栏入口只显示“即将上线，敬请期待”，不进入页面。下述界面与语言功能保留，待重新开放；已有名称和消息保留，无新增客服代操作。hao宝的介绍、欢迎内容、外观颜色/角色/表情、设置提示及无障碍标签支持简体中文、繁体中文、英语和韩语。切换语言后欢迎内容随界面更新；用户自定义名称、已保存消息和用户输入保留原文。策略广场与指标广场继续通过输入框加号中的对应入口打开，原计划卡片样式不变。当前 hao宝 仍是本地前端体验，不新增云端监控、主动消息或客服代操作。此项为未发布源码候选。",
       "category": "haobao",
       "locale": "zh-CN",
       "status": "pending",
@@ -808,7 +1393,7 @@
     {
       "id": "right-target-bands-zh-cn",
       "title": "交易偏好与计划卡片",
-      "body": "新 Windows 策略分析逐字段采用本轮明确条件、已保存偏好、默认值的优先级，不修改长期设置。最低净盈亏比按比例放大三档净比例，计入费用与价格精度；例如0.4/0.7/1.1配最低2得到2/3.5/5.5。实际价格、仓位、图表、保存记录和三档止盈/保本提醒共用冻结结果，恢复不重新生成。新闻纪律或风险冲突仍展示原样式参考卡，原因及不建议开仓说明在聊天正文，卡内不新增元素；没有可靠价格时显示不可用。参考卡不能激活提醒，用户风险设置是上限，实际仓位可能受账户和策略约束更低。旧计划和移动端保持原政策。当前仅源码候选，未部署；需配套客户端、API及Worker，客服不能代用户改风控、下单或激活计划。",
+      "body": "新 Windows 策略分析逐字段采用本轮明确条件、已保存偏好、默认值的优先级，不修改长期设置。最低净盈亏比按比例放大三档净比例，计入费用与价格精度；例如0.4/0.7/1.1配最低2得到2/3.5/5.5。实际价格、仓位、图表、保存记录和三档止盈/保本提醒共用冻结结果，恢复不重新生成。新闻纪律或风险冲突仍展示原样式参考卡，原因及不建议开仓说明在聊天正文，卡内不新增元素；分析完成但没有交易信号或价格方案时，保留正文并显示只读的“暂无交易信号”说明卡，不显示空入场、止损、止盈字段，也不能加入计划或启用提醒。历史条件观察卡恢复原文字布局；数据不足或分析失败不冒充无信号结果。参考卡不能激活提醒，用户风险设置是上限，实际仓位可能受账户和策略约束更低。旧计划和移动端保持原政策。当前仅源码候选，未部署；需配套客户端、API及Worker，客服不能代用户改风控、下单或激活计划。",
       "category": "analysis",
       "locale": "zh-CN",
       "status": "pending",
@@ -819,6 +1404,7 @@
       "actions": {},
       "sources": [
         "youle_desktop/src/main/plan-presentation-card.mjs",
+        "youle_desktop/src/main/conditional-watch-card.mjs",
         "youle_desktop/src/shared/plan-presentation.mjs",
         "youle_desktop/src/main/trading-strategy-runtime/cloud-alert-feed.mjs",
         "youle_desktop/docs/preference-plan-presentation-20261025.zh-CN.md"
@@ -827,7 +1413,7 @@
     {
       "id": "right-target-bands-zh-hant",
       "title": "交易偏好與計畫卡片",
-      "body": "新 Windows 策略分析逐欄採用本輪明確條件、已儲存偏好、預設值的優先序，不修改長期設定。最低淨盈虧比按比例放大三檔淨比例，計入費用與價格精度；例如0.4/0.7/1.1配最低2得到2/3.5/5.5。實際價格、倉位、圖表、儲存記錄和三檔止盈/保本提醒共用凍結結果，恢復不重新產生。新聞紀律或風險衝突仍展示原樣式參考卡，原因及不建議開倉說明在聊天正文，卡內不新增元素；沒有可靠價格時顯示不可用。參考卡不能啟用提醒，使用者風險設定為上限，實際倉位可能受帳戶和策略約束更低。舊計畫和行動端保持原政策。目前僅原始碼候選，未部署；須配套用戶端、API及Worker，客服不能代使用者改風控、下單或啟用計畫。",
+      "body": "新 Windows 策略分析逐欄採用本輪明確條件、已儲存偏好、預設值的優先序，不修改長期設定。最低淨盈虧比按比例放大三檔淨比例，計入費用與價格精度；例如0.4/0.7/1.1配最低2得到2/3.5/5.5。實際價格、倉位、圖表、儲存記錄和三檔止盈/保本提醒共用凍結結果，恢復不重新產生。新聞紀律或風險衝突仍展示原樣式參考卡，原因及不建議開倉說明在聊天正文，卡內不新增元素；分析完成但沒有交易訊號或價格方案時，保留正文並顯示唯讀的「暫無交易訊號」說明卡，不顯示空入場、止損、止盈欄位，也不能加入計畫或啟用提醒。歷史條件觀察卡恢復原文字版面；資料不足或分析失敗不冒充無訊號結果。參考卡不能啟用提醒，使用者風險設定為上限，實際倉位可能受帳戶和策略約束更低。舊計畫和行動端保持原政策。目前僅原始碼候選，未部署；須配套用戶端、API及Worker，客服不能代使用者改風控、下單或啟用計畫。",
       "category": "analysis",
       "locale": "zh-Hant",
       "status": "pending",
@@ -838,6 +1424,7 @@
       "actions": {},
       "sources": [
         "youle_desktop/src/main/plan-presentation-card.mjs",
+        "youle_desktop/src/main/conditional-watch-card.mjs",
         "youle_desktop/src/shared/plan-presentation.mjs",
         "youle_desktop/src/main/trading-strategy-runtime/cloud-alert-feed.mjs",
         "youle_desktop/docs/preference-plan-presentation-20261025.zh-CN.md"
@@ -846,7 +1433,7 @@
     {
       "id": "right-target-bands-en",
       "title": "Trading preferences and plan cards",
-      "body": "New Windows strategy requests resolve each field from the current explicit request, saved preferences, then defaults, without rewriting saved settings. The minimum net reward:risk proportionally scales all three targets after costs and price precision; 0.4/0.7/1.1 with minimum 2 becomes 2/3.5/5.5. Prices, sizing, chart, saved plan and all three target/break-even reminders share frozen values across restoration. News or risk restrictions keep a reference card in the original layout; explanations stay in chat, with no added card elements. Missing reliable prices remain unavailable. Reference cards cannot activate reminders. Risk settings are caps; account and strategy limits may reduce sizing. Historical plans and mobile keep their existing policy. Source candidate only, not deployed; matching client, API and Worker are required. Support cannot change risk settings, place orders or activate plans.",
+      "body": "New Windows strategy requests resolve each field from the current explicit request, saved preferences, then defaults, without rewriting saved settings. The minimum net reward:risk proportionally scales all three targets after costs and price precision; 0.4/0.7/1.1 with minimum 2 becomes 2/3.5/5.5. Prices, sizing, chart, saved plan and all three target/break-even reminders share frozen values across restoration. News or risk restrictions keep a reference card in the original layout; explanations stay in chat, with no added card elements. Completed analysis without a trading signal or price scenario retains its text and shows a read-only “No trading signal” card, with no empty entry, stop or target fields and no save or activation action. Historical conditional observation cards regain their original text layout. Missing data or failed analysis is not labelled as a no-signal result. Reference cards cannot activate reminders. Risk settings are caps; account and strategy limits may reduce sizing. Historical plans and mobile keep their existing policy. Source candidate only, not deployed; matching client, API and Worker are required. Support cannot change risk settings, place orders or activate plans.",
       "category": "analysis",
       "locale": "en",
       "status": "pending",
@@ -857,6 +1444,7 @@
       "actions": {},
       "sources": [
         "youle_desktop/src/main/plan-presentation-card.mjs",
+        "youle_desktop/src/main/conditional-watch-card.mjs",
         "youle_desktop/src/shared/plan-presentation.mjs",
         "youle_desktop/src/main/trading-strategy-runtime/cloud-alert-feed.mjs",
         "youle_desktop/docs/preference-plan-presentation-20261025.zh-CN.md"
@@ -865,7 +1453,7 @@
     {
       "id": "right-target-bands-ko",
       "title": "거래 선호 설정과 계획 카드",
-      "body": "새 Windows 전략 요청은 현재 요청의 명시 조건, 저장된 선호 설정, 기본값 순으로 각 항목을 적용하며 저장 설정을 변경하지 않습니다. 최소 순손익비에 따라 비용과 가격 단위를 반영하여 세 목표를 같은 비율로 확대합니다. 예를 들어 0.4/0.7/1.1에 최소 2를 적용하면 2/3.5/5.5가 됩니다. 가격, 포지션 크기, 차트, 저장 계획과 세 익절 및 본전 알림은 복원 시에도 같은 고정 값을 사용합니다. 뉴스나 위험 제한이 있어도 기존 모양의 참고 카드를 표시하며 설명은 채팅 본문에만 표시하고 카드 요소를 추가하지 않습니다. 신뢰할 가격이 없으면 사용 불가로 표시합니다. 참고 카드에서는 알림을 활성화할 수 없습니다. 위험 설정은 상한이며 계좌와 전략 제한에 따라 포지션이 작아질 수 있습니다. 과거 계획과 모바일 정책은 유지됩니다. 아직 배포하지 않은 소스 후보이며 호환되는 클라이언트, API, Worker가 필요합니다. 고객지원은 위험 설정 변경, 주문 또는 계획 활성화를 대신할 수 없습니다.",
+      "body": "새 Windows 전략 요청은 현재 요청의 명시 조건, 저장된 선호 설정, 기본값 순으로 각 항목을 적용하며 저장 설정을 변경하지 않습니다. 최소 순손익비에 따라 비용과 가격 단위를 반영하여 세 목표를 같은 비율로 확대합니다. 예를 들어 0.4/0.7/1.1에 최소 2를 적용하면 2/3.5/5.5가 됩니다. 가격, 포지션 크기, 차트, 저장 계획과 세 익절 및 본전 알림은 복원 시에도 같은 고정 값을 사용합니다. 뉴스나 위험 제한이 있어도 기존 모양의 참고 카드를 표시하며 설명은 채팅 본문에만 표시하고 카드 요소를 추가하지 않습니다. 분석이 완료되었으나 거래 신호나 가격 시나리오가 없으면 본문과 읽기 전용 거래 신호 없음 카드를 표시합니다. 빈 진입·손절·익절 항목과 계획 저장·활성화 버튼은 표시하지 않습니다. 과거 조건부 관찰 카드는 기존 텍스트 형식을 복원합니다. 데이터 부족이나 분석 실패를 신호 없음으로 표시하지 않습니다. 참고 카드에서는 알림을 활성화할 수 없습니다. 위험 설정은 상한이며 계좌와 전략 제한에 따라 포지션이 작아질 수 있습니다. 과거 계획과 모바일 정책은 유지됩니다. 아직 배포하지 않은 소스 후보이며 호환되는 클라이언트, API, Worker가 필요합니다. 고객지원은 위험 설정 변경, 주문 또는 계획 활성화를 대신할 수 없습니다.",
       "category": "analysis",
       "locale": "ko",
       "status": "pending",
@@ -876,6 +1464,7 @@
       "actions": {},
       "sources": [
         "youle_desktop/src/main/plan-presentation-card.mjs",
+        "youle_desktop/src/main/conditional-watch-card.mjs",
         "youle_desktop/src/shared/plan-presentation.mjs",
         "youle_desktop/src/main/trading-strategy-runtime/cloud-alert-feed.mjs",
         "youle_desktop/docs/preference-plan-presentation-20261025.zh-CN.md"
@@ -1058,6 +1647,96 @@
         "youle_desktop/src/shared/execution-plan-language.mjs",
         "youle_desktop/src/main/legacy-execution-plan-presentation.mjs",
         "youle_desktop/src/main/trading-strategy-runtime/execution-plan-builder.mjs"
+      ]
+    },
+    {
+      "id": "background-sync-capacity-zh-cn",
+      "title": "后台同步与画线保存",
+      "body": "Windows 会合并重复后台读取，在数据未变时逐步降低频率，主动保存回读保持实时。服务繁忙会退避；服务器明确拒绝的画线修改保留在本机并暂停重发，编辑后可再次尝试，其他有效画线可继续同步。需要配套客户端与业务后端版本；当前为未发布源码候选。",
+      "category": "settings",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/conditional-poll-fetch.mjs",
+        "youle_desktop/src/main/poll-request-coordinator.mjs",
+        "youle_desktop/src/renderer/manual-drawing-sync.ts"
+      ]
+    },
+    {
+      "id": "background-sync-capacity-zh-hant",
+      "title": "背景同步與畫線儲存",
+      "body": "Windows 會合併重複的背景讀取，資料未變時逐步降低頻率，主動儲存後仍即時讀回。服務忙碌時會退避；伺服器明確拒絕的畫線修改保留在本機並暫停重送，編輯後可再試，其他有效畫線可繼續同步。須配套用戶端與業務後端版本；目前為未發布原始碼候選。",
+      "category": "settings",
+      "locale": "zh-Hant",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/conditional-poll-fetch.mjs",
+        "youle_desktop/src/main/poll-request-coordinator.mjs",
+        "youle_desktop/src/renderer/manual-drawing-sync.ts"
+      ]
+    },
+    {
+      "id": "background-sync-capacity-en",
+      "title": "Background sync and drawing saves",
+      "body": "Windows combines duplicate background reads and reduces polling when data is unchanged. Deliberate saves still read back current state. Busy services trigger backoff. Drawings explicitly rejected by the server stay on this device without repeated uploads; edit them to retry while other valid drawings continue syncing. Matching client and business backend releases are required. This is an unpublished source candidate.",
+      "category": "settings",
+      "locale": "en",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/conditional-poll-fetch.mjs",
+        "youle_desktop/src/main/poll-request-coordinator.mjs",
+        "youle_desktop/src/renderer/manual-drawing-sync.ts"
+      ]
+    },
+    {
+      "id": "background-sync-capacity-ko",
+      "title": "백그라운드 동기화 및 드로잉 저장",
+      "body": "Windows는 중복 백그라운드 조회를 통합하고 변경이 없으면 조회 빈도를 낮춥니다. 저장 후에는 최신 상태를 확인합니다. 서버가 바쁘면 재시도 간격을 늘립니다. 서버가 명시적으로 거부한 드로잉은 기기에 보관하고 반복 전송을 중지하며, 수정 후 다시 시도할 수 있습니다. 다른 유효한 드로잉은 계속 동기화됩니다. 클라이언트와 백엔드 배포가 필요한 미공개 소스 후보입니다.",
+      "category": "settings",
+      "locale": "ko",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/conditional-poll-fetch.mjs",
+        "youle_desktop/src/main/poll-request-coordinator.mjs",
+        "youle_desktop/src/renderer/manual-drawing-sync.ts"
+      ]
+    },
+    {
+      "id": "background-sync-capacity-ja",
+      "title": "バックグラウンド同期と描画の保存",
+      "body": "Windows は重複するバックグラウンド読み取りを統合し、変更がない場合は取得頻度を下げます。保存後は最新状態を確認します。混雑時は再試行の間隔を延ばします。サーバーに明示的に拒否された描画は端末に保管し、繰り返し送信を停止します。編集後に再試行でき、ほかの有効な描画は同期を続けます。対応するクライアントとバックエンドの公開が必要な、未公開のソースコード候補です。",
+      "category": "settings",
+      "locale": "ja",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/conditional-poll-fetch.mjs",
+        "youle_desktop/src/main/poll-request-coordinator.mjs",
+        "youle_desktop/src/renderer/manual-drawing-sync.ts"
       ]
     }
   ]

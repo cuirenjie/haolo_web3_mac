@@ -3,6 +3,7 @@ import fs from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
 import ts from "typescript";
+import { TradingSendReceiptStore } from '../src/renderer/trading-send-receipt.ts';
 
 const source = fs.readFileSync(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
 const ast = ts.createSourceFile("main.ts", source, ts.ScriptTarget.Latest, true);
@@ -30,7 +31,7 @@ async function submit() {
   let tradingAnalysisTargetAtSend = {};
   let tradingStrategyRequestAtSend = null, tradingGeneralRequestAtSend = null;
   const tradingStrategyRequestsAtSend = [];
-  const pureAnalysis = null;
+  const pureAnalysis = null, needsComposerRuntime = false;
   ${pipeline}
 ${["updateTradingExpertThinkingState", "clearTradingExpertThinkingState", "tradingExpertThinkingStage", "withThinkingMessage"].map(functionSource).join("\n")}
 `, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
@@ -44,7 +45,9 @@ function deferred() {
 function harness({ general = false, mode = "chart-analysis", access = "available", promoteFailure = false, persistFailure = false, budgetOk = true } = {}) {
   const gates = Object.fromEntries(["classify", "access", "promote", "persist", "analyze", "context"].map(name => [name, { entered: deferred(), release: deferred() }]));
   const frames = [], calls = [], aliases = new Map(), thinking = new Map();
-  const state = { currentThreadId: "draft", items: {}, attachments: [], composerQuote: null, settings: {} };
+  const state = { currentThreadId: "draft", items: {}, attachments: [], composerQuote: null, settings: {language:'zh-CN'}, auth:{authenticated:true} };
+  const pendingSends = new Map();
+  const tradingSendReceipts = new TradingSendReceiptStore();
   const noop = () => {}, identity = value => value;
   const resolveThread = id => aliases.has(id) ? resolveThread(aliases.get(id)) : id;
   async function stage(name, result) {
@@ -54,14 +57,18 @@ function harness({ general = false, mode = "chart-analysis", access = "available
     return result;
   }
   function replaceThread(from, to) {
+    tradingSendReceipts.moveThread(from, to);
     aliases.set(from, to);
     if (thinking.has(from)) { thinking.set(to, thinking.get(from)); thinking.delete(from); }
     state.items[to] = state.items[from];
+    if (pendingSends.has(from)) { pendingSends.set(to,pendingSends.get(from));pendingSends.delete(from); }
     state.currentThreadId = to;
     return to;
   }
   const strategy = { id: "price-action", ui: { classificationMessage: "正在识别裸K分析请求", preparingMessage: "正在准备裸K分析" } };
   const deps = {
+    tradingSendReceipts, isTradingExpertSurfaceThreadId:()=>true,
+    tradingPreludePacer: { isWaiting: () => false },
     isPureTradingAnalysisThread: () => false,
     businessModelPoolsState: { configured: false },
     hasThreadCodexWork: () => false, threadsAwaitingAgentReply: new Set(), setCodexThreadBusy: noop,
@@ -99,13 +106,14 @@ function harness({ general = false, mode = "chart-analysis", access = "available
     recordRendererTranscriptDiagnostic: noop,
     rebindTradingExpertAnalysisTargetStorageSession: identity,
     beginPendingComposerSend(id) {
-      const item = { id: "user", type: "userMessage", text: "@策略:裸K分析" };
+      const item = { id: "user", type: "userMessage", kind:'user_text',role:'user', text: "@策略:裸K分析" };
       state.items[id] = { [item.id]: item };
-      return { threadId: id, itemId: item.id, attachments: [], threadReferences: [] };
+      const pending = { threadId: id, itemId: item.id, status:'sending',createdAt:new Date().toISOString(),attachments: [], threadReferences: [] };
+      pendingSends.set(id,pending);return pending;
     },
     setPendingComposerSendStatus: () => null, movePendingComposerSend: () => null,
-    pendingComposerSendForThread: () => null, clearPendingComposerSend: noop,
-    failPendingComposerSend: () => calls.push("failed"),
+    pendingComposerSendForThread: id => pendingSends.get(id), clearPendingComposerSend: id=>pendingSends.delete(id),
+    failPendingComposerSend: id => {calls.push("failed");const pending=pendingSends.get(id);if(pending)pending.status='failed';},
     showToast: noop, errorMessage: error => error.message,
     INSUFFICIENT_QUOTA_MESSAGE: "quota", appendInsufficientQuotaAgentMessage: noop,
     messageAttachmentFromLocal: identity, consumptionVisibleQuestion: identity,
@@ -149,6 +157,7 @@ for (const general of [false, true]) {
     const pending = h.submit();
     assert.equal(h.state.items.draft.user.text, "@策略:裸K分析");
     await h.at("context");
+    assert.ok(h.frames.at(-1).some(message=>message.id.startsWith('trading-send-receipt-')), 'local receipt precedes context and thread creation');
     assert.ok(!h.calls.includes("classify"));
     h.release("context");
     await h.at("promote");
@@ -173,6 +182,7 @@ test("blocked context preparation retains the user bubble and releases the froze
   assert.ok(h.calls.includes("failed"));
   assert.ok(h.calls.some(c => c?.released === "frozen-context"));
   assert.ok(!h.calls.includes("promote"));
+  assert.ok(!h.frames.at(-1).some(message=>message.id.startsWith('trading-send-receipt-')));
 });
 
 test("thread creation failure does not invoke Codex or a trading runner", { timeout: 3000 }, async () => {
@@ -185,4 +195,5 @@ test("thread creation failure does not invoke Codex or a trading runner", { time
   assert.ok(h.calls.includes("failed"));
   assert.ok(h.calls.some(c => c?.released === "frozen-context"));
   assert.ok(!h.calls.includes("analyze"));
+  assert.ok(!h.frames.at(-1).some(message=>message.id.startsWith('trading-send-receipt-')));
 });

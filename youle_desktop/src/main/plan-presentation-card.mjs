@@ -10,13 +10,15 @@ const reasonKey={NEWS_EVIDENCE_UNAVAILABLE:'news',STOP_DISTANCE_EXCEEDED:'stopCa
 export function planPresentationCard(report,language) {
   language=language==='zh-Hant'?'zh-TW':language;
   const t=copy[language]||copy['zh-CN'],p=report.executionPlan.planPresentation,s=p?.scenario;
+  // Outcomes without price scenarios use the separate observation card.
+  // Do not turn an unavailable signal into an empty price grid.
+  if(p?.status!=='not_recommended'||!s)return null;
   const title=`${report.marketId} · ${report.executionPlan.context?.interval||report.interval} · ${localizedChoice(['条件交易计划','Conditional trading plan','條件交易計畫'],language)}`;
   const reasons=[...new Set((p?.reasons||[report.executionPlan.outcome?.reason]).map(r=>t[reasonKey[r]||'other']))];
   const heading=executionPlanCardHeading(title,[{label:'Direction',text:s?.side||''},{label:'Strategy',text:report.strategyId}],language);
-  const body=s?executionPlanStructuredCardBody({entry:s.trigger,entryMode:s.mode,stop:s.stop,targets:s.targets,direction:s.side,riskReward:s.riskReward,hideAction:true},language)
-    :executionPlanStructuredCardBody({entry:{lower:null},stop:null,targets:[null,null,null],riskReward:[],hideAction:true},language);
+  const body=executionPlanStructuredCardBody({entry:s.trigger,entryMode:s.mode,stop:s.stop,targets:s.targets,direction:s.side,riskReward:s.riskReward,hideAction:true},language);
   const advice=[t.blocked,...reasons];
-  const content=[title,...(s?[`${t.entry}: ${s.entry}`,`${t.stop}: ${s.stop}`,`${t.targets}: ${s.targets.join(' / ')}`]:[t.missing]),...advice].join('\n');
+  const content=[title,`${t.entry}: ${s.entry}`,`${t.stop}: ${s.stop}`,`${t.targets}: ${s.targets.join(' / ')}`,...advice].join('\n');
   // Advice stays in the analysis text. The card keeps the original heading,
   // entry/stop metrics and three target rows, with no extra sections or badges.
   return {title,content,readOnly:true,html:heading+body};

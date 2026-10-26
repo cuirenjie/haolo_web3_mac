@@ -228,3 +228,88 @@ test("settings carry the displayed cloud revision through saves and reload on re
   await editor.save();
   assert.equal(payloads.at(-1).expectedRevision, 9);
 });
+
+test("restore defaults saves all fields, clears custom content and survives reopening", async () => {
+  let stored = { ...profileFor({ maxLossPerTradePercent: 1.25, minimumRiskRewardRatio: 2,
+    moveStopToBreakEven: false, analysisStyle: "detailed", requiredSections: "adaptive",
+    customRules: "只在周一交易", customPreferences: "仅交易熟悉的币种" }), entryMode: "left" };
+  const payloads = [];
+  let notifications = 0;
+  const editor = controller({
+    load: async () => ({ ok: true, revision: 7, profile: stored }),
+    save: async payload => {
+      payloads.push(payload);
+      stored = { ...tradingRiskProfileFromEntries((await compileTradingPreferences(payload)).entries), entryMode: payload.entryMode };
+      return { ok: true, revision: 8, profile: stored };
+    },
+    onSaved: () => { notifications++; },
+  });
+  await editor.load();
+  await editor.restoreDefaults();
+  assert.equal(payloads.length, 1);
+  assert.equal(payloads[0].expectedRevision, 7);
+  assert.deepEqual(payloads[0].changedFields.slice().sort(), ["breakEven", "discipline", "entryMode", "extraNotes", "ratio", "risk", "sections", "style"]);
+  assert.deepEqual(payloads[0].choices, tradingPreferenceSettingsDraft().choices);
+  assert.equal(payloads[0].extraNotes, "");
+  assert.equal(stored.entryMode, "right");
+  assert.equal(stored.maxLossPerTradePercent, 2);
+  assert.equal(stored.minimumRiskRewardRatio, 0.4);
+  assert.equal(stored.moveStopToBreakEven, true);
+  assert.equal(stored.breakEvenTriggerR, 1);
+  assert.equal(stored.analysisStyle, "concise");
+  assert.equal(stored.entries.find(entry => entry.key === "user_custom_rules").value, NO_CUSTOM_TRADING_RULES);
+  assert.equal(stored.entries.find(entry => entry.key === "user_preference_notes").value, NO_CUSTOM_TRADING_NOTES);
+  assert.equal(notifications, 1);
+  editor.beginSession();
+  await editor.load();
+  assert.match(editor.render(), /name="settings-preference-risk" value="2" checked/);
+  assert.doesNotMatch(editor.render(), /仅交易熟悉的币种|只在周一交易/);
+});
+
+test("restore defaults prevents duplicate saves and retains the full default draft for retry", async () => {
+  const gate = deferred();
+  const payloads = [];
+  let fail = true;
+  const editor = controller({
+    load: async () => ({ ok: true, revision: 4, profile: profileFor({ maxLossPerTradePercent: 3 }) }),
+    save: async payload => {
+      payloads.push(payload); await gate.promise;
+      if (fail) throw Error("offline");
+      return { ok: true, revision: 5 };
+    },
+  });
+  await editor.load();
+  const restoring = editor.restoreDefaults();
+  await editor.restoreDefaults(); await editor.save();
+  assert.equal(payloads.length, 1);
+  assert.match(editor.render(), /data-preference-restore disabled/);
+  gate.resolve(); await restoring;
+  assert.match(editor.render(), /已保留你的修改/);
+  assert.match(editor.render(), /name="settings-preference-risk" value="2" checked/);
+  fail = false;
+  await editor.save();
+  assert.deepEqual(payloads[1], payloads[0]);
+  assert.match(editor.render(), /交易偏好已保存/);
+});
+
+test("restore defaults cannot overwrite unread, migrating or unconfirmed preferences", async () => {
+  let writes = 0;
+  const editor = controller({ load: async () => { throw Error("offline"); }, save: async () => { writes++; } });
+  await editor.restoreDefaults(); await editor.load(); await editor.restoreDefaults();
+  assert.equal(writes, 0);
+  const migrating = controller({
+    load: async () => ({ ok: true, profile: profileFor({}), migration: { code: "PREFERENCE_IMPORT_CONFLICT", fields: [] } }),
+    save: async () => { writes++; },
+  });
+  await migrating.load(); await migrating.restoreDefaults();
+  assert.equal(writes, 0);
+  assert.match(migrating.render(), /data-preference-restore disabled/);
+  for (const code of ["TRADING_PREFERENCE_SAVE_UNCONFIRMED", "TRADING_PREFERENCE_CONFIRMATION_PENDING", "PREFERENCE_UPDATED_AFTER_SAVE"]) {
+    const pending = controller({ save: async () => { writes++; return { ok: false, error: { code, message: "请核对" } }; } });
+    await pending.load(); await pending.save();
+    const before = writes;
+    await pending.restoreDefaults();
+    assert.equal(writes, before);
+    assert.match(pending.render(), /data-preference-restore disabled/);
+  }
+});

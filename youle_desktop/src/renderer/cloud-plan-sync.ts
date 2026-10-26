@@ -26,19 +26,20 @@ export function mergeCloudExecutionPlans(values:unknown,previous:readonly SavedE
 
 export function createCloudPlanRefresher(options:{scope:()=>string|null;load:()=>Promise<any>;read:()=>readonly SavedExecutionPlan[];
   apply:(plans:SavedExecutionPlan[])=>void;save:(scope:string,plans:SavedExecutionPlan[])=>boolean;changed:()=>void;
-  cacheFailure:()=>void;failure:(error:unknown)=>void;diagnostic?:(error:Record<string,unknown>)=>void;random?:()=>number;
+  cacheFailure:()=>void;failure:(error:unknown)=>void;diagnostic?:(error:Record<string,unknown>)=>void;random?:()=>number;eventDriven?:boolean;
   schedule?:(run:()=>void,delay:number)=>ReturnType<typeof setTimeout>;cancel?:(timer:ReturnType<typeof setTimeout>)=>void}) {
-  type Refresh={scope:string;pending:boolean;failures:number;timer:ReturnType<typeof setTimeout>|null};
+  type Refresh={scope:string;pending:boolean;rerun:boolean;failures:number;timer:ReturnType<typeof setTimeout>|null};
   const schedule=options.schedule||setTimeout,cancel=options.cancel||clearTimeout;
   let current:Refresh|null=null;
   const reset=()=>{if(current?.timer!=null)cancel(current.timer);current=null;};
   const isCurrent=(request:Refresh)=>current===request&&request.scope===options.scope();
   const refresh=async()=>{
     const scope=options.scope();if(!scope){reset();return;}
-    if(current?.scope!==scope){reset();current={scope,pending:false,failures:0,timer:null};}
+    if(current?.scope!==scope){reset();current={scope,pending:false,rerun:false,failures:0,timer:null};}
     const request=current;
     // Session/profile updates must not bypass backoff or duplicate a GET.
-    if(request.pending||request.timer!==null)return;
+    if(request.pending){if(options.eventDriven)request.rerun=true;return;}
+    if(request.timer!==null)return;
     request.pending=true;
     try {
       const response=await options.load();if(!isCurrent(request))return;
@@ -58,16 +59,27 @@ export function createCloudPlanRefresher(options:{scope:()=>string|null;load:()=
         options.diagnostic?.({name:detail?.name,message:detail?.message||String(error),stack:detail?.stack,
           code:policy.code,status:policy.status});
       } catch { /* Diagnostics must not prevent retrying a read. */ }
-      if(policy.retryable) {
-        const base=Math.min(60_000,2000*2**Math.min(request.failures++,5));
+      // Event delivery is a hint, not acknowledgement that the GET succeeded.
+      // Retry only the failed read, at most three times in event mode. Success
+      // clears the budget; permanent errors never become a polling loop.
+      request.failures++;
+      if(policy.retryable&&(!options.eventDriven||request.failures<=3)) {
+        const base=Math.min(60_000,2000*2**Math.min(request.failures-1,5));
         const delay=Math.max(policy.retryAfterMs,Math.min(60_000,Math.round(base*(1+0.2*(options.random||Math.random)()))));
         request.timer=schedule(()=>{
           request.timer=null;
           if(isCurrent(request))void refresh();
           else if(current===request)reset();
         },delay);
-      } else if(!policy.silent)options.failure(error);
-    } finally {request.pending=false;}
+      } else if(!policy.silent&&!options.eventDriven)options.failure(error);
+    } finally {
+      request.pending=false;
+      if(request.rerun&&isCurrent(request)){
+        request.rerun=false;
+        // A queued hint must not bypass backoff or an exhausted retry budget.
+        if(!request.failures)void refresh();
+      }
+    }
   };
   return Object.assign(refresh,{reset});
 }

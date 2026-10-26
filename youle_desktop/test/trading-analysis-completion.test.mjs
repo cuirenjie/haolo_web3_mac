@@ -28,7 +28,7 @@ const functions = [
   "turnIdFromResultKey", "normalizedTurnResultStatus", "minFinite", "maxFinite",
   "isConversationSupplementWindowOpen", "hasThreadCodexWork",
   "renderComposerSubmitButton",
-  "messagesForThread", "withCollapsedTurnResults", "turnResultGroups", "turnResultProcessIndexes",
+  "messagesForThread", "withPacedTradingPrelude", "withCollapsedTurnResults", "turnResultGroups", "turnResultProcessIndexes",
   "turnResultStateKey", "isTurnResultOutputMessage", "isStreamingAssistantMessage",
   "queueCodexStreamDelta", "codexStreamDeltaKey", "flushPendingCodexStreamDeltas", "appendDelta",
 ];
@@ -66,6 +66,7 @@ function harness() {
     pureTradingAnalysisThreads: new Set(),
     resolveTradingExpertAnalysisThreadId: id => id,
     tradingExpertThinkingStateByThreadId: new Map(),
+    tradingPreludePacer: { isWaiting: () => false },
     localHistoryAheadThreadIds: new Set(),
     liveConversationSupplementIds: new Set(),
     itemSequence: () => null,
@@ -438,6 +439,18 @@ test("trailing commentary with a requested file or action remains visible", () =
   ][index]);
   assert.equal(targets.finalIndex, 0);
   assert.deepEqual(targets.lateProcessIndexes, [1]);
+});
+
+test("a fast completed request cannot fold the prelude before its display cadence finishes", () => {
+  const h = harness(), c = h.context;
+  c.activeCodexThreadIds.clear(); h.setTurn(null);
+  for (const id of ["first", "last"]) c.upsertItem("origin", {
+    id, type: "agentMessage", phase: "commentary", text: id, turnId: "turn-1",
+  });
+  c.tradingPreludePacer.isWaiting = () => true;
+  assert.deepEqual(Array.from(c.messagesForThread("origin"), item => item.id), ["first", "last"]);
+  c.tradingPreludePacer.isWaiting = () => false;
+  assert.deepEqual(Array.from(c.messagesForThread("origin"), item => item.id), ["last"]);
 });
 
 test("a process-only turn retains its last progress message until it has a final answer", () => {

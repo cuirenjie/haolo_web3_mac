@@ -15,7 +15,7 @@ class Storage {
 async function editingClient(run) {
   const previous={window:globalThis.window,document:globalThis.document,localStorage:globalThis.localStorage};
   const window=new EventTarget(),storage=new Storage();
-  Object.assign(globalThis,{window,localStorage:storage,document:{hidden:false,documentElement:{dataset:{language:'en'}}}});
+  Object.assign(globalThis,{window,localStorage:storage,document:Object.assign(new EventTarget(),{hidden:false,documentElement:{dataset:{language:'en'}}})});
   const client={data:[],busy:false,owner:'',pendingSession:null,entries:{},writes:[]};
   window.codexDesktop={manualDrawings:async p=>{
     if(p.action==='session'){if(client.pendingSession)await client.pendingSession;return {owner:client.owner};}

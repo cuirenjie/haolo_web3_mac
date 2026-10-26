@@ -35,7 +35,7 @@ function server(){
     if(lose){lose=false;throw Error('network response lost');}
     return structuredClone(result);
   }};
-  const make=()=>createCloudTaskChat({owner:async()=>owner,api:()=>api,journal:()=>journal});
+  const make=(options={})=>createCloudTaskChat({owner:async()=>owner,api:()=>api,journal:()=>journal,...options});
   return {data,calls,stored,api,make,lose:()=>lose=true,delete:()=>deleted=true,switch:()=>owner={...owner,ownerId:'other'}};
 }
 test('continuation appends to original task and preserves every prior question/reply through reload',async()=>{
@@ -129,4 +129,79 @@ test('restart surfaces uncertain draft and retries its original admission id',as
 test('Japanese continuation language reaches the cloud without falling back to Chinese',async()=>{
  const s=server();await s.make().perform('send',{taskId,requestId,prompt:'元の計画について説明してください。',locale:'ja'});
  assert.equal(s.calls.find(call=>call.op==='createAssistantRun').body.locale,'ja');
+});
+
+const busy=()=>Object.assign(Error('busy'),{code:'MOBILE_BUSY',status:429});
+test('task history and continuation admission recover only explicit rejection with one body/key',async()=>{
+  const s=server(),original=s.api.tradingCloudRequest,counts={},posts=[];
+  s.api.tradingCloudRequest=async(op,body,options)=>{
+    counts[op]=(counts[op]||0)+1;
+    if(op==='createAssistantRun')posts.push({body:structuredClone(body),key:options.idempotencyKey});
+    if(counts[op]===1)throw busy();
+    return original(op,body,options);
+  };
+  const service=s.make({wait:async()=>{},random:()=>0});
+  await service.perform('send',{taskId,requestId,prompt:'继续'});
+  assert.equal(counts.task,2);assert.equal(posts.length,2);assert.deepEqual(posts[0],posts[1]);
+  assert.equal(s.data.runs.length,26);
+});
+
+test('stop while admission is busy prevents another POST and releases the unsent draft',async()=>{
+  const s=server(),original=s.api.tradingCloudRequest;let posts=0,waiting;
+  const entered=new Promise(r=>waiting=r);
+  s.api.tradingCloudRequest=async(...args)=>{if(args[0]==='createAssistantRun'){posts++;throw busy();}return original(...args);};
+  const service=s.make({wait:async(_ms,_value,{signal})=>{waiting();await new Promise((_,reject)=>signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));}});
+  const sending=assert.rejects(service.perform('send',{taskId,requestId,prompt:'继续'}),{code:'TRADING_ANALYSIS_CANCELLED'});
+  await entered;
+  const stopped=await service.perform('cancel',{taskId});await sending;
+  assert.equal(posts,1);assert.equal(stopped.pending,null);assert.equal(s.data.runs.length,25);
+});
+
+test('stop racing acceptance retains the receipt and cancels exactly that run',async()=>{
+  const s=server(),original=s.api.tradingCloudRequest;let accept,entered;
+  const started=new Promise(r=>entered=r);
+  s.api.tradingCloudRequest=async(...args)=>{
+    if(args[0]==='createAssistantRun'){entered();await new Promise(r=>accept=r);}
+    return original(...args);
+  };
+  const service=s.make();const sending=assert.rejects(service.perform('send',{taskId,requestId,prompt:'继续'}),{code:'TRADING_ANALYSIS_CANCELLED'});
+  await started;const stop=service.perform('cancel',{taskId});await new Promise(r=>setImmediate(r));accept();
+  const stopped=await stop;await sending;
+  assert.deepEqual(stopped.activeRunIds,[]);assert.equal(stopped.pending,null);
+  assert.equal(s.data.runs.at(-1).state,'cancelled');assert.equal(s.calls.filter(c=>c.op==='createAssistantRun').length,1);
+  assert.equal(s.calls.filter(c=>c.op==='cancelRun').length,1);
+});
+
+test('a busy retry cannot clear an earlier uncertain paid receipt on stop',async()=>{
+  const s=server();s.lose();const input={taskId,requestId,prompt:'继续'};
+  await assert.rejects(s.make().perform('send',input),/lost/);
+  const original=s.api.tradingCloudRequest;let waiting;const entered=new Promise(r=>waiting=r);
+  s.api.tradingCloudRequest=async(...args)=>{if(args[0]==='createAssistantRun')throw busy();return original(...args);};
+  const service=s.make({wait:async(_ms,_value,{signal})=>{waiting();await new Promise((_,reject)=>signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));}});
+  const sending=assert.rejects(service.perform('send',input),{code:'TRADING_ANALYSIS_CANCELLED'});
+  await entered;await assert.rejects(service.perform('cancel',{taskId}),{code:'CLOUD_TASK_SUBMISSION_UNCERTAIN'});await sending;
+  assert.equal((await service.perform('read',{taskId})).pending.requestId,requestId);
+  await assert.rejects(service.perform('send',{...input,requestId:newRunId}),{code:'CLOUD_TASK_SUBMISSION_UNCERTAIN'});
+  assert.equal(s.data.runs.length,26);
+});
+
+test('renderer stop during send ignores late acceptance UI and keeps the stop result',async()=>{
+  const h=renderer(),ui=createCloudTaskChatController(h.deps);await ui.load(threadId);
+  let finish;h.deps.request=async action=>action==='send'?new Promise(r=>finish=r):h.history;
+  const sending=ui.send(threadId,'继续','gpt-6-astra','zh-CN');assert.equal(ui.canCancel(threadId),true);
+  await ui.stop(threadId);finish({...h.history,activeRunIds:[newRunId]});await sending;
+  assert.equal(ui.busy(threadId),false);assert.equal(h.errors.length,0);
+});
+
+test('later explicit rejection does not release an earlier uncertain receipt for a new paid round',async()=>{
+  const s=server();s.lose();const input={taskId,requestId,prompt:'继续'};
+  await assert.rejects(s.make().perform('send',input),/lost/);
+  const original=s.api.tradingCloudRequest;
+  s.api.tradingCloudRequest=async(...args)=>{
+    if(args[0]==='createAssistantRun')throw Object.assign(Error('access changed'),{status:403,code:'MODEL_MEMBERSHIP_REQUIRED'});
+    return original(...args);
+  };
+  await assert.rejects(s.make().perform('send',input),{status:403});
+  await assert.rejects(s.make().perform('send',{...input,requestId:newRunId}),{code:'CLOUD_TASK_SUBMISSION_UNCERTAIN'});
+  assert.equal(s.data.runs.length,26);
 });

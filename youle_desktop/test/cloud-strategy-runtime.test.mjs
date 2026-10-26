@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import http from 'node:http';
+import {YouleApiClient} from '../src/main/youle-api-client.mjs';
 import {createHash} from 'node:crypto';
 import {OFFICIAL_TRADING_CATALOG} from '../src/shared/official-trading-catalog.mjs';
+import {CodexBusinessTools} from '../src/main/codex-business-tools.mjs';
 import {createCloudStrategyRuntime,cloudMarketContext,cloudAccountConnection} from '../src/main/trading-strategy-runtime/cloud-runtime.mjs';
 
 test('account selection consumes server effective consent and excludes missing or revoked bindings', () => {
@@ -67,6 +70,115 @@ function setup(handler, overrides={}) {
   return {runtime,journal,calls,records,api,setOwner(value){current=value;}};
 }
 
+for(const strategy of OFFICIAL_TRADING_CATALOG)for(const entryMode of ['left','right'])test(`busy submission retains identity: ${strategy.id} ${entryMode}`,async()=>{
+  let posts=0;const s=setup(({operation})=>{
+    if(operation==='capabilities')return {windowsWorkerReady:true,entryV2WorkerReady:true,windowsContract:'windows-v1',strategies:[{id:strategy.id,legacyWindows:true,entryModes:['left','right']}]};
+    if(operation==='createRun')throw Object.assign(Error('controlled'),++posts===1?{code:'MOBILE_BUSY',status:429}:{code:'TEST_STOP'});
+  });
+  await assert.rejects(s.runtime.run(strategy.id,{...params,entryMode,
+    ...(strategy.id==='vpvr-analysis'?{visibleRange:{visibleFrom:1700000000000,visibleTo:1700100000000}}:{})}),{code:'TEST_STOP'});
+  const calls=s.calls.filter(c=>c.operation==='createRun');assert.equal(calls.length,2);
+  assert.deepEqual(calls[0].payload,calls[1].payload);assert.equal(calls[0].options.idempotencyKey,calls[1].options.idempotencyKey);
+  assert.equal((await s.journal.get(account.ownerId,params.analysisJobId)).requestedEntryMode,entryMode);
+});
+
+test('explicit recovery obeys its short deadline while preserving a prepared same-key admission',async()=>{
+  let clock=0,phase='initial';const s=setup(({operation})=>{
+    if(operation==='createRun')throw Object.assign(Error('controlled'),phase==='initial'?{code:'REQUEST_TIMEOUT'}:{status:429,code:'MOBILE_BUSY'});
+    if(operation==='run')throw Object.assign(Error('missing'),{status:404});
+  },{now:()=>clock,wait:async ms=>{clock+=ms;},random:()=>0});
+  await assert.rejects(s.runtime.run('moving-average-analysis',params),{code:'REQUEST_TIMEOUT'});
+  phase='resume';await assert.rejects(s.runtime.resume(params.analysisJobId,{timeoutMs:1500}),{code:'MOBILE_BUSY'});
+  assert.equal(clock,1500);const calls=s.calls.filter(c=>c.operation==='createRun');
+  assert.ok(calls.length<=3);assert.ok(calls.every(c=>c.options.idempotencyKey===calls[0].options.idempotencyKey));
+  assert.equal((await s.runtime.pending()).length,1);
+});
+
+test('explicit cancellation interrupts an active admission backoff and fences its same run id',async()=>{
+  let entered;const waiting=new Promise(r=>entered=r);
+  const s=setup(({operation})=>{if(operation==='createRun')throw Object.assign(Error('busy'),{status:429,code:'MOBILE_BUSY'});},
+    {wait:async(_ms,_value,{signal})=>{entered();await new Promise((_,reject)=>signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));}});
+  const outcome=assert.rejects(s.runtime.run('moving-average-analysis',params),{code:'TRADING_ANALYSIS_CANCELLED'});
+  await waiting;await s.runtime.cancel(params.analysisJobId);await outcome;
+  const posts=s.calls.filter(c=>c.operation==='createRun');assert.equal(posts.length,1);
+  assert.ok(s.calls.filter(c=>c.operation==='cancelRun').every(c=>c.payload.runId===posts[0].payload.clientRunId));
+  const saved=await s.journal.get(account.ownerId,params.analysisJobId);
+  assert.equal(saved.cancelRequested,true);assert.equal(saved.state,'cancelled');assert.equal(saved.acknowledged,true);
+});
+
+test('lost paid receipt fences root tool retries while explicit recovery returns the original run',async()=>{
+  let accepted,posts=0;
+  const s=setup();
+  const request=s.api.tradingCloudRequest;
+  s.api.tradingCloudRequest=async(...args)=>{
+    const result=await request(...args);
+    if(args[0]==='createRun' && ++posts===1){accepted=result;throw Object.assign(Error('receipt lost'),{code:'REQUEST_TIMEOUT',retryable:true});}
+    return result;
+  };
+  const broker=new CodexBusinessTools({owner:()=>account.ownerId,dispatch:()=>{},accountRead:async()=>({available:false})});
+  const client={},sender={id:1,isDestroyed:()=>false};
+  const context=broker.bind('thread',{client,sender,userText:'分析',executeTrading:async()=>({result:await s.runtime.run('moving-average-analysis',params)})});
+  broker.start('thread','turn',client);
+  const invoke=()=>broker.invokeBound({tool:'haolo_analysis',arguments:{context_id:context.token,strategyId:'moving-average-analysis'}});
+  await assert.rejects(invoke(),e=>e.code==='REQUEST_TIMEOUT'&&e.retryable===false&&e.runId===accepted.id&&e.terminal);
+  await assert.rejects(invoke(),e=>e.code==='REQUEST_TIMEOUT'&&e.terminal);
+  assert.equal(posts,1);
+  const recovered=await s.runtime.resume(params.analysisJobId);
+  assert.equal(recovered.cloud.runId,accepted.id);assert.equal(posts,1);
+  broker.cancel('thread');
+});
+
+test('busy capabilities, account binding and admission recover with exactly one frozen run identity',async()=>{
+  const tries={};let accountReads=0;const progress=[];
+  const s=setup(({operation})=>{
+    tries[operation]=(tries[operation]||0)+1;
+    if(['capabilities','createRun'].includes(operation)&&tries[operation]===1)
+      throw Object.assign(Error('busy'),{status:429,code:'MOBILE_BUSY'});
+  },{random:()=>0,connection:async()=>{
+    if(++accountReads===1)throw Object.assign(Error('busy'),{status:429,code:'MOBILE_BUSY'});
+    return {id:'connection'};
+  }});
+  const result=await s.runtime.run('moving-average-analysis',{...params,pureReferenceAnalysis:true},{onProgress:p=>progress.push(p)});
+  assert.equal(result.ok,true);assert.equal(accountReads,2);
+  const admissions=s.calls.filter(c=>c.operation==='createRun');
+  assert.equal(admissions.length,2);
+  assert.deepEqual(admissions[0].payload,admissions[1].payload);
+  assert.equal(admissions[0].options.idempotencyKey,admissions[1].options.idempotencyKey);
+  assert.equal(s.records.size,1);
+  assert.equal(progress.filter(p=>p.stage==='service_waiting').length,3);
+});
+
+test('real HTTP SDK recovers API admission 429 using the identical body and idempotency header',async t=>{
+  let submissions=0;const wires=[],progress=[];
+  const fixture=setup();
+  const server=http.createServer(async(req,res)=>{
+    const chunks=[];for await(const chunk of req)chunks.push(chunk);
+    const raw=Buffer.concat(chunks).toString();const url=new URL(req.url,'http://fixture');
+    const operation=url.pathname.endsWith('/trading-capabilities')?'capabilities':
+      url.pathname.endsWith('/market-snapshots')?'marketSnapshot':
+        req.method==='POST'?'createRun':'run';
+    const payload=raw?JSON.parse(raw):operation==='run'?{runId:url.pathname.split('/').at(-1)}:{};
+    res.setHeader('content-type','application/json');
+    if(operation==='createRun') {
+      wires.push({raw,key:req.headers['idempotency-key']});
+      if(++submissions===1){res.writeHead(429,{'Retry-After':'2'});res.end(JSON.stringify({detail:{code:'MOBILE_BUSY'}}));return;}
+    }
+    res.end(JSON.stringify(await fixture.api.tradingCloudRequest(operation,payload,{})));
+  });
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  t.after(()=>new Promise(resolve=>{server.closeAllConnections();server.close(resolve);}));
+  const baseUrl=`http://127.0.0.1:${server.address().port}`;
+  const api=new YouleApiClient({serviceFetch:fetch});
+  Object.assign(api,{loaded:true,baseUrl,profile:{id:'fixture'},token:'isolated-fixture-token'});
+  let waited=0;
+  const runtime=createCloudStrategyRuntime({owner:async()=>({ownerId:'fixture',accountId:'fixture',baseUrl}),api:()=>api,
+    journal:fixture.journal,random:()=>0,wait:async ms=>{waited+=ms;}});
+  assert.equal((await runtime.run('moving-average-analysis',params,{onProgress:p=>progress.push(p)})).ok,true);
+  assert.equal(wires.length,2);assert.deepEqual(wires[0],wires[1]);assert.equal(waited,2000);
+  assert.equal(fixture.calls.filter(c=>c.operation==='createRun').length,1);
+  assert.ok(progress.some(p=>p.stage==='service_waiting'));
+});
+
 test('cloud admission freezes the selected label independently from the DeepSeek runtime',async()=>{
   for (const modelDisplayAlias of ['gpt-5.6-sol','gpt-6-astra','gpt-6-sol']) {
     const s=setup();
@@ -114,7 +226,7 @@ test('429 deadline preserves the journal and a later resume only reads the exist
   const s=setup(({operation})=>{
     if(operation==='run'&&busy)throw Object.assign(Error('busy'),{status:429,retryAfterMs:60000});
   },{now:()=>clock,random:()=>0,timeoutMs:5000,wait:async ms=>{waits.push(ms);clock+=ms;}});
-  await assert.rejects(s.runtime.run('moving-average-analysis',params),e=>e.code==='CLOUD_RUN_PENDING'&&e.retryable===true&&!!e.runId);
+  await assert.rejects(s.runtime.run('moving-average-analysis',params),e=>e.code==='CLOUD_RUN_PENDING'&&e.retryable===false&&!!e.runId);
   assert.deepEqual(waits,[5000]);
   const saved=await s.journal.get(account.ownerId,params.analysisJobId);
   assert.equal(saved.state,'running');assert.equal(saved.cancelRequested,undefined);

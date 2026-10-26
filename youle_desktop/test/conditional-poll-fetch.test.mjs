@@ -64,3 +64,26 @@ test('concurrent large reads of one URL do not double count cache memory or lose
   await fetch(url);
   assert.equal(new Headers(lastHeaders).get('if-none-match'), 'W/"large"');
 });
+
+test('topic hints and writes preserve Retry-After; only account changes reset the budget', async () => {
+  let count=0, owner='one', now=1000;
+  const fetch=createConditionalPollFetch(async(_url,init)=>{
+    count++;return init.method==='PUT'?new Response('{}'):new Response('{}',{status:429,headers:{'retry-after':'60'}});
+  },()=>owner,{background:true,now:()=>now,random:()=>0});
+  await fetch(url);assert.equal(count,1);
+  fetch.invalidateTopics(['settings','plans']);await fetch(url);assert.equal(count,1);
+  await fetch(url,{method:'PUT'});await fetch(url);assert.equal(count,2);
+  now+=60001;await fetch(url);assert.equal(count,3);
+  owner='two';await fetch(url);assert.equal(count,4);
+});
+
+test('hint during an active read joins it, fences its cache and requires one fresh followup', async () => {
+  let count=0,release;
+  const fetch=createConditionalPollFetch(async()=>{
+    count++;if(count===1)await new Promise(resolve=>{release=resolve;});return initial();
+  },()=> 'one',{background:true});
+  const first=fetch(url);fetch.invalidateTopics(['settings']);const joined=fetch(url);
+  release();await Promise.all([first,joined]);assert.equal(count,1);
+  await fetch(url);assert.equal(count,2);
+  fetch.invalidateTopics(['plans']);await fetch(url);assert.equal(count,2);
+});

@@ -1,5 +1,6 @@
 import {cloudTaskHistory} from './cloud-task-history.mjs';
 import {cloudStrategyFailure} from './cloud-error.mjs';
+import {waitForAnalysisAdmission,isAnalysisAdmissionBusy} from './admission-recovery.mjs';
 
 const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const terminal = run => ['succeeded','failed','cancelled'].includes(run.state);
@@ -8,21 +9,39 @@ const models = new Set(['deepseek-flash','gpt-5.6-sol','gpt-6-sol','gpt-6-astra'
 
 // A new run is a round within the existing task, never a replacement task.
 // Persist admission before POST so a lost response/restart reuses the same key.
-export function createCloudTaskChat({owner,api,journal}) {
-  const locks = new Set();
+export function createCloudTaskChat({owner,api,journal,wait,now,random,busyTimeoutMs=120000}) {
+  const locks = new Map();
   return {async perform(action,input={}) {
     const captured = await owner(), taskId = input.taskId;
+    const controller = new AbortController();
+    let admissionRejected = false;
     if (!uuid.test(taskId || '')) fail('CLOUD_TASK_HISTORY_INVALID');
     const check = async () => {
       const current = await owner();
-      if (current.ownerId !== captured.ownerId || current.baseUrl !== captured.baseUrl) fail('TRADING_PREFERENCE_OWNER_CHANGED');
+      if (current.ownerId !== captured.ownerId || current.baseUrl !== captured.baseUrl || current.accountId !== captured.accountId) fail('TRADING_PREFERENCE_OWNER_CHANGED');
     };
-    const request = async (op,payload,key) => {
-      await check();
-      const result = await api().tradingCloudRequest(op,payload,{expectedAccountId:captured.accountId,
-        expectedBaseUrl:captured.baseUrl,...(key ? {idempotencyKey:key} : {})});
-      await check(); return result;
-    };
+    const request = (op,payload,key,accepted) => waitForAnalysisAdmission({
+      assertOwner:check,signal:controller.signal,wait,now,random,timeoutMs:busyTimeoutMs,
+      request:async()=>{
+        await check();
+        // Do not abort a paid POST in flight: retain its receipt before honoring
+        // stop. Cancellation waits for send to settle, then stops the same run.
+        let result;
+        const previouslyRejected = admissionRejected;
+        if (op==='createAssistantRun') admissionRejected=false;
+        try {
+          result = await api().tradingCloudRequest(op,payload,{expectedAccountId:captured.accountId,
+            expectedBaseUrl:captured.baseUrl,...(key ? {idempotencyKey:key} : {}),
+            ...(op==='createAssistantRun' ? {} : {signal:controller.signal})});
+        } catch(error) {
+          // A rejection of this retry cannot disprove an earlier lost receipt.
+          if (op==='createAssistantRun') admissionRejected=previouslyRejected
+            && (isAnalysisAdmissionBusy(error) || [400,401,402,403,404,409,422].includes(error.status));
+          throw error;
+        }
+        await check(); await accepted?.(result); return result;
+      },
+    });
     const readTask = async () => {
       const task = await request('task',{taskId});
       if (task.id !== taskId) fail('CLOUD_TASK_HISTORY_INVALID');
@@ -50,13 +69,23 @@ export function createCloudTaskChat({owner,api,journal}) {
     if (action === 'read') return read();
     if (!['send','cancel'].includes(action)) fail('CLOUD_PLAN_ACTION_INVALID');
     const lock = `${captured.ownerId}:${taskId}`;
+    const pending = locks.get(lock);
+    if (action==='cancel' && pending?.action==='send') {
+      pending.controller.abort(Object.assign(new Error('TRADING_ANALYSIS_CANCELLED'),{code:'TRADING_ANALYSIS_CANCELLED'}));
+      await pending.done;
+      await check();
+    }
     if (locks.has(lock)) fail('CLOUD_TASK_BUSY');
-    locks.add(lock);
+    let release;
+    const done = new Promise(resolve=>{release=resolve;});
+    locks.set(lock,{action,controller,done});
     try {
       const task = await readTask();
       const running = task.runs.filter(run => !terminal(run));
       if (action === 'cancel') {
         for (const run of running) await request('cancelRun',{runId:run.id},`chat-stop:${run.id}`);
+        const record = await journal().get(captured.ownerId,taskId);
+        if (record && !record.runId && !record.acknowledged) fail('CLOUD_TASK_SUBMISSION_UNCERTAIN');
         return read();
       }
       const prompt = String(input.prompt || '').trim();
@@ -74,19 +103,26 @@ export function createCloudTaskChat({owner,api,journal}) {
         let context = {...task.context,taskId};
         // Index assistant admission requires a current, owned market snapshot.
         if (context.marketKey.startsWith('index:')) {
-          const snapshot = await request('marketSnapshot',{market:context.marketKey,interval:context.interval,limit:500});
+          const snapshot = await request('marketSnapshot',{market:context.marketKey,interval:context.interval,limit:500,purpose:'analysis'});
           context = {...context,snapshotId:snapshot.snapshotId};
         }
         record = {requestId:input.requestId,body:{context,prompt,locale,attachmentIds:[],
           ...(input.modelId ? {modelId:input.modelId} : {})},acknowledged:false};
         await journal().put(captured.ownerId,taskId,record);
+        admissionRejected = true;
       }
       let run;
       try {
-        run = await request('createAssistantRun',record.body,`chat:${taskId}:${record.requestId}`);
+        run = await request('createAssistantRun',record.body,`chat:${taskId}:${record.requestId}`,async receipt=>{
+          if (!uuid.test(receipt.id || '') || receipt.context?.taskId !== taskId || receipt.strategy !== 'assistant'
+            || receipt.prompt !== record.body.prompt) fail('CLOUD_TASK_HISTORY_INVALID');
+          record = {...record,runId:receipt.id,acknowledged:terminal(receipt)};
+          await journal().put(captured.ownerId,taskId,record);
+        });
       } catch (error) {
         // Explicit validation/access rejection did not accept a paid round.
-        if ([400,401,402,403,404,409,422].includes(error.status)) {
+        if (admissionRejected && ([400,401,402,403,404,409,422].includes(error.status)
+          || controller.signal.aborted)) {
           await journal().put(captured.ownerId,taskId,{...record,acknowledged:true});
         }
         throw error;
@@ -103,6 +139,6 @@ export function createCloudTaskChat({owner,api,journal}) {
       const existing = task.runs.some(item => item.id === run.id);
       return snapshot({...task,updatedAt:run.updatedAt || run.createdAt || task.updatedAt,
         runs:existing ? task.runs.map(item => item.id === run.id ? run : item) : [...task.runs,run]},record);
-    } finally { locks.delete(lock); }
+    } finally { locks.delete(lock); release(); }
   }};
 }

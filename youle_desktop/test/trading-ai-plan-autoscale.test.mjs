@@ -3,6 +3,20 @@ import test from 'node:test';
 import { tradingAiPlanFitRange, TradingAiPlanAutoscale } from '../src/renderer/trading-ai-plan-autoscale.ts';
 import { TradingDrawingController } from '../src/renderer/trading-expert-drawing.ts';
 
+test('off-screen anchors do not compress the plan; crossing geometry and all five levels still fit', () => {
+  const levels = [80266.49, 79320.52, 80890.50, 81190.70, 81639.60];
+  const drawings = [
+    {tool:'text',points:[{time:10,price:95000}]},
+    {tool:'path',points:[{time:10,price:90000},{time:110,price:80000}]},
+    {tool:'rectangle',points:[{time:95,price:81750},{time:105,price:79000}]},
+  ];
+  const range = tradingAiPlanFitRange(levels, drawings, {from:100,to:200});
+  assert.ok(range.maxValue > 81750 && range.maxValue < 82000, JSON.stringify(range));
+  assert.ok(range.minValue < 79000);
+  assert.ok(levels.every(p=>p>range.minValue && p<range.maxValue));
+  assert.ok(tradingAiPlanFitRange(levels, drawings).maxValue > 95000, 'legacy unbounded callers are supported');
+});
+
 test('the fit contains every plan price and AI anchor with padding, without changing prices', () => {
   const prices = [81766.24, 82584, 81146.4, 80622, 80361.44];
   const geometry = [{ points: [{ price: 84311.3 }, { price: 81146.4 }] }];

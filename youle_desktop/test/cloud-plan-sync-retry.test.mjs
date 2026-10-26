@@ -11,12 +11,13 @@ import {cloudPlanListResponse,cloudPlanSyncDiagnostic} from '../src/main/cloud-p
 import {createCloudPlans} from '../src/main/trading-strategy-runtime/cloud-plans.mjs';
 import {YouleApiClient} from '../src/main/youle-api-client.mjs';
 
-function harness(load) {
+function harness(load,options={}) {
   const timers=new Map(),notices=[],writes=[],applied=[];
   let scope='account-A',calls=0,next=0,savedResolve;
   const saved=new Promise(resolve=>savedResolve=resolve);
   const retained=[{id:'existing-local-plan'}];
   const refresh=createCloudPlanRefresher({
+    ...options,
     scope:()=>scope,load:()=>{calls++;return load(calls);},read:()=>retained,
     apply:plans=>applied.push(plans),save:(owner,plans)=>{writes.push({owner,plans});savedResolve();return true;},
     changed:()=>{},cacheFailure:()=>notices.push('cache'),failure:error=>notices.push(error),
@@ -37,6 +38,36 @@ test('network failures stay silent, retain plans and automatically recover witho
   await h.tick();
   assert.equal(h.calls,3);assert.equal(h.timers.size,0);
   assert.deepEqual(h.applied,[h.retained]);assert.equal(h.writes.length,1);
+});
+
+test('event-triggered reads recover without a new version and stop retrying after success',async()=>{
+  const h=harness(async attempt=>attempt===1?{ok:false,error:{status:429,retryAfterMs:60000}}:{ok:true,reports:[]},{eventDriven:true});
+  await h.refresh();
+  for(let i=0;i<50;i++)await h.refresh();
+  assert.equal(h.calls,1);assert.equal(h.timers.size,1);
+  assert.equal([...h.timers.values()][0].delay,60000);
+  await h.tick();assert.equal(h.calls,2);assert.equal(h.writes.length,1);
+  assert.equal(h.timers.size,0);assert.deepEqual(h.notices,[]);
+});
+
+test('event recovery is finite, permanent failures stay silent, reset cancels retry',async()=>{
+  const h=harness(async()=>({ok:false,error:{status:503}}),{eventDriven:true});
+  await h.refresh();
+  for(let i=0;i<3;i++)await h.tick();
+  assert.equal(h.calls,4);assert.equal(h.timers.size,0);assert.deepEqual(h.notices,[]);
+  const permanent=harness(async()=>({ok:false,error:{status:422,retryable:true}}),{eventDriven:true});
+  await permanent.refresh();assert.equal(permanent.timers.size,0);assert.deepEqual(permanent.notices,[]);
+  const pending=harness(async()=>({ok:false,error:{status:429,retryAfterMs:60000}}),{eventDriven:true});
+  await pending.refresh();pending.refresh.reset();assert.equal(pending.timers.size,0);
+});
+
+test('hints received during a failed read cannot immediately replay that read',async()=>{
+  let resolve;
+  const h=harness(()=>new Promise(r=>resolve=r),{eventDriven:true});
+  const first=h.refresh();await h.refresh();
+  resolve({ok:false,error:{status:429,retryAfterMs:60000}});await first;
+  assert.equal(h.calls,1);assert.equal(h.timers.size,1);
+  h.refresh.reset();
 });
 
 test('server retry-after survives the IPC envelope and repeated refresh events cannot skip it',async()=>{
@@ -165,6 +196,8 @@ test('actual main IPC list handler writes a persistent diagnostic and leaves mut
 });
 
 test('HTTP Retry-After crosses real SDK, plan reader and IPC before a successful automatic GET retry',{timeout:5000},async t=>{
+  let clock = Date.now();
+  t.mock.method(Date, 'now', () => clock);
   const requests=[],events=[];
   const server=http.createServer((req,res)=>{
     requests.push({method:req.method,url:req.url});
@@ -181,7 +214,7 @@ test('HTTP Retry-After crosses real SDK, plan reader and IPC before a successful
   const h=harness(()=>cloudPlanListResponse(plans,{recordFailure:entry=>events.push(entry)}));
   await h.refresh();assert.deepEqual(h.notices,[]);assert.equal(events[0].originalError.serverCode,'MOBILE_BUSY');
   assert.equal([...h.timers.values()][0].delay,3000);
-  const [id,timer]=h.timers.entries().next().value;h.timers.delete(id);timer.run();
+  const [id,timer]=h.timers.entries().next().value;h.timers.delete(id);clock += timer.delay;timer.run();
   await h.saved;
   assert.equal(h.writes.length,1);assert.equal(h.timers.size,0);assert.deepEqual(h.applied,[h.retained]);
   assert.deepEqual(requests,[{method:'GET',url:'/api/mobile/v1/trading-plans'},{method:'GET',url:'/api/mobile/v1/trading-plans'}]);
@@ -203,7 +236,10 @@ test('actual renderer wiring does not invoke Toast for transient failures in any
       cloudPlanSyncMessage,errorMessage:error=>error.message,showToast:message=>notices.push(message),executionPlanCloudLoadedScope:null};
     const refresh=Function(...Object.keys(dependencies),compiled+';return refreshCloudExecutionPlans;')(...Object.values(dependencies));
     await refresh();assert.deepEqual(notices,[]);assert.equal(diagnostics.length,1);assert.equal(state.executionPlans[0].id,'retained');
-    failed=false;retry();await new Promise(setImmediate);assert.deepEqual(notices,[]);assert.equal(state.executionPlans.length,1);refresh.reset();
+    // Retry the failed read silently without waiting for a new state version.
+    assert.equal(typeof retry,'function');
+    failed=false;retry();await new Promise(setImmediate);
+    assert.deepEqual(notices,[]);assert.equal(state.executionPlans.length,1);refresh.reset();
   }
 });
 

@@ -13,6 +13,7 @@ export async function clientSettingsRequest(api, params = {}) {
   try {
     result = await api.requestJson(`${baseUrl}/api/mobile/v1/client-settings`, {
       method: writing ? 'PUT' : 'GET',
+      ...(params.fresh === true ? { cache: 'reload' } : {}),
       headers: { ...api.authHeaders(), ...(writing ? { 'content-type': 'application/json' } : {}) },
       ...(writing ? { body: JSON.stringify(params.body) } : {}),
     });

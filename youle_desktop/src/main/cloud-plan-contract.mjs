@@ -7,11 +7,12 @@ import {executionPlanCandidatesFromText,executionPlanCandidateWithSourceText,exe
 import {executionPlanCardHeading,executionPlanCardBody,executionPlanStructuredCardBody,executionPlanCardAction} from './execution-plan-card-view.mjs';
 import {cloudPlanAccountView,cloudPlanEntryBasisMismatch} from './cloud-plan-account-view.mjs';
 import {validLeftObservation,leftRouteView} from './price-action-left-card.mjs';
-import {validConditionalWatch} from './conditional-watch-card.mjs';
+import {validConditionalWatch,conditionalWatchCard} from './conditional-watch-card.mjs';
 import {normalizePlanProbability} from './plan-probability-view.mjs';
 import {validAnalysisRequestPlan} from '../shared/analysis-request-contract.mjs';
 import {validPlanPresentation,validPresentationDrawing,validPresentationReminder} from '../shared/plan-presentation.mjs';
 import {planPresentationCard} from './plan-presentation-card.mjs';
+import {expandWyckoffReport, validWyckoffRetest} from '../shared/wyckoff-plan-set.mjs';
 const uuid = value => typeof value==='string' && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
 const hash = value => typeof value==='string' && /^[a-f0-9]{64}$/.test(value);
 const positive=value=>typeof value==='number'&&Number.isFinite(value)&&value>0;
@@ -31,16 +32,19 @@ export function cloudPlanControls(language) {
 }
 export function normalizeCloudReports(value) {
   if(value==null) return [];
-  if(!Array.isArray(value)||value.length>8) fail();
+  if(!Array.isArray(value)||value.length>16||new Set(value.map(row=>row?.runId)).size>8) fail();
+  value=value.flatMap(expandWyckoffReport);
+  if(value.length>16)fail();
   const json=JSON.stringify(value);
   if(new TextEncoder().encode(json).length>2*1024*1024) fail();
   const rows=JSON.parse(json), seen=new Set(), seenPlans=new Set();
   return rows.map(row=>{
-    if(row?.schemaVersion!==1||!uuid(row.runId)||seen.has(row.runId)||!hash(row.resultHash)
+    const identity=row.executionPlan?.wyckoffScenario ? `${row.runId}:${row.executionPlan.planId}` : row.runId;
+    if(row?.schemaVersion!==1||!uuid(row.runId)||seen.has(identity)||!hash(row.resultHash)
       ||!['zh-CN','en','zh-Hant','ko','ja'].includes(row.locale)||typeof row.marketId!=='string'||typeof row.interval!=='string'
       ||typeof row.strategyId!=='string'||typeof row.report!=='string'||row.report.length>500000
       ||!Array.isArray(row.planRecords)) fail();
-    seen.add(row.runId);
+    seen.add(identity);
     const profitProbability = normalizePlanProbability(row.profitProbability,row);
     if(row.executionPolicy==='right-legacy-v1') {
       const candidates=legacyReportCandidates(row.report);
@@ -66,6 +70,7 @@ export function normalizeCloudReports(value) {
     if(row.executionPlan?.schemaVersion!==2||!Array.isArray(row.executionPlan.scenarios)||row.executionPlan.scenarios.length>1
       ||row.planRecords.length!==row.executionPlan.scenarios.length)fail();
     const plan=row.executionPlan;
+    if(!validWyckoffRetest(plan,row.strategyId))fail();
     if(!validAnalysisRequestPlan(plan)||!validPlanPresentation(plan)
       ||(plan.planPresentation&&!validPresentationDrawing(plan,row.drawingPatch)))fail();
     for(const remote of row.planRecords) {
@@ -171,7 +176,8 @@ export function cloudPlanCard(report, { hideExpiry = false, separateAction = fal
   const plan=report.executionPlan,condition=plan.entryCondition,scenario=plan.scenarios[0];
   const language=displayLanguage||(report.locale==='zh-Hant'?'zh-TW':report.locale);
   if(plan.outcome?.action!=='plan'||!condition||!scenario)
-    return plan.planPresentation?.version==='always-card-v1'?planPresentationCard(report,language):null;
+    return (plan.planPresentation?.version==='always-card-v1'?planPresentationCard(report,language):null)
+      || conditionalWatchCard(report,language);
   const route=leftRouteView(plan,language);
   const predicate=p=>p ? `${t(p.operator)} ${p.operator==='in_zone'?`[${p.lower}, ${p.upper}]`:p.lower}` : '';
   const details=[t(condition.confirmation),predicate(condition.trigger)];

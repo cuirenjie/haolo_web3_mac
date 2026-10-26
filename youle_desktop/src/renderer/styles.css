@@ -24896,6 +24896,42 @@ html[data-theme="dark"] .app-confirmation-dialog.app-selection-confirmation-dial
   flex-basis: 100%;
 }
 
+.settings-trading-buttons {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.settings-trading-restore {
+  min-height: 30px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: calc(12px + var(--app-font-size-offset));
+  line-height: 18px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.settings-trading-restore:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text-primary);
+}
+
+.settings-trading-restore:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+.settings-trading-restore:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 html[data-theme="dark"] .settings-trading-actions {
   background: var(--dialog-surface);
 }
