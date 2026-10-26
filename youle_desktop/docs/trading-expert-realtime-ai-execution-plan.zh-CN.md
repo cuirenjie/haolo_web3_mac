@@ -1,6 +1,6 @@
 # 交易专家实时 AI 盘面分析执行方案
 
-2026-10-27 RELEASE-181-20261027（进行中）：用户已授权六端最新源码提交远端 dev，部署后发布 EV 签名 Windows 0.1.181 与递增的 Android 正式包，均强制更新；全部验收成功后关机。当前工作焦点为生产服务终态复核、正式签名打包和官网发布。Windows 产品候选为 910f8507；后台及官网候选为 8faa92f9；Android 产品候选为 9d42b15a。发布前已通过 Windows 专项 30 项及类型检查、内置运行时 47 文件与第三方签名校验；生产上线与最终安装包结果另行追加，不以候选构建代表完成。
+2026-10-27 RELEASE-181-20261027（已完成）：用户已授权六端最新源码提交远端 dev，部署后发布 EV 签名 Windows 0.1.181 与递增的 Android 正式包，均强制更新；全部验收成功后关机。当前工作焦点已完成：生产服务终态、签名安装包、官网强制更新及下载摘要均已核对。Windows 产品候选为 910f8507；后台及官网候选为 8faa92f9；Android 产品候选为 9d42b15a。发布前已通过 Windows 专项 30 项及类型检查、内置运行时 47 文件与第三方签名校验；生产上线与最终安装包结果另行追加，不以候选构建代表完成。
 
 2026-10-27 M1-463D／PROBABILITY-ASYNC-001（本地源码与验收完成，未生产发布）：主结果先成功，概率独立补充；Windows与Android/iOS均在计划下显示“模型正在分析盈利概率...”气泡，完成后替换，失败／等待耗尽结束气泡。所有有效0%至100%结果展示，覆盖旧的50%门槛。移动绘图可见2秒→正文渐进→计划顺序保持，补充不改主busy／streaming、不重播绘图正文。后端89通过；Windows专项12通过、扩大回归225通过及10条HEAD同样复现的既有威科夫便利贴比较失败，类型／构建／40组界面通过；移动414回归及最终26项交互通过、分析器无问题。Android已于03:33保留数据覆盖安装0.1.11+12，PID2927、焦点和本地／设备APK哈希一致，当前异常检查为0。此会话未提交、推送、生产部署或发布正式安装包。详见概率补充验收记录。
 
@@ -5541,3 +5541,25 @@ Android初次编译成功但安装前AVD退出，原因未确认，失败日志�
 2026-10-27 M1-463D／PROBABILITY-ASYNC-001（本地源码与验收完成，未生产发布）：主结果先成功，概率独立补充；Windows与Android/iOS均在计划下显示“模型正在分析盈利概率...”气泡，完成后替换，失败／等待耗尽结束气泡。所有有效0%至100%结果展示，覆盖旧的50%门槛。移动绘图可见2秒→正文渐进→计划顺序保持，补充不改主busy／streaming、不重播绘图正文。后端89通过；Windows专项12通过、扩大回归225通过及10条HEAD同样复现的既有威科夫便利贴比较失败，类型／构建／40组界面通过；移动414回归及最终26项交互通过、分析器无问题。Android已于03:33保留数据覆盖安装0.1.11+12，PID2927、焦点和本地／设备APK哈希一致，当前异常检查为0。此会话未提交、推送、生产部署或发布正式安装包。详见概率补充验收记录。
 
 证据见[概率补充验收](probability-supplement-20261027.zh-CN.md)。旧便利贴基线失败单独记录，未混入本任务修改；没有把本机编译与安装记作生产发布。
+
+
+### 2026-10-27 RELEASE-181-20261027 正式发布完成
+
+Windows 0.1.181 与 Android 0.1.12+13 均已在官网正式发布，旧版本检查响应 `force_update=true`，当前版本不重复提示更新。Windows 最低支持版本 0.1.181；Android 最低支持 build 13。公网完整下载安装包后的长度及 SHA-256 与本机产物一致。
+
+| 项目 | Windows | Android |
+| --- | --- | --- |
+| 源码 | f2b1040533ac12ddb305f660f25100c335fb0765 | 9d42b15ad56ca5c830eb3456597d73e0475dccda |
+| 版本提交 | 已包含版本 0.1.181 | 9fe6c20aec99feaad46b5831ce52e6a7e6ba64c4（构建器预留后回写 0.1.12+13；产品输入稳定性凭据保留） |
+| 发布记录 | 339631b6-ce16-4d33-a287-87a55bf40324 | f19adff4-9d63-48a6-996b-6f6e83b51470 |
+| 字节 | 251461928 | 98153800 |
+| SHA-256 | `79def4a69760438f4f408ffb592737d1dec749fab238cb5384313842dd071169` | `0aed2df7572758a500338cd21a8e1628966a5b0b9b6494274e86f9638a94b9ac` |
+| 官网入口 | [下载 Windows](https://haolo.com/api/app-updates/windows/latest/download?arch=x64&client_variant=haolo_windows_web3) | [下载 Android](https://haolo.com/api/app-updates/mobile/android/latest/download?channel=direct) |
+
+Windows 主程序、原生 host、卸载器和安装器四类签名均为 Valid，SHA-256、EV 策略、时间戳及固定证书 EC6346287B2F343CB7BFA4CF4CAB7DB02379A0AD 通过。APK 沿用原正式证书 `b577aab50b7a5453c21800678874c74d45303489b45d3ee517833467bc747cf4`，三种 ABI、非 debuggable 和 16KiB 对齐通过，非测试包。
+
+Windows 专属 `.support-bundle.json`、`.support-build.json`、`.support-publication.json` 与签名安装器同目录保留；Android 的 support-bundle、build-report、verification 及 publication 凭据均在 `release/android/0.1.12+13/`。两端实际生产知识包、精确版本/contract/源 SHA 和七个动作均已 active；错误 contract 被拒绝。以实际发布知识和允许动作调用真实上游模型，红涨绿跌返回受控 `set_candle_colors`。将该真实计划交给发布包内 ASAR renderer，16 项授权、拒绝不改色、控件执行及持久化验证通过；此 UI 层的 consent HTTP 为隔离夹具，未创建生产客户会话、消息或邮件，不宣称真实用户会话整链路已验收。移动原生观感交用户，iOS 未做签名构建。
+
+大文件上传的本地响应均超时，但服务器已存储成功。先只读核对版本、文件和知识包，Windows 使用原校验函数恢复已激活回执；Android 仅发布现有草稿，未重复上传、重复建版或覆盖旧版本。异常日志保留。详细客户端凭据见规范前端仓库 `youle_mas-dev/backend/docs/verification/release-181-clients-20261027.json`。
+
+后端／官网完整发布记录见规范前端仓库 `docs/release-181-20261027.zh-CN.md`。本次未强制终止原行情长连接，未重启用户 Windows 实例；独立设备表现不以本次服务端与隔离 UI 检查替代。
