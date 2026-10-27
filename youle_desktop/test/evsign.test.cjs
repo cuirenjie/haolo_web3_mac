@@ -183,6 +183,29 @@ test('CLI failure cannot expose command-line credentials or replace the original
   assert.deepEqual(await fs.readdir(root), ['haolo_desktop.exe']);
 });
 
+test('operator-selected automatic timestamps retain CLI isolation and reject disabling timestamps', async t => {
+  const { file, root } = await fixture(t);
+  const { requestCliSignature } = require('../scripts/evsign-cli.cjs');
+  const output = path.join(root, 'signed.exe');
+  await requestCliSignature(file, output, credentials, {
+    timestamp: 'auto', prepare: async () => 'verified-cli.exe', log: () => {},
+    run: async (_, args, options) => {
+      assert.equal(path.basename(args[0]), 'haolo_desktop.exe');
+      assert.notEqual(args[0], file);
+      assert.deepEqual(args.slice(1), ['-key', KEY, '-sha256', '-t', 'auto', '-pwd', credentials.password]);
+      assert.equal(options.shell, false);
+      await fs.writeFile(args[0], executable(true));
+    },
+  });
+  assert.deepEqual(await fs.readFile(file), executable());
+  assert.deepEqual(await fs.readFile(output), executable(true));
+  for (const timestamp of ['no', '', 'http://unreviewed.invalid', 'other']) {
+    await assert.rejects(requestCliSignature(file, output, credentials, {
+      timestamp, prepare: () => assert.fail('Invalid mode must fail before CLI execution'),
+    }), /timestamp mode must be digicert or auto/);
+  }
+});
+
 test('normal signing defaults to CLI and rejects an altered CLI binary before execution', async t => {
   const { file } = await fixture(t);
   const cli = require('../scripts/evsign-cli.cjs');

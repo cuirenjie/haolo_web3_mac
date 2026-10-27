@@ -41,7 +41,10 @@ async function ensureCli() {
   return target;
 }
 
-async function requestCliSignature(input, output, credentials, { prepare = ensureCli, run = execute, log = console.log } = {}) {
+async function requestCliSignature(input, output, credentials, { prepare = ensureCli, run = execute, log = console.log, timestamp = process.env.HAOLO_EVSIGN_TIMESTAMP || 'digicert' } = {}) {
+  // Operator-selected recovery for a timestamp-provider outage. Never allow
+  // the CLI's "no" mode; the outer signature verifier still requires a TSA.
+  if (!['digicert', 'auto'].includes(timestamp)) throw new Error('EV Sign timestamp mode must be digicert or auto');
   input = path.resolve(input);
   output = path.resolve(output);
   const executable = await prepare();
@@ -49,7 +52,7 @@ async function requestCliSignature(input, output, credentials, { prepare = ensur
   // Keep the reviewed original filename. The official CLI signs in place, so
   // isolate a copy until the outer payload/certificate verification succeeds.
   const candidate = path.join(working, path.basename(input));
-  const args = [candidate, '-key', credentials.licenseKey, '-sha256', '-t', 'digicert'];
+  const args = [candidate, '-key', credentials.licenseKey, '-sha256', '-t', timestamp];
   if (credentials.password) args.push('-pwd', credentials.password);
   if (credentials.certificateId) args.push('-cert', String(credentials.certificateId));
   const start = Date.now();

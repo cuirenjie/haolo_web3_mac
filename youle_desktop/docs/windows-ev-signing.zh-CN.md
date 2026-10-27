@@ -4,6 +4,8 @@
 
 ## CLI 与凭证
 
+- 2026-10-27 RELEASE-182-20261027：DigiCert时间戳连续两次失败后，允许本次进程显式设置 `HAOLO_EVSIGN_TIMESTAMP=auto` 使用服务商自动选择时间戳；仍调用同一固定CLI，默认保持digicert，不自动切换API。仅接受digicert／auto，拒绝no和未知值；PE正文、固定证书、EV、SHA-256及可信时间戳检查全部保持。失败日志和最终实际时间戳颁发者随签名报告保留。
+
 - 用户于 2026-09-19 根据服务商建议要求使用 [EV Sign 官方 CLI](https://wiki.evsign.cn/cli)。正常打包默认通过 `scripts/evsign-cli.cjs` 调用官方 CLI，使用 `-sha256 -t digicert`，不追加旧签名；失败不会自动回退为完整文件上传 API。
 - CLI 位于仓库外的 `~/.codex/tools/evsign/evsign-client.exe`。`node scripts/evsign-cli.cjs` 可提前准备，打包时也会自动准备。CI 有独立准备步骤；可通过 `HAOLO_EVSIGN_CLI_PATH` 指定同一已验证工具。
 - 当前 CLI 为官方 Windows 1.0.1，工具本身发布者为 **Keroro Software Ltd**。`scripts/evsign-policy.json` 分别固定 CLI 的 SHA-256、工具证书指纹及 HaoLo 产物证书指纹。工具更新须先复核再更新 pin，不自动接受固定下载地址返回的新二进制。
