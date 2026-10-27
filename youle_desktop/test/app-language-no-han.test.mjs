@@ -40,7 +40,9 @@ function auditTranslation(text, file, locale = "en") {
 function rendererSourceFiles(directory = RENDERER_ROOT) {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const entryPath = path.join(directory, entry.name);
-    if (entry.isDirectory()) return [".cache", "dist", "node_modules"].includes(entry.name) ? [] : rendererSourceFiles(entryPath);
+    // Local verification builds can live under output/; audit authored source,
+    // not archived minified bundles and their embedded translation catalogs.
+    if (entry.isDirectory()) return [".cache", "dist", "output", "outputs", "node_modules"].includes(entry.name) ? [] : rendererSourceFiles(entryPath);
     if (!SOURCE_EXTENSION_PATTERN.test(entry.name)) return [];
     if (entry.name.startsWith("app-language")) return [];
     return [entryPath];

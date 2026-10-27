@@ -95,10 +95,11 @@ for (const [channel, title] of [["wechat", "Wechat"], ["feishu", "Feishu"], ["te
 }
 
 test("stop targets the active isolated request and marks it cancelled before awaiting IPC", async () => {
-  const record = { id: "channel-request", cancelled: false }, calls = [];
+  const record = { id: "channel-request", cancelled: false }, calls = [], cancelledPreludes = [];
   const { interruptCurrentTurn } = load(["interruptCurrentTurn"], {
     state: {}, currentComposerThreadId: () => null,
     isCloudTaskThread: () => false,
+    tradingPreludePacer: { cancelThread: id => cancelledPreludes.push(id) },
     firstString: (...values) => values.find(v => typeof v === "string" && v),
     activeChannelCodexInteractions: new Map([["visible", record]]),
     api: { interruptChannelCodexMessage: async params => {
@@ -108,6 +109,7 @@ test("stop targets the active isolated request and marks it cancelled before awa
     finishInterruptedTurnLocally: (...args) => calls.push(args),
   });
   await interruptCurrentTurn("visible", "test");
+  assert.deepEqual(cancelledPreludes, ["visible"]);
   assert.equal(calls[0].interactionId, "channel-request");
   assert.equal(calls[0].threadId, "visible");
   assert.deepEqual(Array.from(calls[1]), ["visible", "channel-request", "test"]);

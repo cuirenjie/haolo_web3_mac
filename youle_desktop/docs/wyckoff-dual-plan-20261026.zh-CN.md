@@ -1,5 +1,17 @@
 # WYCKOFF-DUAL-20261026
 
+## 2026-10-26 追加：WYCKOFF-DRAWING-PRIORITY-001
+
+用户明确要求双卡保留，AI绘图仅标记盈利概率最高一份的入场、三档止盈与止损，Windows与移动同步。使用现有严格校验的模型概率，不改概率计算、不把置信度当胜率；相同或无有效估计时稳定选延续主计划。
+
+Windows在`execution-plan-drawings.mjs`为实时最终结果筛选价格线；`trading-plan-drawing-history.ts`从同run／resultHash／市场／周期／箱体的双卡建立只读显示投影，`trading-expert-market.ts`让两张卡跳到相同选择。原回执、两侧卡片／独立保存与提醒、结构和事件标记不改写；手绘、其他运行、删线及不完整历史不被整图覆盖。
+
+验收：70项专项通过，覆盖五语、多空、两种最高值、平局、无概率、只读参考、无效概率、历史、任一卡片跳图及不变性；TypeScript无错误，按仓库Vite配置隔离构建成功。`.cache/wyckoff-drawing-priority/`保存`tests-initial.log`、`typecheck.log`、`build-final.log`及客服候选。初次构建命令错误指定根入口而失败，未改配置；修正调用后成功，原失败`build.log`保留。
+
+移动端207项、共享图表168项、实际离线图表133组价格轴验证通过；2026-10-26 23:09:35 +08:00 Android Release 0.1.11+12经Run-Mobile保留数据安装重启，1117项输入稳定、前台／真实焦点／宿主OpenGL／启动异常检查通过，设备与本地APK SHA256同为`4259f61a67bac28f2eefeace8bc77adbe263fc9441a3966c24f0631bda5cb21d`。详见规范移动仓库`verification/2026-10-26/wyckoff-drawing-priority/`。
+
+本次代码与本地验证完成，原生界面交用户测试；iOS共享代码与组件配置测试通过，但未原生构建／真机验证。未使用Computer Use、未重启Windows用户窗口、未生成或发布安装器、未提交推送或部署服务端。客服知识仍为候选，现有其他会话改动保留。
+
 用户授权：仅优化威科夫，破位情形同时显示多空触发计划，Windows与移动端一致，原有卡片样式不得改变。
 
 ## ADR-WYCKOFF-DUAL-20261026

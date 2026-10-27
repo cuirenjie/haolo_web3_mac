@@ -1,4 +1,5 @@
 import { japaneseText } from '../shared/japanese.mjs';
+import { priceAlertDeliveryDescription } from '../shared/price-alert-copy.mjs';
 import { koreanText } from '../shared/korean.mjs';
 import { TradingPriceAlertMarkers, type PriceAlertChart } from './trading-price-alert-markers.ts';
 import { publishChartPriceAlerts, refreshChartPriceAlerts, type ChartPriceAlert } from './trading-price-alert-store.ts';
@@ -7,7 +8,6 @@ const supported = (marketId: string) => /^BINANCE:(?:FUTURES|SPOT):/.test(market
 const copy = {
   add: ['创建价格预警', 'Create price alert', '建立價格預警'],
   title: ['创建价格预警？', 'Create a price alert?', '建立價格預警？'],
-  detail: ['达到或越过此价格时，发送一次邮件至账号绑定邮箱。', 'Email your account address once when the price reaches or passes this level.', '達到或越過此價格時，傳送一次郵件至帳號綁定信箱。'],
   cancel: ['取消', 'Cancel', '取消'], confirm: ['确定创建', 'Create alert', '確定建立'],
   saving: ['正在创建…', 'Creating…', '正在建立…'], close: ['关闭', 'Close', '關閉'],
   success: ['预警已创建', 'Alert created', '預警已建立'],
@@ -30,8 +30,9 @@ const copy = {
   replacementIncomplete: ['新预警可能已创建，但原预警尚未确认删除。请重试以完成替换。', 'The new alert may have been created, but deletion of the original is unverified. Retry to finish replacing it.', '新預警可能已建立，但原預警尚未確認刪除。請重試以完成替換。', '새 알림이 생성되었을 수 있지만 기존 알림 삭제를 확인하지 못했습니다. 다시 시도하여 교체를 완료해 주세요.'],
   crosses: ['穿过', 'Crossing', '穿過', '돌파'],
 };
-function t(key: keyof typeof copy) {
+function t(key: keyof typeof copy | 'detail') {
   const language = document.documentElement.lang;
+  if (key === 'detail') return priceAlertDeliveryDescription(language);
   if (language.startsWith('ja')) return japaneseText(copy[key][0]);
   if (language.startsWith('ko')) return (copy[key] as string[])[3] || koreanText(copy[key][0]);
   return copy[key][language.startsWith('en') ? 1 : /TW|Hant/i.test(language) ? 2 : 0];

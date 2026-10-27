@@ -171,7 +171,7 @@ export function executionPlanStructuredCardBody({ entry, entryMode, stop, target
     return { price, index: index + 1, amount, profit: Number.isFinite(cumulative) ? cumulative : undefined };
   });
   const actions = actionCopy[language] || actionCopy['zh-CN'];
-  const actionHtml = !hideAction && Object.hasOwn(actions, action) && action !== 'label' && action !== 'wait'
+  const actionHtml = !hideAction && Object.hasOwn(actions, action) && action !== 'label'
     ? `<div class="execution-plan-details">${lineHtml({label: actions.label, text: actions[action]})}</div>` : '';
   const basisNotice = withKoreanVariants({
     'zh-CN': '此计划使用旧入场口径，请重新分析以更新盈亏测算。',
@@ -246,8 +246,7 @@ export function executionPlanCardBody(lines = [], language = "zh-CN", { hideActi
   // Presentation only: hide the verbose account summaries, keeping the report
   // and saved/alert inputs intact. Per-level amounts remain beside their prices.
   lines = lines.filter((line) => !matches(line, /^(?:仓位大小|倉位大小|可能盈亏|可能盈虧|position size|potential P&L|有效至|有效期|有效时间|有效時間|到期时间|到期時間|valid until|expiry|expires at)(?:\s*[（(][^）)]*[）)])?$/i));
-  lines = lines.filter((line) => !(matches(line, /^(?:当前动作|當前動作|current action)$/i)
-    && (hideAction || /^(?:等待条件触发|等待條件觸發|wait for the trigger)$/i.test(String(line.text || '').trim()))));
+  lines = lines.filter((line) => !(hideAction && matches(line, /^(?:当前动作|當前動作|current action)$/i)));
   const labels = copy[language] || copy["zh-CN"];
   const entry = lines.find((line) => matches(line, /^(?:(?:多头|空头|首选方向|方向)?触发|入场触发价|(?:long|short|entry) trigger)$/i));
   const stop = lines.find((line) => matches(line, /^(?:止损(?:与失效)?|止损价|stop-loss(?: and invalidation)?)$/i));

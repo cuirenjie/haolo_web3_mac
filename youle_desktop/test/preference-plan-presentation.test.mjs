@@ -33,7 +33,7 @@ for(const {name,result,record} of fixtures) {
           scenarios:[{...s,eligible:true}],executionBlocked:false});
         // Preview uses the existing card fields and no action/recommendation row.
         equivalent.executionPlan.scenarios[0].positionSizing={...s.positionSizing,executionBlocked:false,accountPlan:null};
-        assert.equal(card.html,baseline.cloudPlanCard(equivalent,{language}).html,'preview card uses the original layout with the same prices');
+        assert.equal(card.html,baseline.cloudPlanCard(equivalent,{language,separateAction:true}).html,'preview card uses the original layout with the same prices');
       }
       assert.equal(card.readOnly===true,preview);
       const rendered=renderCurrentReports([{...report,locale}],{allowPlanAction:true});

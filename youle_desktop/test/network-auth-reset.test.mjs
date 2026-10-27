@@ -42,6 +42,8 @@ function harness(t, { runtime = true, failStop = false, custom = false } = {}) {
     let binancePublicMarketService = null, binanceAccountService = null, personalContextService = null;
     let githubMcpBridge = null, client = options.runtime ? {} : null;
     let authChangeRestartPromise = null;
+    const nativeNotificationSession = { clear() { events.push('native-notifications-clear'); } };
+    const desktopNotificationQueue = { clear() { events.push('popup-queue-clear'); } };
     const activeChannelCodexRequests = new Map();
     const codexBusinessTools = { contexts: new Map(), cancel() {} };
     const appServerClients = new Map(client ? [['workspace', client]] : []);
@@ -80,6 +82,8 @@ for (const options of [{ runtime: true }, { runtime: false }, { runtime: true, f
       await assert.rejects(network.fetch("https://market.youle.pro/stale"), /transport is closed/);
     }
     assert.equal(h.requests.length, 9, "one request per operation without replay");
+    assert.equal(h.events.filter(event => event === 'native-notifications-clear').length, 3);
+    assert.equal(h.events.filter(event => event === 'popup-queue-clear').length, 3);
     if (options.custom) assert.equal(h.events.filter(event => event === "custom-close").length, 3);
   });
 }

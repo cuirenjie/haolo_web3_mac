@@ -1,6 +1,7 @@
 import https from "node:https";
 import tls from "node:tls";
 import { createConnectionLookup } from "../connection-route-lookup.mjs";
+import { withAbort } from "../system-proxy-fetch.mjs";
 
 const ALLOWED_BINANCE_ACCOUNT_ORIGINS = new Set([
   "https://api.binance.com",
@@ -9,6 +10,12 @@ const ALLOWED_BINANCE_ACCOUNT_ORIGINS = new Set([
 const ALLOWED_REQUEST_HEADERS = new Set(["accept", "user-agent", "x-mbx-apikey"]);
 const MAX_CONNECT_HEADER_BYTES = 16 * 1024;
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
+const USAGE_REPORT_TIMEOUT_MS = 12_000;
+const MAX_PENDING_USAGE_REPORTS = 64;
+
+function isCooldownReport(report) {
+  return report.status === 418 || report.status === 429;
+}
 
 function normalizedProxyOrigin(value) {
   const proxy = new URL(String(value || ""));
@@ -259,7 +266,8 @@ function permitRateLimitResponse(error) {
 }
 
 export class BinancePrivateProxyTransport {
-  constructor({ proxyUrl = "", permitProvider, usageReporter = null, requestImpl = performHttpsConnectRequest, lookup = null, connectOuter = null } = {}) {
+  constructor({ proxyUrl = "", permitProvider, usageReporter = null, requestImpl = performHttpsConnectRequest, lookup = null, connectOuter = null,
+    usageReportTimeoutMs = USAGE_REPORT_TIMEOUT_MS } = {}) {
     if (typeof permitProvider !== "function" || typeof requestImpl !== "function") {
       throw new TypeError("permitProvider and requestImpl are required");
     }
@@ -270,6 +278,9 @@ export class BinancePrivateProxyTransport {
     this.lookup = lookup;
     this.connectOuter = connectOuter;
     this.activeSockets = new Set();
+    this.usageReportTimeoutMs = Math.max(1, Math.min(USAGE_REPORT_TIMEOUT_MS, Number(usageReportTimeoutMs) || USAGE_REPORT_TIMEOUT_MS));
+    this.pendingUsageReports = [];
+    this.usageReportController = null;
     this.closed = false;
   }
 
@@ -306,18 +317,62 @@ export class BinancePrivateProxyTransport {
     });
     const response = result?.response || result;
     if (result?.upstream !== false && this.usageReporter && response) {
-      await Promise.resolve(this.usageReporter({
+      this.enqueueUsageReport({
         permitId: permit.permitId,
         status: Number(response.status || 0),
         usedWeight1m: Number(response.headers?.get?.("x-mbx-used-weight-1m") || 0),
         retryAfterMs: parseRetryAfterMs(response.headers?.get?.("retry-after")),
-      })).catch(() => false);
+      });
     }
     return response;
   }
 
+  enqueueUsageReport(report) {
+    if (this.closed) return;
+    // Each permit already reserves server-side weight before opening a tunnel.
+    // Reporting raises the observed floor/cooldown; it must not delay a complete
+    // Binance response, refund that reservation, or fill the shared HTTP pool.
+    if (this.pendingUsageReports.length >= MAX_PENDING_USAGE_REPORTS) {
+      const ordinary = this.pendingUsageReports.findIndex(entry => !isCooldownReport(entry.report));
+      if (ordinary < 0 && !isCooldownReport(report)) return;
+      this.pendingUsageReports.splice(Math.max(0, ordinary), 1);
+    }
+    const entry = { report, expiresAt: Date.now() + this.usageReportTimeoutMs };
+    if (isCooldownReport(report)) this.pendingUsageReports.unshift(entry);
+    else this.pendingUsageReports.push(entry);
+    void this.flushUsageReports();
+  }
+
+  async flushUsageReports() {
+    if (this.usageReportController || this.closed) return;
+    while (!this.closed && this.pendingUsageReports.length) {
+      const { report, expiresAt } = this.pendingUsageReports.shift();
+      const remainingMs = expiresAt - Date.now();
+      // Avoid replaying stale weight observations after a prolonged outage.
+      if (remainingMs <= 0) continue;
+      const controller = new AbortController();
+      this.usageReportController = controller;
+      const timer = setTimeout(() => controller.abort(new DOMException("Private usage report timed out", "TimeoutError")), remainingMs);
+      timer.unref?.();
+      try {
+        await withAbort(Promise.resolve().then(() => {
+          controller.signal.throwIfAborted();
+          return this.usageReporter(report, { signal: controller.signal });
+        }), controller.signal);
+      } catch {
+        // Best effort, as before. Never retry the one-use receipt or replace an
+        // account response with a reporting error (including synchronous throws).
+      } finally {
+        clearTimeout(timer);
+        this.usageReportController = null;
+      }
+    }
+  }
+
   async close() {
     this.closed = true;
+    this.pendingUsageReports.length = 0;
+    this.usageReportController?.abort(new DOMException("Private transport closed", "AbortError"));
     for (const socket of this.activeSockets) socket.destroy?.();
     this.activeSockets.clear();
   }

@@ -1,3 +1,4 @@
+import { priceAlertSummary } from '../shared/price-alert-copy.mjs';
 import {
   renderTradingMarketAssetLogo,
   type TradingMarketIdentityProvider,
@@ -276,9 +277,8 @@ function renderAlertCard(state: TradingAlertsUiState, alert: any) {
   const title = formatTradingAlertDisplayText(alert.rule?.title || "交易预警");
   const language = typeof document !== 'undefined' ? document.documentElement.lang : 'zh-CN';
   const localeIndex = language.startsWith('en') ? 1 : /TW|Hant/i.test(language) ? 2 : 0;
-  const level = Number(alert.cloud?.threshold).toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:12});
   const comparator = ({gte:'≥',lte:'≤',gt:'>',lt:'<',cross_over:'>',cross_under:'<'} as Record<string,string>)[alert.cloud?.operator];
-  const summary = alert.cloud && comparator ? [`价格 ${comparator} ${level} 时发送一次邮件通知`,`Email once when price ${comparator} ${level}`,`價格 ${comparator} ${level} 時傳送一次郵件通知`][localeIndex]
+  const summary = alert.cloud && comparator ? priceAlertSummary(alert.cloud.operator,alert.cloud.threshold,language)
     : formatTradingAlertCardSummary(alert.rule?.normalizedSummary || "等待规则摘要", market);
   const details = planLinked
     ? renderExecutionPlanAlertConditions(alert)

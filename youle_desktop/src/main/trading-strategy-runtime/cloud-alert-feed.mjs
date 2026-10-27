@@ -1,4 +1,5 @@
 import {createHash} from 'node:crypto';
+import {validLegacyCloudNotification} from '../trading-alerts/cloud-notification-event.mjs';
 const fail=code=>{throw Object.assign(new Error(code),{code});};
 const hash=value=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
 const positive=value=>typeof value==='number'&&Number.isFinite(value)&&value>0;
@@ -14,6 +15,10 @@ const conditionValid=rule=>rule?.monitoringPolicy==='entry_v2'&&hash(rule.condit
   &&(rule.entryCondition.confirmation!=='breakout_retest'||(predicate(rule.entryCondition.retest)&&rule.entryCondition.retest.operator==='in_zone'));
 export function validEvent(event,items) {
   const alert=event?.alert||items.get(event?.alertId),evidence=event?.data?.evidence;
+  if (!Number.isSafeInteger(event?.sequence) || event.sequence <= 0 || !token(event.data?.eventId)
+    || !positive(event.data?.price) || !Number.isSafeInteger(event.data?.occurredAt)
+    || event.data.occurredAt <= 0 || !alert || alert.id !== event.alertId) return false;
+  if (alert.rule?.monitoringPolicy !== 'entry_v2') return validLegacyCloudNotification(event,alert);
   const name=event?.data?.condition,exits=alert?.rule?.preferenceExitPolicy;
   const newExit=exits?.version==='preference-exits-v1'&&(
     name==='break_even'&&exits.moveStopToBreakEven===true
@@ -120,7 +125,8 @@ export function createCloudAlertFeed({owner,api,journal,notify,changed,intervalM
       saved={...saved,pending:event};
       await journal.put(captured.ownerId,'delivery-v2',saved);
       await assert();
-      const old=event.sourceSequence<=(legacy?.cursor||0)||saved.recentEvents.some(prior=>prior.data.eventId===event.data.eventId);
+      const old=(event.alert.rule.monitoringPolicy==='entry_v2'&&event.sourceSequence<=(legacy?.cursor||0))
+        ||saved.recentEvents.some(prior=>prior.data.eventId===event.data.eventId);
       const age=now()-event.data.occurredAt;
       if(!old&&age>=-60000&&age<=300000)await notify({alert:event.alert,event});
       await assert();

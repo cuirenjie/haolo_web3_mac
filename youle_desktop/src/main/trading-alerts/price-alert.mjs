@@ -1,5 +1,6 @@
 import { normalizeAlertRule } from './protocol.mjs';
 import { TradingAlertError } from './errors.mjs';
+import { priceAlertSummary } from '../../shared/price-alert-copy.mjs';
 
 const invalid = message => { throw new TradingAlertError(message, { code: 'TRADING_PRICE_ALERT_INVALID', category: 'validation' }); };
 
@@ -22,10 +23,7 @@ export function buildPriceAlertRule(spec, now = Date.now()) {
   const price = spec.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 12 });
   const [venue, type, symbol] = spec.marketId.split(':');
   const pair = venue === 'BINANCE' ? symbol.replace(/(USDT|USDC|FDUSD|BUSD|TUSD|BTC|ETH|BNB|EUR|USD)$/, '/$1') : symbol;
-  const summary = spec.locale === 'ja' ? `価格が ${price} ${upward ? '以上' : '以下'}になると、メールを一度送信します。` : spec.locale === 'ko' ? `가격이 ${price} ${upward ? '이상으로 상승' : '이하로 하락'}하면 이메일을 한 번 보냅니다.`
-    : spec.locale === 'en' ? `Email once when price is ${upward ? 'at or above' : 'at or below'} ${price}`
-    : spec.locale === 'zh-Hant' ? `價格${upward ? '上漲至或高於' : '下跌至或低於'} ${price} 時傳送一次郵件通知`
-    : `价格${upward ? '上涨至或高于' : '下跌至或低于'} ${price} 时发送一次邮件通知`;
+  const summary = priceAlertSummary(upward ? 'gte' : 'lte', spec.price, spec.locale);
   const marketType = spec.locale === 'ja' ? (type === 'SPOT' ? '現物' : '無期限先物') : spec.locale === 'ko' ? (type === 'SPOT' ? '현물' : '무기한 선물')
     : spec.locale === 'en' ? (type === 'SPOT' ? 'Spot' : 'Perpetual')
     : spec.locale === 'zh-Hant' ? (type === 'SPOT' ? '現貨' : '永續') : (type === 'SPOT' ? '现货' : '永续');

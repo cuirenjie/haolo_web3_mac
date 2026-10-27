@@ -142,6 +142,9 @@ app.commandLine.appendSwitch('disable-background-timer-throttling');
       && expiry.getBoundingClientRect().right+6<=trailing.getBoundingClientRect().left);
     const expirySingleLine=!expiry||(expiry.getBoundingClientRect().height<=parseFloat(expiryStyle.lineHeight)+1&&expiry.scrollWidth<=expiry.clientWidth+1);
     const bounds=card.getBoundingClientRect();
+    const expectAction=name==='chat'&&Boolean(content.querySelector('[data-conditional-plan]'));
+    const actionRows=[...content.querySelectorAll('.execution-plan-card-line')].filter(e=>/^(?:当前动作：|當前動作：|Current action:)/.test(e.textContent));
+    const actionBounds=actionRows[0]?.getBoundingClientRect();
     const rightItems=[root.querySelectorAll('.execution-plan-metric')[1],...root.querySelectorAll('.execution-plan-ratio,.execution-plan-target-profit')];
     const rightColumnAligned=rightItems.every(e=>Math.abs(e.getBoundingClientRect().left-metrics[1].left)<1);
     const rightText=[];
@@ -173,7 +176,9 @@ app.commandLine.appendSwitch('disable-background-timer-throttling');
          && style.borderTopWidth==='0px'&&style.backgroundColor==='rgba(0, 0, 0, 0)'&&style.boxShadow==='none'
          && getComputedStyle(button,'::before').width==='10px';
        })),
-     waitingCopyOmitted:!/等待条件触发|等待條件觸發|Wait for the trigger/.test(content.textContent),
+     actionPlacement:expectAction ? actionRows.length===1&&/等待条件触发|等待條件觸發|Wait for the trigger/.test(actionRows[0].textContent)
+       &&actionBounds.top>=targetBounds.bottom&&Math.abs(actionBounds.left-metrics[0].left)<1&&actionBounds.bottom<=panel.bottom-12
+       : !/等待条件触发|等待條件觸發|Wait for the trigger/.test(content.textContent),
      accountVisible:expected.every(value=>content.textContent.includes(value)),
      originalAccountCopy:[...content.querySelectorAll('.execution-plan-account-detail')].every(e=>!/(?:USDT|USDC|BUSD|BTC|×|计划仓位|計畫倉位|Planned size|全仓净盈亏|全倉淨盈虧|Net P&L)/.test(e.textContent)),
      metricsBelowHeading:metrics.every(r=>r.top>=heading.bottom-1),prices:root.querySelectorAll('.execution-plan-price').length,targets:root.querySelectorAll('.execution-plan-target').length,details:root.querySelectorAll('.execution-plan-details').length,expiry:root.querySelectorAll('.execution-plan-expiry').length,ratios:root.querySelectorAll('.execution-plan-ratio').length,pricesAligned:Math.abs(root.querySelectorAll('.execution-plan-price')[0].getBoundingClientRect().top-root.querySelectorAll('.execution-plan-price')[1].getBoundingClientRect().top)<1,
@@ -181,7 +186,7 @@ app.commandLine.appendSwitch('disable-background-timer-throttling');
      overflowingElements:[...content.querySelectorAll('*')].filter(e=>e.getBoundingClientRect().right>content.getBoundingClientRect().right+1).map(e=>({class:e.className,width:e.clientWidth,scroll:e.scrollWidth,text:e.textContent.slice(0,60)}))};
    });
   }).toString()+')('+JSON.stringify(f.expected||[])+')');
-  const bad=result.filter(r=>r.scrollWidth>r.clientWidth+1||r.overflow.length||!r.metricsBelowHeading||r.prices!==2||r.targets!==(f.targetCount||2)||r.expiry!==0||!r.footerAligned||!r.footerTypographyMatches||!r.shortCreatedTime||!r.expirySingleLine||!r.expiryZone||!r.expiryWithoutYear||!r.expiryBelowTargets||!r.controlsOutsideRight||!r.waitingCopyOmitted||!r.rightColumnAligned||(f.width===410&&Math.abs(r.leftInset-r.rightInset)>1)||r.ratios!==(f.targetCount||2)||!r.pricesAligned||!r.accountVisible||!r.originalAccountCopy||((f.id.includes('-entry-v2-')||f.id.startsWith('account-v2-')||f.id.startsWith('account-screenshot-'))&&r.details!==0));
+  const bad=result.filter(r=>r.scrollWidth>r.clientWidth+1||r.overflow.length||!r.metricsBelowHeading||r.prices!==2||r.targets!==(f.targetCount||2)||r.expiry!==0||!r.footerAligned||!r.footerTypographyMatches||!r.shortCreatedTime||!r.expirySingleLine||!r.expiryZone||!r.expiryWithoutYear||!r.expiryBelowTargets||!r.controlsOutsideRight||!r.actionPlacement||!r.rightColumnAligned||(f.width===410&&Math.abs(r.leftInset-r.rightInset)>1)||r.ratios!==(f.targetCount||2)||!r.pricesAligned||!r.accountVisible||!r.originalAccountCopy||((f.id.includes('-entry-v2-')||f.id.startsWith('account-v2-')||f.id.startsWith('account-screenshot-'))&&r.details!==(r.name==='chat'?1:0)));
   results.push({id:f.id,result,passed:!bad.length});
   if(f.id.startsWith('price-action-')||f.id.startsWith('account-')||bad.length){
    await new Promise(resolve=>setTimeout(resolve,150));

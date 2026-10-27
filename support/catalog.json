@@ -4,9 +4,180 @@
   "surface": "macos",
   "features": [
     {
+      "id": "alert-email-desktop-zh-cn",
+      "title": "预警邮件与桌面浮窗",
+      "body": "macOS 预警保留邮箱提醒，客户端在线且消息弹窗开启时同步桌面浮窗。覆盖云端价格、复合条件及交易计划新触发；退出客户端仍由云端发邮件。浮窗连续排队，标题仅显示交易对（如 BTCUSDT），不显示 binance:usdm: 或 binance:spot:；点击价格预警可回到对应图表。过期事件只记历史。需配套后端迁移和新版客户端；当前为待发布源码候选。客服可说明设置和行为，无新增代操作。",
+      "category": "alerts",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/cloud-alert-view.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-alert-feed.mjs",
+        "youle_desktop/src/main/desktop-notification-queue.mjs",
+        "youle_desktop/src/shared/price-alert-copy.mjs",
+        "youle_desktop/docs/alert-desktop-and-email-20261027.zh-CN.md"
+      ]
+    },
+    {
+      "id": "alert-email-desktop-en",
+      "title": "Alert email and desktop popups",
+      "body": "macOS alerts retain email and also show desktop popups while the client is online with popups enabled. Covers new cloud price, compound and plan triggers. Cloud email continues when the client is closed. Popups queue in order and show only the symbol, such as BTCUSDT, without binance:usdm: or binance:spot:. Clicking a price alert opens its chart. Expired events are history only. Requires the backend migration and updated client; this is an unpublished source candidate. No new support actions.",
+      "category": "alerts",
+      "locale": "en",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/cloud-alert-view.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-alert-feed.mjs",
+        "youle_desktop/src/main/desktop-notification-queue.mjs",
+        "youle_desktop/src/shared/price-alert-copy.mjs",
+        "youle_desktop/docs/alert-desktop-and-email-20261027.zh-CN.md"
+      ]
+    },
+    {
+      "id": "alert-email-desktop-zh-hant",
+      "title": "預警郵件與桌面浮窗",
+      "body": "macOS 預警保留郵件提醒，用戶端在線且訊息彈窗開啟時同步桌面浮窗。涵蓋雲端價格、複合條件及交易計畫新觸發；退出用戶端仍由雲端發信。浮窗依序顯示，標題僅顯示交易對（如 BTCUSDT），不顯示 binance:usdm: 或 binance:spot:；點擊價格預警可回到對應圖表。過期事件只記歷史。需搭配後端遷移及新版用戶端；目前為待發布原始碼候選。無新增客服代操作。",
+      "category": "alerts",
+      "locale": "zh-Hant",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/cloud-alert-view.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-alert-feed.mjs",
+        "youle_desktop/src/main/desktop-notification-queue.mjs",
+        "youle_desktop/src/shared/price-alert-copy.mjs",
+        "youle_desktop/docs/alert-desktop-and-email-20261027.zh-CN.md"
+      ]
+    },
+    {
+      "id": "alert-email-desktop-ko",
+      "title": "이메일 및 데스크톱 알림",
+      "body": "macOS 알림은 이메일을 유지하며 클라이언트가 온라인이고 팝업이 켜져 있으면 데스크톱에도 표시됩니다. 새 클라우드 가격, 복합 조건 및 거래 계획 알림을 지원합니다. 앱을 종료해도 클라우드 이메일은 계속됩니다. 팝업은 순서대로 표시되며 제목에는 BTCUSDT 같은 종목만 표시합니다. binance:usdm: 및 binance:spot: 접두사는 숨깁니다. 가격 알림을 클릭하면 해당 차트가 열립니다. 오래된 이벤트는 기록만 보존합니다. 백엔드 마이그레이션과 새 클라이언트가 필요한 미출시 소스 후보입니다. 새 고객지원 작업은 없습니다.",
+      "category": "alerts",
+      "locale": "ko",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/cloud-alert-view.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-alert-feed.mjs",
+        "youle_desktop/src/main/desktop-notification-queue.mjs",
+        "youle_desktop/src/shared/price-alert-copy.mjs",
+        "youle_desktop/docs/alert-desktop-and-email-20261027.zh-CN.md"
+      ]
+    },
+    {
+      "id": "alert-email-desktop-ja",
+      "title": "メールとデスクトップのアラート",
+      "body": "macOSのアラートはメール通知を維持し、クライアントがオンラインでポップアップが有効な場合はデスクトップにも表示します。新しいクラウド価格、複合条件、取引計画の通知に対応します。アプリ終了後もクラウドからメールを送信します。ポップアップは順番に表示し、タイトルにはBTCUSDTなどの銘柄のみを表示します。binance:usdm:とbinance:spot:は表示しません。価格通知をクリックすると対応するチャートが開きます。古いイベントは履歴のみ保存します。バックエンド移行と新しいクライアントが必要な未公開のソース候補です。新しいサポート操作はありません。",
+      "category": "alerts",
+      "locale": "ja",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/cloud-alert-view.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-alert-feed.mjs",
+        "youle_desktop/src/main/desktop-notification-queue.mjs",
+        "youle_desktop/src/shared/price-alert-copy.mjs",
+        "youle_desktop/docs/alert-desktop-and-email-20261027.zh-CN.md"
+      ]
+    },
+    {
+      "id": "binance-private-usage-recovery-zh-cn",
+      "title": "Binance 绑定与读取的后台上报恢复",
+      "body": "macOS 在私有通道收到 Binance 完整响应后立即处理账户结果；后台用量上报变慢或失败不会再把已完成的读取误报为连接 Binance 超时。原有账户权限检查、验证码、请求超时及交易所限流保持，真实连接失败仍会提示。用量上报保留独立超时、积压限制和关闭取消，许可配额仍由服务器预扣。此项为待发布源码修复，旧安装包尚未包含；不能仅凭相同超时文案认定所有网络故障同因。客服可说明并协助收集网络日志，无新增代操作。",
+      "category": "account",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/binance-account/private-proxy-fetch.mjs",
+        "youle_desktop/src/main/binance-gateway-client.mjs",
+        "youle_desktop/src/main/binance-account/service.mjs"
+      ]
+    },
+    {
+      "id": "binance-private-usage-recovery-en",
+      "title": "Background reporting recovery for Binance account reads",
+      "body": "macOS processes the account result as soon as the private transport receives a complete Binance response. Slow or failed background usage reporting no longer turns a completed read into a Binance connection timeout. Account permission checks, email verification, request deadlines and exchange rate limits remain enforced; real connection failures still surface. Reports have an independent deadline, bounded backlog and cancellation on shutdown, while the server continues to reserve quota before issuing a permit. This is an unpublished source fix; existing installers do not contain it. Identical timeout wording does not establish the cause of every network failure. Support can explain the behavior and help collect network logs; no new support actions are provided.",
+      "category": "account",
+      "locale": "en",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/binance-account/private-proxy-fetch.mjs",
+        "youle_desktop/src/main/binance-gateway-client.mjs",
+        "youle_desktop/src/main/binance-account/service.mjs"
+      ]
+    },
+    {
+      "id": "binance-private-usage-recovery-zh-hant",
+      "title": "Binance 綁定與讀取的背景回報恢復",
+      "body": "macOS 在私有通道收到 Binance 完整回應後立即處理帳戶結果；背景用量回報變慢或失敗不會再把已完成的讀取誤報為連線 Binance 逾時。原有帳戶權限檢查、驗證碼、請求逾時及交易所限流保持，真實連線失敗仍會提示。用量回報保留獨立逾時、積壓限制和關閉取消，許可配額仍由伺服器預扣。此項為待發布原始碼修復，舊安裝包尚未包含；不能僅憑相同逾時文案認定所有網路故障同因。客服可說明並協助收集網路日誌，無新增代操作。",
+      "category": "account",
+      "locale": "zh-Hant",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/binance-account/private-proxy-fetch.mjs",
+        "youle_desktop/src/main/binance-gateway-client.mjs",
+        "youle_desktop/src/main/binance-account/service.mjs"
+      ]
+    },
+    {
+      "id": "chat-plan-current-action-zh-cn",
+      "title": "会话计划卡片的当前动作",
+      "body": "macOS 会话中的正式计划卡片在卡内左下角显示当前动作及对应状态，例如“当前动作：等待条件触发”。使用计划已有的状态文案，与便利贴保持一致；该文字不是实时成交状态，不改变计划价位、保存或提醒规则。旧文本计划保留原有动作，不补造缺失状态。当前为源码候选，客户端加载更新后生效，无新增客服代操作。",
+      "category": "analysis",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/execution-plan-card-view.mjs",
+        "youle_desktop/src/main/cloud-plan-contract.mjs"
+      ]
+    },
+    {
       "id": "wyckoff-dual-plan-zh-cn",
       "title": "威科夫破位后的双向条件计划",
-      "body": "macOS及Android／iOS在已确认且仍有效的威科夫箱体破位后，可同时展示做多和做空两个独立条件计划，沿用原计划卡片样式。跌破箱底的空头方案等待反抽测试及后续收盘转弱；多头反转预案须先收盘收回箱底、回踩测试，再由后续收盘转强确认。上破箱顶按对称条件处理。每张卡有独立触发、止损、三档止盈及提醒；触及价位本身不代表触发，反转预案不代表吸筹／派发已经确认。用户明确只要一侧时遵从该方向；风险不合格保留原只读参考或等待卡，不能激活。保存及开启提醒仍需原有操作，不自动下单。需要匹配的API、全部策略Worker及客户端版本；本地源码候选尚未上线，无新增客服动作。",
+      "body": "macOS及Android／iOS在已确认且仍有效的威科夫箱体破位后，可同时展示做多和做空两个独立条件计划，沿用原计划卡片样式。跌破箱底的空头方案等待反抽测试及后续收盘转弱；多头反转预案须先收盘收回箱底、回踩测试，再由后续收盘转强确认。上破箱顶按对称条件处理。每张卡有独立触发、止损、三档止盈及提醒；触及价位本身不代表触发，反转预案不代表吸筹／派发已经确认。用户明确只要一侧时遵从该方向；风险不合格保留原只读参考或等待卡，不能激活。保存及开启提醒仍需原有操作，不自动下单。需要匹配的API、全部策略Worker及客户端版本；本地源码候选尚未上线，无新增客服动作。 双卡保留；AI图表只标记已校验盈利概率最高计划的入场、三档止盈与止损。概率相同或无有效概率时使用延续主计划；不制造胜率，不改变两张卡片、保存及提醒。历史与卡片跳图遵循同一选择。",
       "category": "analysis",
       "locale": "zh-CN",
       "status": "pending",
@@ -18,13 +189,15 @@
       "sources": [
         "youle_desktop/src/shared/wyckoff-plan-set.mjs",
         "youle_desktop/src/main/cloud-plan-contract.mjs",
-        "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs"
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs",
+        "youle_desktop/src/shared/execution-plan-drawings.mjs",
+        "youle_desktop/src/renderer/trading-plan-drawing-history.ts"
       ]
     },
     {
       "id": "wyckoff-dual-plan-en",
       "title": "Wyckoff conditional plans after a range break",
-      "body": "macOS and Android/iOS can show independent long and short conditional plans for a confirmed, still-valid Wyckoff range break, using the existing card styles. Below a broken floor, the short plan requires a retest and a later weak close. A reversal long requires a closing reclaim, a retest and a later strong close. An upside break uses symmetric conditions. Each card has its own entry condition, stop, three targets and alert binding. Touch alone cannot trigger entry, and a reversal scenario does not confirm accumulation or distribution. Explicit single-direction requests remain binding. Risk-rejected scenarios use existing read-only or waiting cards and cannot activate. Saving and enabling reminders still require the existing user actions; no orders are placed. Matching API, all strategy workers and client versions are required. This is an unpublished source candidate with no new support actions.",
+      "body": "macOS and Android/iOS can show independent long and short conditional plans for a confirmed, still-valid Wyckoff range break, using the existing card styles. Below a broken floor, the short plan requires a retest and a later weak close. A reversal long requires a closing reclaim, a retest and a later strong close. An upside break uses symmetric conditions. Each card has its own entry condition, stop, three targets and alert binding. Touch alone cannot trigger entry, and a reversal scenario does not confirm accumulation or distribution. Explicit single-direction requests remain binding. Risk-rejected scenarios use existing read-only or waiting cards and cannot activate. Saving and enabling reminders still require the existing user actions; no orders are placed. Matching API, all strategy workers and client versions are required. This is an unpublished source candidate with no new support actions. Both cards remain available. The AI chart marks entry, three take-profit levels and stop loss only for the plan with the highest validated profit probability. Tied or unavailable estimates use the continuation plan. No probability is invented, and cards, saving and alerts remain unchanged. History and chart navigation use the same selection.",
       "category": "analysis",
       "locale": "en",
       "status": "pending",
@@ -36,13 +209,15 @@
       "sources": [
         "youle_desktop/src/shared/wyckoff-plan-set.mjs",
         "youle_desktop/src/main/cloud-plan-contract.mjs",
-        "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs"
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs",
+        "youle_desktop/src/shared/execution-plan-drawings.mjs",
+        "youle_desktop/src/renderer/trading-plan-drawing-history.ts"
       ]
     },
     {
       "id": "wyckoff-dual-plan-zh-hant",
       "title": "威科夫破位後的雙向條件計畫",
-      "body": "macOS及Android／iOS在已確認且仍有效的威科夫箱體破位後，可同時顯示做多與做空兩個獨立條件計畫，沿用原計畫卡片樣式。跌破箱底的空頭方案等待反抽測試及後續收盤轉弱；多頭反轉預案須先收盤收回箱底、回踩測試，再由後續收盤轉強確認。上破箱頂按對稱條件處理。每張卡有獨立觸發、停損、三檔停利與提醒；觸及價位本身不代表觸發，反轉預案不代表吸籌／派發已確認。明確單一方向請求仍須遵從；風險不合格使用原唯讀參考或等待卡，不能啟用。儲存及開啟提醒仍需原有操作，不自動下單。需要配套API、全部策略Worker與用戶端版本；本機原始碼候選尚未上線，無新增客服動作。",
+      "body": "macOS及Android／iOS在已確認且仍有效的威科夫箱體破位後，可同時顯示做多與做空兩個獨立條件計畫，沿用原計畫卡片樣式。跌破箱底的空頭方案等待反抽測試及後續收盤轉弱；多頭反轉預案須先收盤收回箱底、回踩測試，再由後續收盤轉強確認。上破箱頂按對稱條件處理。每張卡有獨立觸發、停損、三檔停利與提醒；觸及價位本身不代表觸發，反轉預案不代表吸籌／派發已確認。明確單一方向請求仍須遵從；風險不合格使用原唯讀參考或等待卡，不能啟用。儲存及開啟提醒仍需原有操作，不自動下單。需要配套API、全部策略Worker與用戶端版本；本機原始碼候選尚未上線，無新增客服動作。 雙卡保留；AI圖表僅標記已驗證獲利機率最高計畫的入場、三檔停利與停損。機率相同或無有效機率時使用延續主計畫；不虛構勝率，不改變兩張卡片、儲存及提醒。歷史與卡片跳圖遵循相同選擇。",
       "category": "analysis",
       "locale": "zh-Hant",
       "status": "pending",
@@ -54,13 +229,15 @@
       "sources": [
         "youle_desktop/src/shared/wyckoff-plan-set.mjs",
         "youle_desktop/src/main/cloud-plan-contract.mjs",
-        "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs"
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs",
+        "youle_desktop/src/shared/execution-plan-drawings.mjs",
+        "youle_desktop/src/renderer/trading-plan-drawing-history.ts"
       ]
     },
     {
       "id": "wyckoff-dual-plan-ko",
       "title": "와이코프 박스 이탈 후 양방향 조건부 계획",
-      "body": "macOS와 Android/iOS는 확정된 유효 와이코프 박스의 이탈 이후 기존 카드 스타일로 독립적인 롱·숏 조건부 계획을 표시합니다. 하단 이탈 후 숏은 되돌림 테스트와 후속 약세 종가가 필요합니다. 반전 롱은 종가 회복, 재시험, 후속 강세 종가를 순서대로 확인합니다. 상단 돌파에는 대칭 조건을 적용합니다. 각 카드의 진입 조건, 손절, 3단계 목표와 알림은 독립적입니다. 가격 접촉만으로 발동하지 않으며 반전 시나리오가 매집이나 분산의 확정을 뜻하지 않습니다. 명시한 단일 방향 요청과 위험 제한을 준수하고 부적격 계획은 기존 읽기 전용 또는 대기 카드로 표시합니다. 저장·알림 활성화는 기존 사용자 조작이 필요하며 주문하지 않습니다. API, 모든 전략 Worker와 클라이언트의 호환 버전이 필요합니다. 미출시 소스 후보이며 신규 고객지원 조작은 없습니다.",
+      "body": "macOS와 Android/iOS는 확정된 유효 와이코프 박스의 이탈 이후 기존 카드 스타일로 독립적인 롱·숏 조건부 계획을 표시합니다. 하단 이탈 후 숏은 되돌림 테스트와 후속 약세 종가가 필요합니다. 반전 롱은 종가 회복, 재시험, 후속 강세 종가를 순서대로 확인합니다. 상단 돌파에는 대칭 조건을 적용합니다. 각 카드의 진입 조건, 손절, 3단계 목표와 알림은 독립적입니다. 가격 접촉만으로 발동하지 않으며 반전 시나리오가 매집이나 분산의 확정을 뜻하지 않습니다. 명시한 단일 방향 요청과 위험 제한을 준수하고 부적격 계획은 기존 읽기 전용 또는 대기 카드로 표시합니다. 저장·알림 활성화는 기존 사용자 조작이 필요하며 주문하지 않습니다. API, 모든 전략 Worker와 클라이언트의 호환 버전이 필요합니다. 미출시 소스 후보이며 신규 고객지원 조작은 없습니다. 두 카드는 유지됩니다. AI 차트에는 검증된 수익 확률이 가장 높은 계획의 진입선, 3단계 익절선, 손절선만 표시합니다. 확률이 같거나 유효한 추정치가 없으면 추세 지속 계획을 사용합니다. 승률을 임의로 만들지 않으며 카드, 저장, 알림은 변경하지 않습니다. 과거 기록과 카드의 차트 이동에도 같은 선택을 적용합니다.",
       "category": "analysis",
       "locale": "ko",
       "status": "pending",
@@ -72,13 +249,15 @@
       "sources": [
         "youle_desktop/src/shared/wyckoff-plan-set.mjs",
         "youle_desktop/src/main/cloud-plan-contract.mjs",
-        "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs"
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs",
+        "youle_desktop/src/shared/execution-plan-drawings.mjs",
+        "youle_desktop/src/renderer/trading-plan-drawing-history.ts"
       ]
     },
     {
       "id": "wyckoff-dual-plan-ja",
       "title": "ワイコフのレンジ突破後の双方向条件付きプラン",
-      "body": "macOSとAndroid/iOSでは、確定済みで有効なワイコフのレンジ突破後に、既存カードのスタイルで買い・売りの独立した条件付きプランを表示します。下限割れ後の売りは戻りのテストと後続足の弱い終値が必要です。反転買いは終値での下限回復、再テスト、後続足の強い終値を順に確認します。上限突破には対称の条件を適用します。各カードのエントリー条件、損切り、3段階の利確目標、通知は独立しています。価格への接触だけでは発動せず、反転シナリオは蓄積や分配の確定を意味しません。明示された一方向の指定とリスク制限を守り、不適格なプランは既存の参照専用または待機カードで表示します。保存と通知の有効化には従来のユーザー操作が必要で、自動発注は行いません。API、すべての戦略Worker、クライアントの対応版が必要です。未公開のソース候補で、サポートの新しい操作権限はありません。",
+      "body": "macOSとAndroid/iOSでは、確定済みで有効なワイコフのレンジ突破後に、既存カードのスタイルで買い・売りの独立した条件付きプランを表示します。下限割れ後の売りは戻りのテストと後続足の弱い終値が必要です。反転買いは終値での下限回復、再テスト、後続足の強い終値を順に確認します。上限突破には対称の条件を適用します。各カードのエントリー条件、損切り、3段階の利確目標、通知は独立しています。価格への接触だけでは発動せず、反転シナリオは蓄積や分配の確定を意味しません。明示された一方向の指定とリスク制限を守り、不適格なプランは既存の参照専用または待機カードで表示します。保存と通知の有効化には従来のユーザー操作が必要で、自動発注は行いません。API、すべての戦略Worker、クライアントの対応版が必要です。未公開のソース候補で、サポートの新しい操作権限はありません。 両方のカードを維持します。AIチャートには、検証済みの利益確率が最も高いプランのエントリー、3段階の利確、損切りラインだけを表示します。同率または有効な推定値がない場合は継続プランを使用します。勝率を捏造せず、カード、保存、通知は変更しません。履歴とカードからのチャート表示にも同じ選択を適用します。",
       "category": "analysis",
       "locale": "ja",
       "status": "pending",
@@ -90,7 +269,9 @@
       "sources": [
         "youle_desktop/src/shared/wyckoff-plan-set.mjs",
         "youle_desktop/src/main/cloud-plan-contract.mjs",
-        "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs"
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs",
+        "youle_desktop/src/shared/execution-plan-drawings.mjs",
+        "youle_desktop/src/renderer/trading-plan-drawing-history.ts"
       ]
     },
     {
@@ -209,6 +390,91 @@
         "youle_desktop/src/renderer/background-sync.ts",
         "youle_desktop/src/main/conditional-poll-fetch.mjs",
         "youle_desktop/src/renderer/cloud-plan-sync.ts"
+      ]
+    },
+    {
+      "id": "ai-drawing-cursor-zh-cn",
+      "title": "AI 绘图虚拟鼠标",
+      "body": "macOS 客户端主图和分屏的 AI 绘图会显示跟随笔画的虚拟鼠标，关闭 macOS 动画效果也不隐藏它。单点和文字绘制时显示当前位置，完成或取消后清理。减少动态效果模式保留鼠标跟随，但省略跨对象移动动画和点击涟漪，无需更改系统设置。本项为待发布的客户端修复；旧版 0.1.181 安装包仍可能因系统动画设置隐藏虚拟鼠标，需要安装包含修复的新包。无新增客服代操作。",
+      "category": "analysis",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-expert-ai-playback.ts",
+        "youle_desktop/src/renderer/trading-expert-drawing.ts"
+      ]
+    },
+    {
+      "id": "ai-drawing-cursor-zh-hant",
+      "title": "AI 繪圖虛擬滑鼠",
+      "body": "macOS 客戶端主圖與分割畫面的 AI 繪圖會顯示跟隨筆畫的虛擬滑鼠，即使關閉 macOS 動畫效果也不隱藏。單點與文字繪製時顯示目前位置，完成或取消後清除。減少動態效果模式省略跨物件移動動畫與點擊漣漪，無須更改系統設定。本修正尚待發布；舊版 0.1.181 安裝包仍可能隱藏虛擬滑鼠，需安裝包含修正的新包。未新增客服代操作。",
+      "category": "analysis",
+      "locale": "zh-Hant",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-expert-ai-playback.ts",
+        "youle_desktop/src/renderer/trading-expert-drawing.ts"
+      ]
+    },
+    {
+      "id": "ai-drawing-cursor-en",
+      "title": "AI drawing cursor",
+      "body": "AI drawings on the macOS main chart and split panes show a virtual cursor that follows each stroke, including when macOS animations are disabled. Point and text drawings show their current position; completion or cancellation clears the cursor. Reduced motion still omits travel between objects and click ripples. No system setting change is needed. This client fix is pending release; the existing 0.1.181 installer may still hide the cursor and requires a new package containing the fix. No new support actions are available.",
+      "category": "analysis",
+      "locale": "en",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-expert-ai-playback.ts",
+        "youle_desktop/src/renderer/trading-expert-drawing.ts"
+      ]
+    },
+    {
+      "id": "ai-drawing-cursor-ko",
+      "title": "AI 그리기 가상 커서",
+      "body": "macOS 기본 차트와 분할 차트의 AI 그리기는 시스템 애니메이션을 꺼도 획을 따라가는 가상 커서를 표시합니다. 점과 텍스트를 그릴 때 현재 위치를 표시하며, 완료하거나 취소하면 커서를 지웁니다. 동작 줄이기 모드에서는 개체 사이 이동 애니메이션과 클릭 파동만 생략하므로 시스템 설정을 바꿀 필요가 없습니다. 이 수정은 출시 대기 중이며, 기존 0.1.181 설치본에는 수정이 포함된 새 패키지가 필요합니다. 새 고객 지원 대행 작업은 없습니다.",
+      "category": "analysis",
+      "locale": "ko",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-expert-ai-playback.ts",
+        "youle_desktop/src/renderer/trading-expert-drawing.ts"
+      ]
+    },
+    {
+      "id": "ai-drawing-cursor-ja",
+      "title": "AI描画の仮想カーソル",
+      "body": "macOS版のメインチャートと分割チャートでは、システムのアニメーションを無効にしても描画中の線に沿って仮想カーソルを表示します。点や文字の描画位置も表示し、完了またはキャンセル時に消去します。視差効果を減らす設定ではオブジェクト間の移動アニメーションとクリックの波紋を省略するため、システム設定の変更は不要です。この修正は公開待ちで、既存の0.1.181には修正を含む新しいパッケージのインストールが必要です。サポートによる新たな代理操作は追加していません。",
+      "category": "analysis",
+      "locale": "ja",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-expert-ai-playback.ts",
+        "youle_desktop/src/renderer/trading-expert-drawing.ts"
       ]
     },
     {
@@ -768,7 +1034,7 @@
     {
       "id": "expanded-conversation-header",
       "title": "展开会话的标题栏与交易对列表",
-      "body": "hao宝 入口当前暂时关闭，点击侧栏“你的 hao宝”（或已保存昵称）只显示“即将上线，敬请期待”，不切换页面；下述 hao宝 布局为保留实现，待重新开放后可用。macOS 展开任务会话后隐藏左上角的左侧栏控件，顶部交易对列表也同时隐藏，恢复左侧K线图加右侧会话后再显示。收起会话恢复图表布局时，左侧栏按钮回到图表工具栏上方。hao宝 完整会话同样隐藏左上角控件，并统一标题字体、高度和间距；右上角自定义改为会话展开/收起控件，可切换完整会话与左侧K线图加右侧hao宝会话。hao宝 首次有效发送后自动显示左侧K线图加右侧会话；后续每次进入及重启后打开均默认这个布局。右上角提供与新任务相同的展开/收起自选，展开时显示已有自选列表，收起后返回消息；切换保留消息和草稿，仍可点击会话标题或 hao宝 消息头像修改头像和昵称。顶部交易对区域只挂载当前有效图表的一份列表，旧图表销毁后的延迟回调不会追加重复列表。客服可说明入口，无新增代操作协议；以实际安装版本为准。",
+      "body": "LOLO 入口当前暂时关闭，点击侧栏“你的 LOLO”（或已保存昵称）只显示“即将上线，敬请期待”，不切换页面；下述 LOLO 布局为保留实现，待重新开放后可用。macOS 展开任务会话后隐藏左上角的左侧栏控件，顶部交易对列表也同时隐藏，恢复左侧K线图加右侧会话后再显示。收起会话恢复图表布局时，左侧栏按钮回到图表工具栏上方。LOLO 完整会话同样隐藏左上角控件，并统一标题字体、高度和间距；右上角自定义改为会话展开/收起控件，可切换完整会话与左侧K线图加右侧LOLO会话。LOLO 首次有效发送后自动显示左侧K线图加右侧会话；后续每次进入及重启后打开均默认这个布局。右上角提供与新任务相同的展开/收起自选，展开时显示已有自选列表，收起后返回消息；切换保留消息和草稿，仍可点击会话标题或 LOLO 消息头像修改头像和昵称。顶部交易对区域只挂载当前有效图表的一份列表，旧图表销毁后的延迟回调不会追加重复列表。客服可说明入口，无新增代操作协议；以实际安装版本为准。",
       "category": "workspace",
       "locale": "zh-CN",
       "status": "pending",
@@ -806,8 +1072,8 @@
     },
     {
       "id": "haobao-preview",
-      "title": "你的 hao宝、策略广场与指标广场入口",
-      "body": "当前 macOS 侧栏“你的 hao宝”（或已保存昵称）入口暂时关闭，点击仅弹出 Toast“即将上线，敬请期待”，停留在当前页面。原有功能代码、外观设置和本地消息保留，完善后再开放。以下 hao宝 操作说明仅对应保留实现，当前不可从该入口访问；策略广场与指标广场入口仍可使用。macOS 新任务下方新增固定悬浮入口“你的 hao宝”。首次进入展示介绍，点击继续进入欢迎页；点击顶部头像、名称或“自定义你的 hao宝”可选择云朵颜色、角色、表情及1–5字符名称，侧栏与消息头像同步更新；保存昵称后，侧栏入口同步显示“你的 新昵称”，重新打开时恢复当前账户已保存的名称。首条消息发出后切换为左侧K线图加右侧会话，之后每次进入均默认此布局；可通过右上角控件展开完整会话。欢迎大头像、名称、待命状态及欢迎内容收起，重新进入也不再出现；完整会话标题行与新任务展开后的标题行统一高度、字体和间距，展开时隐藏左上角控件；右上角自定义替换为展开/收起控件，可切换完整会话与左侧K线图加右侧hao宝会话。可通过会话标题继续修改外观。悬停在会话中的 hao宝 消息头像上，右上角显示铅笔图标，点击头像或铅笔打开同一头像和昵称设置弹窗；键盘聚焦头像也会显示，保存或取消后焦点返回原头像。消息左右排列并显示双方头像名称，鼠标悬停在气泡时，右下角显示灰色时间、复制和引用，用户消息另有本地收藏及编辑；移开自动隐藏，键盘聚焦操作时也会显示。外观、聊天状态、最近200条演示消息及其引用和收藏标记按账户保存在本机，草稿仅保留于当前会话。欢迎页无常驻创建成功或前端体验提示。当前仅为前端体验：不上传消息或文件、不执行监控、不创建云电脑、不发送主动消息，语音尚未接入，收藏不与云端收藏夹同步。侧栏原策略入口移至输入框加号→策略的选项框顶部，名称为“策略广场”，进入原策略页面；加号→指标的选项框顶部新增“指标广场”，直接进入策略页面的指标分类。客服只能说明操作，尚无 hao宝 代操作协议；代码候选不代表正式发布。",
+      "title": "你的 LOLO、策略广场与指标广场入口",
+      "body": "默认名称统一为 LOLO，加载本机资料时将旧默认名称自动显示为 LOLO；其他自定义昵称与历史消息原文保留。当前 macOS 侧栏“你的 LOLO”（或已保存昵称）入口暂时关闭，点击仅弹出 Toast“即将上线，敬请期待”，停留在当前页面。原有功能代码、外观设置和本地消息保留，完善后再开放。以下 LOLO 操作说明仅对应保留实现，当前不可从该入口访问；策略广场与指标广场入口仍可使用。macOS 新任务下方新增固定悬浮入口“你的 LOLO”。首次进入展示介绍，点击继续进入欢迎页；点击顶部头像、名称或“自定义你的 LOLO”可选择云朵颜色、角色、表情及1–5字符名称，侧栏与消息头像同步更新；保存昵称后，侧栏入口同步显示“你的 新昵称”，重新打开时恢复当前账户已保存的名称。首条消息发出后切换为左侧K线图加右侧会话，之后每次进入均默认此布局；可通过右上角控件展开完整会话。欢迎大头像、名称、待命状态及欢迎内容收起，重新进入也不再出现；完整会话标题行与新任务展开后的标题行统一高度、字体和间距，展开时隐藏左上角控件；右上角自定义替换为展开/收起控件，可切换完整会话与左侧K线图加右侧LOLO会话。可通过会话标题继续修改外观。悬停在会话中的 LOLO 消息头像上，右上角显示铅笔图标，点击头像或铅笔打开同一头像和昵称设置弹窗；键盘聚焦头像也会显示，保存或取消后焦点返回原头像。消息左右排列并显示双方头像名称，鼠标悬停在气泡时，右下角显示灰色时间、复制和引用，用户消息另有本地收藏及编辑；移开自动隐藏，键盘聚焦操作时也会显示。外观、聊天状态、最近200条演示消息及其引用和收藏标记按账户保存在本机，草稿仅保留于当前会话。欢迎页无常驻创建成功或前端体验提示。当前仅为前端体验：不上传消息或文件、不执行监控、不创建云电脑、不发送主动消息，语音尚未接入，收藏不与云端收藏夹同步。侧栏原策略入口移至输入框加号→策略的选项框顶部，名称为“策略广场”，进入原策略页面；加号→指标的选项框顶部新增“指标广场”，直接进入策略页面的指标分类。客服只能说明操作，尚无 LOLO 代操作协议；代码候选不代表正式发布。",
       "category": "haobao",
       "locale": "zh-CN",
       "status": "pending",
@@ -825,8 +1091,8 @@
     },
     {
       "id": "haobao-language-ko",
-      "title": "HaoBao 인터페이스 언어 및 사용자 지정 이름",
-      "body": "현재 HaoBao 사이드바 입구는 임시로 닫혀 있습니다. 클릭하면 출시 예정 알림만 표시하며 현재 페이지를 유지합니다. 기존 코드, 사용자 지정 이름과 저장된 메시지는 보존됩니다. 아래 인터페이스 및 언어 기능은 재개를 위해 보존되지만 현재 이 입구로 접근할 수 없습니다. 새 고객 지원 대행 기능은 없습니다. HaoBao 소개, 환영 문구, 외형의 색상·캐릭터·표정, 설정 안내와 접근성 레이블은 중국어 간체·번체, 영어, 한국어를 지원합니다. 환영 문구는 인터페이스 언어에 맞게 바뀌며 사용자 지정 이름, 저장된 메시지와 사용자 입력은 원문을 유지합니다. 전략 및 지표 갤러리는 입력창의 더하기 메뉴에서 계속 열 수 있습니다. 기존 계획 카드의 스타일은 유지됩니다. HaoBao는 로컬 프런트엔드 미리보기이며 클라우드 모니터링, 선제적 메시지 또는 고객 지원 대행 기능이 추가되지 않습니다. 아직 출시되지 않은 소스 후보입니다.",
+      "title": "LOLO 인터페이스 언어 및 사용자 지정 이름",
+      "body": "모든 인터페이스 언어의 기본 이름은 LOLO입니다. 이전 기본 이름을 사용하는 저장된 프로필은 LOLO로 표시되며 다른 사용자 지정 이름과 저장된 메시지 원문은 유지됩니다. 현재 LOLO 사이드바 입구는 임시로 닫혀 있습니다. 클릭하면 출시 예정 알림만 표시하며 현재 페이지를 유지합니다. 기존 코드, 사용자 지정 이름과 저장된 메시지는 보존됩니다. 아래 인터페이스 및 언어 기능은 재개를 위해 보존되지만 현재 이 입구로 접근할 수 없습니다. 새 고객 지원 대행 기능은 없습니다. LOLO 소개, 환영 문구, 외형의 색상·캐릭터·표정, 설정 안내와 접근성 레이블은 중국어 간체·번체, 영어, 한국어를 지원합니다. 환영 문구는 인터페이스 언어에 맞게 바뀌며 사용자 지정 이름, 저장된 메시지와 사용자 입력은 원문을 유지합니다. 전략 및 지표 갤러리는 입력창의 더하기 메뉴에서 계속 열 수 있습니다. 기존 계획 카드의 스타일은 유지됩니다. LOLO는 로컬 프런트엔드 미리보기이며 클라우드 모니터링, 선제적 메시지 또는 고객 지원 대행 기능이 추가되지 않습니다. 아직 출시되지 않은 소스 후보입니다.",
       "category": "haobao",
       "locale": "ko",
       "status": "pending",
@@ -846,8 +1112,8 @@
     },
     {
       "id": "haobao-language-en",
-      "title": "HaoBao interface language and custom names",
-      "body": "The HaoBao sidebar entry is temporarily closed. Clicking it only shows a coming-soon toast and stays on the current page. The implementation, custom names and saved messages are retained for reopening later. The interface and language features described below are retained but unavailable through this entry. No support action is added. HaoBao introductions, welcome text, appearance colours, characters, expressions, settings messages and accessibility labels support Simplified Chinese, Traditional Chinese, English and Korean. Welcome text follows the interface language; custom names, saved messages and user input keep their original text. Strategy and indicator galleries remain accessible from the composer plus menu. Existing plan card styling is unchanged. HaoBao remains a local frontend preview, with no new cloud monitoring, proactive messages or support actions. This is an unpublished source candidate.",
+      "title": "LOLO interface language and custom names",
+      "body": "The default name is LOLO in every interface language. Stored profiles using the previous default display LOLO; other custom names and saved message text are preserved. The LOLO sidebar entry is temporarily closed. Clicking it only shows a coming-soon toast and stays on the current page. The implementation, custom names and saved messages are retained for reopening later. The interface and language features described below are retained but unavailable through this entry. No support action is added. LOLO introductions, welcome text, appearance colours, characters, expressions, settings messages and accessibility labels support Simplified Chinese, Traditional Chinese, English and Korean. Welcome text follows the interface language; custom names, saved messages and user input keep their original text. Strategy and indicator galleries remain accessible from the composer plus menu. Existing plan card styling is unchanged. LOLO remains a local frontend preview, with no new cloud monitoring, proactive messages or support actions. This is an unpublished source candidate.",
       "category": "haobao",
       "locale": "en",
       "status": "pending",
@@ -867,8 +1133,8 @@
     },
     {
       "id": "haobao-language-zh-hant",
-      "title": "hao寶介面語言與暱稱保護",
-      "body": "目前 hao寶 入口暫時關閉，點擊側欄入口只顯示即將上線提示，不進入頁面。以下介面與語言功能保留，待重新開放；既有名稱和訊息保留，無新增客服代操作。hao寶的介紹、歡迎內容、外觀顏色／角色／表情、設定提示及無障礙標籤支援簡體中文、繁體中文、英語和韓語。切換語言後歡迎內容隨介面更新；使用者自訂名稱、已儲存訊息和使用者輸入保留原文。策略廣場與指標廣場繼續透過輸入框加號中的對應入口開啟，原計畫卡片樣式不變。目前 hao寶 仍是本機前端體驗，不新增雲端監控、主動訊息或客服代操作。本項為尚未發布的原始碼候選。",
+      "title": "LOLO介面語言與暱稱保護",
+      "body": "預設名稱及各語言介面統一使用 LOLO，既有舊預設名稱自動顯示為 LOLO；其他自訂暱稱與歷史訊息原文保留。目前 LOLO 入口暫時關閉，點擊側欄入口只顯示即將上線提示，不進入頁面。以下介面與語言功能保留，待重新開放；既有名稱和訊息保留，無新增客服代操作。LOLO的介紹、歡迎內容、外觀顏色／角色／表情、設定提示及無障礙標籤支援簡體中文、繁體中文、英語和韓語。切換語言後歡迎內容隨介面更新；使用者自訂名稱、已儲存訊息和使用者輸入保留原文。策略廣場與指標廣場繼續透過輸入框加號中的對應入口開啟，原計畫卡片樣式不變。目前 LOLO 仍是本機前端體驗，不新增雲端監控、主動訊息或客服代操作。本項為尚未發布的原始碼候選。",
       "category": "haobao",
       "locale": "zh-Hant",
       "status": "pending",
@@ -888,8 +1154,8 @@
     },
     {
       "id": "haobao-language-zh-cn",
-      "title": "hao宝界面语言与昵称保护",
-      "body": "当前 hao宝 入口暂时关闭，点击侧栏入口只显示“即将上线，敬请期待”，不进入页面。下述界面与语言功能保留，待重新开放；已有名称和消息保留，无新增客服代操作。hao宝的介绍、欢迎内容、外观颜色/角色/表情、设置提示及无障碍标签支持简体中文、繁体中文、英语和韩语。切换语言后欢迎内容随界面更新；用户自定义名称、已保存消息和用户输入保留原文。策略广场与指标广场继续通过输入框加号中的对应入口打开，原计划卡片样式不变。当前 hao宝 仍是本地前端体验，不新增云端监控、主动消息或客服代操作。此项为未发布源码候选。",
+      "title": "LOLO界面语言与昵称保护",
+      "body": "默认名称及各语言界面统一使用 LOLO，已有旧默认名称自动显示为 LOLO；其他自定义昵称与历史消息原文保留。当前 LOLO 入口暂时关闭，点击侧栏入口只显示“即将上线，敬请期待”，不进入页面。下述界面与语言功能保留，待重新开放；已有名称和消息保留，无新增客服代操作。LOLO的介绍、欢迎内容、外观颜色/角色/表情、设置提示及无障碍标签支持简体中文、繁体中文、英语和韩语。切换语言后欢迎内容随界面更新；用户自定义名称、已保存消息和用户输入保留原文。策略广场与指标广场继续通过输入框加号中的对应入口打开，原计划卡片样式不变。当前 LOLO 仍是本地前端体验，不新增云端监控、主动消息或客服代操作。此项为未发布源码候选。",
       "category": "haobao",
       "locale": "zh-CN",
       "status": "pending",
@@ -927,7 +1193,7 @@
     {
       "id": "chart-price-alert-markers",
       "title": "图表价格预警线、拖动与删除",
-      "body": "macOS 图表价格标签左侧加号可创建云端价格预警。确认创建后，主图及同交易对分屏在目标价格显示虚线和右向三角；悬浮显示交易对、触发条件、价格和删除按钮，鼠标显示上下拖动箭头。删除须经弹窗确认。拖动时隐藏说明框，松开后确认新价格；取消保留原预警，确认后先验证新预警创建成功，再自动删除原预警。创建失败不会删除原预警；替换未完成时按弹窗提示重试，不应重复点击加号另建。已暂停、触发完成或删除的预警不再显示有效预警线。支持币安现货和永续，到价发送一次邮件至绑定邮箱，监控不依赖电脑在线。需核对实际安装版本；源码与候选知识包不代表已上线。客服可说明操作，不能代用户创建、移动或删除预警。",
+      "body": "macOS 图表价格标签左侧加号可创建云端价格预警。确认创建后，主图及同交易对分屏在目标价格显示虚线和右向三角；悬浮显示交易对、触发条件、价格和删除按钮，鼠标显示上下拖动箭头。删除须经弹窗确认。拖动时隐藏说明框，松开后确认新价格；取消保留原预警，确认后先验证新预警创建成功，再自动删除原预警。创建失败不会删除原预警；替换未完成时按弹窗提示重试，不应重复点击加号另建。已暂停、触发完成或删除的预警不再显示有效预警线。支持币安现货和永续，到价发送一次邮件至绑定邮箱，客户端在线且消息弹窗开启时同步桌面浮窗，监控及邮件不依赖电脑在线。需核对实际安装版本；源码与候选知识包不代表已上线。客服可说明操作，不能代用户创建、移动或删除预警。",
       "category": "alerts",
       "locale": "zh-CN",
       "status": "pending",
@@ -1078,7 +1344,7 @@
     {
       "id": "chart-issue",
       "title": "行情、图表或分析结果无法显示",
-      "body": "BTC图表打不开、价格停止刷新、指标未显示、分析入口报错都属于产品问题。先询问客户端平台和版本、交易品种、周期、问题发生位置、可复现步骤及报错内容。不能把没有知识记录直接判断成Bug，不能声称已读取用户未提供的截图内容。确需技术处理时登记脱敏问题。",
+      "body": "BTC图表打不开、价格停止刷新、指标未显示、分析入口报错都属于产品问题。Windows 主K线首次打开、切换交易对或周期时，币安历史行情遇到短暂连接失败会在本次加载的30秒内自动重试，成功后直接显示图表；没有可用缓存且30秒仍未成功时才显示红色重试入口，点击后可重新尝试。自动选路等待成功响应的完整JSON行情后再确定线路，数据中途断流、截断或无效JSON会触发备用线路接管；优先网关的K线读取有独立尝试时限，为切换线路留出时间。服务端限流冷却仍被遵守，交易对已下架等明确错误直接提示；切换交易对、周期或销毁页面会取消旧加载。此改动为待发布源码候选，以实际安装版本为准，无新增客服代操作。先询问客户端平台和版本、交易品种、周期、问题发生位置、可复现步骤及报错内容。不能把没有知识记录直接判断成Bug，不能声称已读取用户未提供的截图内容。确需技术处理时登记脱敏问题。",
       "category": "chart-issue",
       "locale": "zh-CN",
       "status": "approved",
@@ -1088,7 +1354,11 @@
       ],
       "actions": {},
       "sources": [
-        "youle_desktop/docs/native-support.zh-CN.md"
+        "youle_desktop/docs/native-support.zh-CN.md",
+        "youle_desktop/src/renderer/trading-expert-market.ts",
+        "youle_desktop/src/renderer/trading-market-load-retry.ts",
+        "youle_desktop/src/main/binance-network-router.mjs",
+        "youle_desktop/src/main/binance-response-body.mjs"
       ]
     },
     {

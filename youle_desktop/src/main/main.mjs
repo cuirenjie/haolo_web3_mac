@@ -72,6 +72,8 @@ import {createCloudPlans} from './trading-strategy-runtime/cloud-plans.mjs';
 import {createCloudPriceAlerts, isCloudPriceAlert} from './trading-alerts/cloud-price-alerts.mjs';
 import {createCloudAlertFeed} from './trading-strategy-runtime/cloud-alert-feed.mjs';
 import {cloudAlertNotification} from './cloud-alert-view.mjs';
+import {createDesktopNotificationQueue} from './desktop-notification-queue.mjs';
+import {createNotificationSession} from './notification-session.mjs';
 import {createAccountEventClient} from './account-event-client.mjs';
 import { CloudRunJournal } from "./trading-strategy-runtime/cloud-run-journal.mjs";
 import { cloudStrategyFailure } from "./trading-strategy-runtime/cloud-error.mjs";
@@ -980,6 +982,8 @@ let runtimePrepareStatus = null;
 let windowsNotificationShortcutPromise = null;
 let desktopNotificationWindow = null;
 let desktopNotificationTimer = null;
+let desktopNotificationQueue = null;
+const nativeNotificationSession = createNotificationSession(() => getYouleApiClient().token || '');
 let newsFeed = null;
 let newsWindows = null;
 const AUTOMATION_BACKGROUND = process.argv.includes("--automation-worker") || process.argv.includes("--background");
@@ -4697,7 +4701,7 @@ function getBinancePrivateProxyTransport() {
     binancePrivateProxyTransport = new BinancePrivateProxyTransport({
       proxyUrl: config.privateProxyUrl,
       permitProvider: (url, options) => gatewayClient.privateRequestPermit(url, options),
-      usageReporter: (report) => gatewayClient.reportPrivateUsage(report),
+      usageReporter: (report, options) => gatewayClient.reportPrivateUsage(report, options),
       lookup: binanceGatewayNetworkFetch?.lookup,
       connectOuter: (url, options) => getHaoloNetworkTransport().connect(url, options),
     });
@@ -7179,6 +7183,8 @@ async function waitForAuthChangeRestart() {
 }
 
 async function restartClientAfterAuthChange() {
+  nativeNotificationSession.clear();
+  desktopNotificationQueue?.clear();
   if (authChangeRestartPromise) return authChangeRestartPromise;
   const operation = (async () => {
     await resetBinanceNetworkRuntimeAfterAuthChange();
@@ -8700,8 +8706,8 @@ async function showTaskCompletedSystemNotification(params) {
     silent: false,
   });
   console.info("[notification] showing Electron notification", { title });
-  notification.on("click", () => {
-    focusMainWindowFromNotification(openContext);
+  nativeNotificationSession.track(notification, current => {
+    focusMainWindowFromNotification(openContext, current);
   });
   notification.show();
 }
@@ -8718,8 +8724,8 @@ function notificationOpenContext({ threadId, turnId, alertId, evidenceId, market
   };
 }
 
-function focusMainWindowFromNotification({ threadId, turnId, alertId, evidenceId, marketId, interval, triggeredAt } = {}) {
-  if (AUTOMATION_BACKGROUND) return;
+function focusMainWindowFromNotification({ threadId, turnId, alertId, evidenceId, marketId, interval, triggeredAt } = {}, current = () => true) {
+  if (AUTOMATION_BACKGROUND || !current()) return;
   stopWechatMessageAttention();
   if (!mainWindow || mainWindow.isDestroyed()) createWindow();
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -8729,7 +8735,7 @@ function focusMainWindowFromNotification({ threadId, turnId, alertId, evidenceId
   const openContext = notificationOpenContext({ threadId, turnId, alertId, evidenceId, marketId, interval, triggeredAt });
   if (!openContext.threadId && !openContext.alertId) return;
   const sendOpenThread = () => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (!current() || !mainWindow || mainWindow.isDestroyed()) return;
     if (openContext.alertId) mainWindow.webContents.send("tradingAlerts:open", openContext);
     else mainWindow.webContents.send("automation:openThread", openContext);
   };
@@ -8761,8 +8767,20 @@ function openSettingsFromNotification() {
   }
 }
 
-function showDesktopNotificationWindow({ title, body, threadId, turnId, alertId, evidenceId, marketId, interval, triggeredAt }) {
+function showDesktopNotificationWindow(params) {
+  desktopNotificationQueue ||= createDesktopNotificationQueue({
+    present: presentDesktopNotificationWindow,
+    onError: error => console.warn('[notification] queued popup could not open', error?.code || error?.name),
+    scope: () => getYouleApiClient().token || '',
+    enabled: () => !appShuttingDown && !AUTOMATION_BACKGROUND && taskCompletionPopupEnabled(),
+  });
+  desktopNotificationQueue.show(params);
+}
+
+function presentDesktopNotificationWindow({ title, body, threadId, turnId, alertId, evidenceId, marketId, interval, triggeredAt }, dismissed) {
   if (AUTOMATION_BACKGROUND) return;
+  const sessionToken = getYouleApiClient().token;
+  const current = () => sessionToken === getYouleApiClient().token;
   const openContext = notificationOpenContext({ threadId, turnId, alertId, evidenceId, marketId, interval, triggeredAt });
   console.info("[notification] showing desktop fallback window", { title });
   if (desktopNotificationTimer) {
@@ -8806,13 +8824,22 @@ function showDesktopNotificationWindow({ title, body, threadId, turnId, alertId,
       sandbox: true,
     },
   });
+  desktopNotificationWindow.removeMenu();
+  desktopNotificationWindow.setAlwaysOnTop(true, "screen-saver");
+  desktopNotificationWindow.loadURL(`data:text/html;base64,${Buffer.from(desktopNotificationHtml({ title, body, theme: appTheme(), language: appLanguage() })).toString("base64")}`);
   const notificationWindow = desktopNotificationWindow;
-  notificationWindow.removeMenu();
-  notificationWindow.setAlwaysOnTop(true, "screen-saver");
-  notificationWindow.loadURL(`data:text/html;base64,${Buffer.from(desktopNotificationHtml({ title, body, theme: appTheme(), language: appLanguage() })).toString("base64")}`);
-  notificationWindow.once("ready-to-show", () => {
+  notificationWindow.once("ready-to-show", async () => {
     if (notificationWindow.isDestroyed() || desktopNotificationWindow !== notificationWindow) return;
+    // Alerts contain prices and evidence time; fit the actual wrapped copy.
+    if (alertId) {
+      const contentHeight = await notificationWindow.webContents.executeJavaScript('Math.ceil(document.querySelector(".card").getBoundingClientRect().height + 16)').catch(() => height);
+      if (notificationWindow.isDestroyed() || desktopNotificationWindow !== notificationWindow) return;
+      const fittedHeight = Math.min(workArea.height - margin * 2, Math.max(height, contentHeight));
+      notificationWindow.setBounds({height:fittedHeight,y:Math.round(workArea.y + workArea.height - fittedHeight - margin)});
+    }
     notificationWindow.showInactive();
+    desktopNotificationTimer = setTimeout(closeDesktopNotificationWindow, 7000);
+    desktopNotificationTimer.unref?.();
   });
   notificationWindow.webContents.on("before-input-event", (_event, input) => {
     if (input.key === "Escape") closeDesktopNotificationWindow();
@@ -8822,7 +8849,7 @@ function showDesktopNotificationWindow({ title, body, threadId, turnId, alertId,
     event.preventDefault();
     if (url === "youle-notification://open") {
       closeDesktopNotificationWindow();
-      focusMainWindowFromNotification(openContext);
+      focusMainWindowFromNotification(openContext, current);
     } else if (url === "youle-notification://settings") {
       closeDesktopNotificationWindow();
       openSettingsFromNotification();
@@ -8833,14 +8860,12 @@ function showDesktopNotificationWindow({ title, body, threadId, turnId, alertId,
   notificationWindow.on("closed", () => {
     if (desktopNotificationWindow === notificationWindow) {
       desktopNotificationWindow = null;
+      if (desktopNotificationTimer) clearTimeout(desktopNotificationTimer);
+      desktopNotificationTimer = null;
     }
+    dismissed();
   });
-  desktopNotificationTimer = setTimeout(() => {
-    if (desktopNotificationWindow === notificationWindow) {
-      closeDesktopNotificationWindow();
-    }
-  }, 7000);
-  desktopNotificationTimer.unref?.();
+  return () => { if (desktopNotificationWindow === notificationWindow) closeDesktopNotificationWindow(); };
 }
 
 function closeDesktopNotificationWindow() {
@@ -8848,10 +8873,9 @@ function closeDesktopNotificationWindow() {
     clearTimeout(desktopNotificationTimer);
     desktopNotificationTimer = null;
   }
-  if (desktopNotificationWindow && !desktopNotificationWindow.isDestroyed()) {
-    desktopNotificationWindow.close();
-  }
+  const previous = desktopNotificationWindow;
   desktopNotificationWindow = null;
+  if (previous && !previous.isDestroyed()) previous.close();
 }
 
 function desktopNotificationHtml({ title, body, theme, language = appLanguage(), news = false }) {
@@ -16149,9 +16173,7 @@ let latestSyncState;
 function getCloudAlertFeed() {
   return cloudAlertFeed ||= createCloudAlertFeed({owner:requireHaoloAccountOwner,api:getYouleApiClient,eventsMode:true,
     journal:new CloudRunJournal({storagePath:path.join(app.getPath('userData'),'cloud-alert-events.bin'),safeStorage}),
-    notify:async value=>{await showTaskCompletedSystemNotification({...cloudAlertNotification(value,appLanguage()),
-      alertId:value.alert.id,evidenceId:value.event.data.eventId,marketId:value.alert.rule.marketKey,
-      interval:value.alert.rule.interval,triggeredAt:value.event.data.occurredAt});},
+    notify:async value=>{await showTaskCompletedSystemNotification(cloudAlertNotification(value,appLanguage()));},
     changed:feed=>sendToRenderer('tradingCloud:alertFeed',feed)});
 }
 function getAccountEvents() {
@@ -22705,7 +22727,9 @@ async function cleanupAndExit(exitCode = 0) {
   clearScheduledWork();
   stopChannelEvents();
   pendingServerRequests.clear();
+  desktopNotificationQueue?.clear();
   closeDesktopNotificationWindow();
+  nativeNotificationSession.clear();
   closeExecutionPlanStickyWindows();
   stopWechatMessageAttention();
   stopWechatExternalChannelBackendPolling();

@@ -7,9 +7,10 @@ type Profile = HaoBaoAppearance & { name: string; created: boolean; customized: 
 type MessageQuote = { text: string; sender: string };
 type PreviewMessage = { id: string; text: string; from: "user" | "hao"; createdAt: number; files?: string[]; quote?: MessageQuote; favorite?: boolean };
 const HAOBAO_NAME_MAX_LENGTH = 5;
+const HAOBAO_DEFAULT_NAME = "LOLO";
 const limitName = (value: string) => Array.from(value).slice(0, HAOBAO_NAME_MAX_LENGTH).join("");
 const validName = (value: string) => Boolean(value.trim()) && Array.from(value.trim()).length <= HAOBAO_NAME_MAX_LENGTH;
-const defaults = (): Profile => ({ name: "hao宝", color: "cloud", character: "classic", mood: "wink", created: false, customized: false, createdAt: 0, conversationStarted: false });
+const defaults = (): Profile => ({ name: HAOBAO_DEFAULT_NAME, color: "cloud", character: "classic", mood: "wink", created: false, customized: false, createdAt: 0, conversationStarted: false });
 const escape = (value: string) => value.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]!));
 const paths = {
   bolt: '<path d="m13 2-9 12h7l-1 8 10-13h-7Z"/>',
@@ -61,8 +62,10 @@ export function createHaoBaoUi(onChange: () => void) {
     try {
       const saved = JSON.parse(localStorage.getItem(`haolo.haobao.preview.v1:${scope}`) || "null");
       if (!saved || typeof saved !== "object") return;
+      const savedName = typeof saved.name === "string" ? saved.name.trim() : "";
+      // Upgrade the previous default, including profiles with a customized avatar.
       profile = { ...profile,
-        name: typeof saved.name === "string" && saved.name.trim() ? limitName(saved.name.trim()) : "hao宝",
+        name: savedName && !/^hao宝$/u.test(savedName) ? limitName(savedName) : HAOBAO_DEFAULT_NAME,
         created: saved.created === true, customized: saved.customized === true,
         conversationStarted: saved.conversationStarted === true,
         createdAt: Number.isFinite(saved.createdAt) ? saved.createdAt : 0,
@@ -108,14 +111,14 @@ export function createHaoBaoUi(onChange: () => void) {
 
   function renderPage(user: { name: string; avatar: string }, headerActions = "") {
     userName = user.name;
-    if (!profile.created) return `<main class="haobao-page haobao-intro-page" aria-label="创建你的 hao宝">
+    if (!profile.created) return `<main class="haobao-page haobao-intro-page" aria-label="创建你的 LOLO">
       <div class="haobao-intro">
         <div class="haobao-intro-avatar">${haoBaoOutline()}</div>
-        <h1>创建你的 hao宝</h1>
+        <h1>创建你的 LOLO</h1>
         <p class="haobao-subtitle">本地对话体验，云端任务尚未接入。</p>
         <div class="haobao-features">
-          <section><span class="haobao-feature-icon">${icon("bolt")}</span><div><h2>你来交代，hao宝来行动</h2><p>把想做的事告诉它，完成后主动找你。比如盯住 BTC 1 小时行情，裸 K 与威科夫方向一致时提醒你。</p></div></section>
-          <section><span class="haobao-feature-icon">${icon("cloud")}</span><div><h2>专属云电脑，24 小时待命</h2><p>每个 hao宝都有自己的云电脑。即使你离线，它也能在背后持续推进。</p></div></section>
+          <section><span class="haobao-feature-icon">${icon("bolt")}</span><div><h2>你来交代，LOLO来行动</h2><p>把想做的事告诉它，完成后主动找你。比如盯住 BTC 1 小时行情，裸 K 与威科夫方向一致时提醒你。</p></div></section>
+          <section><span class="haobao-feature-icon">${icon("cloud")}</span><div><h2>专属云电脑，24 小时待命</h2><p>每个 LOLO都有自己的云电脑。即使你离线，它也能在背后持续推进。</p></div></section>
           <section><span class="haobao-feature-icon">${icon("heart")}</span><div><h2>你的交易搭子，越用越懂你</h2><p>记住你的交易经验与偏好，在行情的关键位置，陪你一起思考、出谋划策。</p></div></section>
         </div>
         <button type="button" class="haobao-primary" data-haobao-action="create">继续</button>
@@ -126,8 +129,8 @@ export function createHaoBaoUi(onChange: () => void) {
       : date.toLocaleDateString(appLanguageLocale(), { month: "short", day: "numeric" });
     const time = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
     const haoAvatar = (messageId?: string) => messageId
-      ? `<button type="button" id="haobao-avatar-${escape(messageId)}" class="message-avatar haobao-message-avatar haobao-message-avatar-editable" data-haobao-action="customize" aria-label="编辑 hao宝 头像和名称" aria-haspopup="dialog">${renderHaoBaoAvatar(profile)}<span class="haobao-edit-badge" aria-hidden="true">${icon("edit")}</span></button>`
-      : `<span class="message-avatar haobao-message-avatar" role="img" aria-label="hao宝的头像">${renderHaoBaoAvatar(profile)}</span>`;
+      ? `<button type="button" id="haobao-avatar-${escape(messageId)}" class="message-avatar haobao-message-avatar haobao-message-avatar-editable" data-haobao-action="customize" aria-label="编辑 LOLO 头像和名称" aria-haspopup="dialog">${renderHaoBaoAvatar(profile)}<span class="haobao-edit-badge" aria-hidden="true">${icon("edit")}</span></button>`
+      : `<span class="message-avatar haobao-message-avatar" role="img" aria-label="LOLO的头像">${renderHaoBaoAvatar(profile)}</span>`;
     const bubble = (message: PreviewMessage) => {
       const fromUser = message.from === "user";
       const sent = new Date(message.createdAt || profile.createdAt);
@@ -146,22 +149,22 @@ export function createHaoBaoUi(onChange: () => void) {
         ${fromUser ? user.avatar : ""}
       </article>`;
     };
-    return `<main class="haobao-page haobao-chat-page ${profile.conversationStarted ? "haobao-chat-started trading-expert-panel" : ""}" aria-label="你的 hao宝">
-      ${profile.conversationStarted ? `<header class="haobao-session-header trading-expert-panel-header"><div class="trading-expert-panel-heading"><button type="button" id="haobao-session-name" class="haobao-session-title" data-haobao-action="customize" aria-label="编辑 hao宝 头像和名称"><span data-i18n-skip>${escape(profile.name)}</span></button></div><div class="trading-expert-panel-header-actions">${headerActions}</div></header>` : ""}
+    return `<main class="haobao-page haobao-chat-page ${profile.conversationStarted ? "haobao-chat-started trading-expert-panel" : ""}" aria-label="你的 LOLO">
+      ${profile.conversationStarted ? `<header class="haobao-session-header trading-expert-panel-header"><div class="trading-expert-panel-heading"><button type="button" id="haobao-session-name" class="haobao-session-title" data-haobao-action="customize" aria-label="编辑 LOLO 头像和名称"><span data-i18n-skip>${escape(profile.name)}</span></button></div><div class="trading-expert-panel-header-actions">${headerActions}</div></header>` : ""}
       ${profile.conversationStarted ? renderTradingWatchlistHost() : ""}
       <div class="haobao-conversation">
-        ${!profile.conversationStarted ? `<header class="haobao-chat-header"><button type="button" id="haobao-identity" class="haobao-identity" data-haobao-action="customize" aria-label="编辑 hao宝 头像和名称">
+        ${!profile.conversationStarted ? `<header class="haobao-chat-header"><button type="button" id="haobao-identity" class="haobao-identity" data-haobao-action="customize" aria-label="编辑 LOLO 头像和名称">
           <span class="haobao-identity-picture">${renderHaoBaoAvatar(profile)}<span class="haobao-edit-badge">${icon("edit")}</span></span>
           <strong data-i18n-skip>${escape(profile.name)}</strong><span class="haobao-status"><i></i>本地体验</span>
         </button></header>` : ""}
-        <div class="haobao-message-list" role="log" aria-label="与 hao宝 的对话" aria-live="polite">
+        <div class="haobao-message-list" role="log" aria-label="与 LOLO 的对话" aria-live="polite">
           ${!profile.conversationStarted ? `<p class="haobao-time">${dateLabel} ${time}</p>
           <article class="message-row haobao-message-row from-agent">
             ${haoAvatar()}
             <div class="message-stack haobao-message-stack">
               <div class="message-meta" data-i18n-skip>${escape(profile.name)}</div>
               ${welcomeMessages().map(bubble).join("")}
-              <button type="button" id="haobao-customize" class="haobao-customize-link" data-haobao-action="customize">${icon("user")}<span>自定义你的 hao宝</span>${icon("right")}</button>
+              <button type="button" id="haobao-customize" class="haobao-customize-link" data-haobao-action="customize">${icon("user")}<span>自定义你的 LOLO</span>${icon("right")}</button>
             </div>
           </article>` : ""}
           ${messages.map(messageRow).join("")}
@@ -170,11 +173,11 @@ export function createHaoBaoUi(onChange: () => void) {
       <footer class="haobao-chat-footer">
         ${notice ? `<div class="haobao-notice" role="status">${escape(notice)}</div>` : ""}
         ${files.length ? `<div class="haobao-pending-files">${files.map((file, index) => `<button type="button" data-haobao-remove-file="${index}" aria-label="移除附件 ${escape(file)}">${escape(file)}${icon("close")}</button>`).join("")}</div>` : ""}
-        <form class="haobao-composer" aria-label="向 hao宝 发送消息">
+        <form class="haobao-composer" aria-label="向 LOLO 发送消息">
           <input type="file" id="haobao-files" hidden multiple />
           ${editingId ? `<div class="haobao-composer-context"><span>编辑消息</span><button type="button" data-haobao-action="cancel-edit">取消编辑</button></div>` : ""}
           ${quote ? `<div class="haobao-composer-context haobao-quote-preview"><span><strong>引用 ${escape(quote.sender)}</strong>${escape(quote.text)}</span><button type="button" data-haobao-action="clear-quote" aria-label="取消引用">${icon("close")}</button></div>` : ""}
-          <textarea id="haobao-message" rows="2" maxlength="4000" placeholder="发送消息" aria-label="给 hao宝 发送消息">${escape(composer)}</textarea>
+          <textarea id="haobao-message" rows="2" maxlength="4000" placeholder="发送消息" aria-label="给 LOLO 发送消息">${escape(composer)}</textarea>
           <div class="haobao-composer-actions">
             <button type="button" class="haobao-icon-button" data-haobao-action="attach" aria-label="添加附件">${icon("plus")}</button>
             <span class="haobao-composer-spacer"></span>
@@ -192,8 +195,8 @@ export function createHaoBaoUi(onChange: () => void) {
       <div class="haobao-option-row" data-haobao-row="${key}" role="group" aria-label="${label}">${options.map(option => `<button type="button" id="haobao-${key}-${option.id}" class="haobao-option ${draft![key] === option.id ? "selected" : ""}" data-haobao-option="${key}" data-value="${option.id}" aria-label="${option.name}" aria-pressed="${draft![key] === option.id}">${renderHaoBaoAvatar({ ...draft!, [key]: option.id })}<span>${option.name}</span></button>`).join("")}</div></section>`;
     return `<div class="haobao-backdrop" data-haobao-backdrop><section class="haobao-dialog" role="dialog" aria-modal="true" aria-labelledby="haobao-dialog-title">
       <button type="button" class="haobao-dialog-close haobao-icon-button" data-haobao-action="cancel" aria-label="关闭自定义">${icon("close")}</button>
-      <div class="haobao-options"><h2 id="haobao-dialog-title">自定义你的 hao宝</h2>${row("颜色", "color", HAOBAO_COLORS)}${row("角色", "character", HAOBAO_CHARACTERS)}${row("表情", "mood", HAOBAO_MOODS)}</div>
-      <form class="haobao-preview" aria-label="保存 hao宝 设置"><label for="haobao-name">给它起个名字</label><input id="haobao-name" type="text" value="${escape(draft.name)}" placeholder="hao宝" autocomplete="off" spellcheck="false" aria-describedby="haobao-name-help"/><p id="haobao-name-help">1–${HAOBAO_NAME_MAX_LENGTH} 个字符</p>
+      <div class="haobao-options"><h2 id="haobao-dialog-title">自定义你的 LOLO</h2>${row("颜色", "color", HAOBAO_COLORS)}${row("角色", "character", HAOBAO_CHARACTERS)}${row("表情", "mood", HAOBAO_MOODS)}</div>
+      <form class="haobao-preview" aria-label="保存 LOLO 设置"><label for="haobao-name">给它起个名字</label><input id="haobao-name" type="text" value="${escape(draft.name)}" placeholder="LOLO" autocomplete="off" spellcheck="false" aria-describedby="haobao-name-help"/><p id="haobao-name-help">1–${HAOBAO_NAME_MAX_LENGTH} 个字符</p>
         <div class="haobao-avatar-preview">${renderHaoBaoAvatar(draft)}</div>
         <button type="submit" class="haobao-primary" ${validName(draft.name) ? "" : "disabled"}>${icon("check")}保存</button>
       </form>

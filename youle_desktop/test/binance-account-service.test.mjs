@@ -73,7 +73,9 @@ test("signed Binance URLs use the exact encoded query and HMAC-SHA256", () => {
   assert.equal(url.searchParams.get("signature"), expected);
 });
 
-test("account reads re-time and re-sign after the direct route switches to Haolo", async () => {
+test("account reads re-time and re-sign after the direct route switches to Haolo", async t => {
+  // The assertion checks exchange re-synchronization, not real scheduling delay.
+  t.mock.method(Date, "now", () => 1_700_000_000_000);
   const signedRequests = [];
   let timeRequests = 0;
   const service = new BinanceAccountService({

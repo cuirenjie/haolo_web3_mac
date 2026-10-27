@@ -36,14 +36,14 @@ for(const locale of ['zh-CN','zh-Hant','en'])test(`restored ${locale} cards shar
   const {rendered,actions,bindings}=renderCurrentReports([report]);
   const saved=mergeCloudExecutionPlans([report],[])[0];
   for(const html of [rendered.cards,renderCurrentSavedPlan(saved,language),executionPlanStickyHtml({cloudReport:report,language,title:card.title})]){
-    assert.ok(html.includes(card.html), 'prices and account content are unchanged across surfaces');
+    assert.ok(html.includes(cloudPlanCard(report,{separateAction:true}).html), 'prices and account content are unchanged across surfaces');
     assert.doesNotMatch(html,/class="execution-plan-expiry"|>Valid until |有效至/);
     assert.equal((html.match(/<h2 /g)||[]).length,1);
     if (html.includes('class="execution-plan-created-at"') || html.includes('data-execution-plan-sticky>')) {
       assert.match(html, /execution-plan-current-action/);
       assert.match(html, /等待条件触发|等待條件觸發|Wait for the trigger/);
     } else {
-      assert.doesNotMatch(html,/等待条件触发|等待條件觸發|Wait for the trigger/);
+      assert.match(html,/等待条件触发|等待條件觸發|Wait for the trigger/);
     }
   }
   assert.match(actions,/data-execution-plan-index="0"/);
@@ -84,7 +84,7 @@ test('breakout-retest keeps confirmation, zone, snapshot and live-evidence requi
     const entry=card.content.split('\n').find(line=>/^(入场条件|入場條件|Entry condition):/.test(line));
     assert.ok(entry);
     assert.ok(entry.includes(locale==='en'?'Fresh trades':locale==='zh-Hant'?'重新核驗':'重新核验'));
-    assert.doesNotMatch(card.html,/等待条件触发|等待條件觸發|Wait for the trigger/);
+    assert.match(card.html,/等待条件触发|等待條件觸發|Wait for the trigger/);
   }
 });
 

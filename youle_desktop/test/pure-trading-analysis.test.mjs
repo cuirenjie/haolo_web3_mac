@@ -63,6 +63,7 @@ function composerHarness({text=catalog[0].mentionTokens[0],attachments=[],busy=f
     composerThreadReferences:references,voiceInput:{status:'idle'},auth:{authenticated:true},items:{origin:{}},queuedSends:[]};
   const noop=()=>{}, no=()=>false;
   const c={state,console,resolvePureTradingAnalysis,pureTradingAnalysisRequest,
+    tradingPreludePacer:{cancelThread:id=>calls.push(['cancel-prelude',id])},
     authenticatedWorkspaceGeneration:1,root:{querySelector:()=>inputElement},
     submittingComposerThreadIds:new Set(),pureTradingAnalysisThreads:new Set(),threadsAwaitingAgentReply:new Set(),
     tradingStrategyAnalysisTargetByRequest:new WeakMap(),tradingPreferenceOnboardingByThreadId:new Map(),
@@ -238,6 +239,7 @@ test('stopping drawing retains the completed report and acknowledges only its sa
   let reject;const drawingGate=new Promise((_,r)=>reject=r),h=composerHarness();attachRealRunner(h,{drawingGate});
   h.c.cancelTradingExpertAnalysis=async()=>reject(Object.assign(Error('stop drawing'),{code:'TRADING_ANALYSIS_CANCELLED'}));
   const pending=h.send();await new Promise(r=>setImmediate(r));await h.c.interruptCurrentTurn('origin');await pending;
+  assert.ok(h.calls.some(call=>call[0]==='cancel-prelude'&&call[1]==='origin'));
   const items=h.calls.find(c=>c[0]==='transcript')[2];
   assert.ok(items.some(item=>item.text===cloudPlanCardFixture().report));assert.match(items.at(-1).text,/停止/);
   assert.equal(items.at(-1).phase,'final_answer');
@@ -287,6 +289,7 @@ test('stop cancels only the active analysis; model changes and duplicate sends c
   assert.equal(h.c.composerSubmitActionForThread('origin'),'interrupt');
   h.c.selectedChatModelValue=()=> 'deepseek-flash';
   await h.send();await h.c.interruptCurrentTurn('origin');await pending;
+  assert.ok(h.calls.some(call=>call[0]==='cancel-prelude'&&call[1]==='origin'));
   assert.equal(h.calls.filter(c=>c[0]==='cloud').length,1);
   assert.equal(h.calls.find(c=>c[0]==='cloud')[2].model,'gpt-6-astra');
   assert.equal(r.jobs.size,0);assert.equal(r.thinking.size,0);

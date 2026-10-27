@@ -103,7 +103,7 @@ async function main() {
       await check(`${name}:private-connect-readonly`, async () => {
         const privateTransport = new BinancePrivateProxyTransport({ proxyUrl: config.privateProxyUrl,
           permitProvider: (url, options) => gateway.privateRequestPermit(url, options),
-          usageReporter: (usage) => gateway.reportPrivateUsage(usage), connectOuter: network.connect });
+          usageReporter: (usage, options) => gateway.reportPrivateUsage(usage, options), connectOuter: network.connect });
         try {
           // Public clock through the private CONNECT channel: no exchange key,
           // signed account operation, order or balance mutation is involved.

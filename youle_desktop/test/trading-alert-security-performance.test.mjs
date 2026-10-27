@@ -47,7 +47,7 @@ test("account traffic remains governed before its authenticated private tunnel",
   assert.match(accountFetch, /governor\.fetch\(request\(router\.privateFetch\.bind\(router\)\)/);
   assert.match(accountFetch, /priority: calendar \? BINANCE_REQUEST_PRIORITIES\.accountInteractive : BINANCE_REQUEST_PRIORITIES\.account/);
   assert.match(main, /permitProvider: \(url, options\) => gatewayClient\.privateRequestPermit\(url, options\)/);
-  assert.match(main, /usageReporter: \(report\) => gatewayClient\.reportPrivateUsage\(report\)/);
+  assert.match(main, /usageReporter: \(report, options\) => gatewayClient\.reportPrivateUsage\(report, options\)/);
   assert.match(main, /restartClientAfterAuthChange\(\)[\s\S]*resetBinanceNetworkRuntimeAfterAuthChange\(\)/);
   assert.match(main, /resetBinanceNetworkRuntimeAfterAuthChange[\s\S]*binancePrivateProxyTransport\.close\(\)/);
 });

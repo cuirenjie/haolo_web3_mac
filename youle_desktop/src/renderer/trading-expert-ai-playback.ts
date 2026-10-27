@@ -177,10 +177,6 @@ export class TradingAiDrawingPlaybackController {
     const requestedSpeed = options.speedMultiplier ?? 1;
     const speed = Number.isFinite(requestedSpeed) && requestedSpeed > 0 ? requestedSpeed : 1;
     const duration = (normal: number) => normal / speed;
-    if (reducedMotion) {
-      this.currentCursor = null;
-      this.options.setCursor(null);
-    }
     try {
       for (const drawing of drawings) {
         this.assertCurrent(generation);
@@ -201,6 +197,11 @@ export class TradingAiDrawingPlaybackController {
           }
           this.options.setCursor(first, true);
           await this.wait(duration(90), generation);
+        } else {
+          // The cursor identifies the current stroke even when the OS disables
+          // decorative animation. Only travel between objects and pulses stop.
+          this.currentCursor = first;
+          this.options.setCursor(first);
         }
         options.onPhase?.("drawing", drawing);
         if (!reducedMotion && drawing.tool === "note" && drawing.text) {
@@ -210,8 +211,7 @@ export class TradingAiDrawingPlaybackController {
             this.options.setDraft(drawing, progress);
           });
         } else {
-          // Reduced motion removes decorative cursor travel/pulses, not the
-          // essential stroke progression. Whole-object previews look like stamps.
+          // Keep the cursor and geometry progressing together in both modes.
           await this.playSegments(drawing, generation,
             reducedMotion ? Math.max(160, duration(180)) : duration(235), reducedMotion);
         }
@@ -219,9 +219,9 @@ export class TradingAiDrawingPlaybackController {
         options.onPhase?.("committing", drawing);
         this.options.setDraft(null);
         this.options.commit(drawing);
+        this.currentCursor = drawing.points.at(-1) ?? first;
+        this.options.setCursor(this.currentCursor, !reducedMotion);
         if (!reducedMotion) {
-          this.currentCursor = drawing.points.at(-1) ?? first;
-          this.options.setCursor(this.currentCursor, true);
           await this.wait(duration(105), generation);
         }
       }
@@ -250,10 +250,8 @@ export class TradingAiDrawingPlaybackController {
       const second = drawing.points[index];
       await this.animate(segmentDuration, generation, (progress) => {
         const current = interpolateTradingDrawingPoint(first, second, reducedMotion ? progress : easeInOutCubic(progress));
-        if (!reducedMotion) {
-          this.currentCursor = current;
-          this.options.setCursor(current);
-        }
+        this.currentCursor = current;
+        this.options.setCursor(current);
         this.options.setDraft({ ...drawing, points: [...completed, current] });
       });
       completed.push(second);

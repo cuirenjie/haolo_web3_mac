@@ -20,7 +20,8 @@ export {normalizeTradingIndicatorAiDrawingPatch} from './cloud-indicator-drawing
 import {cloudAnalysisWindow} from './cloud-analysis-window.ts';
 import {captureCloudAnalysisPanes} from './cloud-analysis-panes.ts';
 import {cloudReportFromResponse, normalizeCloudReports, type CloudTradingReport} from '../main/cloud-plan-contract.mjs';
-import {cloudAnalysisDrawingPlan, cloudPlanDrawingPatch} from '../shared/execution-plan-drawings.mjs';
+import {cloudAnalysisDrawingPlan} from '../shared/execution-plan-drawings.mjs';
+import {rememberTradingPlanDrawingHistory, visibleTradingPlanDrawingPatch} from './trading-plan-drawing-history.ts';
 import {isTerminalAnalysisError} from '../shared/business-tool-error.mjs';
 import {
   AreaSeries,
@@ -157,6 +158,7 @@ import {
 } from "./trading-analysis-target.mjs";
 import { describeTradingAnalysisFailure, settleTradingAnalysisDrawing, tradingAnalysisSnapshotUnavailable } from "../main/trading-analysis/failure.mjs";
 import { tradingAnalysisModelDisplayName } from "./trading-analysis-model-display.ts";
+import { retryTradingMarketLoad } from "./trading-market-load-retry.ts";
 
 export function recordTradingRendererFailure(error: unknown, context: Record<string, unknown>) {
   const failure = error as Error & { code?: string; retryable?: boolean };
@@ -372,13 +374,14 @@ export function hasTradingExpertTrendBandMention(text: string) {
 }
 
 export function restoreRecoveredTradingDrawings(value:CloudTradingReport,storageSessionId:string) {
+  rememberTradingPlanDrawingHistory(storageSessionId, [value]);
   const report=normalizeCloudReports([value])[0];
   if(!storageSessionId)throw new Error('CLOUD_DRAWING_ORIGIN_REQUIRED');
   const paneIndex=Number(/:pane:(\d+)$/.exec(report.origin?.analysisJobId||'')?.[1]||0);
   if(paneIndex<0||paneIndex>7)throw new Error('CLOUD_DRAWING_PANE_INVALID');
   const target=paneIndex?tradingSplitPaneDrawingStorageSessionId(storageSessionId,paneIndex):storageSessionId;
   if(report.drawingPatch) {
-    const patch=cloudPlanDrawingPatch(report) as TradingAiDrawingPatch;
+    const patch=visibleTradingPlanDrawingPatch(report, storageSessionId) as TradingAiDrawingPatch;
     if(patch.marketId!==report.marketId||patch.interval!==report.interval)throw new Error('CLOUD_DRAWING_CONTEXT_INVALID');
     persistTradingAiDrawingPatch(target,patch);
     if(activeWorkspace?.drawingStorageSessionMatches(storageSessionId))activeWorkspace.storeAnalysisDrawingPatch(patch,paneIndex);
@@ -5178,6 +5181,7 @@ class TradingExpertMarketWorkspace {
   private refreshingSnapshotGeneration: number | null = null;
   private refreshingLiveCandleGeneration: number | null = null;
   private marketDataRequestAbortController: AbortController | null = null;
+  private marketBootstrapGeneration: number | null = null;
   private loadGeneration = 0;
   private loadingHistory = false;
   private historyCooldownTimer: number | null = null;
@@ -11798,6 +11802,7 @@ class TradingExpertMarketWorkspace {
     const marketDataRequestAbortController = new AbortController();
     this.marketDataRequestAbortController = marketDataRequestAbortController;
     const marketDataRequestSignal = marketDataRequestAbortController.signal;
+    this.marketBootstrapGeneration = generation;
     const targetSymbol = this.selectedSymbol;
     const targetMarketId = this.selectedMarketId;
     const targetProvider = this.selectedProvider;
@@ -11906,7 +11911,7 @@ class TradingExpertMarketWorkspace {
         ? await this.fetchFinnhubSnapshot(targetSymbol, targetAssetClass, targetInterval, 500)
         : targetProvider === "ifind"
           ? await this.fetchIfindSnapshot(targetSymbol, targetAssetClass, targetInterval, 500)
-          : await (async () => {
+          : await retryTradingMarketLoad(async (loadSignal) => {
             // K-line availability is the primary loading result. Quote statistics
             // are refreshed independently after the chart is ready, so a temporary
             // ticker failure cannot expose Retry while candles are still loading.
@@ -11928,7 +11933,7 @@ class TradingExpertMarketWorkspace {
                     tradingCandleRefreshStartTime(cachedBatch),
                     cachedBatch.lastTradeId === undefined ? undefined : cachedBatch.lastTradeId + 1,
                     targetMarketType === "spot" ? "spot" : "perpetual",
-                    marketDataRequestSignal,
+                    loadSignal,
                   ),
                   { candleLimit: 500 },
                 ) as TradingCandleBatch
@@ -11938,7 +11943,7 @@ class TradingExpertMarketWorkspace {
                   500,
                   Date.now(),
                   targetMarketType === "spot" ? "spot" : "perpetual",
-                  marketDataRequestSignal,
+                  loadSignal,
                   // Browsing accepts same-symbol cached history during gateway
                   // recovery. Analysis retains its separate forceFresh checks.
                   {},
@@ -11949,7 +11954,11 @@ class TradingExpertMarketWorkspace {
             }
             const stats = tradingMarketStatsFromCandles(targetSymbol, candleBatch.candles);
             return { stats, candleBatch };
-          })();
+          }, {
+            signal: marketDataRequestSignal,
+            shouldRetry: (error) => !isBinanceMarketSymbolError(error),
+            cooldownRemaining: () => binanceMarketRestCooldownRemaining(Date.now(), targetMarketType),
+          });
       let finalCandleBatch = candleBatch;
       if (
         targetProvider === "binance"
@@ -12026,6 +12035,8 @@ class TradingExpertMarketWorkspace {
           }, cooldownRemaining + BINANCE_MARKET_RATE_LIMIT_RETRY_PADDING_MS);
         }
       }
+    } finally {
+      if (this.marketBootstrapGeneration === generation) this.marketBootstrapGeneration = null;
     }
     if (this.disposed || generation !== this.loadGeneration) return;
     if (this.candles.length) void this.prefetchFavoriteCandleSnapshots();
@@ -12109,6 +12120,9 @@ class TradingExpertMarketWorkspace {
 
   private async refreshLiveCandle(generation: number) {
     if (this.selectedProvider === "binance" && binanceMarketRestCooldownRemaining(Date.now(), this.selectedMarketType) > 0) return;
+    // Bootstrap owns full history until success or its 30-second deadline.
+    // A socket reconnect must not start competing history recovery requests.
+    if (this.marketBootstrapGeneration === generation) return;
     if (this.refreshingLiveCandleGeneration === generation) return;
     this.refreshingLiveCandleGeneration = generation;
     try {
@@ -14569,7 +14583,7 @@ export async function showTradingExecutionPlanChart(report: CloudTradingReport |
   assertActive();
   if (report) {
     const normalized = normalizeCloudReports([report])[0];
-    const patch = cloudPlanDrawingPatch(normalized) as TradingAiDrawingPatch | null;
+    const patch = visibleTradingPlanDrawingPatch(normalized, threadId) as TradingAiDrawingPatch | null;
     if (patch) {
       if (patch.marketId !== context.marketId || patch.interval !== context.interval) throw new Error('计划画线与原始市场不一致');
       await workspace!.showExecutionPlanDrawing({...patch, drawingTurnId: `plan:${normalized.runId}`}, assertActive);
