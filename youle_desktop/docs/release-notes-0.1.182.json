@@ -1,0 +1,7 @@
+{
+  "zh-CN": "解决了一些已知的bug，优化了盈利概率卡片，使模型推算盈利概率更加准确。",
+  "zh-Hant": "修復了一些已知的bug，最佳化了獲利機率卡片，讓模型推算獲利機率更加準確。",
+  "en": "Fixed some known bugs and improved the profit probability card to make the model's profit probability estimates more accurate.",
+  "ko": "알려진 일부 버그를 수정하고 수익 확률 카드를 개선하여 모델의 수익 확률 추정 정확도를 높였습니다.",
+  "ja": "既知の不具合を修正し、利益確率カードを改善して、モデルによる利益確率の推定精度を向上させました。"
+}
