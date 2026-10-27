@@ -305,6 +305,7 @@ import {
   runtimeModelForSelection,
 } from "./gpt6-sol-alias-policy.mjs";
 import { applyThreadProviderSwitch, assertThreadProvider, restartIdleProviderRuntime } from "./thread-provider-switch.mjs";
+import { ensureDeepSeekRuntimeCredential } from "./execution-credential-refresh.mjs";
 import { tradingAnalysisFailureDiagnostic, tradingAnalysisModelDiagnostic } from "./trading-analysis/diagnostics.mjs";
 import { TradingAlertService } from "./trading-alerts/service.mjs";
 import { createBinanceMarketAdapter } from "./trading-alerts/binance-market-adapter.mjs";
@@ -3500,6 +3501,9 @@ async function requestContinuationThreadStart(serverClient, params, capture, tim
   if (serverClient.__youleLocalProxyRecoveryPromise) {
     await serverClient.__youleLocalProxyRecoveryPromise;
   }
+  if (executionProviderSelection(params).isDeepSeek) {
+    await ensureDeepSeekExecutionRuntime(serverClient);
+  }
   if (serverClient.status !== "ready") {
     await startAppServerClient(serverClient);
   }
@@ -3807,6 +3811,9 @@ async function requestAppServer(serverClient, method, params = {}, timeoutMs) {
   if (serverClient.__youleLocalProxyRecoveryPromise) {
     await serverClient.__youleLocalProxyRecoveryPromise;
   }
+  if (method === "thread/start" && executionProviderSelection(params).isDeepSeek) {
+    await ensureDeepSeekExecutionRuntime(serverClient);
+  }
   if (serverClient.status !== "ready") {
     await startAppServerClient(serverClient);
   }
@@ -3854,6 +3861,7 @@ async function assertExecutionModelMembership(model) {
   const accountId = session.authenticated ? String(session.profile?.id || "").trim() : "";
   const now = Date.now();
   let profile = accountId && executionModelEntitlementCache.accountId === accountId &&
+    executionModelEntitlementCache.profile === session.profile &&
     now - executionModelEntitlementCache.checkedAt < 15_000
     ? executionModelEntitlementCache.profile
     : null;
@@ -4410,9 +4418,8 @@ async function resolveDeepSeekExecutionProviderRuntime() {
     DEEPSEEK_EXECUTION_MODEL,
     DEEPSEEK_EXECUTION_PROVIDER_ID,
   );
-  if (!credential?.apiKey) return { deepSeek: null };
   let billing = apiClient.businessModelCredential("execution", "root_execution", "gpt-5.6-sol", "codex");
-  if (!billing?.apiKeyId) {
+  if (!credential?.apiKey || !billing?.apiKeyId) {
     await apiClient.refreshProfile();
     credential = apiClient.businessModelCredential("execution", "root_execution", DEEPSEEK_EXECUTION_MODEL, DEEPSEEK_EXECUTION_PROVIDER_ID);
     billing = apiClient.businessModelCredential("execution", "root_execution", "gpt-5.6-sol", "codex");
@@ -11999,6 +12006,24 @@ function threadHistoryContainsVideoContent(value, seen = new Set()) {
 
 const verifiedDeepSeekMediaThreadIds = new Set();
 
+function isAppServerProviderRecoveryBusy(serverClient, threadId) {
+  if (appShuttingDown || appCleanupStarted || Number(serverClient.pending?.size || 0) > 0
+    || Number(serverClient.activeRuntimeTurns?.size || 0) > 0) return true;
+  const key = serverClient.__youleWorkspaceKey;
+  const belongsToClient = (id) => appServerClientByThreadId.get(String(id)) === key;
+  return [...activeCodexTurnsByThread.keys()].some(belongsToClient)
+    || [...pendingCodexTurnThreadIds].some((id) => String(id) !== String(threadId) && belongsToClient(id));
+}
+
+function ensureDeepSeekExecutionRuntime(serverClient, threadId) {
+  return ensureDeepSeekRuntimeCredential({
+    client: serverClient,
+    isBusy: () => isAppServerProviderRecoveryBusy(serverClient, threadId),
+    stop: () => stopAppServerClient(serverClient),
+    start: () => startAppServerClient(serverClient),
+  });
+}
+
 async function ensureDeepSeekThreadHistoryHasSupportedMedia(serverClient, threadId) {
   const normalizedThreadId = firstString(threadId);
   if (!normalizedThreadId || verifiedDeepSeekMediaThreadIds.has(normalizedThreadId)) {
@@ -12039,6 +12064,7 @@ async function resumeThreadForRequestedProvider({
   let result;
   const targetProvider = firstString(targetSettings?.modelProvider).toLowerCase();
   if (targetProvider === DEEPSEEK_EXECUTION_PROVIDER_ID) {
+    await ensureDeepSeekExecutionRuntime(serverClient, threadId);
     await ensureDeepSeekThreadHistoryHasSupportedMedia(serverClient, threadId);
   } else if (targetProvider) {
     verifiedDeepSeekMediaThreadIds.delete(firstString(threadId));
@@ -12066,14 +12092,7 @@ async function resumeThreadForRequestedProvider({
     providerOf: threadModelProviderFromResumeResult,
     restartIdleRuntime: () => restartIdleProviderRuntime({
       client: serverClient,
-      isBusy: () => {
-        if (appShuttingDown || appCleanupStarted || Number(serverClient.pending?.size || 0) > 0
-          || Number(serverClient.activeRuntimeTurns?.size || 0) > 0) return true;
-        const key = serverClient.__youleWorkspaceKey;
-        const belongsToClient = (id) => appServerClientByThreadId.get(String(id)) === key;
-        return [...activeCodexTurnsByThread.keys()].some(belongsToClient)
-          || [...pendingCodexTurnThreadIds].some((id) => String(id) !== String(threadId) && belongsToClient(id));
-      },
+      isBusy: () => isAppServerProviderRecoveryBusy(serverClient, threadId),
       stop: () => stopAppServerClient(serverClient),
       start: () => startAppServerClient(serverClient),
     }),

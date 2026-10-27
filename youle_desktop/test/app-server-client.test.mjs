@@ -49,6 +49,30 @@ test("late responses after request timeout stay correlated and do not become pro
   assert.equal(protocolErrors[0].error, `response for unknown id ${sent[0].id + 1}`);
 });
 
+test("stopping an app-server rejects outstanding RPCs before retiring its websocket", async () => {
+  const client = new AppServerClient();
+  let closed = false;
+  client.ws = { readyState: 1, send() {}, close() { closed = true; } };
+  const pending = assert.rejects(client.request("thread/list", {}), /app-server stopped/);
+  await client.stop();
+  await pending;
+  assert.equal(closed, true);
+  assert.equal(client.pending.size, 0);
+  assert.equal(client.ws, null);
+});
+
+test("late relay shutdown cannot erase a replacement runtime transport", async () => {
+  const client = new AppServerClient();
+  let finish;
+  client.modelRequestRelays.push({ stop: () => new Promise((resolve) => { finish = resolve; }) });
+  const stopping = client.stopModelRequestRelays();
+  const replacement = { enabled: true, routes: [{ name: "deepSeek", baseUrl: "http://127.0.0.1:12345" }] };
+  client.modelTransport = replacement;
+  finish();
+  await stopping;
+  assert.equal(client.modelTransport, replacement);
+});
+
 const MANAGED_MODEL_SLUGS = ["gpt-6-astra", "gpt-6-sol", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"];
 const MANAGED_TOP_LEVEL_CONTEXT_KEYS = [
   "model_context_window",

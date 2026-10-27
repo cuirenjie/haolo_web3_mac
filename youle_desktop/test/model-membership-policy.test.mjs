@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import vm from "node:vm";
 import {
   modelMembershipAccess,
   modelMembershipRequirement,
@@ -9,6 +10,25 @@ import {
 const expiry = "2099-01-01T00:00:00.000Z";
 const profile = (planId) => ({
   active_membership: { status: "active", plan_id: planId, expires_at: expiry },
+});
+
+test("an upgraded profile immediately replaces a cached model membership denial", async () => {
+  const source = await readFile(new URL("../src/main/main.mjs", import.meta.url), "utf8");
+  const start = source.indexOf("let executionModelEntitlementCache =");
+  const end = source.indexOf("function touchAppServerClient", start);
+  assert.ok(start >= 0 && end > start);
+  let current = { id: "customer", ...profile("trial") };
+  const client = {
+    sessionSummary: () => ({ authenticated: true, profile: current }),
+    refreshProfile: async () => ({ profile: current }),
+  };
+  const context = vm.createContext({ getYouleApiClient: () => client, modelMembershipAccess, modelMembershipRequirement });
+  vm.runInContext(source.slice(start, end), context);
+  await assert.rejects(context.assertExecutionModelMembership("gpt-6-sol"), { code: "MODEL_MEMBERSHIP_REQUIRED" });
+  current = { id: "customer", ...profile("basic") };
+  assert.equal((await context.assertExecutionModelMembership("gpt-6-sol")).allowed, true);
+  current = { id: "customer", ...profile("trial") };
+  await assert.rejects(context.assertExecutionModelMembership("gpt-6-sol"), { code: "MODEL_MEMBERSHIP_REQUIRED" });
 });
 
 test("model membership tiers expose the three requested access levels", () => {

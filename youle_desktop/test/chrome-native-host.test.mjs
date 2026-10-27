@@ -75,6 +75,36 @@ test("Native Host registration round-trips Chinese and spaced Windows paths with
   assert.equal(result, expected);
 });
 
+test("Chrome reconnect config never auto-starts a bare development runtime", async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "haolo-chrome-dev-launch-"));
+  const origin = `chrome-extension://${HAOLO_CHROME_DEVELOPMENT_EXTENSION_ID}/`;
+  const cases = [
+    ["electron.exe", false],
+    ["Electron", false],
+    ["haolo_desktop_dev-53803dbe241d.exe", false],
+    ["HAOLO_DESKTOP_DEV-ABC123.EXE", false],
+    ["haolo_desktop.exe", true],
+    ["Haolo.exe", true],
+    ["", false],
+  ];
+  try {
+    for (const [name, canAutoStart] of cases) {
+      const executable = name ? path.join(tempRoot, "中文 app", name) : "";
+      const broker = new ChromeNativeBroker({ userDataPath: tempRoot, extensionOrigins: [origin], desktopExecutable: executable });
+      try {
+        await broker.start();
+        const config = JSON.parse(fs.readFileSync(broker.configPath(), "utf8"));
+        assert.equal(config.desktopExecutable, canAutoStart ? executable : "", name || "disabled");
+        assert.equal(broker.status().running, true, "A running development client still accepts Chrome connections");
+      } finally {
+        await broker.stop();
+      }
+    }
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("Native broker authenticates the host and binds one profile session", async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "haolo-chrome-broker-"));
   const origin = `chrome-extension://${HAOLO_CHROME_DEVELOPMENT_EXTENSION_ID}/`;

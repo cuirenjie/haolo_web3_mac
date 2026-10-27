@@ -4,6 +4,7 @@ import { migrateDeepSeekModelSelection } from "../../src/main/deepseek-model-pol
 import { migrateRetiredModelSelection } from "../../src/main/retired-model-policy.mjs";
 import { withAnalysisModelRecoveryPolicy } from "../../src/main/analysis-model-policy.mjs";
 import { applyThreadProviderSwitch, assertThreadProvider, restartIdleProviderRuntime } from "../../src/main/thread-provider-switch.mjs";
+import { ensureDeepSeekRuntimeCredential } from "../../src/main/execution-credential-refresh.mjs";
 import { isRecoverableAnalysisModelFailure } from "../../src/main/analysis-model-recovery.mjs";
 import { displayModelAliasForSelection, runtimeModelForSelection, migrateGpt6SolSelection } from "../../src/main/gpt6-sol-alias-policy.mjs";
 
@@ -18,7 +19,7 @@ const definition = (name) => {
 };
 const noop = () => {};
 
-export function createProviderSendHost({ request, client = {}, cwd = "workspace", state = null, now = Date.now(), stop = noop, start = noop, mediaInputs = [] } = {}) {
+export function createProviderSendHost({ request, client = { status: "ready", providerRuntime: { deepSeek: { available: true } } }, cwd = "workspace", state = null, now = Date.now(), stop = noop, start = noop, mediaInputs = [] } = {}) {
   const pending = new Set(), active = new Map(), clients = new Map();
   client.__youleWorkspaceKey = "test-runtime";
   let handler;
@@ -29,6 +30,7 @@ export function createProviderSendHost({ request, client = {}, cwd = "workspace"
     displayModelAliasForSelection, runtimeModelForSelection, migrateGpt6SolSelection,
     DEEPSEEK_EXECUTION_MODEL: "deepseek-flash", DEEPSEEK_EXECUTION_PROVIDER_ID: "deepseek",
     ANALYSIS_PRIMARY_MODEL: "gpt-5.6-sol", applyThreadProviderSwitch, assertThreadProvider, restartIdleProviderRuntime,
+    ensureDeepSeekRuntimeCredential,
     currentSkillsCwd: cwd, desktopWorkspace: () => cwd, currentThreadId: null,
     requestAppServer: (_client, method, params) => request(method, params),
     stopAppServerClient: stop, startAppServerClient: start,
@@ -62,6 +64,7 @@ export function createProviderSendHost({ request, client = {}, cwd = "workspace"
   };
   const names = ["requestedReasoningEffort", "executionProviderSelection", "requestedThreadModelSettings", "threadConfigurationParams",
     "threadModelProviderFromResumeResult", "isMissingRolloutErrorMessage", "threadHistoryContainsVideoContent",
+    "isAppServerProviderRecoveryBusy", "ensureDeepSeekExecutionRuntime",
     "ensureDeepSeekThreadHistoryHasSupportedMedia", "resumeThreadForRequestedProvider", "resumeAutomationThread"];
   const from = source.indexOf('ipcMain.handle("codex:sendMessage"');
   const to = source.indexOf('ipcMain.handle("codex:interruptTurn"', from);

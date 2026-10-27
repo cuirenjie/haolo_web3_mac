@@ -266,6 +266,8 @@ export class YouleApiClient {
     this.modelKeys = [];
     this.profile = null;
     this.premiumEntitlementCache = null;
+    this.entitlementRefreshSequence = 0;
+    this.appliedEntitlementRefreshSequence = 0;
     this.deviceId = null;
     // The legacy client device id is also used by non-mobile endpoints and
     // may be an arbitrary string.  Account connections use the mobile API's
@@ -433,7 +435,7 @@ export class YouleApiClient {
   async refreshProfile() {
     await this.load();
     this.requireAuth();
-    const authRevision = this.authRevision;
+    const refresh = this.beginEntitlementRefresh();
     const accessToken = this.token;
     const [profile, refreshedModelKeys] = await Promise.all([
       this.fetchProfileWithBalance(accessToken),
@@ -442,9 +444,10 @@ export class YouleApiClient {
         return null;
       }),
     ]);
-    if (authRevision !== this.authRevision || accessToken !== this.token) {
+    if (!this.canApplyEntitlementRefresh(refresh)) {
       return this.sessionSummary();
     }
+    this.appliedEntitlementRefreshSequence = refresh.sequence;
     this.profile = mergeProfileLevel(this.profile, profile);
     this.updatePremiumEntitlementCacheFromFreshProfile(this.profile);
     if (refreshedModelKeys) {
@@ -503,6 +506,7 @@ export class YouleApiClient {
   async refreshSub2ApiAccount() {
     await this.load();
     this.requireAuth();
+    const refresh = this.beginEntitlementRefresh();
     let response;
     try {
       response = await this.requestJson(joinUrl(this.baseUrl, this.sub2apiAccountPath), {
@@ -510,12 +514,14 @@ export class YouleApiClient {
         headers: this.clientHeaders({ auth: true }),
       });
     } catch (error) {
+      if (!this.canApplyEntitlementRefresh(refresh)) return { session: this.sessionSummary() };
       const cached = this.validPremiumEntitlementCache();
       if (isPremiumEntitlementRetryableError(error) && cached) {
         return this.cachedSub2ApiAccountResult(cached);
       }
       throw error;
     }
+    if (!this.canApplyEntitlementRefresh(refresh)) return { session: this.sessionSummary() };
     const balance = extractSub2ApiBalance(response);
     if (!balance) {
       const cached = this.validPremiumEntitlementCache();
@@ -526,6 +532,7 @@ export class YouleApiClient {
       error.retryable = true;
       throw error;
     }
+    this.appliedEntitlementRefreshSequence = refresh.sequence;
     this.profile = mergeProfileBalance(this.profile, balance);
     const accessState = this.updatePremiumEntitlementCacheFromFreshProfile(this.profile);
     try {
@@ -551,6 +558,26 @@ export class YouleApiClient {
 
   getPremiumEntitlementCache() {
     return this.premiumEntitlementCache;
+  }
+
+  beginEntitlementRefresh() {
+    return {
+      sequence: ++this.entitlementRefreshSequence,
+      authRevision: this.authRevision,
+      accessToken: this.token,
+      baseUrl: this.baseUrl,
+      accountId: premiumEntitlementAccountId(this.profile),
+    };
+  }
+
+  canApplyEntitlementRefresh(refresh) {
+    // Profile, foreground and before-send balance reads share one ordering.
+    // A response issued before payment must not replace a newer paid snapshot.
+    return refresh.authRevision === this.authRevision
+      && refresh.accessToken === this.token
+      && refresh.baseUrl === this.baseUrl
+      && refresh.accountId === premiumEntitlementAccountId(this.profile)
+      && refresh.sequence >= this.appliedEntitlementRefreshSequence;
   }
 
   updatePremiumEntitlementCacheFromFreshProfile(profile = this.profile, now = Date.now()) {

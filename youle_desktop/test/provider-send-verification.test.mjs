@@ -8,6 +8,27 @@ import { describeTradingAnalysisFailure } from "../src/main/trading-analysis/fai
 const activatedAt = 1_800_000_000_000;
 const state = { version: 2, activatedAt, fallbackUntil: activatedAt + ANALYSIS_RECOVERY_WINDOW_MS };
 
+test("the real send handler repairs a missing startup credential and sends once in the same task", async () => {
+  const client = { status: "ready", providerRuntime: { deepSeek: { available: false } } };
+  const lifecycle = [], turns = [];
+  const host = createProviderSendHost({
+    client,
+    stop: () => { lifecycle.push("stop"); client.status = "stopped"; },
+    start: () => { lifecycle.push("start"); client.status = "ready"; client.providerRuntime.deepSeek.available = true; },
+    request: async (method, params) => {
+      if (method === "turn/start") {
+        assert.equal(client.providerRuntime.deepSeek.available, true);
+        turns.push(params.threadId);
+        return { turn: { id: "recovered-turn" } };
+      }
+      return { modelProvider: "deepseek", thread: { id: params.threadId, modelProvider: "deepseek", turns: [] } };
+    },
+  });
+  await host.send({ threadId: "original-task", model: "deepseek-flash", text: "continue" });
+  assert.deepEqual(lifecycle, ["stop", "start"]);
+  assert.deepEqual(turns, ["original-task"]);
+});
+
 for (const [label, initial, model, target, now] of [
   ["expired fallback", "haolo_ai", "gpt-5.6-sol", "deepseek", state.fallbackUntil],
   ["retired active fallback", "haolo_ai", "deepseek-flash", "deepseek", activatedAt],
