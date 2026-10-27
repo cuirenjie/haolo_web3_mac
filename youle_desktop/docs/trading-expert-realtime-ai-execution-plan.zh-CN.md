@@ -25,7 +25,7 @@
 > 最近更新：2026-10-27
 > 当前里程碑：M2 统一 Data Hub 与增量特征层
 > 总体状态：M2 进行中（M2-013 生产基础设施验收受阻）
-> 当前工作焦点：M6-MAC-RELEASE-20261027 进行中；用户明确要求沿用此前方式，制作无 Developer ID、未公证的 Universal 0.1.180 发布用包；保留本地 ad-hoc 签名，不改正式信任门禁
+> 当前工作焦点：M6-MAC-RELEASE-20261027 已完成；按用户明确选择交付无 Developer ID、未公证的 Universal 0.1.180 发布用包，本地 ad-hoc 签名与产物验收通过；未上传或修改正式信任门禁
 > 适用仓库：`D:\youle_desktop\youle_desktop`（桌面端）、`D:\youle_agent_ms`（业务后端）、`D:\zhongzhuan`（统一模型中转）
 
 ## 1. 文档用途与持续更新规则
@@ -5977,3 +5977,8 @@ S4 passed: 41 targeted tests, 5 Python support checks, 40 five-language probabil
 ### M6-MAC-RELEASE-20261027
 
 In progress: the user explicitly selected the same non-Developer-ID, unnotarized package flow as before. Keep Universal 0.1.180 and local ad-hoc signatures. App code is unchanged from the verified M6-MAC-20261027 build; preserve prior regression evidence and validate the new artifact. Existing release files are archived; installed app and user data stay intact. Details: docs/mac-release-0.1.180-20261027.zh-CN.md.
+
+
+### M6-MAC-RELEASE-20261027 complete
+
+Requested unnotarized Universal 0.1.180 package delivered to Desktop with release suffix. Source 961b23dce5c0ab56b791c03521f10b4fdce494e2; DMG SHA-256 ec824001886531f42a6338b38f24a59d474e0e45e26a8abce7d9d3c0c3844a5b. All 2733 inputs, 479 packaged source files, 278 resources and 2036 package boundary entries verified. Both architecture runtimes and isolated app launches passed; mounted DMG identity, checksum and ad-hoc signatures passed. User app and original changes preserved. No Developer ID, notarization, upload or deployment. Details: docs/mac-release-0.1.180-20261027.zh-CN.md.
