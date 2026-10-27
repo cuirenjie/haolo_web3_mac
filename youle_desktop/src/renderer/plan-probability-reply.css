@@ -18,16 +18,3 @@
 .plan-probability-basis summary:hover { color: var(--fg); }
 .plan-probability-basis summary:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
 .plan-probability-summary { white-space: pre-line; }
-.plan-probability-pending {
-  width: fit-content;
-  max-width: 100%;
-  margin: 8px 0 20px;
-  padding: 10px 14px;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: var(--surface-soft);
-  color: var(--fg);
-  font-size: 13px;
-  line-height: 1.6;
-  overflow-wrap: anywhere;
-}

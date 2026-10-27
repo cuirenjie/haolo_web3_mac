@@ -3486,7 +3486,6 @@ export class YouleApiClient {
         ...headers,
         ...(method !== "GET" ? { "Idempotency-Key": options.idempotencyKey } : {}),
         "X-Haolo-Text-Reset": "1",
-        "X-Haolo-Probability-Supplement": "1",
       },
       ...(method !== "GET" ? { body: JSON.stringify(payload) } : {}),
       signal: options.signal,

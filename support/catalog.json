@@ -1045,8 +1045,8 @@
     },
     {
       "id": "plan-probability-reply",
-      "title": "非阻塞概率补充与状态气泡",
-      "body": "配套Windows、Android/iOS和云端版本启用后，先完成绘图、主分析和计划，概率评估独立执行，不占用主分析等待状态。计划卡下方显示“模型正在分析盈利概率...”气泡，完成后由概率卡替换；失败、无有效估算或等待超时会结束气泡，原计划和操作保持可用。有效盈利概率在0%至100%范围全部展示，包括低于或等于50%的结果，不随机抬高。仍校验原运行、账号、结果哈希及计划价格绑定；晚到结果只更新对应卡片，不重播正文或绘图，不改变计划价格、版本、保存或激活行为。仅为未经历史回测校准的条件模型估算，不代表真实交易胜率。历史恢复读取已保存补充，不重新收费推演。此为未发布源码候选，无新增客服代操作。",
+      "title": "计划卡片下方的模型概率评估",
+      "body": "配套客户端和云端版本启用后，左右侧策略、指标或纯文字通用分析（无需@）生成有效正式计划时，可在对应计划卡片及操作栏下方展示模型概率评估。卡片显示盈利概率、模型原始评估说明及可展开的条件口径，不展示止损概率补集公式行，也不显示固定评估标题、K线根数／周期说明和数据截至时间；冻结依据与校验仍保留。基于已收盘历史行情和冻结计划，盈利概率按100%减止损概率计算，仅严格大于50%才展示；小于或等于50%、依据不足或评估失败时不追加回复，计划卡片照常保留。结果明确标识为未经过历史回测校准的条件模型估算：仅表示入场后、有效期内第1止盈或止损至少触达一个时，第1止盈先触达的概率，不是分批交易的最终净胜率。不会随机抬高结果，不修改计划价格，不自动交易。重新打开历史沿用原结果，不重新估算。客服可说明功能，不能代为分析行情或调整概率。源码候选尚不代表发布。",
       "category": "plans",
       "locale": "zh-CN",
       "status": "pending",
@@ -1058,8 +1058,7 @@
       "sources": [
         "youle_desktop/src/main/plan-probability-view.mjs",
         "youle_desktop/src/main/cloud-plan-contract.mjs",
-        "youle_desktop/src/renderer/plan-probability-reply.css",
-        "youle_desktop/src/renderer/probability-supplement.ts"
+        "youle_desktop/src/renderer/plan-probability-reply.css"
       ]
     },
     {
@@ -2000,82 +1999,6 @@
         "youle_desktop/src/main/conditional-poll-fetch.mjs",
         "youle_desktop/src/main/poll-request-coordinator.mjs",
         "youle_desktop/src/renderer/manual-drawing-sync.ts"
-      ]
-    },
-    {
-      "id": "plan-probability-reply-ja",
-      "title": "主分析を待たせない確率補足と状態バブル",
-      "body": "対応するWindows、Android/iOSとクラウドでは、描画、主分析、プランを先に完了し、確率を別途評価します。プランカードの下に「モデルが利益到達確率を分析しています...」という状態バブルを表示し、完了時に確率カードへ置き換えます。失敗、有効な推定なし、待機時間超過ではバブルを消し、元のプランと操作を利用可能なままにします。50%以下を含む0%～100%のすべての有効な値を表示し、推定値を引き上げません。アカウント、実行、結果ハッシュとプラン価格の照合を維持します。遅延結果は対応カードのみ更新し、本文や描画の再生、価格、版、保存、通知有効化を変更しません。過去のバックテストで較正されていない条件付きモデル推定で、実際の勝率ではありません。履歴は保存済み補足を読み、課金対象の再分析は行いません。未公開のソース候補で、新しいサポート代行操作はありません。",
-      "category": "plans",
-      "locale": "ja",
-      "status": "pending",
-      "requires_login": true,
-      "platforms": [
-        "windows"
-      ],
-      "actions": {},
-      "sources": [
-        "youle_desktop/src/main/plan-probability-view.mjs",
-        "youle_desktop/src/main/cloud-plan-contract.mjs",
-        "youle_desktop/src/renderer/plan-probability-reply.css",
-        "youle_desktop/src/renderer/probability-supplement.ts"
-      ]
-    },
-    {
-      "id": "plan-probability-reply-en",
-      "title": "Nonblocking probability supplements and status bubbles",
-      "body": "Matching Windows, Android/iOS and cloud versions complete drawings, the main analysis and plans before independently assessing probability. A bubble below the plan says “The model is analyzing profit probability...” and is replaced by the probability card when ready. Failure, unavailable estimates or timeout remove the bubble while the original plan and its actions remain usable. All valid values from 0% to 100% are shown, including 50% and lower, without inflating estimates. Account, run, result hash and plan-price binding remain enforced. Late results update only the matching card without replaying text or drawings or changing plan prices, versions, saving or activation. These conditional model estimates are not calibrated backtest win rates. History reads the saved supplement without another paid assessment. Unpublished source candidate; no new support actions.",
-      "category": "plans",
-      "locale": "en",
-      "status": "pending",
-      "requires_login": true,
-      "platforms": [
-        "windows"
-      ],
-      "actions": {},
-      "sources": [
-        "youle_desktop/src/main/plan-probability-view.mjs",
-        "youle_desktop/src/main/cloud-plan-contract.mjs",
-        "youle_desktop/src/renderer/plan-probability-reply.css",
-        "youle_desktop/src/renderer/probability-supplement.ts"
-      ]
-    },
-    {
-      "id": "plan-probability-reply-ko",
-      "title": "주 분석을 막지 않는 확률 보충 및 상태 말풍선",
-      "body": "호환되는 Windows, Android/iOS 및 클라우드 버전은 차트, 주 분석과 계획을 먼저 완료하고 확률을 별도로 평가합니다. 계획 카드 아래에 “모델이 수익 확률을 분석하고 있습니다...” 말풍선을 표시하고 완료 시 확률 카드로 바꿉니다. 실패, 유효한 추정치 없음 또는 대기 시간 초과 시 말풍선이 사라지며 원래 계획과 작업은 계속 사용할 수 있습니다. 50% 이하를 포함한 0%~100%의 모든 유효한 결과를 표시하며 확률을 부풀리지 않습니다. 계정, 실행, 결과 해시와 계획 가격 검증을 유지합니다. 늦은 결과는 해당 카드만 갱신하며 본문이나 차트를 재생하거나 계획 가격, 버전, 저장 및 활성화를 변경하지 않습니다. 과거 백테스트로 보정되지 않은 조건부 모델 추정치이며 실제 승률이 아닙니다. 기록은 저장된 결과를 읽고 유료 분석을 반복하지 않습니다. 미출시 소스 후보이며 새 고객지원 대행 작업은 없습니다.",
-      "category": "plans",
-      "locale": "ko",
-      "status": "pending",
-      "requires_login": true,
-      "platforms": [
-        "windows"
-      ],
-      "actions": {},
-      "sources": [
-        "youle_desktop/src/main/plan-probability-view.mjs",
-        "youle_desktop/src/main/cloud-plan-contract.mjs",
-        "youle_desktop/src/renderer/plan-probability-reply.css",
-        "youle_desktop/src/renderer/probability-supplement.ts"
-      ]
-    },
-    {
-      "id": "plan-probability-reply-zh-hant",
-      "title": "非阻塞機率補充與狀態氣泡",
-      "body": "配套Windows、Android/iOS及雲端版本啟用後，先完成繪圖、主分析與計畫，機率評估獨立執行。計畫卡下方顯示「模型正在分析獲利機率...」氣泡，完成後由機率卡取代；失敗、無有效估算或等待逾時會結束氣泡，原計畫與操作保持可用。0%至100%的有效獲利機率全部顯示，包括低於或等於50%的結果，不隨機提高。保留帳號、執行、結果雜湊與計畫價位綁定；延遲結果只更新對應卡片，不重播正文或繪圖，不更動價位、版本、儲存及啟用行為。僅為未經歷史回測校準的條件模型估算，不代表實際交易勝率。歷史讀取已儲存補充，不重新收費推演。尚未發布的原始碼候選，無新增客服代操作。",
-      "category": "plans",
-      "locale": "zh-Hant",
-      "status": "pending",
-      "requires_login": true,
-      "platforms": [
-        "windows"
-      ],
-      "actions": {},
-      "sources": [
-        "youle_desktop/src/main/plan-probability-view.mjs",
-        "youle_desktop/src/main/cloud-plan-contract.mjs",
-        "youle_desktop/src/renderer/plan-probability-reply.css",
-        "youle_desktop/src/renderer/probability-supplement.ts"
       ]
     }
   ]

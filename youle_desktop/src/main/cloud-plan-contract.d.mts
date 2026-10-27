@@ -12,14 +12,13 @@ export interface CloudTradingReport {
   executionPlan: Record<string, any>;
   planRecords: Array<Record<string, any>>;
   profitProbability?: Record<string, any>;
-  probabilitySupplement?: {schemaVersion:1;state:'pending'|'ready'|'omitted';baseResultHash:string;deadlineAt:number;estimate?:Record<string,any>};
   origin: {sourceThreadId: string; storageSessionId: string; analysisJobId: string} | null;
   drawingPatch: Record<string, any> | null;
   indicatorDrawingPatch: Record<string, any> | null;
 }
 export function normalizeCloudReports(value: unknown): CloudTradingReport[];
 export function cloudPlanControls(language:string): {label:string;increase:string;decrease:string;sticky:string};
-export function cloudReportFromResponse(value: unknown): CloudTradingReport[];
+export function cloudReportFromResponse(value: unknown, historicalSupplement?: unknown): CloudTradingReport[];
 export function cloudPlanCard(report: CloudTradingReport, options?: {hideExpiry?:boolean;separateAction?:boolean;language?:string}): {title:string;content:string;html:string;actionHtml?:string;readOnly?:boolean} | null;
 export function selectCloudPlan(report: CloudTradingReport,remote:Record<string,any>): CloudTradingReport;
 export function legacyReportCandidates(report:string): Array<{title:string;content:string}>;

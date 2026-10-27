@@ -3,6 +3,14 @@ const finite = value => typeof value === 'number' && Number.isFinite(value);
 const samePrices = (a,b) => Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((n,i) => finite(n) && n === b[i]);
 const escape = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
+// Read-only compatibility with already published receipts. Pending jobs do not
+// start polling or render a bubble; estimates still pass the original gate below.
+export function completedProbabilitySupplement(value, resultHash) {
+  return typeof resultHash === 'string' && /^[a-f0-9]{64}$/.test(resultHash)
+    && value?.schemaVersion === 1 && value.state === 'ready' && value.baseResultHash === resultHash
+    ? value : undefined;
+}
+
 export function normalizePlanProbability(value, report) {
   if (value?.schemaVersion !== 1 || value.kind !== 'model_estimate' || value.basis !== 'first_target_before_stop_conditional'
     || !Array.isArray(value.assessments) || value.assessments.length > 8) return null;
@@ -21,8 +29,8 @@ export function normalizePlanProbability(value, report) {
       || !finite(item.entry) || item.entry <= 0 || item.entry !== scenario.entry
       || !finite(item.stop) || item.stop <= 0 || item.stop !== scenario.stop || !samePrices(item.targets,scenario.targets)
       || (item.conditionHash ?? null) !== (scenario.conditionHash ?? null)
-      || !finite(stop) || stop < 0 || stop > 100 || !finite(profit) || profit < 0 || profit > 100
-      || Math.abs(stop + profit - 100) > 1e-9
+      || !finite(stop) || stop < 0 || stop > 100 || !finite(profit) || profit <= 50 || profit > 100
+      || Math.abs(stop + profit - 100) > 1e-9 || Math.round(profit * 100) <= 5000
       || typeof item.summary !== 'string' || !item.summary.trim() || item.summary.length > 800
       || !Array.isArray(item.evidenceIds) || item.evidenceIds.length > 16 || !item.evidenceIds.includes('history-window')
       || !item.evidenceIds.every(id => typeof id === 'string' && id.length <= 240)) return false;
@@ -53,19 +61,10 @@ const copy = {
     '과거 백테스트로 보정되지 않은 추정치이며 실제 거래 승률이 아닙니다.','데이터 기준'],
 };
 
-const pendingCopy = {'zh-CN':'模型正在分析盈利概率...', 'zh-TW':'模型正在分析獲利機率...',
-  en:'The model is analyzing profit probability...', ko:'모델이 수익 확률을 분석하고 있습니다...',
-  ja:'モデルが利益到達確率を分析しています...'};
-
 export function renderPlanProbabilityReply(report, language = 'zh-CN') {
   if (!report) return '';
   const value = normalizePlanProbability(report.profitProbability,report);
-  if (!value) {
-    const supplement=report.probabilitySupplement;
-    if (supplement?.schemaVersion!==1 || supplement.state!=='pending' || supplement.baseResultHash!==report.resultHash) return '';
-    const label=pendingCopy[language==='zh-Hant'?'zh-TW':language]||pendingCopy.en;
-    return `<div class="plan-probability-pending" role="status" aria-live="polite">${escape(label)}</div>`;
-  }
+  if (!value) return '';
   const remote = report.planRecords.find(plan => report.executionPolicy !== 'right-legacy-v1'
     || plan.cardIndex === (report.selectedCardIndex ?? 0));
   const item = value.assessments.find(row => row.planId === remote?.id);

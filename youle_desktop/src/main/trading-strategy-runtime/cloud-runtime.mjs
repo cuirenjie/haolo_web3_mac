@@ -7,6 +7,7 @@ import {cloudStrategyMinimumHistory} from '../../shared/cloud-strategy-history.m
 import {marketRecoveryPolicy,readMarketWhenAvailable} from './market-recovery.mjs';
 import {waitForAnalysisAdmission} from './admission-recovery.mjs';
 import {wyckoffPlans,wyckoffPlanPatch} from '../../shared/wyckoff-plan-set.mjs';
+import {completedProbabilitySupplement} from '../plan-probability-view.mjs';
 
 const intervals = {'1':'1m','3':'3m','5':'5m','15':'15m','30':'30m','60':'1h','120':'2h','240':'4h','360':'6h','480':'8h','720':'12h','1D':'1d','1W':'1w'};
 const fail = (code, detail={}) => Object.assign(new Error(code), {code,...detail});
@@ -90,8 +91,8 @@ function validateResult(run, record, savedPlan) {
   }
   if (record.body.executionPolicy==='entry-v2') validateCloudEntryResult(result,record,{savedPlan});
   if (record.body.executionPolicy==='right-legacy-v1') validateCloudRightResult(result,record);
-  return {...result,cloud:{...result.cloud,
-    ...(run.probabilitySupplement ? {probabilitySupplement:run.probabilitySupplement} : {}),
+  const historical = completedProbabilitySupplement(run.probabilitySupplement,result.cloud.resultHash);
+  return {...result,cloud:{...result.cloud,...(historical ? {probabilitySupplement:historical} : {}),
     ...(record.origin ? {origin:record.origin} : {})}};
 }
 

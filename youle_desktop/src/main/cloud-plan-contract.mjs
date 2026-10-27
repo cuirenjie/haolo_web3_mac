@@ -8,7 +8,7 @@ import {executionPlanCardHeading,executionPlanCardBody,executionPlanStructuredCa
 import {cloudPlanAccountView,cloudPlanEntryBasisMismatch} from './cloud-plan-account-view.mjs';
 import {validLeftObservation,leftRouteView} from './price-action-left-card.mjs';
 import {validConditionalWatch,conditionalWatchCard} from './conditional-watch-card.mjs';
-import {normalizePlanProbability} from './plan-probability-view.mjs';
+import {normalizePlanProbability,completedProbabilitySupplement} from './plan-probability-view.mjs';
 import {validAnalysisRequestPlan} from '../shared/analysis-request-contract.mjs';
 import {validPlanPresentation,validPresentationDrawing,validPresentationReminder} from '../shared/plan-presentation.mjs';
 import {planPresentationCard} from './plan-presentation-card.mjs';
@@ -45,11 +45,8 @@ export function normalizeCloudReports(value) {
       ||typeof row.strategyId!=='string'||typeof row.report!=='string'||row.report.length>500000
       ||!Array.isArray(row.planRecords)) fail();
     seen.add(identity);
-    const supplement=row.probabilitySupplement;
-    const probabilitySupplement=supplement?.schemaVersion===1&&supplement.baseResultHash===row.resultHash
-      &&['pending','ready','omitted'].includes(supplement.state)?supplement:undefined;
-    const profitProbability = normalizePlanProbability(probabilitySupplement?.state==='ready'
-      ? probabilitySupplement.estimate : row.profitProbability,row);
+    const historical = completedProbabilitySupplement(row.probabilitySupplement,row.resultHash);
+    const profitProbability = normalizePlanProbability(row.profitProbability ?? historical?.estimate,row);
     if(row.executionPolicy==='right-legacy-v1') {
       const candidates=legacyReportCandidates(row.report);
       if(row.executionPlan?.schemaVersion!==1||!Array.isArray(row.executionPlan.scenarios)
@@ -68,7 +65,7 @@ export function normalizeCloudReports(value) {
       return {schemaVersion:1,executionPolicy:'right-legacy-v1',...(selected===undefined?{}:{selectedCardIndex:selected}),
         runId:row.runId,resultHash:row.resultHash,locale:row.locale,marketId:row.marketId,interval:row.interval,
         strategyId:row.strategyId,report:row.report,executionPlan:row.executionPlan,planRecords:row.planRecords,
-        ...(profitProbability?{profitProbability}:{}),...(probabilitySupplement?{probabilitySupplement}:{}),
+        ...(profitProbability?{profitProbability}:{}),
         origin:row.origin||null,drawingPatch:row.drawingPatch||null,indicatorDrawingPatch:row.indicatorDrawingPatch||null};
     }
     if(row.executionPlan?.schemaVersion!==2||!Array.isArray(row.executionPlan.scenarios)||row.executionPlan.scenarios.length>1
@@ -102,17 +99,17 @@ export function normalizeCloudReports(value) {
     }
     return {schemaVersion:1,runId:row.runId,resultHash:row.resultHash,locale:row.locale,marketId:row.marketId,interval:row.interval,
       strategyId:row.strategyId,report:row.report,executionPlan:row.executionPlan,planRecords:row.planRecords,
-      ...(profitProbability?{profitProbability}:{}),...(probabilitySupplement?{probabilitySupplement}:{}),
+      ...(profitProbability?{profitProbability}:{}),
       origin:row.origin||null,drawingPatch:row.drawingPatch||null,indicatorDrawingPatch:row.indicatorDrawingPatch||null};
   });
 }
-export function cloudReportFromResponse(response) {
+export function cloudReportFromResponse(response, historicalSupplement) {
   if(!['entry-v2','right-legacy-v1'].includes(response?.cloud?.executionPolicy)) return [];
   return normalizeCloudReports([{schemaVersion:1,executionPolicy:response.cloud.executionPolicy,runId:response.cloud.runId,resultHash:response.cloud.resultHash,locale:response.cloud.locale,
     marketId:response.snapshot?.marketId,interval:response.snapshot?.interval,strategyId:response.strategy?.id,
     report:response.analysisPlan?.report,executionPlan:response.executionPlan,planRecords:response.cloud.planRecords,
     profitProbability:response.analysisPlan?.profitProbability,
-    probabilitySupplement:response.cloud.probabilitySupplement,
+    probabilitySupplement:historicalSupplement ?? response.cloud.probabilitySupplement,
     origin:response.cloud.origin,drawingPatch:response.analysisPlan?.drawingPatch,indicatorDrawingPatch:response.analysisPlan?.indicatorDrawingPatch}]);
 }
 
