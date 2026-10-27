@@ -2,9 +2,21 @@
 
 2026-09-19 已从旧新加坡边缘迁移到香港 **`ecs-user@8.217.125.71`**（4 核 16 GiB）。本服务同时提供公共 REST/WS 和私有 HTTPS CONNECT，属于 Windows 仓库中的服务器组件；部署它不构建或发布桌面安装包。
 
-## 当前活动版本（2026-10-25 18:41 核验）
+## 当前活动版本（2026-10-27 日志维护后）
 
-活动网关为 `haolo-binance-gateway-batch-cbfe575a`，公共/私有端口 `51187/51188`，来源 `cbfe575a962cd5c3039a367e29edd28dca17f64a`，镜像 `sha256:fce316d4200104f0cb2fc40edc36aa595ea7b3c2974952e7687153455f1c89f3`。120 项精确镜像回归、24 文件校验、真实公网 REST/WS/CONNECT 和 139 秒零 5xx 窗口通过。付费/赠送及窗口统计已上线，旧连接保持原实例。用户单次明确允许保留旧连接继续发布，当前仍为 `accepted_retirement_pending`，由两个独立守护自然退役；不得扩大例外或声称退役完成。见[本次发布记录](batch-release-20261025.zh-CN.md)。
+### 2026-10-27 20:29 日志维护更新（当前运行入口）
+
+仅日志维护，业务源码仍为 `cbfe575a962cd5c3039a367e29edd28dca17f64a`、镜像仍为 `sha256:fce316d4200104f0cb2fc40edc36aa595ea7b3c2974952e7687153455f1c89f3`。当前活动实例是 `haolo-binance-gateway-journal-20261027`，受限端口 `51287/51288`；24 个实际运行文件核验一致。Redis 和 Prometheus 也以相同镜像、配置和数据卷切换到 journald。三个维护回执均完成；香港 30 个容器（5 个运行、25 个停止）全部使用 journald，旧 Docker JSON 日志文件为零。
+
+用户明确允许备份、演练后进行本次受控短暂重连。Redis 约 1.185 秒就绪；真实 WebSocket 会话重连后约 402 毫秒收到新帧，私有 CONNECT 先自然结束。batch、XAU 原实例退出码为 0；efficiency 原实例在无业务连接时仍无法响应两次 TERM，经过用户另一次明确授权及三次双端口零连接核验，才对该唯一旧 ID 执行 KILL，退出码 137。这是本次有记录的特例，不授权后续强断或强杀。25 个停止容器已保留文件系统快照、原配置及全部数据卷，换用无旧日志的停止定义；它们的容器 ID 已变化，应读取归档映射，不重放历史 ID。
+
+稳定观察 130 秒 / 6,852 请求及最终约 18 分钟 / 56,207 请求均零 5xx（429 分别为 3 / 69，不隐去）；公网 REST、WS、CONNECT 两轮通过，监控两个端点正常、10 条规则已加载。维护根目录 `/opt/haolo-log-retention/migration-20261027/`，活动回执 `gateway/state.json`，归档映射 `stopped-archives/`。完整证据见[统一日志验收](../../../../haolo_front_web3/docs/congestion-repair-acceptance-20261027.zh-CN.md)。
+
+后续创建香港容器必须显式使用 `journald`（或沿用当前实例的相同日志配置），由服务器原生 `haolo-hk-log-retention.timer` 每小时清理、保留约一天，journal 总量上限 1 GiB。不要恢复旧 `json-file` 配置；Docker 守护进程未因本任务重启，其默认驱动不能代替显式配置。仓库两份部署模板已同步，实际生产仍使用上述受保护发布流程，禁止直接套用模板重建。Prometheus 指标数据及 Redis 备份保留策略不属于日志清理范围。
+
+### 2026-10-25 18:41 发布时状态（历史）
+
+当时活动网关为 `haolo-binance-gateway-batch-cbfe575a`，公共/私有端口 `51187/51188`，来源 `cbfe575a962cd5c3039a367e29edd28dca17f64a`，镜像 `sha256:fce316d4200104f0cb2fc40edc36aa595ea7b3c2974952e7687153455f1c89f3`。120 项精确镜像回归、24 文件校验、真实公网 REST/WS/CONNECT 和 139 秒零 5xx 窗口通过。付费/赠送及窗口统计已上线，旧连接保持原实例。用户单次明确允许保留旧连接继续发布，当时为 `accepted_retirement_pending`，由两个独立守护自然退役；其后续完成和例外授权以上述 10 月 27 日记录为准。见[原发布记录](batch-release-20261025.zh-CN.md)。
 
 ## 历史活动版本（2026-10-24 13:50 核验）
 
