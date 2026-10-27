@@ -1,5 +1,5 @@
 import type { AutoscaleInfoProvider, IChartApi, IPaneApi, IPriceScaleApi, Time } from "lightweight-charts";
-import { translateAppText } from "./app-language.mjs";
+import { localizeAppTree, translateAppText } from "./app-language.mjs";
 import { beginTradingChartInteraction, endTradingChartInteraction } from "./trading-chart-interaction.ts";
 import { withTradingChartSeriesBatch } from './trading-chart-series-data.ts';
 import { rangeMeasurement } from './trading-range-tools.ts';
@@ -162,7 +162,9 @@ export class TradingChartNavigation {
     this.root = element.parentElement ?? element;
     element.classList.add("trading-chart-navigable");
     element.tabIndex = 0;
-    element.setAttribute("aria-label", translateAppText("K 线图表"));
+    // Retain canonical copy in the DOM localization registry across switches.
+    element.setAttribute("aria-label", "K 线图表");
+    localizeAppTree(element);
     this.root.addEventListener("pointerdown", this.pointerDown, true);
     element.addEventListener("wheel", this.wheel, { capture: true, passive: false });
     this.root.addEventListener("dblclick", this.doubleClick, true);

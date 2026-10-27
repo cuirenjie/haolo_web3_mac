@@ -1,3 +1,4 @@
+import { localizedChoice } from '../shared/korean.mjs';
 import type { TradingDrawingModel } from './trading-expert-drawing.ts';
 type WireDrawing = Omit<TradingDrawingModel, 'tool'> & {
     tool: string;
@@ -141,7 +142,7 @@ const texts = {
     localError: ['画线本机保存失败', 'Could not save drawings on this device', '畫線本機儲存失敗'],
     failed: ['暂时无法同步，请稍后重试', 'Unable to sync; try again shortly', '暫時無法同步，請稍後重試'],
 } as const;
-export function drawingSyncText(key: keyof typeof texts) { const lang = document.documentElement.dataset.language || document.documentElement.lang; return texts[key][lang === 'en' ? 1 : /TW|Hant/.test(lang) ? 2 : 0]; }
+export function drawingSyncText(key: keyof typeof texts) { const lang = document.documentElement.dataset.language || document.documentElement.lang; return localizedChoice(texts[key], lang); }
 const bridge = () => (window as unknown as {
     codexDesktop?: {
         manualDrawings?: Api;

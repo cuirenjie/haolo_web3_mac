@@ -24,6 +24,7 @@ export function cloudPlanControls(language) {
     'zh-TW':['卡片文字與便利貼操作','放大','縮小','便利貼'],
     en:['Card text and sticky note controls','Larger','Smaller','Sticky note'],
     ko:['카드 글자 및 메모 제어','확대','축소','메모'],
+    ja:['カードの文字サイズと付箋の操作','拡大','縮小','付箋'],
   };
   const [label,increase,decrease,sticky]=rows[language]||rows['zh-CN'];
   return {label,increase,decrease,sticky};
@@ -36,7 +37,7 @@ export function normalizeCloudReports(value) {
   const rows=JSON.parse(json), seen=new Set(), seenPlans=new Set();
   return rows.map(row=>{
     if(row?.schemaVersion!==1||!uuid(row.runId)||seen.has(row.runId)||!hash(row.resultHash)
-      ||!['zh-CN','en','zh-Hant','ko'].includes(row.locale)||typeof row.marketId!=='string'||typeof row.interval!=='string'
+      ||!['zh-CN','en','zh-Hant','ko','ja'].includes(row.locale)||typeof row.marketId!=='string'||typeof row.interval!=='string'
       ||typeof row.strategyId!=='string'||typeof row.report!=='string'||row.report.length>500000
       ||!Array.isArray(row.planRecords)) fail();
     seen.add(row.runId);

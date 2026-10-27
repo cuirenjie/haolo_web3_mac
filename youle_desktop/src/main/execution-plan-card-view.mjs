@@ -1,4 +1,6 @@
 import { withKoreanVariants } from '../shared/korean.mjs';
+import { japaneseText } from '../shared/japanese.mjs';
+import { executionPlanRecognitionText } from '../shared/execution-plan-language.mjs';
 // Presentation only: keep the stored report and all plan/alert inputs untouched.
 const copy = withKoreanVariants({
   "zh-CN": { entry: "入场触发价", stop: "止损价", long: "做多", short: "做空", target: (n) => `第${n}止盈`, ratio: "盈亏比", new: "建议开仓", existing: "现有仓位", reduce: "建议减仓至", amount: "止盈仓位", profit: "预计盈利", loss: "预计止损" },
@@ -11,7 +13,7 @@ const actionCopy = withKoreanVariants({
   'zh-TW': {label: '當前動作：', wait: '等待條件觸發', blocked: '暫不交易', long:'報價時滿足做多條件', short:'報價時滿足做空條件'},
   en: {label: 'Current action: ', wait: 'Wait for the trigger', blocked: 'Do not trade', long:'Long conditions met at the quote', short:'Short conditions met at the quote'},
 });
-const labelOf = (line) => String(line.label || "").replace(/[：:]\s*$/, "").trim();
+const labelOf = (line) => executionPlanRecognitionText(line.label).replace(/[：:]\s*$/, "").trim();
 const escape = (value) => String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
 const matches = (line, pattern) => pattern.test(labelOf(line));
 const fixed = (value) => Number(String(value).replace(/,/g, "")).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: String(value).includes(",") });
@@ -40,8 +42,8 @@ function displayText(value) {
 
 function direction(lines) {
   const line = lines.find((line) => matches(line, /^(?:方向判断|方向判斷|direction)$/i));
-  if (/^(?:偏多|做多|多头|bullish|long)$/i.test(String(line?.text || "").trim())) return "bullish";
-  if (/^(?:偏空|做空|空头|bearish|short)$/i.test(String(line?.text || "").trim())) return "bearish";
+  if (/^(?:偏多|做多|多头|bullish|long)$/i.test(executionPlanRecognitionText(line?.text).trim())) return "bullish";
+  if (/^(?:偏空|做空|空头|bearish|short)$/i.test(executionPlanRecognitionText(line?.text).trim())) return "bearish";
   return "";
 }
 
@@ -84,9 +86,11 @@ function strategyLabel(value, language) {
     ["rsi-analysis", "RSI", "RSI", "RSI"],
     ["kdj-analysis", "KDJ", "KDJ", "KDJ"],
     ["vpvr-analysis", "VPVR", "VPVR", "VPVR"],
+    ["trend-band", "趋势带", "趨勢帶", "Trend Band"],
   ];
   const match = names.find(([aliases]) => aliases.split("|").some((alias) => alias.toLowerCase() === raw.toLowerCase()));
-  if(match&&language==='ko')return ['프라이스 액션','오더 플로우','찬 이론','와이코프','엘리엇 파동','차트 패턴','하모닉','다우 이론','갠 이론','SMT 다이버전스','ICT / SMC','이동평균','볼린저 밴드','MACD','RSI','KDJ','VPVR'][names.indexOf(match)];
+  if(match&&language==='ja')return japaneseText(match[1]);
+  if(match&&language==='ko')return ['프라이스 액션','오더 플로우','찬 이론','와이코프','엘리엇 파동','차트 패턴','하모닉','다우 이론','갠 이론','SMT 다이버전스','ICT / SMC','이동평균','볼린저 밴드','MACD','RSI','KDJ','VPVR','추세 밴드'][names.indexOf(match)];
   return match ? match[language === "en" ? 3 : language === "zh-TW" ? 2 : 1] : raw;
 }
 

@@ -76,7 +76,7 @@ def contract(root, revision=None):
         ids.add(f["id"])
         assert f["status"] in {"approved", "pending", "disabled"} and f["sources"]
         assert f["body"].strip() and len(f["body"]) <= 16000 and len(f["title"]) <= 200
-        assert f["locale"] in {"zh-CN", "zh-Hant", "en", "ko"}
+        assert f["locale"] in {"zh-CN", "zh-Hant", "en", "ko", "ja"}
         platforms = {"android", "ios"} if data["surface"] == "mobile" else {data["surface"]}
         assert f["platforms"] and set(f["platforms"]) <= platforms
         assert all(re.fullmatch(r"[a-z_]+", k) and type(v) is int and v > 0 for k, v in f["actions"].items())

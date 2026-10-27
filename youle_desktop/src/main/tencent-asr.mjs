@@ -85,7 +85,7 @@ export function normalizeTencentAsrCredentialPayload(payload, options = {}) {
 
 export function buildTencentAsrWebSocketUrl(config, options = {}) {
   const timestamp = Math.floor((options.nowMs ?? Date.now()) / 1000);
-  const engine = options.language === 'ko' ? '16k_ko' : config.engine || TENCENT_ASR_ENGINE;
+  const engine = options.language === 'ja' ? '16k_ja' : options.language === 'ko' ? '16k_ko' : config.engine || TENCENT_ASR_ENGINE;
   const params = {
     convert_num_mode: 1,
     engine_model_type: engine,

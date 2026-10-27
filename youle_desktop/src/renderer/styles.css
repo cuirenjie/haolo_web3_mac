@@ -138,6 +138,14 @@ html[data-language="ko"] {
   --i18n-qr-generation-failed: "QR 코드를 생성하지 못했습니다";
 }
 
+html[data-language="ja"] {
+  --i18n-workflow-timeout-fallback: "両経路のタイムアウト時に切り替え";
+  --i18n-executable-agent: "実行可能なエージェント";
+  --i18n-independent-review: "独立したレビュー";
+  --i18n-loading-conversation: "会話を読み込み中…";
+  --i18n-qr-generation-failed: "QRコードを生成できませんでした";
+}
+
 html[data-font-size="small"] {
   --app-font-size-offset: -1px;
   --settings-font-size-offset: -2px;
@@ -3927,7 +3935,7 @@ html[data-language="ko"] body {
 }
 
 /* English and Korean action labels can grow past legacy CJK widths. */
-html:is([data-language="en"], [data-language="ko"]) button[data-i18n-single-line] {
+html:is([data-language="en"], [data-language="ko"], [data-language="ja"]) button[data-i18n-single-line] {
   box-sizing: border-box;
   min-inline-size: max-content;
   overflow-wrap: normal;
@@ -25225,9 +25233,14 @@ html[data-theme="dark"] .settings-trading-actions {
 
 .settings-theme-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 24px;
+}
+
+.settings-theme-row > span {
+  flex-shrink: 0;
 }
 
 .settings-theme-options {
@@ -25442,6 +25455,7 @@ html[data-language="ko"] .settings-theme-option {
 
 .settings-storage-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 18px;
@@ -25449,8 +25463,13 @@ html[data-language="ko"] .settings-theme-option {
 
 .settings-storage-copy {
   display: grid;
+  flex: 1 1 180px;
   min-width: 0;
   gap: 4px;
+}
+
+.settings-storage-copy > span {
+  overflow-wrap: anywhere;
 }
 
 .settings-storage-row strong {
@@ -42509,4 +42528,16 @@ html[data-theme="dark"] .recharge-page {
   --dropdown-hover: #292f39;
   --dropdown-selected: #243650;
   --dropdown-accent: #8bbaff;
+}
+
+/* L10N-JA-001: translated payment labels retain their column without overlap. */
+html:is([data-language="en"], [data-language="ja"]) .recharge-payment-step-label {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+
+/* Long translated recommendation labels must stay reachable at enlarged sizes. */
+html:is([data-language="en"], [data-language="ja"]) .trading-watchlist[data-watchlist-view="recommendations"] .trading-watchlist-rows {
+  overflow-y: auto;
 }

@@ -1,3 +1,4 @@
+import { japaneseText } from './japanese.mjs';
 import { koreanText } from './korean.mjs';
 // Public receipt validation and localized display; no strategy calculation.
 const words={
@@ -28,7 +29,7 @@ const words={
 };
 export function smtDiagnosticPresentation(d,language='zh-CN') {
   const i=language==='en'?1:['zh-TW','zh-Hant'].includes(language)?2:0;
-  const t=code=>language==='ko'?koreanText((words[code]??words.SMT_SOURCE_UNAVAILABLE)[0]):(words[code]??words.SMT_SOURCE_UNAVAILABLE)[i];
+  const t=code=>language==='ja'?japaneseText((words[code]??words.SMT_SOURCE_UNAVAILABLE)[0]):language==='ko'?koreanText((words[code]??words.SMT_SOURCE_UNAVAILABLE)[0]):(words[code]??words.SMT_SOURCE_UNAVAILABLE)[i];
   const n=v=>Number.isFinite(v)?v.toFixed(3):'—';
   const selected=d.checks.find(c=>c.marketId===d.selectedMarketId)??d.checks[0];
   const details=[
@@ -56,7 +57,7 @@ export function smtDiagnosticPresentation(d,language='zh-CN') {
   const metric=d.code==='SMT_CORRELATION_UNSTABLE'&&selected
     ?`${n(selected.shortCorrelation)}, ${n(selected.longCorrelation)}`:n(selected?.correlation);
   const compact=`SMT: ${t(d.code)}${insufficient?` (${metric}; ≥0.450)`:''}`;
-  return language==='ko'?{summary:koreanText(t(d.code)),compact:koreanText(compact),details:details.map(value=>koreanText(value))}:{summary:t(d.code),compact,details};
+  return language==='ja'?{summary:japaneseText(t(d.code)),compact:japaneseText(compact),details:details.map(value=>japaneseText(value))}:language==='ko'?{summary:koreanText(t(d.code)),compact:koreanText(compact),details:details.map(value=>koreanText(value))}:{summary:t(d.code),compact,details};
 }
 
 export function validSmtDiagnostics(d) {

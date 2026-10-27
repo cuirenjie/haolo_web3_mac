@@ -4,12 +4,22 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 import support_knowledge as builder
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class ProductKnowledgeTests(unittest.TestCase):
+    def test_japanese_source_knowledge_is_accepted(self):
+        read = builder.read
+        catalog = json.loads(read(ROOT, "support/catalog.json"))
+        catalog["features"][0]["locale"] = "ja"
+        def localized_read(root, path, revision=None):
+            return json.dumps(catalog).encode("utf-8") if path == "support/catalog.json" else read(root, path, revision)
+        with patch.object(builder, "read", side_effect=localized_read):
+            self.assertEqual(builder.contract(ROOT)["features"][0]["locale"], "ja")
+
     def test_generated_runtime_and_sources_are_current(self):
         bundle = builder.build(ROOT)
         builder.emit(ROOT, bundle, check=True)

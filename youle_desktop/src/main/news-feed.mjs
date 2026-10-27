@@ -9,8 +9,8 @@ export function validNewsItem(item) {
 }
 export function newsArticleUrl(id, locale = 'zh-CN') {
   if (!uuid(id)) throw new Error('NEWS_ID_INVALID');
-  locale = /^en(?:-|$)/i.test(locale) ? 'en' : /^ko(?:-|$)/i.test(locale) ? 'ko' : /^zh-(?:TW|Hant)(?:-|$)/i.test(locale) ? 'zh-Hant' : 'zh-CN';
-  return `https://haolo.com/api/news/read/${encodeURIComponent(id)}?lang=${encodeURIComponent(['zh-CN','zh-Hant','en','ko'].includes(locale) ? locale : 'zh-CN')}`;
+  locale = /^ja(?:[-_]|$)/i.test(locale) ? 'ja' : /^en(?:-|$)/i.test(locale) ? 'en' : /^ko(?:-|$)/i.test(locale) ? 'ko' : /^zh-(?:TW|Hant)(?:-|$)/i.test(locale) ? 'zh-Hant' : 'zh-CN';
+  return `https://haolo.com/api/news/read/${encodeURIComponent(id)}?lang=${encodeURIComponent(['zh-CN','zh-Hant','en','ko','ja'].includes(locale) ? locale : 'zh-CN')}`;
 }
 
 // Public articles only. Persist the queue before advancing its cursor, and only

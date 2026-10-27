@@ -1,3 +1,4 @@
+import { executionPlanRecognitionText as planText } from '../../shared/execution-plan-language.mjs';
 import { createAlertRuleRevision, normalizeAlertRule } from "./protocol.mjs";
 import { TradingAlertError } from "./errors.mjs";
 import { normalizeTradingAlertInterval } from "./interval.mjs";
@@ -50,7 +51,7 @@ function planFields(content) {
 function positivePrice(value, kind) {
   const source = String(value || "").replace(/,/g, "");
   const targetMatch = kind === "takeProfit"
-    ? source.match(/(?:第\s*\d+\s*目标\s*|TARGET\s*\d+\s*[：:]?\s*)([0-9]+(?:\.[0-9]+)?)/iu)
+    ? source.match(/(?:第\s*\d+\s*(?:目标|目標)\s*[：:]?\s*|TARGET\s*\d+\s*[：:]?\s*)([0-9]+(?:\.[0-9]+)?)/iu)
     : null;
   const match = targetMatch || source.match(/(?:^|[^0-9.])([0-9]+(?:\.[0-9]+)?)/u);
   const price = Number(match?.[1]);
@@ -81,14 +82,14 @@ export function parseExecutionPlanAlertInput(value = {}) {
   const status = String(value.status || "").trim();
   if (!PLAN_STATUSES.has(status)) invalid("计划状态无效");
   const title = cleanPlanText(value.title).slice(0, 200);
-  const titleMatch = title.match(PLAN_TITLE_PATTERN);
+  const titleMatch = planText(title).match(PLAN_TITLE_PATTERN);
   if (!titleMatch) invalid("计划标题缺少可监控的交易对、永续合约或周期");
   const [, baseAssetValue, quoteAssetValue, intervalValue, intervalUnitValue] = titleMatch;
   const baseAsset = baseAssetValue.toUpperCase();
   const quoteAsset = quoteAssetValue.toUpperCase();
   const interval = normalizeTradingAlertInterval(`${Number(intervalValue)}${intervalUnitValue.toUpperCase() === "MO"
     ? "M" : intervalUnitValue.toLowerCase()}`);
-  const fields = planFields(value.content);
+  const fields = planFields(planText(value.content));
   const directionText = fields.get("方向判断") || fields.get("Direction") || "";
   const triggerEntry = [...fields.entries()].find(([label]) => (
     /(?:多头|空头|方向)?触发/u.test(label)

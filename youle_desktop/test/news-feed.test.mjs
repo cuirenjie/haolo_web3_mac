@@ -22,6 +22,6 @@ test('Invalid feeds do not advance the cursor or open injected routes',async()=>
 
 test('article links accept actual desktop locale identifiers', () => {
   const id = '11111111-1111-4111-8111-111111111111';
-  for (const [locale, expected] of [['en-US','en'],['ko-KR','ko'],['zh-TW','zh-Hant'],['zh-Hant','zh-Hant'],['zh-CN','zh-CN']])
+  for (const [locale, expected] of [['ja','ja'],['ja-JP','ja'],['ja_JP','ja'],['en-US','en'],['ko-KR','ko'],['zh-TW','zh-Hant'],['zh-Hant','zh-Hant'],['zh-CN','zh-CN']])
     assert.equal(new URL(newsArticleUrl(id, locale)).searchParams.get('lang'), expected);
 });
