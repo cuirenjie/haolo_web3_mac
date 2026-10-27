@@ -25,7 +25,7 @@
 > 最近更新：2026-10-27
 > 当前里程碑：M2 统一 Data Hub 与增量特征层
 > 总体状态：M2 进行中（M2-013 生产基础设施验收受阻）
-> 当前工作焦点：M6-MAC-182-20261027 进行中；按用户指定设置 0.1.182，沿用未公证 Universal 包流程并重新验证包内版本、资源和双架构启动；不修改正式信任门禁
+> 当前工作焦点：M6-MAC-182-20261027 已完成；0.1.182 Universal 包已交付桌面，包内版本、资源、双架构启动、签名及 DMG 校验通过；沿用用户指定的 ad-hoc／未公证流程，无上传或部署
 > 适用仓库：`D:\youle_desktop\youle_desktop`（桌面端）、`D:\youle_agent_ms`（业务后端）、`D:\zhongzhuan`（统一模型中转）
 
 ## 1. 文档用途与持续更新规则
@@ -5997,3 +5997,8 @@ Universal 0.1.181 delivered with source 2d942d802c3c7061f2e7490149b3842042490538
 ### M6-MAC-182-20261027 started
 
 User requested exactly 0.1.182 using the previously authorized ad-hoc/unnotarized Universal flow. Only package and lock version metadata changed; implementation and support contract remain unchanged. 35 targeted Node checks, 5 Python checks and typecheck passed. Existing 182 artifacts and current app are archived before rebuilding. Details: docs/mac-release-0.1.182-20261027.zh-CN.md.
+
+
+### M6-MAC-182-20261027 complete
+
+Universal 0.1.182 delivered with source a1c4e8277fc0601994ae36abc8423061c0ffd175 and DMG SHA-256 aeb816ff2ea00abc4b99a7a7aaa8b2d3ab851e5a1f29bc590b9766af9e87d3fc. 35 targeted Node checks, 5 Python checks, typecheck and build passed. All 1627 implementation/resource/support files remain identical to the prior 181 source. Both app architectures report 0.1.182; runtime, 2735 inputs, 479 packaged source files, 278 resources, 2036 package boundary entries, mounted identity/checksum/signatures and support snapshot passed. Installed app and original changes preserved. User-authorized ad-hoc/unnotarized artifact only; no upload or deployment. Details: docs/mac-release-0.1.182-20261027.zh-CN.md.
