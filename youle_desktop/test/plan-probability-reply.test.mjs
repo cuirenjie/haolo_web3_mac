@@ -53,9 +53,13 @@ test('escapes model text and provides four localized descriptions without render
   for(const locale of ['zh-CN','en','zh-Hant','ko']) {
     const report=probabilityReport(locale);
     report.profitProbability.assessments[0].summary='<img src=x onerror=alert(1)> & evidence';
+    const frozen = structuredClone(report.profitProbability);
     const html=renderPlanProbabilityReply(report,locale);
     assert.ok(html.includes('&lt;img'));assert.ok(!html.includes('<img'));
     assert.doesNotMatch(html,/plan-probability-formula|100% −|37\.25%/);
+    assert.doesNotMatch(html,/plan-probability-heading|plan-probability-history|Data through|数据截至|資料截至|데이터 기준| UTC/);
+    assert.ok(html.includes('&lt;img src=x onerror=alert(1)&gt; &amp; evidence'));
+    assert.deepEqual(report.profitProbability,frozen);
     assert.match(html,/<strong>62\.75%<\/strong>/);
     assert.ok(html.includes(locale==='en'?'Not calibrated':locale==='ko'?'백테스트':locale==='zh-Hant'?'回測':'回测'));
   }
@@ -81,4 +85,39 @@ test('selected legacy cards bind to their own estimate and invalid optional hist
   report.profitProbability.assessments[0].planId='00000000-0000-4000-8000-000000000099';
   assert.equal(renderPlanProbabilityReply(report),'');
   assert.equal(normalizeCloudReports([report])[0].planRecords.length,1);
+});
+
+test('rollback preserves completed historical estimates without pending UI or mutating the receipt',()=>{
+  for(const legacy of [false,true]) {
+    const report=probabilityReport('en','right',legacy), estimate=report.profitProbability;
+    delete report.profitProbability;
+    const supplement={schemaVersion:1,state:'ready',baseResultHash:report.resultHash,estimate};
+    const response={strategy:{id:report.strategyId},snapshot:{marketId:report.marketId,interval:report.interval},
+      executionPlan:report.executionPlan,analysisPlan:{report:report.report},
+      cloud:{executionPolicy:legacy?'right-legacy-v1':'entry-v2',runId:report.runId,resultHash:report.resultHash,locale:report.locale,planRecords:report.planRecords}};
+    const taskId='00000000-0000-4000-8000-000000000099';
+    const run={id:report.runId,context:{taskId},state:'succeeded',text:report.report,desktopResult:response,probabilitySupplement:supplement};
+    const frozen=structuredClone(run);
+    const historical=cloudTaskHistory({id:taskId,context:{taskId},runs:[run]}).items[0].__youleCloudReports[0];
+    assert.deepEqual(historical.profitProbability,estimate);
+    assert.equal(historical.probabilitySupplement,undefined);
+    assert.deepEqual(run,frozen);
+    for(const state of ['pending','omitted']) {
+      const normalized=normalizeCloudReports([{...report,probabilitySupplement:{...supplement,state}}])[0];
+      assert.equal(normalized.profitProbability,undefined);
+      assert.equal(renderPlanProbabilityReply(normalized),'');
+    }
+    for(const invalid of [s=>s.baseResultHash='0'.repeat(64),s=>s.schemaVersion=2,
+      s=>s.estimate.assessments[0].entry+=1,s=>{s.estimate.assessments[0].profitProbabilityPercent=50;s.estimate.assessments[0].stopLossProbabilityPercent=50;}]) {
+      const value=structuredClone(supplement);invalid(value);
+      assert.equal(normalizeCloudReports([{...report,probabilitySupplement:value}])[0].profitProbability,undefined);
+    }
+  }
+});
+
+test('rollback retains Japanese probability labels and never falls back to English',()=>{
+  const html=renderPlanProbabilityReply(probabilityReport('ja'),'ja');
+  assert.match(html,/利益到達確率（モデル推定）/);
+  assert.match(html,/バックテスト/);
+  assert.doesNotMatch(html,/Profit probability|Not calibrated|plan-probability-pending/);
 });

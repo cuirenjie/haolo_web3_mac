@@ -1,5 +1,15 @@
 # 交易专家实时 AI 盘面分析执行方案
 
+2026-10-27 RELEASE-182-20261027（已完成）：Windows 0.1.182／Android 0.1.13+14 已正式发布并延续强制更新，源码与版本均已推送各自origin/dev。两端签名、包内版本、旧版／当前版检查、完整公网下载摘要及精确客服知识激活通过；正式ASAR的真实模型计划／隔离授权操作16项通过。Android已按规范保留数据覆盖安装开发签名0.1.13+14，真实前台及设备摘要一致。Windows上传504通过只读核验恢复原记录，无重复上传。完整源码SHA、失败记录与平台边界见 [本批发布记录](windows-release-0.1.182-20261027.md)。本批未部署后端或网关，iOS未签名构建。
+
+2026-10-27 M1-463D-R2（源码已提交、后端已部署）：本端回滚源码 `77f471f04904581e4f2185a2d792d7a509e1cac2` 已推送origin/dev；后端API/Ideas和独立Worker均部署 `bddf77eb0b4468b60e78f55eeaf802c088cecb54`，回执complete，旧概率任务自然完成后交接，用户明确要求不再等待后主动结束最后1个旧API长连接，各1188文件和同步概率门槛检查通过，API／Worker稳定观察及最终复核零5xx和流式错误。本轮未发布新客户端安装包，正式更新渠道仍为原版本。完整范围、备份及验收见规范后端docs/backend-probability-rollback-release-20261027.md；下方未提交／未部署表述为前一阶段历史记录。
+
+2026-10-27 M1-463D-R1／PROBABILITY-ASYNC-ROLLBACK-001（定点回滚及深度复查完成）：按用户截图撤销新异步概率任务、补充轮询、计划下气泡及取消50%门槛，恢复原同步评估和严格大于50%展示。复查用失败对照确认并修正三项：保留已发布历史ready估算的只读恢复及结果哈希／计划绑定校验，保留删除历史／撤销授权时清理旧概率资源和任务，保留Windows日语文案；均不启动异步模型或轮询。正常分析恢复、冻结绘图提前交付、自选同步、概率卡元信息精简、客服和发布修复保留。Windows193个不同用例、移动160项通过，类型／Dart／Windows隔离构建及客服双生成器一致性通过；后端98通过，另1项auto模式旧夹具失败已以HEAD原代码复现，未放宽校验。环境内存／C盘临时空间失败日志保留，释放本任务空闲进程并改D盘临时输出后复测通过。Android已保留数据覆盖安装0.1.12+13，2026-10-27 11:02:35 +08:00核验PID3598、真实前台焦点、宿主OpenGL、设备／本地APK 120c53ceae4102af6abb1b6b1f6b9a72561072d5205f324aaf2e56cbd2a6936a一致，构建输入未变、启动异常0。未使用Computer Use，iOS原生及生产未验收；未提交、推送、部署或正式发包。原M1-463D决策作废，历史与发布证据保留。证据见三个仓库.cache/probability-rollback-review-20261027；后续部署须按既有SSH控制器核对旧概率任务排空及API／Worker真实版本。
+
+2026-10-27 RELEASE-181-20261027（已完成）：用户已授权六端最新源码提交远端 dev，部署后发布 EV 签名 Windows 0.1.181 与递增的 Android 正式包，均强制更新；全部验收成功后关机。当前工作焦点已完成：生产服务终态、签名安装包、官网强制更新及下载摘要均已核对。Windows 产品候选为 910f8507；后台及官网候选为 8faa92f9；Android 产品候选为 9d42b15a。发布前已通过 Windows 专项 30 项及类型检查、内置运行时 47 文件与第三方签名校验；生产上线与最终安装包结果另行追加，不以候选构建代表完成。
+
+2026-10-27 M1-463D／PROBABILITY-ASYNC-001（本地源码与验收完成，未生产发布）：主结果先成功，概率独立补充；Windows与Android/iOS均在计划下显示“模型正在分析盈利概率...”气泡，完成后替换，失败／等待耗尽结束气泡。所有有效0%至100%结果展示，覆盖旧的50%门槛。移动绘图可见2秒→正文渐进→计划顺序保持，补充不改主busy／streaming、不重播绘图正文。后端89通过；Windows专项12通过、扩大回归225通过及10条HEAD同样复现的既有威科夫便利贴比较失败，类型／构建／40组界面通过；移动414回归及最终26项交互通过、分析器无问题。Android已于03:33保留数据覆盖安装0.1.11+12，PID2927、焦点和本地／设备APK哈希一致，当前异常检查为0。此会话未提交、推送、生产部署或发布正式安装包。详见概率补充验收记录。
+
 2026-10-26 WYCKOFF-DUAL-20261026（已完成：源码与专项验收，尚未生产启用）：用户要求仅优化威科夫，已确认箱体破位后提供独立多空条件卡，原卡片样式不变。后端按冻结原生箱体生成回测延续／收回反转条件，Windows与移动仅拆分展示及绑定独立提醒。协议由能力协商开启，历史回执保持。Windows262项、后端最终105项、移动1698项相关回归通过，Windows类型／隔离构建与Android本机覆盖安装验收完成。6条BTC箱顶失败已定位并修复新增镜像测试对共享历史数据的污染，原价格断言及生产算法未改。当前交接焦点：配套版本发布及生产验收，未在本任务执行。实现决策及证据见 docs/wyckoff-dual-plan-20261026.zh-CN.md；尚未提交、发布或部署。
 
 2026-10-26 L10N-JA-002（源码与回归完成，未部署／发布）：已逐项核销上轮测试失败，补齐日语云端回执、18类策略标题、原生／历史计划解析与系统模板动态字段，并同步后端引擎及移动绘图弹窗。Windows全量5651项、类型检查与构建通过，日英176页面状态／40选择控件／2960字体样本通过；移动全量7343通过、6项依赖专用夹具跳过、0失败。词典重新盘点无缺项，保留价格校验、用户原文及原性能阈值。具体终态与提交边界见docs/japanese-localization-20261026.md；本轮仍不部署、不发布。
@@ -1305,6 +1315,10 @@ M6 退出条件：功能开关、降级、回滚路径、更新说明和支持�
 
 2026-10-20 M1-397 进行中：按本会话授权汇总已完成的 Windows 客户端最新差异，提交到 origin/dev 并构建 0.1.178 EV 测试安装包。相关 Windows 修改会话已结束；后端发布由独立会话负责。固定仓库 haolo_windows_web3，初始 HEAD 4f5bb77；保留本地 output/ 验收产物。证据目录 release/build-0.1.178-test-20261020/。
 2026-10-21 M1-419 进行中：当前会话负责 Windows 0.1.177 整批发布；远端 dev 与本地 7def543 同步，待提交为 M1-418 和必要版本／构建资料。已核对相关客户端提交及后端发布会话均结束，后端 API／策略 Worker 已完成 eb9942f6 发布。客户端沿用当前 haolo.com 和 haolo_windows_web3 渠道；按本次指定版本覆盖本地开发版本号，旧安装包先备份，生产更新不强制升级。签名和包内验收完成后刷新渠道基线再上传，不部署业务后端、官网静态文件或其他服务。
+### 2026-10-27：M1-463C 概率卡固定元信息移除（已完成：源码及隔离验收，未发布）
+
+按用户圈图，移除固定评估标题、已收盘K线根数／周期与数据截至时间及其空白；保留原始模型摘要、盈利概率及可展开口径，冻结历史数据与校验不变。同步移动端；Windows概率及历史5项回归、32组四语×亮暗×双宽度×展开状态的真实Electron隔离检查和TypeScript通过。模型原文纯文本转义、输入数据不变及卡片位置保持；客服候选和双生成器一致性通过。未重启用户Windows实例、提交推送、打包发布或部署。证据`.cache/probability-metadata-20261027/`及`youle_desktop/.cache/plan-probability-20261025/`。
+
 ### 2026-10-27：M1-463B 概率卡片精简说明（已按用户要求回滚）
 
 用户撤销上次隐藏“不确定性较高”的要求。已逐项反向撤销本会话的显示函数、测试、视觉脚本和概率说明文档差异，恢复原始模型摘要；其他工作区差异和暂存区摘要在回滚前后一致。Windows5项与移动105项原有回归、Dart静态检查通过，Android当前源码重建安装与哈希／前台／异常日志核验通过。未提交、发布或重启Windows窗口。证据`.cache/probability-copy-rollback-20261027/`及移动PROJECT_MEMORY。
@@ -2366,6 +2380,10 @@ Windows 上游历史记录（原平台验收）：
 - CLI 更新只选官方稳定版，保留 OpenAI 原签名，校验发布摘要及配套文件，并验证现有协议、技能加载、工具调用、历史和业务回归。发现不兼容则修复后再切换，不以版本更新宣称零风险。
 
 ## 22. 进度日志
+
+### 2026-10-27：RELEASE-182-20261027 正式客户端发布完成
+
+2026-10-27 RELEASE-182-20261027（已完成）：Windows 0.1.182／Android 0.1.13+14 已正式发布并延续强制更新，源码与版本均已推送各自origin/dev。两端签名、包内版本、旧版／当前版检查、完整公网下载摘要及精确客服知识激活通过；正式ASAR的真实模型计划／隔离授权操作16项通过。Android已按规范保留数据覆盖安装开发签名0.1.13+14，真实前台及设备摘要一致。Windows上传504通过只读核验恢复原记录，无重复上传。完整源码SHA、失败记录与平台边界见 [本批发布记录](windows-release-0.1.182-20261027.md)。本批未部署后端或网关，iOS未签名构建。
 
 ### 2026-10-27：M1-463B 概率卡片显示文案精简
 
@@ -5893,3 +5911,52 @@ S2 passed: 528 targeted tests; preference restore 20 UI layouts; Wyckoff viewpor
 ### M6-MAC-20261027 / S3
 
 S3 review and validation: 393 targeted tests, 53 Mac/event/notification tests, 11 final auth/queue/session checks; 10 notification UI states plus burst queue; 181 drawing motion checks. Preserved Mac display and native notifications; fixed stale-account notification clicks and delayed navigation. Typecheck/build passed. No production service or trading operations.
+### 2026-10-27：M1-463C 概率卡固定元信息移除
+
+用户圈出的固定标题、历史根数／周期与数据截至时间从渲染模板删除，同时消除首行空白和废弃CSS。保留盈利概率、完整模型原文及展开口径，模型输入／历史校验／价格绑定均不改。5项既有回归、TypeScript及32组Electron隔离布局通过，亮暗截图已检查；客服目录和运行时候选同步，Node／Python产物一致。移动端同步并按其流程安装；本Windows任务未启动用户实例、提交推送、生成安装包或发布，既有native host二进制差异保留。
+
+### ADR M1-463D（2026-10-27，用户已确认）：概率脱离主结果关键路径
+
+现有串行概率请求约增加13.5至30秒等待。新客户端声明X-Haolo-Probability-Supplement能力，主结果成功后以独立队列执行有界概率补充；旧客户端保留同步协议。补充引用不可变resultHash，不修改主报告、绘图或计划版本。客户端在原计划下显示独立状态气泡并局部替换。用户明确取消原M1-463系列50%过滤，仅数据无效或模型未提供估算时不造数。现有确定性引擎、受控绘图、计划确认与权限边界保持。当前焦点：跨端验收与本机安装；独立发布授权保持。
+
+### 2026-10-27：M1-463D 非阻塞概率补充本地完成
+
+2026-10-27 M1-463D／PROBABILITY-ASYNC-001（本地源码与验收完成，未生产发布）：主结果先成功，概率独立补充；Windows与Android/iOS均在计划下显示“模型正在分析盈利概率...”气泡，完成后替换，失败／等待耗尽结束气泡。所有有效0%至100%结果展示，覆盖旧的50%门槛。移动绘图可见2秒→正文渐进→计划顺序保持，补充不改主busy／streaming、不重播绘图正文。后端89通过；Windows专项12通过、扩大回归225通过及10条HEAD同样复现的既有威科夫便利贴比较失败，类型／构建／40组界面通过；移动414回归及最终26项交互通过、分析器无问题。Android已于03:33保留数据覆盖安装0.1.11+12，PID2927、焦点和本地／设备APK哈希一致，当前异常检查为0。此会话未提交、推送、生产部署或发布正式安装包。详见概率补充验收记录。
+
+证据见[概率补充验收](probability-supplement-20261027.zh-CN.md)。旧便利贴基线失败单独记录，未混入本任务修改；没有把本机编译与安装记作生产发布。
+
+
+### 2026-10-27 RELEASE-181-20261027 正式发布完成
+
+Windows 0.1.181 与 Android 0.1.12+13 均已在官网正式发布，旧版本检查响应 `force_update=true`，当前版本不重复提示更新。Windows 最低支持版本 0.1.181；Android 最低支持 build 13。公网完整下载安装包后的长度及 SHA-256 与本机产物一致。
+
+| 项目 | Windows | Android |
+| --- | --- | --- |
+| 源码 | f2b1040533ac12ddb305f660f25100c335fb0765 | 9d42b15ad56ca5c830eb3456597d73e0475dccda |
+| 版本提交 | 已包含版本 0.1.181 | 9fe6c20aec99feaad46b5831ce52e6a7e6ba64c4（构建器预留后回写 0.1.12+13；产品输入稳定性凭据保留） |
+| 发布记录 | 339631b6-ce16-4d33-a287-87a55bf40324 | f19adff4-9d63-48a6-996b-6f6e83b51470 |
+| 字节 | 251461928 | 98153800 |
+| SHA-256 | `79def4a69760438f4f408ffb592737d1dec749fab238cb5384313842dd071169` | `0aed2df7572758a500338cd21a8e1628966a5b0b9b6494274e86f9638a94b9ac` |
+| 官网入口 | [下载 Windows](https://haolo.com/api/app-updates/windows/latest/download?arch=x64&client_variant=haolo_windows_web3) | [下载 Android](https://haolo.com/api/app-updates/mobile/android/latest/download?channel=direct) |
+
+Windows 主程序、原生 host、卸载器和安装器四类签名均为 Valid，SHA-256、EV 策略、时间戳及固定证书 EC6346287B2F343CB7BFA4CF4CAB7DB02379A0AD 通过。APK 沿用原正式证书 `b577aab50b7a5453c21800678874c74d45303489b45d3ee517833467bc747cf4`，三种 ABI、非 debuggable 和 16KiB 对齐通过，非测试包。
+
+Windows 专属 `.support-bundle.json`、`.support-build.json`、`.support-publication.json` 与签名安装器同目录保留；Android 的 support-bundle、build-report、verification 及 publication 凭据均在 `release/android/0.1.12+13/`。两端实际生产知识包、精确版本/contract/源 SHA 和七个动作均已 active；错误 contract 被拒绝。以实际发布知识和允许动作调用真实上游模型，红涨绿跌返回受控 `set_candle_colors`。将该真实计划交给发布包内 ASAR renderer，16 项授权、拒绝不改色、控件执行及持久化验证通过；此 UI 层的 consent HTTP 为隔离夹具，未创建生产客户会话、消息或邮件，不宣称真实用户会话整链路已验收。移动原生观感交用户，iOS 未做签名构建。
+
+大文件上传的本地响应均超时，但服务器已存储成功。先只读核对版本、文件和知识包，Windows 使用原校验函数恢复已激活回执；Android 仅发布现有草稿，未重复上传、重复建版或覆盖旧版本。异常日志保留。详细客户端凭据见规范前端仓库 `youle_mas-dev/backend/docs/verification/release-181-clients-20261027.json`。
+
+后端／官网完整发布记录见规范前端仓库 `docs/release-181-20261027.zh-CN.md`。本次未强制终止原行情长连接，未重启用户 Windows 实例；独立设备表现不以本次服务端与隔离 UI 检查替代。
+
+### 2026-10-27：M1-463D-R1 定点回滚与深度复查
+
+本次撤销异步概率／状态气泡并恢复50%门槛；复查修正历史ready概率只读兼容、旧任务清理和日语回退。Windows193项通过，类型及隔离构建通过；其余跨端测试、Android最新安装及已确认旧夹具失败见本文最新M1-463D-R1记录与.cache/probability-rollback-review-20261027。未提交推送或生产发布，保留同批其他修复。
+
+
+### 2026-10-27 M1-463D-R2：回滚源码推送与后端发布收尾
+
+2026-10-27 M1-463D-R2（源码已提交、后端已部署）：本端回滚源码 `77f471f04904581e4f2185a2d792d7a509e1cac2` 已推送origin/dev；后端API/Ideas和独立Worker均部署 `bddf77eb0b4468b60e78f55eeaf802c088cecb54`，回执complete，旧概率任务自然完成后交接，用户明确要求不再等待后主动结束最后1个旧API长连接，各1188文件和同步概率门槛检查通过，API／Worker稳定观察及最终复核零5xx和流式错误。本轮未发布新客户端安装包，正式更新渠道仍为原版本。完整范围、备份及验收见规范后端docs/backend-probability-rollback-release-20261027.md；下方未提交／未部署表述为前一阶段历史记录。
+
+
+### M6-MAC-20261027 / S4
+
+S4 passed: 41 targeted tests, 5 Python support checks, 40 five-language probability UI states, typecheck/build. Adapted source-bound support snapshot to macos/haolo_web3_mac and audited packaged renderer/version. Fixed cached ASAR headers on same-path rebuild. Python/Node candidates match; no publication/activation. Windows EV/EXE pipeline stays excluded. Historical probability supplements remain read-only and result-hash gated.

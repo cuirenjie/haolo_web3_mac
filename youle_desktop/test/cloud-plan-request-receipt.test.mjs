@@ -57,6 +57,25 @@ test('legacy receipts and full-run fallback remain readable',async()=>{
     assert.deepEqual(calls,options.fallback?['plans','run']:['plans']);
   }
 });
+
+test('completed probability survives saved-plan restoration and live receipt validation after rollback',async()=>{
+  for(const fallback of [false,true]) {
+    const f=fixture(),scenario=f.plan.scenario;
+    const estimate={schemaVersion:1,kind:'model_estimate',basis:'first_target_before_stop_conditional',
+      history:{candleCount:120,from:1792310400000,to:1792326740000,asOf:1792326741009,interval:'1h'},
+      assessments:[{planId:f.plan.id,side:scenario.side,entry:scenario.entry,stop:scenario.stop,targets:[...scenario.targets],
+        conditionHash:scenario.conditionHash,stopLossProbabilityPercent:37.25,profitProbabilityPercent:62.75,
+        evidenceIds:['history-window'],summary:'Synthetic saved probability evidence.'}]};
+    f.receipt.probabilitySupplement={schemaVersion:1,state:'ready',baseResultHash:f.receipt.desktopResult.cloud.resultHash,estimate};
+    const before=structuredClone(f),{plans,calls}=service(f,{fallback});
+    const loaded=await plans.perform('list');
+    assert.deepEqual(loaded.reports[0].profitProbability,estimate);
+    assert.equal(loaded.reports[0].probabilitySupplement,undefined);
+    assert.deepEqual(calls,fallback?['plans','run']:['plans']);
+    assert.deepEqual(validateCloudResult(f.receipt,f.liveRecord).cloud.probabilitySupplement.estimate,estimate);
+    assert.deepEqual(f,before);
+  }
+});
 test('live analysis still requires the original prompt, with a structured error for invalid types',()=>{
   const f=fixture();
   assert.doesNotThrow(()=>validateCloudResult(f.receipt,f.liveRecord));

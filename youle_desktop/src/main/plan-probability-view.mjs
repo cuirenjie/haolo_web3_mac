@@ -3,6 +3,14 @@ const finite = value => typeof value === 'number' && Number.isFinite(value);
 const samePrices = (a,b) => Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((n,i) => finite(n) && n === b[i]);
 const escape = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
+// Read-only compatibility with already published receipts. Pending jobs do not
+// start polling or render a bubble; estimates still pass the original gate below.
+export function completedProbabilitySupplement(value, resultHash) {
+  return typeof resultHash === 'string' && /^[a-f0-9]{64}$/.test(resultHash)
+    && value?.schemaVersion === 1 && value.state === 'ready' && value.baseResultHash === resultHash
+    ? value : undefined;
+}
+
 export function normalizePlanProbability(value, report) {
   if (value?.schemaVersion !== 1 || value.kind !== 'model_estimate' || value.basis !== 'first_target_before_stop_conditional'
     || !Array.isArray(value.assessments) || value.assessments.length > 8) return null;
@@ -36,6 +44,9 @@ export function normalizePlanProbability(value, report) {
 }
 
 const copy = {
+  ja: ['モデルによる確率評価','利益到達確率（モデル推定）','確定足 {count} 本に基づく · {interval}',
+    'エントリー成立後、有効期限内に第1利確目標または損切り価格のいずれかに到達することを条件として、第1利確目標に先に到達する確率を推定します。未エントリー、未決済、および分割決済による最終的な純損益は対象外です。',
+    '過去のバックテストによる較正は行われておらず、実際の取引勝率を示すものではありません。','データ基準時刻'],
   'zh-CN': ['模型概率评估','盈利概率（模型估算）','依据 {count} 根已收盘 K 线 · {interval}',
     '口径：入场后，在有效期内第1止盈或止损至少触达一个的条件下，估算第1止盈先于止损的概率。未触发、未退出及分批退出的最终净盈亏不在此口径内。',
     '未经历史回测校准，不代表实际交易胜率。','数据截至'],
@@ -60,13 +71,9 @@ export function renderPlanProbabilityReply(report, language = 'zh-CN') {
   if (!item) return '';
   const t = copy[language === 'zh-Hant' ? 'zh-TW' : language] || copy.en;
   const percent = value => `${Number(value.toFixed(2))}%`;
-  const history = t[2].replace('{count}',String(value.history.candleCount)).replace('{interval}',value.history.interval);
-  const date = new Date(value.history.to).toISOString().replace('T',' ').replace('.000Z',' UTC').replace('Z',' UTC');
-  return `<section class="plan-probability-reply" aria-label="${escape(t[0])}" data-plan-probability-id="${escape(item.planId)}">
-    <div class="plan-probability-heading">${escape(t[0])}</div>
+  return `<section class="plan-probability-reply" aria-label="${escape(t[1])}" data-plan-probability-id="${escape(item.planId)}">
     <p class="plan-probability-value">${escape(t[1])} <strong>${percent(item.profitProbabilityPercent)}</strong></p>
     <p class="plan-probability-summary">${escape(item.summary)}</p>
-    <p class="plan-probability-history">${escape(history)}<br>${escape(t[5])} ${escape(date)}</p>
     <details class="plan-probability-basis"><summary>${escape(t[4])}</summary><p>${escape(t[3])}</p></details>
   </section>`;
 }

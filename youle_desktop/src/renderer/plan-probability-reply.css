@@ -10,9 +10,9 @@
   overflow-wrap: anywhere;
 }
 .plan-probability-reply p { margin: 8px 0 0; }
-.plan-probability-heading { color: var(--sub); font-size: 12px; }
+.plan-probability-reply .plan-probability-value { margin-top: 0; }
 .plan-probability-value strong { font-size: 22px; white-space: nowrap; }
-.plan-probability-history, .plan-probability-basis { color: var(--sub); font-size: 12px; }
+.plan-probability-basis { color: var(--sub); font-size: 12px; }
 .plan-probability-basis { margin-top: 10px; }
 .plan-probability-basis summary { cursor: pointer; }
 .plan-probability-basis summary:hover { color: var(--fg); }

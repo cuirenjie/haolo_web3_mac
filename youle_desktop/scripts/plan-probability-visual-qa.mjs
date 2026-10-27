@@ -11,13 +11,14 @@ const root=fileURLToPath(new URL('..',import.meta.url));
 const output=path.join(root,'.cache','plan-probability-20261025');
 fs.mkdirSync(output,{recursive:true});
 const fixtures=[];
-for(const locale of ['zh-CN','zh-Hant','en','ko'])for(const theme of ['light','dark'])for(const width of [266,410]) {
+for(const locale of ['zh-CN','zh-Hant','en','ko','ja'])for(const theme of ['light','dark'])for(const width of [266,410]) {
   const report=cloudAccountPlanCardFixture(locale),scenario=report.planRecords[0].scenario;
   const summary={
     'zh-CN':'近期已收盘结构支持当前条件方向，但价格仍可能反向穿越止损位。',
     'zh-Hant':'近期已收盤結構支持目前條件方向，但價格仍可能反向穿越止損位。',
     en:'Recent closed-candle structure supports this conditional direction, but a reversal through the stop remains possible.',
     ko:'최근 마감된 캔들 구조는 이 방향을 지지하지만, 가격이 반전해 손절 수준에 도달할 위험이 있습니다.',
+    ja:'直近の確定足は条件付きの方向を支持していますが、反転して損切り価格に達する可能性もあります。',
   }[locale];
   report.profitProbability={schemaVersion:1,kind:'model_estimate',basis:'first_target_before_stop_conditional',
     history:{candleCount:120,from:1792310400000,to:1792326740000,asOf:1792326741009,interval:'1h'},
@@ -28,7 +29,7 @@ for(const locale of ['zh-CN','zh-Hant','en','ko'])for(const theme of ['light','d
 fs.writeFileSync(path.join(output,'fixtures.json'),JSON.stringify(fixtures));
 const styles=['src/renderer/styles.css','src/main/execution-plan-card.css','src/renderer/plan-probability-reply.css'].map(file=>fs.readFileSync(path.join(root,file),'utf8')).join('\n');
 fs.writeFileSync(path.join(output,'preview.html'),`<!doctype html><html><meta charset="UTF-8"><style>${styles}</style>
-<style>:root{--font-wechat:"Segoe UI","Microsoft YaHei",sans-serif}body{margin:0;padding:24px;height:auto;background:var(--bg)}main{width:410px;margin:auto}.message-execution-plan-list{margin:0}</style><main></main></html>`);
+<style>:root{--font-wechat:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}body{margin:0;padding:24px;height:auto;background:var(--bg)}main{width:410px;margin:auto}.message-execution-plan-list{margin:0}</style><main></main></html>`);
 const runner=String.raw`
 const {app,BrowserWindow}=require('electron');
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
@@ -50,6 +51,7 @@ app.setPath('userData',path.join(__dirname,'profile'));app.disableHardwareAccele
     summary.focus();
     return {replyBelowFooter:bounds.top>=footer.getBoundingClientRect().bottom,
       formulaRemoved:!reply.querySelector('.plan-probability-formula')&&!reply.textContent.includes('100% −'),
+      metadataRemoved:!reply.querySelector('.plan-probability-heading,.plan-probability-history'),
       overflow:[...reply.querySelectorAll('*')].filter(e=>e.scrollWidth>e.clientWidth+1||e.getBoundingClientRect().right>bounds.right+1).map(e=>e.className),
       readable:style.color!==style.backgroundColor&&style.backgroundColor!=='rgba(0, 0, 0, 0)',
       color:style.color,background:style.backgroundColor,focus:document.activeElement===summary,open:reply.querySelector('details').open};
@@ -57,6 +59,7 @@ app.setPath('userData',path.join(__dirname,'profile'));app.disableHardwareAccele
    results.push({id:f.id,open,...result});
    assert.ok(result.replyBelowFooter,f.id+' reply must follow plan controls');assert.ok(result.formulaRemoved,f.id+' formula remains');assert.deepEqual(result.overflow,[],f.id+' overflow');
    assert.ok(result.readable&&result.focus&&result.open===open,f.id+' theme/details/focus');
+   assert.ok(result.metadataRemoved,f.id+' fixed heading/history must be removed');
   }
   await win.webContents.executeJavaScript('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
   if(f.id.startsWith('zh-CN')&&f.width===410)fs.writeFileSync(path.join(__dirname,f.id+'.png'),(await win.webContents.capturePage()).toPNG());

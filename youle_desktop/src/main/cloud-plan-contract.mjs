@@ -8,7 +8,7 @@ import {executionPlanCardHeading,executionPlanCardBody,executionPlanStructuredCa
 import {cloudPlanAccountView,cloudPlanEntryBasisMismatch} from './cloud-plan-account-view.mjs';
 import {validLeftObservation,leftRouteView} from './price-action-left-card.mjs';
 import {validConditionalWatch,conditionalWatchCard} from './conditional-watch-card.mjs';
-import {normalizePlanProbability} from './plan-probability-view.mjs';
+import {normalizePlanProbability,completedProbabilitySupplement} from './plan-probability-view.mjs';
 import {validAnalysisRequestPlan} from '../shared/analysis-request-contract.mjs';
 import {validPlanPresentation,validPresentationDrawing,validPresentationReminder} from '../shared/plan-presentation.mjs';
 import {planPresentationCard} from './plan-presentation-card.mjs';
@@ -45,7 +45,8 @@ export function normalizeCloudReports(value) {
       ||typeof row.strategyId!=='string'||typeof row.report!=='string'||row.report.length>500000
       ||!Array.isArray(row.planRecords)) fail();
     seen.add(identity);
-    const profitProbability = normalizePlanProbability(row.profitProbability,row);
+    const historical = completedProbabilitySupplement(row.probabilitySupplement,row.resultHash);
+    const profitProbability = normalizePlanProbability(row.profitProbability ?? historical?.estimate,row);
     if(row.executionPolicy==='right-legacy-v1') {
       const candidates=legacyReportCandidates(row.report);
       if(row.executionPlan?.schemaVersion!==1||!Array.isArray(row.executionPlan.scenarios)
@@ -102,12 +103,13 @@ export function normalizeCloudReports(value) {
       origin:row.origin||null,drawingPatch:row.drawingPatch||null,indicatorDrawingPatch:row.indicatorDrawingPatch||null};
   });
 }
-export function cloudReportFromResponse(response) {
+export function cloudReportFromResponse(response, historicalSupplement) {
   if(!['entry-v2','right-legacy-v1'].includes(response?.cloud?.executionPolicy)) return [];
   return normalizeCloudReports([{schemaVersion:1,executionPolicy:response.cloud.executionPolicy,runId:response.cloud.runId,resultHash:response.cloud.resultHash,locale:response.cloud.locale,
     marketId:response.snapshot?.marketId,interval:response.snapshot?.interval,strategyId:response.strategy?.id,
     report:response.analysisPlan?.report,executionPlan:response.executionPlan,planRecords:response.cloud.planRecords,
     profitProbability:response.analysisPlan?.profitProbability,
+    probabilitySupplement:historicalSupplement ?? response.cloud.probabilitySupplement,
     origin:response.cloud.origin,drawingPatch:response.analysisPlan?.drawingPatch,indicatorDrawingPatch:response.analysisPlan?.indicatorDrawingPatch}]);
 }
 

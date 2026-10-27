@@ -61481,7 +61481,7 @@ function renderSettingsAboutPanel() {
           ${renderSettingsLinkRow("用户协议", USER_AGREEMENT_URL)}
           ${renderSettingsLinkRow("隐私政策", PRIVACY_POLICY_URL)}
           ${renderSettingsLinkRow("进入官网", HAOLO_HOME_URL)}
-          ${renderSettingsLinkRow("联系客服", "", "open-website-support")}
+          ${renderSettingsLinkRow("联系客服", "", "open-native-support")}
         </div>
       </div>
     </div>
@@ -66848,6 +66848,7 @@ function openNativeSupport(sessionId = "") {
   if (shouldShowLoginWindow()) return;
   syncNativeSupportAccount();
   if (!nativeSupportController?.account) return;
+  state.settingsOpen = false;
   if (!nativeSupportController.active) {
     rememberActiveComposerDraft();
     nativeSupportReturn = { rightCollapsed: state.rightCollapsed, chartFocus: state.tradingExpertChartFocusMode, chatPreview: state.chatPreview };
