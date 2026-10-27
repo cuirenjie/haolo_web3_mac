@@ -449,7 +449,7 @@
     {
       "id": "ai-drawing-cursor-zh-cn",
       "title": "AI 绘图虚拟鼠标",
-      "body": "macOS 客户端主图和分屏的 AI 绘图会显示跟随笔画的虚拟鼠标，关闭 macOS 动画效果也不隐藏它。单点和文字绘制时显示当前位置，完成或取消后清理。减少动态效果模式保留鼠标跟随，但省略跨对象移动动画和点击涟漪，无需更改系统设置。本项为待发布的客户端修复；旧版 0.1.181 安装包仍可能因系统动画设置隐藏虚拟鼠标，需要安装包含修复的新包。无新增客服代操作。",
+      "body": "macOS 客户端主图和分屏的 AI 绘图会显示跟随笔画的虚拟鼠标，关闭 macOS 动画效果也不隐藏它。单点和文字绘制时显示当前位置，完成或取消后清理。减少动态效果模式保留鼠标跟随，但省略跨对象移动动画和点击涟漪，无需更改系统设置。本项为待发布的客户端修复；修复前的旧安装包仍可能因系统动画设置隐藏虚拟鼠标，需要安装包含修复的新包。无新增客服代操作。",
       "category": "analysis",
       "locale": "zh-CN",
       "status": "pending",
@@ -466,7 +466,7 @@
     {
       "id": "ai-drawing-cursor-zh-hant",
       "title": "AI 繪圖虛擬滑鼠",
-      "body": "macOS 客戶端主圖與分割畫面的 AI 繪圖會顯示跟隨筆畫的虛擬滑鼠，即使關閉 macOS 動畫效果也不隱藏。單點與文字繪製時顯示目前位置，完成或取消後清除。減少動態效果模式省略跨物件移動動畫與點擊漣漪，無須更改系統設定。本修正尚待發布；舊版 0.1.181 安裝包仍可能隱藏虛擬滑鼠，需安裝包含修正的新包。未新增客服代操作。",
+      "body": "macOS 客戶端主圖與分割畫面的 AI 繪圖會顯示跟隨筆畫的虛擬滑鼠，即使關閉 macOS 動畫效果也不隱藏。單點與文字繪製時顯示目前位置，完成或取消後清除。減少動態效果模式省略跨物件移動動畫與點擊漣漪，無須更改系統設定。本修正尚待發布；修正前的舊安裝包仍可能隱藏虛擬滑鼠，需安裝包含修正的新包。未新增客服代操作。",
       "category": "analysis",
       "locale": "zh-Hant",
       "status": "pending",
@@ -483,7 +483,7 @@
     {
       "id": "ai-drawing-cursor-en",
       "title": "AI drawing cursor",
-      "body": "AI drawings on the macOS main chart and split panes show a virtual cursor that follows each stroke, including when macOS animations are disabled. Point and text drawings show their current position; completion or cancellation clears the cursor. Reduced motion still omits travel between objects and click ripples. No system setting change is needed. This client fix is pending release; the existing 0.1.181 installer may still hide the cursor and requires a new package containing the fix. No new support actions are available.",
+      "body": "AI drawings on the macOS main chart and split panes show a virtual cursor that follows each stroke, including when macOS animations are disabled. Point and text drawings show their current position; completion or cancellation clears the cursor. Reduced motion still omits travel between objects and click ripples. No system setting change is needed. This client fix is pending release; an older installer without this fix may still hide the cursor and requires a new package containing the fix. No new support actions are available.",
       "category": "analysis",
       "locale": "en",
       "status": "pending",
@@ -500,7 +500,7 @@
     {
       "id": "ai-drawing-cursor-ko",
       "title": "AI 그리기 가상 커서",
-      "body": "macOS 기본 차트와 분할 차트의 AI 그리기는 시스템 애니메이션을 꺼도 획을 따라가는 가상 커서를 표시합니다. 점과 텍스트를 그릴 때 현재 위치를 표시하며, 완료하거나 취소하면 커서를 지웁니다. 동작 줄이기 모드에서는 개체 사이 이동 애니메이션과 클릭 파동만 생략하므로 시스템 설정을 바꿀 필요가 없습니다. 이 수정은 출시 대기 중이며, 기존 0.1.181 설치본에는 수정이 포함된 새 패키지가 필요합니다. 새 고객 지원 대행 작업은 없습니다.",
+      "body": "macOS 기본 차트와 분할 차트의 AI 그리기는 시스템 애니메이션을 꺼도 획을 따라가는 가상 커서를 표시합니다. 점과 텍스트를 그릴 때 현재 위치를 표시하며, 완료하거나 취소하면 커서를 지웁니다. 동작 줄이기 모드에서는 개체 사이 이동 애니메이션과 클릭 파동만 생략하므로 시스템 설정을 바꿀 필요가 없습니다. 이 수정은 출시 대기 중이며, 이 수정이 없는 이전 설치본에는 수정이 포함된 새 패키지가 필요합니다. 새 고객 지원 대행 작업은 없습니다.",
       "category": "analysis",
       "locale": "ko",
       "status": "pending",
@@ -517,7 +517,7 @@
     {
       "id": "ai-drawing-cursor-ja",
       "title": "AI描画の仮想カーソル",
-      "body": "macOS版のメインチャートと分割チャートでは、システムのアニメーションを無効にしても描画中の線に沿って仮想カーソルを表示します。点や文字の描画位置も表示し、完了またはキャンセル時に消去します。視差効果を減らす設定ではオブジェクト間の移動アニメーションとクリックの波紋を省略するため、システム設定の変更は不要です。この修正は公開待ちで、既存の0.1.181には修正を含む新しいパッケージのインストールが必要です。サポートによる新たな代理操作は追加していません。",
+      "body": "macOS版のメインチャートと分割チャートでは、システムのアニメーションを無効にしても描画中の線に沿って仮想カーソルを表示します。点や文字の描画位置も表示し、完了またはキャンセル時に消去します。視差効果を減らす設定ではオブジェクト間の移動アニメーションとクリックの波紋を省略するため、システム設定の変更は不要です。この修正は公開待ちで、この修正を含まない旧インストールには修正を含む新しいパッケージのインストールが必要です。サポートによる新たな代理操作は追加していません。",
       "category": "analysis",
       "locale": "ja",
       "status": "pending",
