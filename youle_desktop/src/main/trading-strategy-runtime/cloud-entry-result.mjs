@@ -4,6 +4,7 @@ import {validConditionalWatch} from '../conditional-watch-card.mjs';
 import {validSmtDiagnostics} from '../../shared/smt-diagnostics.mjs';
 import {validAnalysisRequestPlan} from '../../shared/analysis-request-contract.mjs';
 import {validPlanPresentation,validPresentationDrawing,validPresentationReminder} from '../../shared/plan-presentation.mjs';
+import {wyckoffPlans,wyckoffPlanPatch,validWyckoffRetest} from '../../shared/wyckoff-plan-set.mjs';
 
 const hash = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
@@ -20,6 +21,23 @@ function predicate(value, zoneOnly=false) {
 // remain on the server. No strategy or natural-language parser is included.
 export function validateCloudEntryResult(result, record, {savedPlan}={}) {
   const plan=result.executionPlan, cloud=result.cloud, expected=record.body;
+  if(plan?.wyckoffPlanSet) {
+    const plans=wyckoffPlans(plan,result.strategy?.id);
+    const active=plans.filter(p=>p.scenarios.length);
+    require(Array.isArray(cloud.planIds)&&Array.isArray(cloud.planRecords)&&Array.isArray(cloud.conditionReceipts)
+      &&cloud.planIds.length===active.length&&cloud.planRecords.length===active.length&&cloud.conditionReceipts.length===active.length
+      &&new Set(cloud.planIds).size===active.length);
+    for(const child of plans) {
+      const remote=cloud.planRecords.filter(p=>p.id===child.planId);
+      require(remote.length===child.scenarios.length);
+      validateCloudEntryResult({...result,executionPlan:child,
+        analysisPlan:{...result.analysisPlan,executionPlan:child,drawingPatch:wyckoffPlanPatch(result.analysisPlan.drawingPatch,child)},
+        cloud:{...cloud,planIds:remote.map(p=>p.id),planRecords:remote,
+          conditionReceipts:cloud.conditionReceipts.filter(r=>r.conditionHash===child.conditionHash)}},record);
+    }
+    return;
+  }
+  require(validWyckoffRetest(plan,result.strategy?.id));
   require(cloud.executionPolicy==='entry-v2' && cloud.locale===expected.locale && hash(cloud.resultHash));
   require(plan?.schemaVersion===2 && uuid(plan.planId) && plan.revision===1 && plan.policyVersion==='entry-v2.1');
   require(equal(plan.context,expected.context) && equal(plan.appliedPreferences,cloud.appliedPreferences));

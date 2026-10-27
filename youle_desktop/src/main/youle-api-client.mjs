@@ -2180,6 +2180,7 @@ export class YouleApiClient {
       page_size: params.page_size ?? params.pageSize ?? 50,
     })), {
       method: "GET",
+      ...(params.fresh === true ? { cache: 'reload' } : {}),
       headers: this.clientHeaders({ auth: true }),
     });
     return {
@@ -3559,6 +3560,9 @@ export class YouleApiClient {
       ...(method !== "GET" ? { body: JSON.stringify(payload) } : {}),
       signal: options.signal,
       timeoutMs: operation === "savePreferences" || operation === "importPreferences" ? 110_000 : 20_000,
+    }).catch(error => {
+      if (error && typeof error === 'object') error.analysisOperation = operation;
+      throw error;
     });
     assertOwner();
     return response;
@@ -4488,7 +4492,7 @@ export class YouleApiClient {
     this.conditionalPollFetch ||= createConditionalPollFetch(
       (target, options) => this.serviceFetch(target, options),
       () => `${this.baseUrl}:${this.authRevision}:${this.profile?.id || this.profile?.user_id || ''}:${this.token || ''}:${this.getLocale()}`,
-      { changes: true },
+      { changes: false, background: true },
     );
     const accountMutation = !["GET", "HEAD"].includes(String(init.method || "GET").toUpperCase())
       && new URL(url).pathname.startsWith(`${this.accountConnectionsPath}`);

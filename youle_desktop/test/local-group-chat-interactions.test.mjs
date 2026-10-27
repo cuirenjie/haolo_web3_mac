@@ -481,6 +481,6 @@ test("local groups bypass handled-time decoration and result collapsing after wo
 
   assert.match(
     messages,
-    /const messagesWithWorkflowRelay = withWorkflowRelayMessages\(threadId, orderedMessages\)[\s\S]*const collapsedMessages = localGroupChatRecord\(threadId\)[\s\S]*\? messagesWithWorkflowRelay[\s\S]*: withCollapsedTurnResults\(threadId, messagesWithWorkflowRelay\)/,
+    /const messagesWithWorkflowRelay = withPacedTradingPrelude\(threadId, withWorkflowRelayMessages\(threadId, orderedMessages\)\)[\s\S]*const collapsedMessages = localGroupChatRecord\(threadId\)[\s\S]*\? messagesWithWorkflowRelay[\s\S]*: withCollapsedTurnResults\(threadId, messagesWithWorkflowRelay\)/,
   );
 });

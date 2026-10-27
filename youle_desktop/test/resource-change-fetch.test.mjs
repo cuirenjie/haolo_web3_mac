@@ -62,7 +62,7 @@ function harness() {
 }
 
 test('healthy notifications suppress empty polls; changed version, expired lease and writes fetch current state', async () => {
-  const h=harness(), read=createConditionalPollFetch(h.fetch,h.scope,{changes:true,now:h.now});
+  const h=harness(), read=createConditionalPollFetch(h.fetch,h.scope,{changes:true,background:true,now:h.now});
   const url='https://example.test/api/mobile/v1/client-settings', init={headers:{Authorization:'Bearer fixture'}};
   try {
     await read(url,init); await turn(); await h.event();

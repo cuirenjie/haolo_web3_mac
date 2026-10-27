@@ -4,6 +4,10 @@ import {cloudPlanCard,normalizeCloudReports} from '../src/main/cloud-plan-contra
 import {cloudPlanCardFixture} from './support/cloud-plan-card-fixture.mjs';
 import {renderCurrentReports} from './support/right-renderer-parity.mjs';
 import {OFFICIAL_TRADING_CATALOG} from '../src/shared/official-trading-catalog.mjs';
+import {execFileSync} from 'node:child_process';
+const originalSource=execFileSync('git',['show','b1ae599^:youle_desktop/src/main/conditional-watch-card.mjs'],{encoding:'utf8'})
+  .replace('./execution-plan-card-view.mjs',new URL('../src/main/execution-plan-card-view.mjs',import.meta.url).href);
+const original=await import('data:text/javascript;base64,'+Buffer.from(originalSource).toString('base64'));
 
 function reportFor(mode,locale,strategyId='price-action') {
   const report=cloudPlanCardFixture(locale),plan=report.executionPlan;
@@ -20,28 +24,35 @@ function reportFor(mode,locale,strategyId='price-action') {
   return report;
 }
 
-for(const mode of ['left','right']) for(const locale of ['zh-CN','en','zh-Hant']) {
-  test(`${mode}/${locale}: historical waiting reports remain readable without an observation card`,()=>{
+for(const mode of ['left','right']) for(const locale of ['zh-CN','en','zh-Hant','ko','ja']) {
+  test(`${mode}/${locale}: historical observation cards are restored without execution controls`,()=>{
     const report=reportFor(mode,locale),before=structuredClone(report);
     const normalized=normalizeCloudReports([report])[0],card=cloudPlanCard(normalized);
     const {rendered,actions,bindings}=renderCurrentReports([normalized],{allowPlanAction:true});
-    assert.equal(card,null);
-    assert.equal(rendered.cards,'');
+    assert.equal(card.readOnly,true);
+    assert.ok(rendered.cards.includes(card.html));
+    assert.match(card.html,new RegExp(`data-conditional-watch="${mode}"`));
+    assert.doesNotMatch(card.html,/execution-plan-metric|execution-plan-target/);
+    if(['zh-CN','en','zh-Hant'].includes(locale))assert.deepEqual(card,original.conditionalWatchCard(normalized,locale),'restore the original card markup and text');
+    if(['en','ko'].includes(locale))assert.doesNotMatch(card.html,/[\u4e00-\u9fff]/);
     assert.equal(actions,'');assert.deepEqual(bindings,[]);
     assert.doesNotMatch(rendered.cards,/data-message-action="add-to-plan"|data-message-execution-plan-action="sticky"/);
     assert.deepEqual(report,before);
   });
 }
 
-test('all official entries suppress text-only cards, including failed evaluation history',()=>{
+test('all official entries restore historical read-only cards and retain data-unavailable wording',()=>{
   for(const strategy of OFFICIAL_TRADING_CATALOG) for(const mode of ['left','right']) {
     const report=reportFor(mode,'en',strategy.id);
-    assert.equal(cloudPlanCard(normalizeCloudReports([report])[0]),null);
+    assert.equal(cloudPlanCard(normalizeCloudReports([report])[0]).readOnly,true);
     report.executionPlan.conditionalWatch.conditions=[];
     report.executionPlan.conditionalWatch.evaluationStatus='data_unavailable';
     report.executionPlan.outcome.evaluationStatus='data_unavailable';
     report.executionPlan.outcome.action='unavailable';
-    assert.equal(cloudPlanCard(normalizeCloudReports([report])[0]),null);
+    const card=cloudPlanCard(normalizeCloudReports([report])[0]);
+    assert.equal(card.readOnly,true);
+    assert.match(card.content,/Restore sufficient/);
+    assert.doesNotMatch(card.html,/data-no-trading-signal/);
   }
 });
 
@@ -53,5 +64,7 @@ test('malformed, mismatched, executable and HTML-bearing watch data are fenced',
     assert.throws(()=>normalizeCloudReports([report]),/CLOUD_REPORT_INVALID/);
   }
   const report=reportFor('left','en');report.executionPlan.conditionalWatch.reasonText[1]='<img src=x onerror=alert(1)>';
-  assert.equal(cloudPlanCard(normalizeCloudReports([report])[0]),null);
+  const card=cloudPlanCard(normalizeCloudReports([report])[0]);
+  assert.doesNotMatch(card.html,/<img/);
+  assert.match(card.html,/&lt;img/);
 });

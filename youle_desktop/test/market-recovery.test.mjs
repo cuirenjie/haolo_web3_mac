@@ -170,5 +170,8 @@ test('actual renderer progress handler shows waiting and recovery in all three l
     if(language==='en')assert.ok(messages.every(m=>!/[\u3400-\u9fff]/u.test(m)));
     else assert.match(messages[0],language==='zh-CN'?/等待行情额度恢复/:/等待行情額度恢復/);
     context.progress({analysisJobId:'old-job',stage:'market_quota_wait'});assert.equal(messages.length,5);
+    for(const stage of ['service_waiting','service_ready'])context.progress({analysisJobId:'job',stage,status:'running'});
+    assert.deepEqual(phases.slice(-2),['preparing','preparing']);
+    assert.match(messages[5],language==='en'?/service.*busy/:language==='zh-CN'?/服务暂时繁忙/:/服務暫時繁忙/);
   }
 });

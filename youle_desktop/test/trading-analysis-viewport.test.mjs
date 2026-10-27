@@ -6,10 +6,41 @@ import { fileURLToPath } from "node:url";
 
 import {
   tradingAnalysisDrawingFocusRange,
+  tradingAnalysisPlanFocusRange,
   waitForTradingAnalysisViewportPaint,
 } from "../src/renderer/trading-analysis-viewport.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+test('plan focus excludes old line endpoints and unrelated left context while keeping the recent structure', () => {
+  const source = candles();
+  const shapes = patchAtIndexes([[528, 549, 566, 580, 599]], source).operations.map(op => op.drawing);
+  const levels = [80266.49, 79320.52, 80890.50, 81190.70, 81639.60].map((price, i) => ({
+    colorToken: i === 0 ? 'strategy-entry' : i === 1 ? 'strategy-stop' : 'strategy-target',
+    points: [{ time: source[20].time, price }, { time: source[599].time, price }],
+  }));
+  const inputs = structuredClone({ shapes, levels, source });
+  const range = tradingAnalysisPlanFocusRange([...shapes, ...levels], source, 1000);
+  assert.ok(range.from >= 525 && range.from < 528, JSON.stringify(range));
+  assert.ok(range.to > 608, 'reserve space beside the newest candles');
+  assert.ok(range.to - range.from < 100, 'roughly 10px+ per candle on this plot');
+  assert.deepEqual({ shapes, levels, source }, inputs);
+  const narrow = tradingAnalysisPlanFocusRange([...shapes, ...levels], source, 420);
+  assert.ok(narrow.to > 599 && narrow.from < 575);
+  assert.ok(narrow.to - narrow.from <= 53, 'narrow panes retain readable recent candles');
+});
+
+test('historical plans stay historical, while distant projections cannot hide all real candles', () => {
+  const source = candles();
+  const level = { colorToken: 'strategy-entry', points: [{time:source[200].time,price:100}] };
+  const history = tradingAnalysisPlanFocusRange([level, ...patchAtIndexes([[130, 170, 200]],source).operations.map(op=>op.drawing)], source, 1000);
+  assert.ok(history.to < 250);
+  const future = tradingAnalysisPlanFocusRange([level,{points:[{time:source[580].time,price:100},{time:source[599].time+3600*1000,price:110}]}],source,1000);
+  assert.ok(future.from < 599);
+  assert.ok(future.to - future.from <= 125);
+  const single = tradingAnalysisPlanFocusRange([{...level,points:[{time:source[599].time,price:100}]}],source,1000);
+  assert.ok(single.from < 550 && single.to > 599, 'a one-anchor plan still includes enough actual candles');
+});
 
 function candles(count = 600) {
   return Array.from({ length: count }, (_, index) => ({ time: 1_800_000_000 + index * 3_600 }));

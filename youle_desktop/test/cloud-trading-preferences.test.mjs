@@ -32,6 +32,19 @@ function setup(handler, entries = []) {
   return { adapter, writes, calls, switchAccount: () => { active = { ...active, ownerId: 'account-b', accountId: 'account-b' }; } };
 }
 
+test('analysis waits for busy preferences and uses the freshly read revision without saving',async()=>{
+  let reads=0;const calls=[],progress=[];
+  const adapter=createCloudTradingPreferences({owner:async()=>({ownerId:'a',accountId:'a',baseUrl:'https://test.invalid'}),
+    wait:async()=>{},random:()=>0,api:()=>({tradingCloudRequest:async(operation,_payload,options)=>{
+      calls.push(operation);assert.ok(options.signal);
+      if(++reads===1)throw Object.assign(Error('busy'),{code:'MOBILE_BUSY',status:429});
+      return config(9);
+    }})});
+  const value=await adapter.effective({signal:new AbortController().signal,onProgress:p=>progress.push(p)});
+  assert.equal(value.revision,9);assert.deepEqual(calls,['preferences','preferences']);
+  assert.deepEqual(progress.map(p=>p.stage),['service_waiting','service_ready']);
+});
+
 test('new users read server defaults without saving or importing synthetic defaults', async () => {
   const { adapter, writes, calls } = setup(() => config(), DEFAULT_TRADING_PREFERENCE_ENTRIES);
   const loaded = await adapter.load();

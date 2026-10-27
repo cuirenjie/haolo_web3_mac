@@ -76,12 +76,66 @@ for(const {name,result,record} of fixtures) {
   }
 }
 
-test('missing prices still render an unavailable card without activation',()=>{
-  const [report]=cloudReportFromResponse(fixtures.find(f=>f.name.startsWith('news')).result);
+function noSignalReport(mode='left') {
+  const [report]=cloudReportFromResponse(fixtures.find(f=>f.name===`news-${mode}-long.json`).result);
+  report.strategyId='harmonic';
+  report.report='当前已收盘结构没有形成有效的入场条件。';
+  report.executionPlan.outcome={capability:'supported',candidateStatus:'none',evaluationStatus:'completed',action:'wait',reason:'NO_QUALIFIED_CANDIDATE'};
   report.executionPlan.planPresentation.status='unavailable';
+  report.executionPlan.planPresentation.reasons=['NO_QUALIFIED_CANDIDATE'];
   report.executionPlan.planPresentation.scenario=null;
   report.drawingPatch.operations=report.drawingPatch.operations.filter(o=>!['strategy-entry','strategy-stop','strategy-target'].includes(o.drawing.colorToken));
-  assert.equal(normalizeCloudReports([report]).length,1);
-  assert.match(cloudPlanCard(report,{language:'en'}).content,/unavailable/);
-  assert.equal(renderCurrentReports([report],{allowPlanAction:true}).bindings.length,0);
+  return report;
+}
+
+test('no signal restores a read-only observation card without empty prices in fresh and restored reports',()=>{
+  for(const locale of ['zh-CN','zh-Hant','en','ko','ja'])for(const mode of ['left','right'])for(const action of ['wait','unavailable']) {
+    const report=noSignalReport(mode);report.locale=locale;
+    report.executionPlan.outcome.action=action;
+    const before=structuredClone(report);
+    const [restored]=normalizeCloudReports(JSON.parse(JSON.stringify([report])));
+    for(const candidate of [report,restored])for(const allowPlanAction of [false,true]) {
+      const card=cloudPlanCard(candidate);
+      assert.equal(card.readOnly,true);
+      assert.match(card.html,/data-no-trading-signal/);
+      assert.doesNotMatch(card.html,/execution-plan-metric|execution-plan-target|execution-plan-price/);
+      const {rendered,actions,bindings}=renderCurrentReports([candidate],{allowPlanAction});
+      assert.equal(rendered.bubbleContent,report.report);
+      assert.ok(rendered.cards.includes(card.html));
+      assert.doesNotMatch(rendered.cards,/data-message-action="add-to-plan"|data-message-execution-plan-action="sticky"/);
+      if(['en','ko'].includes(locale))assert.doesNotMatch(card.html,/[\u4e00-\u9fff]/);
+      assert.equal(actions,'');
+      assert.deepEqual(bindings,[]);
+    }
+    assert.deepEqual(restored,before);
+    assert.deepEqual(report,before);
+  }
+});
+
+test('mixed reports show the observation card while only the valid plan is actionable',()=>{
+  const empty=noSignalReport();
+  const [ready]=cloudReportFromResponse(fixtures.find(f=>f.name==='ready-left-long.json').result);
+  const [reference]=cloudReportFromResponse(fixtures.find(f=>f.name==='news-right-short.json').result);
+  for(const reports of [[empty,ready,reference],[ready,reference,empty]]) {
+    const {rendered,bindings}=renderCurrentReports(reports,{allowPlanAction:true});
+    assert.equal((rendered.cards.match(/class="message-execution-plan execution-plan-surface"/g)||[]).length,3);
+    assert.ok(rendered.bubbleContent.includes(empty.report));
+    assert.equal(bindings.length,1);
+    assert.equal(bindings[0][1].cloudReport.runId,ready.runId);
+    assert.equal(bindings[0][0].split('\u0000').at(-1),String(reports.indexOf(ready)));
+    assert.match(rendered.cards,/data-no-trading-signal/);
+  }
+});
+
+test('failed or incomplete evaluation never masquerades as a completed no-signal analysis',()=>{
+  for(const evaluationStatus of ['data_unavailable','model_failed','not_evaluated']) {
+    const report=noSignalReport();
+    Object.assign(report.executionPlan.outcome,{evaluationStatus,candidateStatus:'not_evaluated',action:'unavailable'});
+    const [restored]=normalizeCloudReports([report]);
+    assert.equal(cloudPlanCard(restored),null);
+    const {rendered,actions,bindings}=renderCurrentReports([restored],{allowPlanAction:true});
+    assert.equal(rendered.cards,'');
+    assert.equal(rendered.bubbleContent,report.report);
+    assert.equal(actions,'');assert.deepEqual(bindings,[]);
+  }
 });

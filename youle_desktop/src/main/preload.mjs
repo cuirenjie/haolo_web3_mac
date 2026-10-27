@@ -247,6 +247,8 @@ contextBridge.exposeInMainWorld("codexDesktop", {
   tradingCloudPlans: (action, input) => ipcRenderer.invoke('tradingCloud:plans', {action,input}),
   getCloudAlertFeed: () => ipcRenderer.invoke('tradingCloud:alertFeed'),
   onCloudAlertFeed: (callback) => on('tradingCloud:alertFeed', callback),
+  onSyncChanges: callback => on('youle:syncChanges', callback),
+  syncEventsWake: (force=false) => ipcRenderer.invoke('youle:syncEventsWake', force),
   cancelTradingAnalysis: (params = {}) => ipcRenderer.invoke("tradingAnalysis:cancel", params),
   getFinnhubMarketDataStatus: () => ipcRenderer.invoke("marketData:getFinnhubStatus"),
   searchFinnhubMarkets: (params) => ipcRenderer.invoke("marketData:searchFinnhub", params),

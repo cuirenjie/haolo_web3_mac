@@ -502,8 +502,8 @@ html[data-language="en"] .trading-watchlist .trading-watchlist-head button[data-
   align-items: center;
   gap: 8px;
   min-width: 0;
-  min-height: 46px;
-  padding: 6px 16px;
+  min-height: 42px;
+  padding: 5px 16px;
   box-sizing: border-box;
   background: var(--surface-primary);
   color: var(--text-primary);
@@ -512,13 +512,13 @@ html[data-language="en"] .trading-watchlist .trading-watchlist-head button[data-
   background: var(--surface-soft);
 }
 .trading-watchlist-recommendation > .trading-market-asset-logo {
-  flex: 0 0 28px;
-  width: 28px;
-  height: 28px;
+  flex: 0 0 25px;
+  width: 25px;
+  height: 25px;
 }
 .trading-watchlist-recommendation-copy {
   display: grid;
-  gap: 2px;
+  gap: 1px;
   flex: 1;
   min-width: 0;
   /* Native Mac font metrics must keep the two text lines within a 46px row. */
@@ -531,25 +531,25 @@ html[data-language="en"] .trading-watchlist .trading-watchlist-head button[data-
   text-overflow: ellipsis;
 }
 .trading-watchlist-recommendation strong {
-  font-size: calc(13px + var(--app-font-size-offset));
-  font-weight: 600;
+  font-size: calc(12px + var(--app-font-size-offset));
+  font-weight: 500;
 }
 .trading-watchlist-recommendation-name > span,
 .trading-watchlist-recommendation small {
   color: var(--text-secondary);
-  font-size: calc(11px + var(--app-font-size-offset));
+  font-size: calc(10.5px + var(--app-font-size-offset));
 }
 .trading-watchlist .trading-watchlist-recommendation-add {
   flex: 0 0 auto;
-  min-width: 56px;
-  min-height: 28px;
-  padding: 4px 10px;
+  min-width: 50px;
+  min-height: 26px;
+  padding: 3px 9px;
   border: 1px solid transparent;
   border-radius: 999px;
   background: var(--text-primary);
   color: var(--surface-primary);
   font-size: calc(11px + var(--app-font-size-offset));
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1.4;
   white-space: nowrap;
 }

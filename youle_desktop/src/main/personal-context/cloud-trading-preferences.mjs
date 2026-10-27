@@ -1,10 +1,19 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { tradingRiskProfileFromEntries } from './memory-store.mjs';
+import { isAnalysisAdmissionBusy, waitForAnalysisAdmission } from '../trading-strategy-runtime/admission-recovery.mjs';
 
 const choiceFields = ['entryMode', 'risk', 'breakEven', 'ratio', 'style', 'sections', 'discipline'];
 const fingerprint = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const failure = (code, detail = {}) => Object.assign(new Error(code), { code, detail });
+const databasePoolBusy = error => {
+  const detail = error?.payload?.detail || error?.detail;
+  return Number(error?.status) === 503 && detail?.code === 'MOBILE_BUSY' && detail.scope === 'db_pool'
+    && detail.pool === 'database' && detail.retryable === true && error.retryable !== false;
+};
+// Only this adapter's GETs and frozen, idempotent preference PATCH may opt in.
+// A DB rejection can follow an earlier committed transaction in the handler.
+const preferenceBusy = error => isAnalysisAdmissionBusy(error) || databasePoolBusy(error);
 
 export function cloudTradingPreferenceFailure(error) {
   const detail = error?.payload?.detail || error?.detail || {};
@@ -20,6 +29,7 @@ export function cloudTradingPreferenceFailure(error) {
     TRADING_PREFERENCE_OWNER_CHANGED: "登录账号已变化，请重新打开交易偏好。",
     TRADING_PREFERENCE_NOT_UNDERSTOOD: "自定义内容无法明确理解或与其他设置冲突，请修改。",
     TRADING_PREFERENCE_MODEL_UNAVAILABLE: "大模型理解服务暂不可用或请求超时，请稍后重试。",
+    MOBILE_BUSY: "保存服务持续繁忙，本次修改尚未保存。已保留你的修改，请稍后重试。",
   };
   return { ok: false, error: { code, fieldId: String(detail.fieldId || ""),
     message: messages[code] || "交易偏好保存失败，已保留你的修改，请重试。" } };
@@ -60,11 +70,14 @@ function result(config) {
 
 // Main-process only. No renderer token, upstream key, local compilation or
 // implicit write-back into saved legacy answers is part of this adapter.
-export function createCloudTradingPreferences({ owner, api }) {
+export function createCloudTradingPreferences({ owner, api, wait, now, random, busyTimeoutMs,
+  preferenceBusyTimeoutMs = 30_000, onDiagnostic }) {
   const states = new Map();
   const pending = new Set();
   const currentOwner = async captured => {
-    if ((await owner()).ownerId !== captured.ownerId) throw failure('TRADING_PREFERENCE_OWNER_CHANGED');
+    const current = await owner();
+    if (current.ownerId !== captured.ownerId || current.baseUrl !== captured.baseUrl
+      || current.accountId !== captured.accountId) throw failure('TRADING_PREFERENCE_OWNER_CHANGED');
   };
   const request = async (captured, operation, payload, options) => {
     await currentOwner(captured);
@@ -74,11 +87,40 @@ export function createCloudTradingPreferences({ owner, api }) {
     await currentOwner(captured);
     return validateConfig(response);
   };
-  async function load({ remember = true } = {}) {
+  const diagnostic = (stage, event, error) => {
+    // Fixed fields only: never log preferences, account IDs, tokens or raw
+    // server messages. A logging failure must not change a save's outcome.
+    const code = String(error?.payload?.detail?.code || error?.code || 'UNKNOWN');
+    try { onDiagnostic?.({ stage, event,
+      ...(error ? { code: /^[A-Z0-9_]{1,80}$/.test(code) ? code : 'UNKNOWN',
+        status: Number(error?.status) || null } : {}) }); } catch { /* best effort */ }
+  };
+  const interactiveRequest = async (captured, stage, operation, payload, options = {}) => {
+    try {
+      return await waitForAnalysisAdmission({
+        request: async () => {
+          try { return await request(captured, operation, payload, options); }
+          catch (error) {
+            const retry = states.get(captured.ownerId)?.retry;
+            if (retry && stage === 'save' && databasePoolBusy(error)) retry.outcome ||= 'uncertain';
+            throw error;
+          }
+        },
+        assertOwner: () => currentOwner(captured), signal: options.signal,
+        wait, now, random, timeoutMs: preferenceBusyTimeoutMs,
+        isBusy: preferenceBusy,
+        onProgress: progress => diagnostic(stage, progress.stage),
+      });
+    } catch (error) { diagnostic(stage, 'failed', error); throw error; }
+  };
+  async function load({ remember = true, recoverBusy = false, signal, onProgress } = {}) {
     const captured = await owner();
     // Product defaults are immediately usable. Legacy local answers are no
     // longer imported; only deliberate settings saves can change this config.
-    const config = await request(captured, 'preferences');
+    const read = () => request(captured, 'preferences', undefined, {signal});
+    const config = recoverBusy ? await waitForAnalysisAdmission({request:read,isBusy:preferenceBusy,
+      assertOwner:()=>currentOwner(captured),signal,onProgress,wait,now,random,timeoutMs:busyTimeoutMs})
+      : await interactiveRequest(captured, 'load', 'preferences', undefined, { signal });
     if (remember) {
       const state = states.get(captured.ownerId);
       if ((state?.config.revision ?? -1) > config.revision) {
@@ -116,20 +158,27 @@ export function createCloudTradingPreferences({ owner, api }) {
       // profile reads may have refreshed the adapter's state in the meantime.
       const expectedRevision = params.expectedRevision ?? state.config.revision;
       if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) throw failure('TRADING_PREFERENCE_INVALID');
-      const payload = { expectedRevision,
+      const payload = structuredClone({ expectedRevision,
             changes: edited ? Object.fromEntries(edited.filter(id => id !== 'extraNotes').map(id => [id, choices[id]])) : choices,
-            ...(!edited || edited.includes('extraNotes') ? { extraNotes: params.extraNotes ?? '' } : {}) };
+            ...(!edited || edited.includes('extraNotes') ? { extraNotes: params.extraNotes ?? '' } : {}) });
       const hash = fingerprint(payload);
       if (state.retry?.hash !== hash) state.retry = { hash, key: `pref-save:${randomUUID()}` };
       let config;
       try {
-        config = await request(captured, 'savePreferences', payload, { idempotencyKey: state.retry.key });
+        config = await interactiveRequest(captured, 'save', 'savePreferences', payload, { idempotencyKey: state.retry.key });
       } catch (error) {
         // A network failure can occur after commit. Retrying must use the same
         // operation key, and the UI must not claim the server rejected it.
         if (['transport', 'timeout'].includes(error?.category)
           || ['REQUEST_TIMEOUT', 'NETWORK_ERROR'].includes(error?.code)) {
+          state.retry.outcome ||= 'uncertain';
           throw failure('TRADING_PREFERENCE_SAVE_UNCONFIRMED');
+        }
+        // A later admission rejection cannot disprove an earlier commit for
+        // the same operation whose response/confirmation was interrupted.
+        if (preferenceBusy(error) && state.retry.outcome) {
+          throw failure(state.retry.outcome === 'accepted'
+            ? 'TRADING_PREFERENCE_CONFIRMATION_PENDING' : 'TRADING_PREFERENCE_SAVE_UNCONFIRMED');
         }
         throw error;
       }
@@ -144,9 +193,10 @@ export function createCloudTradingPreferences({ owner, api }) {
       // must be able to GET the same persisted configuration. Keep the original
       // revision and idempotency key until this readback succeeds, so retrying
       // an interrupted confirmation cannot issue a second write.
+      state.retry.outcome = 'accepted';
       let persisted;
       try {
-        persisted = await request(captured, 'preferences');
+        persisted = await interactiveRequest(captured, 'confirmation', 'preferences');
       } catch (error) {
         if (error?.code === 'TRADING_PREFERENCE_OWNER_CHANGED') throw error;
         // The write was acknowledged. An interrupted confirmation must not be
@@ -161,6 +211,7 @@ export function createCloudTradingPreferences({ owner, api }) {
       }
       state.config = persisted;
       state.retry = null;
+      diagnostic('save', 'confirmed');
       return result(persisted);
     } finally {
       pending.delete(captured.ownerId);
@@ -172,10 +223,10 @@ export function createCloudTradingPreferences({ owner, api }) {
     // A stale settings view may still request resolution. Refresh the current
     // config without importing, deleting or rewriting its legacy records.
     resolveImport: () => load(),
-    async effective() {
+    async effective(options = {}) {
       // Always obtain the current server revision before a new run. A cached
       // settings page is not authority after another device changes preferences.
-      return load({ remember: false });
+      return load({ ...options, remember: false, recoverBusy: true });
     },
     reset() { states.clear(); },
   };

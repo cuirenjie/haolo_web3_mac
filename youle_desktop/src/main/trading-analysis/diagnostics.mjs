@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { describeTradingAnalysisFailure } from "./failure.mjs";
 
 const STAGES = new Set(["entitlement", "preparation", "analysis", "model", "drawing", "report"]);
+const OPERATIONS = new Set(['preferences','capabilities','marketSnapshot','createRun','createAssistantRun','task','run','runEvents','cancelRun']);
 // Keep failure metadata usable when the optional turn recorder is removed.
 const diagnosticHash = (value) => value
   ? crypto.createHash("sha256").update(String(value)).digest("hex").slice(0, 16)
@@ -27,6 +28,7 @@ export function tradingAnalysisFailureDiagnostic(error, context = {}) {
     interval: identifier(context.interval, 20),
     model: identifier(context.modelId || error?.modelId),
     stage,
+    operation: OPERATIONS.has(error?.analysisOperation) ? error.analysisOperation : null,
     errorClass: failure.category,
     code: identifier(error?.code, 100),
     httpStatus: httpStatus >= 100 && httpStatus <= 599 ? httpStatus : null,

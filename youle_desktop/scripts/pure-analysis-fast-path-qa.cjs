@@ -3,14 +3,33 @@
 const {app,BrowserWindow}=require('electron');
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const newThreadScenario=process.argv.includes('--new-thread');
-const root=path.resolve(__dirname,'..'),out=path.join(root,'.cache/pure-analysis-M1-429',newThreadScenario?'native-new-thread':'native');
+const pacingScenario=process.argv.includes('--prelude-pacing');
+const receiptScenario=process.argv.includes('--send-receipt')||pacingScenario;
+const root=path.resolve(__dirname,'..'),out=path.join(root,pacingScenario?'.cache/trading-prelude-M1-467B':receiptScenario?'.cache/send-receipt-M1-467A':'.cache/pure-analysis-M1-429',newThreadScenario?'native-new-thread':'native');
 fs.mkdirSync(out,{recursive:true});app.setPath('userData',path.join(out,`profile-${Date.now()}`));
 app.disableHardwareAcceleration();
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
-function instrument(report,newThreadScenario) {
+function instrument(report,newThreadScenario,receiptScenario,pacingScenario) {
   window.qa={calls:[],saved:[],errors:[],playbacks:[],draftFrames:0,revealFrames:[],visibleFrames:[],beforeReport:[],playing:false};
+  qa.receiptFrames=[];qa.receiptChecks=[];
+  qa.receiptProjectionMs=[];
+  qa.preludeFrames=[];
+  const seenPrelude=new Set();
+  const receiptRow=()=>[...document.querySelectorAll('[data-message-id^="trading-send-receipt-"]')].at(qa.calls.filter(c=>c.kind==='analysis').length);
+  const waitForReceipt=async stage=>{
+    if(!receiptScenario||pacingScenario||!qa.sentAt)return;
+    await new Promise(r=>setTimeout(r,6000));
+    qa.receiptChecks.push({stage,visible:!!receiptRow(),text:receiptRow()?.textContent});
+  };
   const seenReportText=new Map();
   new MutationObserver(()=>{
+    for(const row of document.querySelectorAll('[data-message-id]')){
+      const id=row.dataset.messageId;
+      if(!pacingScenario||seenPrelude.has(id)||!(id.startsWith('trading-send-receipt-')||/^trading-.+-progress-\d+-[a-f0-9]+-[12]$/.test(id)))continue;
+      seenPrelude.add(id);qa.preludeFrames.push({id,at:performance.now(),text:row.innerText});
+    }
+    if(receiptRow()&&qa.sentAt&&!qa.receiptFrames.some(frame=>frame.sentAt===qa.sentAt))
+      qa.receiptFrames.push({sentAt:qa.sentAt,latencyMs:performance.now()-qa.sentAt,text:receiptRow().textContent});
     for(const row of document.querySelectorAll('[data-message-id^="pure-trading-"][data-message-id$="-report"]')) {
       const text=row.innerText,id=row.dataset.messageId;
       if(seenReportText.get(id)===text)continue;seenReportText.set(id,text);
@@ -26,17 +45,17 @@ function instrument(report,newThreadScenario) {
     desktop=api;
     if(newThreadScenario){
       const start=api.startThread,list=api.listThreads;let created=null;
-      api.startThread=async p=>{const result=await start.call(api,p);created={...result.thread,id:'qa-promoted-thread',name:'QA 纯引用正式会话'};return {...result,thread:created};};
+      api.startThread=async p=>{await waitForReceipt('create-thread');const result=await start.call(api,p);created={...result.thread,id:'qa-promoted-thread',name:'QA 纯引用正式会话'};return {...result,thread:created};};
       api.listThreads=async()=>{const result=await list.call(api);return {...result,data:created?[created,...result.data]:result.data};};
     }
     api.checkWindowsUpdate=async()=>({current_version:'0.1.177',update_available:false,force_update:false});
     api.recordTradingAnalysisFailure=async failure=>qa.calls.push({kind:'failure',failure});
     api.getTradingPreferenceProfile=async()=>({ok:true,completed:true,profile:{onboardingCompleted:true}});
-    api.persistTradingTranscript=async p=>{qa.saved.push(p.items);return {threadId:p.threadId,persistedItemIds:p.items.map(i=>i.id)};};
+    api.persistTradingTranscript=async p=>{if(p.items.every(i=>i.role==='user'))await waitForReceipt('save-user');qa.saved.push(p.items);return {threadId:p.threadId,persistedItemIds:p.items.map(i=>i.id)};};
     api.tradingCloudRecovery=async(...args)=>{qa.calls.push({kind:'recovery',args});return [];};
     api.runTradingStrategyAnalysis=async p=>{
-      qa.beforeReport.push(document.querySelectorAll('.thinking-row').length);
-      qa.calls.push({kind:'analysis',request:p});await new Promise(r=>setTimeout(r,120));
+      qa.beforeReport.push(document.querySelectorAll('.thinking-row,[data-message-id^="trading-send-receipt-"]').length);
+      qa.calls.push({kind:'analysis',request:p,at:performance.now()});await new Promise(r=>setTimeout(r,pacingScenario?4000:receiptScenario?1500:120));
       const frozen={...report,strategyId:p.strategyId,marketId:p.marketId,interval:p.interval};
       const drawing={id:p.analysisJobId+'-line',symbol:p.marketId,interval:p.interval,theory:'strategy',strategyId:p.strategyId,
         layer:'ai/strategy/'+p.strategyId,tool:'path',points:[{time:Math.floor(Date.now()/3600000)*3600-3600,price:82000},{time:Math.floor(Date.now()/3600000)*3600,price:82000}],
@@ -76,6 +95,8 @@ function instrument(report,newThreadScenario) {
         .replace('options.onPhase?.("completed");','window.qa.playing=false;options.onPhase?.("completed");')
         .replace('const generation = ++this.generation;', `window.qa.playing=true;window.qa.playbacks.push({speedMultiplier:options.speedMultiplier,revealing:window.pureQa.snapshot().revealing,busy:window.pureQa.snapshot().pure.length>0,sidebarWorking:Boolean(document.querySelector('[data-thread-row="'+window.pureQa.snapshot().threadId+'"] .conversation-row-spinner')),startedAt:performance.now()});\nconst generation = ++this.generation;`);
       if(id.replaceAll('\\','/').split('?')[0]!==path.join(root,'src/renderer/main.ts').replaceAll('\\','/'))return;
+      if(receiptScenario)code=code.replace('tradingSendReceipts.project(threadId, filtered, pendingComposerSendForThread(threadId), state.settings.language)',
+        '(()=>{const start=performance.now();const result=tradingSendReceipts.project(threadId, filtered, pendingComposerSendForThread(threadId), state.settings.language);qa.receiptProjectionMs.push(performance.now()-start);return result;})()');
       return code.replace('pureAnalysisReportReveals.set(reportId, text);','pureAnalysisReportReveals.set(reportId, text);window.qa.revealFrames.push({text,playing:window.qa.playing,cards:document.querySelectorAll(".message-execution-plan").length});')+`\nwindow.pureQa={send:sendCurrentMessage,setBusy:(id,busy)=>{setCodexThreadBusy(id,busy);patchConversationRow(id);},select:()=>selectChatModelForThread(currentComposerThreadId(),chatModelOptions.find(m=>m.value==='gpt-6-astra')||chatModelOptions[0]),snapshot:()=>({threadId:currentComposerThreadId(),model:selectedChatModelValue(),target:captureTradingExpertAnalysisTarget(),pure:[...pureTradingAnalysisThreads],revealing:pureAnalysisReportReveals.size,pending:[...submittingComposerThreadIds],error:state.error,mode:codexConversationModeForThread(currentComposerThreadId()),surface:isTradingExpertSurfaceThreadId(currentComposerThreadId())})};`;
     }
   }]});await server.listen();
@@ -84,9 +105,9 @@ function instrument(report,newThreadScenario) {
   win.webContents.session.webRequest.onBeforeRequest((details,cb)=>cb({cancel:!(/^(about|data|blob|devtools):/.test(details.url)||details.url.startsWith(origin+'/'))}));
   win.webContents.debugger.attach('1.3');await win.loadURL('about:blank');
   await win.webContents.debugger.sendCommand('Page.enable');
-  await win.webContents.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument',{source:`(${instrument.toString()})(${JSON.stringify(report)},${newThreadScenario})`});
+  await win.webContents.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument',{source:`(${instrument.toString()})(${JSON.stringify(report)},${newThreadScenario},${receiptScenario},${pacingScenario})`});
   const js=code=>win.webContents.executeJavaScript(code,true);
-  async function until(expression){for(let i=0;i<120;i++){if(await js(expression))return;await delay(100);}throw Error(`Timeout: ${expression}`);}
+  async function until(expression){for(let i=0;i<240;i++){if(await js(expression))return;await delay(100);}throw Error(`Timeout: ${expression}`);}
   try{
     await win.loadURL(origin+'/');
     await until('Boolean(window.pureQa&&document.querySelector("#composerInput"))');
@@ -100,8 +121,27 @@ function instrument(report,newThreadScenario) {
     const sidebarChecks=[];
     if(newThreadScenario)await js('pureQa.setBusy("mock-thread-1",true)');
     for(const token of ['@策略:裸K','@指标:MACD']){
-      await js(`(()=>{const input=document.querySelector('#composerInput');input.value=${JSON.stringify(token)};input.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('#composerForm').requestSubmit();})()`);
+      await js(`(()=>{const input=document.querySelector('#composerInput');input.value=${JSON.stringify(token)};input.dispatchEvent(new Event('input',{bubbles:true}));qa.sentAt=performance.now();document.querySelector('#composerForm').requestSubmit();})()`);
+      if(receiptScenario){
+        await until(`document.querySelectorAll('[data-message-id^="trading-send-receipt-"]').length===${token.includes('MACD')?2:1}`);
+        await js('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');await delay(200);
+        assert.equal(await js(`(()=>{const e=[...document.querySelectorAll('[data-message-id^="trading-send-receipt-"]')].at(-1),r=e.getBoundingClientRect();return r.height>0&&r.top>=0&&r.bottom<innerHeight;})()`),true,'receipt must be on screen');
+        fs.writeFileSync(path.join(out,token.includes('MACD')?'receipt-existing.png':'receipt-new.png'),(await win.webContents.capturePage()).toPNG());
+      }
       await until(`qa.calls.filter(c=>c.kind==='analysis').length===${token.includes('MACD')?2:1}`);
+      if(pacingScenario)await until(`qa.preludeFrames.length===${token.includes('MACD')?6:3}`);
+      if(receiptScenario){
+        const bubbles=await js(`[...document.querySelectorAll('[data-message-id]')].map(e=>({id:e.dataset.messageId,text:e.innerText}))`);
+        const receipts=bubbles.filter(b=>b.id.startsWith('trading-send-receipt-'));
+        assert.equal(receipts.length,token.includes('MACD')?2:1);
+        assert.ok(receipts.every(b=>b.text.includes('收到，我正在准备处理你的请求。')));
+        const receiptIndex=bubbles.findIndex(b=>b.id===receipts.at(-1).id);
+        assert.ok(bubbles.slice(receiptIndex+1).some(b=>b.id.includes('-progress-')),'later progress must follow the unchanged receipt');
+        if(!token.includes('MACD')){
+          await js('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');await delay(200);
+          fs.writeFileSync(path.join(out,'receipt-and-progress.png'),(await win.webContents.capturePage()).toPNG());
+        }
+      }
       await until('pureQa.snapshot().pure.length===0&&pureQa.snapshot().pending.length===0');
       await until('!document.querySelector(".thinking-row")&&!document.querySelector("#composerForm .stop-button")');
       await until(`![...document.querySelectorAll('.turn-result-toggle')].some(el=>/待完成|Pending/.test(el.textContent))`);
@@ -129,13 +169,30 @@ function instrument(report,newThreadScenario) {
       await js('pureQa.setBusy("mock-thread-1",false)');
       await until('document.querySelectorAll(".conversation-row-spinner").length===0');
     }
-    const evidence=await js('({calls:qa.calls,saved:qa.saved,errors:qa.errors,playbacks:qa.playbacks,draftFrames:qa.draftFrames,revealFrames:qa.revealFrames,visibleFrames:qa.visibleFrames,beforeReport:qa.beforeReport,final:pureQa.snapshot()})');
+    const evidence=await js('({receiptFrames:qa.receiptFrames,receiptChecks:qa.receiptChecks,receiptProjectionMs:qa.receiptProjectionMs,preludeFrames:qa.preludeFrames,calls:qa.calls,saved:qa.saved,errors:qa.errors,playbacks:qa.playbacks,draftFrames:qa.draftFrames,revealFrames:qa.revealFrames,visibleFrames:qa.visibleFrames,beforeReport:qa.beforeReport,final:pureQa.snapshot()})');
+    if(receiptScenario){
+      assert.equal(evidence.receiptFrames.length,2);
+      if(!pacingScenario)assert.ok(evidence.receiptChecks.length>=2&&evidence.receiptChecks.every(check=>check.visible),JSON.stringify(evidence.receiptChecks));
+      assert.equal(await js('document.querySelectorAll("[data-message-id^=trading-send-receipt-]").length'),2);
+      assert.ok(evidence.saved.every(items=>items.every(item=>!item.id.startsWith('trading-send-receipt-'))));
+    }
+    if(pacingScenario){
+      assert.equal(evidence.preludeFrames.length,6);
+      for(let index=0;index<6;index+=3){
+        const frames=evidence.preludeFrames.slice(index,index+3);
+        assert.ok(frames[0].id.startsWith('trading-send-receipt-'));
+        const gaps=[frames[1].at-frames[0].at,frames[2].at-frames[1].at];
+        assert.ok(gaps.every(ms=>ms>=850&&ms<=1350),JSON.stringify({frames,gaps}));
+        assert.ok(Math.abs(gaps[0]-gaps[1])<350,JSON.stringify(gaps));
+        assert.ok(evidence.calls.filter(c=>c.kind==='analysis')[index/3].at<frames[2].at,'presentation must not delay analysis dispatch');
+      }
+    }
     assert.equal(evidence.playbacks.length,2);
     evidence.playbacks.forEach(playback=>{assert.equal(playback.speedMultiplier,1.5);assert.equal(playback.revealing,1);assert.equal(playback.busy,true);assert.equal(playback.sidebarWorking,true);});
     assert.ok(evidence.revealFrames.filter(frame=>frame.playing).length>2,'text streams while the original drawing is playing');
     assert.ok(evidence.revealFrames.every(frame=>frame.text.length<report.report.length),'partial frames precede the full report');
     assert.equal(evidence.final.revealing,0);
-    assert.ok(evidence.beforeReport.every(count=>count>0),'thinking bubbles remain before reveal');
+    assert.ok(evidence.beforeReport.every(count=>count>0),'receipt or thinking feedback remains before reveal');
     const partialFrames=evidence.visibleFrames.filter(frame=>frame.text.includes('完整分析报告 QA')&&!frame.text.includes('全部保留'));
     assert.ok(partialFrames.length>2,'the real DOM must visibly grow, not only internal state');
     assert.ok(partialFrames.every(frame=>frame.thinking===0&&frame.progress===0&&frame.cards===0),'only the growing report is visible during reveal');
@@ -152,7 +209,9 @@ function instrument(report,newThreadScenario) {
     await js(`(()=>{const input=document.querySelector('#composerInput');input.value='@指标:MACD 解释原因';input.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('#composerForm').requestSubmit();})()`);
     await until('qa.calls.some(c=>c.kind==="root")');
     assert.equal(await js('qa.calls.filter(c=>c.kind==="analysis").length'),2);
-    fs.writeFileSync(path.join(out,'receipt.json'),JSON.stringify({passed:true,...evidence,newThreadScenario,sidebarChecks,ordinaryRootDispatch:true},null,2));
+    const receiptLatencyPassed=!receiptScenario||evidence.receiptFrames.every(frame=>frame.latencyMs<250);
+    fs.writeFileSync(path.join(out,'receipt.json'),JSON.stringify({passed:receiptLatencyPassed,functionalPassed:true,receiptLatencyPassed,...evidence,newThreadScenario,sidebarChecks,ordinaryRootDispatch:true},null,2));
+    assert.ok(receiptLatencyPassed,JSON.stringify(evidence.receiptFrames));
     console.log('Native renderer: pure strategy + indicator, complete report, plan card, history, settled send button, sidebar completion and ordinary root dispatch passed.');
   }catch(error){
     fs.writeFileSync(path.join(out,'failure.json'),JSON.stringify(await js('({qa:window.qa,state:window.pureQa?.snapshot(),text:document.body.innerText})'),null,2));

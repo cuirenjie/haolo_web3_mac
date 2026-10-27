@@ -134,6 +134,7 @@ export function createTradingPreferenceSettings(deps: {
     ? "保存结果待确认" : code === "PREFERENCE_UPDATED_AFTER_SAVE" ? "配置已更新" : "保存失败";
   const needsConfirmation = () => Boolean(error) && errorTitle === "保存结果待确认";
   const needsReview = () => Boolean(error) && errorTitle === "配置已更新";
+  const canRestoreDefaults = () => status === "ready" && !saving && !migration && !needsConfirmation() && !needsReview();
 
   const reset = () => {
     generation++;
@@ -218,6 +219,15 @@ export function createTradingPreferenceSettings(deps: {
     } finally {
       if (token === generation) { saving = false; deps.render(); }
     }
+  };
+  const restoreDefaults = async () => {
+    if (!canRestoreDefaults()) return;
+    draft = tradingPreferenceSettingsDraft();
+    // Include every field so cleared custom rules and notes reach the cloud too.
+    editedFields.clear();
+    for (const id of ["entryMode", ...Object.keys(draft.choices), "extraNotes"]) editedFields.add(id);
+    dirty = true;
+    await save();
   };
   const resolveMigration = async (selection: Record<string, string | boolean>) => {
     if (saving || !migration || !deps.resolveMigration) return;
@@ -305,7 +315,10 @@ export function createTradingPreferenceSettings(deps: {
       <div class="settings-trading-actions">
         <div class="trading-preference-choice-error" role="alert" ${error ? "" : "hidden"}><span>${html(errorTitle)}</span>：<span>${invalidField === "entryMode" ? "你倾向于哪种入场方式？" : invalidField ? html(stages.flatMap(stage => TRADING_PREFERENCE_CHOICE_FIELDS[stage]).find(field => field.id === invalidField)?.title || "补充偏好说明") : ""}</span> <span>${html(error)}</span></div>
         <span class="settings-trading-status" role="status">${saved ? "交易偏好已保存" : needsConfirmation() ? "保存结果待确认" : needsReview() ? "配置已更新" : dirty ? "有未保存的修改" : ""}</span>
+        <div class="settings-trading-buttons">
+        <button type="button" class="settings-trading-restore" data-preference-restore ${canRestoreDefaults() ? "" : "disabled"}>恢复默认</button>
         <button type="button" class="trading-preference-onboarding-start" data-preference-save ${saving || (!dirty && !needsReview()) || migration ? "disabled" : ""}>${saving ? "正在校验并保存…" : needsConfirmation() ? "重试确认" : needsReview() ? "重新加载" : error ? "重试保存" : "保存修改"}</button>
+        </div>
       </div>
     </div>`;
   };
@@ -371,6 +384,9 @@ export function createTradingPreferenceSettings(deps: {
       if (input.hasAttribute("data-preference-extra")) draft.extraNotes = input.value;
       changed(fieldId || "extraNotes");
     });
+    panel.querySelector("[data-preference-restore]")?.addEventListener("click", () => {
+      if (canEdit()) void restoreDefaults();
+    });
     panel.querySelector("[data-preference-save]")?.addEventListener("click", () => {
       if (!canEdit()) return;
       if (needsReview()) { reset(); void load(); }
@@ -397,6 +413,7 @@ export function createTradingPreferenceSettings(deps: {
       } else if (active instanceof HTMLInputElement) {
         selector = `input[name="${active.name}"][value="${active.value}"]`;
       } else if (active.hasAttribute("data-preference-save")) selector = "[data-preference-save]";
+      else if (active.hasAttribute("data-preference-restore")) selector = "[data-preference-restore]";
     }
     return (nextRoot: ParentNode) => {
       if (!panel) return;
@@ -410,5 +427,5 @@ export function createTradingPreferenceSettings(deps: {
       }
     };
   };
-  return { render, bind, load, save, reset, captureView, beginSession: () => { if (!saving) reset(); } };
+  return { render, bind, load, save, restoreDefaults, reset, captureView, beginSession: () => { if (!saving) reset(); } };
 }

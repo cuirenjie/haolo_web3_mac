@@ -1,4 +1,5 @@
 import { localizedChoice } from '../shared/korean.mjs';
+import {onBackgroundSync} from './background-sync.ts';
 import type { TradingDrawingModel } from './trading-expert-drawing.ts';
 type WireDrawing = Omit<TradingDrawingModel, 'tool'> & {
     tool: string;
@@ -31,6 +32,7 @@ const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 const fingerprint = (value: unknown): string => JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item) ? Object.fromEntries(Object.entries(item).filter(([, v]) => v !== undefined && v !== null).sort(([a], [b]) => a.localeCompare(b))) : item);
 export const newerDrawingEdit = (a: Operation, b: Operation) => a.changedAt > b.changedAt || (a.changedAt === b.changedAt && a.changeId > b.changeId);
 export function canonicalDrawingMarket(value: string) {
+    if (/^index:[a-z0-9][a-z0-9-]{0,79}$/.test(value)) return value;
     const [provider, ...parts] = value.split(':'), name = provider.toLowerCase();
     if (name === 'binance' && parts.length === 2) {
         const venue = parts[0].toLowerCase();
@@ -59,6 +61,7 @@ export class DrawingReplica {
     entries: Record<string, Operation> = {};
     pending: Record<string, Operation> = {};
     upload: Record<string, unknown> | null = null;
+    rejected: Record<string, string> = {};
     offset = 0;
     clockKnown = false;
     lastStamp = 0;
@@ -68,8 +71,10 @@ export class DrawingReplica {
         if (saved)
             Object.assign(this, JSON.parse(saved));
     }
-    serialize() { return JSON.stringify({ entries: this.entries, pending: this.pending, upload: this.upload, offset: this.offset, clockKnown: this.clockKnown, lastStamp: this.lastStamp, version: this.version, interval: this.interval }); }
-    get dirty() { return !!this.upload || Object.values(this.pending).some(drawingOperationCanUpload); }
+    serialize() { return JSON.stringify({ entries: this.entries, pending: this.pending, upload: this.upload, rejected: this.rejected, offset: this.offset, clockKnown: this.clockKnown, lastStamp: this.lastStamp, version: this.version, interval: this.interval }); }
+    private canUpload = (op: Operation) => drawingOperationCanUpload(op) && this.rejected[op.id] !== op.changeId;
+    get dirty() { return !!this.upload || Object.values(this.pending).some(this.canUpload); }
+    get blocked() { return Object.values(this.pending).some(op => this.rejected[op.id] === op.changeId); }
     edit(before: WireDrawing[], after: WireDrawing[], legacy = false) {
         const a = new Map(before.map(d => [d.id, d])), b = new Map(after.map(d => [d.id, d]));
         for (const id of new Set([...a.keys(), ...b.keys()])) {
@@ -79,6 +84,7 @@ export class DrawingReplica {
             const op = { id, changeId: crypto.randomUUID(), changedAt: legacy ? 946684800000 : this.lastStamp, drawing: b.get(id) ?? null };
             this.entries[id] = op;
             this.pending[id] = op;
+            delete this.rejected[id];
         }
     }
     merge(receipt: Receipt, started = Date.now()) {
@@ -104,7 +110,28 @@ export class DrawingReplica {
         this.entries = merged;
         this.lastStamp = Math.max(receipt.serverTime, ...Object.values(merged).map(op => op.changedAt));
     }
-    begin(market: string, interval: string) { return this.upload ??= copy({ schemaVersion: 4, mutationId: crypto.randomUUID(), marketKey: market, interval, operations: Object.values(this.pending).filter(drawingOperationCanUpload).slice(0, 600) }); }
+    begin(market: string, interval: string) {
+        // Unknown outcomes retain the exact body and mutation ID. Only an
+        // explicit server rejection permits splitting/rebuilding this batch.
+        if (this.upload) return this.upload;
+        const body = { schemaVersion: 4, mutationId: crypto.randomUUID(), marketKey: market, interval, operations: [] as Operation[] };
+        const encoder = new TextEncoder();
+        let size = encoder.encode(JSON.stringify(body)).length;
+        for (const op of Object.values(this.pending).filter(this.canUpload)) {
+            const bytes = encoder.encode(JSON.stringify(op)).length + 1;
+            if (bytes > 240000 - 512) { this.rejected[op.id] = op.changeId; continue; }
+            if (body.operations.length >= 600 || size + bytes > 240000) break;
+            body.operations.push(op); size += bytes;
+        }
+        return this.upload = body.operations.length ? copy(body) : null;
+    }
+    rejectUpload(indexes: number[] | null) {
+        const operations = this.upload?.operations as Operation[] ?? [];
+        const selected = indexes === null ? operations : indexes.map(i => operations[i]).filter(Boolean);
+        for (const op of selected) if (this.pending[op.id]?.changeId === op.changeId)
+            this.rejected[op.id] = op.changeId;
+        this.upload = null;
+    }
     acknowledge() {
         for (const op of this.upload?.operations as Operation[] ?? [])
             if (this.pending[op.id]?.changeId === op.changeId)
@@ -139,6 +166,7 @@ const texts = {
     clearTitle: ['清空绘图？', 'Clear drawings?', '清空繪圖？'],
     clearDescription: ['将清空所选范围的绘图及历史记录，手工画线的删除也会同步到其他设备的新任务。历史任务不受影响。此操作无法撤销。', 'Clear drawings and drawing history in the selected scope. Manual drawing deletions also sync to New task on other devices. Historical tasks are unaffected. This cannot be undone.', '將清空所選範圍的繪圖及歷史記錄，手工畫線的刪除也會同步到其他裝置的新任務。歷史任務不受影響。此操作無法復原。'],
     pending: ['画线已保留在本机，等待同步', 'Drawings saved on this device; waiting to sync', '畫線已保留在本機，等待同步'],
+    rejected: ['部分画线未通过同步校验，已保留在本机；请编辑后重试', 'Some drawings could not be validated for sync and are saved on this device; edit them to retry', '部分畫線未通過同步驗證，已保留在本機；請編輯後重試'],
     localError: ['画线本机保存失败', 'Could not save drawings on this device', '畫線本機儲存失敗'],
     failed: ['暂时无法同步，请稍后重试', 'Unable to sync; try again shortly', '暫時無法同步，請稍後重試'],
 } as const;
@@ -174,11 +202,13 @@ export async function drainDrawingOutbox(api: Api, owner: string, storage: Stora
         const work = (async () => {
             try {
                 const started = Date.now();
-                replica.merge(await api({ action: 'read', owner, market }), started);
+                replica.merge(await api({ action: 'read', owner, market, fresh: true }), started);
                 const body = replica.begin(market, replica.interval);
                 storage.setItem(key, replica.serialize());
-                await api({ action: 'write', owner, body });
-                replica.acknowledge();
+                if (!body) return;
+                const result = await api({ action: 'write', owner, body });
+                if (result?.rejected === 'DRAWING_VALIDATION_REJECTED') replica.rejectUpload(result.indexes);
+                else replica.acknowledge();
                 storage.setItem(key, replica.serialize());
             }
             catch (error) {
@@ -224,10 +254,11 @@ export class DesktopDrawingSync {
     private replica = new DrawingReplica();
     private projected: WireDrawing[] = [];
     private initial: TradingDrawingModel[];
-    private timer: ReturnType<typeof setInterval> | null = null;
+    private unsubscribe: () => void = () => {};
     private debounce: ReturnType<typeof setTimeout> | null = null;
     private stopped = false;
     private running = false;
+    private rerun = false;
     private ready = false;
     private initialEdited = false;
     private readonly surface: Surface;
@@ -238,15 +269,12 @@ export class DesktopDrawingSync {
             return;
         if (surface.isNewTask())
             surface.apply([], surface.symbol(), false);
-        this.timer = setInterval(() => { if (!document.hidden)
-            void this.sync(); }, 5000);
+        this.unsubscribe = onBackgroundSync('drawings', this.wake);
         window.addEventListener('haolo-drawing-workspace-clear', this.workspaceCleared);
-        window.addEventListener('online', this.wake);
-        window.addEventListener('focus', this.wake);
         void this.sync();
     }
     get automatic() { return this.surface.isNewTask(); }
-    private wake = () => { void this.sync(); };
+    private wake = () => { void this.sync(true); };
     private release() {
         this.save();
         activeCaches.delete(this.storageKey);
@@ -301,10 +329,11 @@ export class DesktopDrawingSync {
         this.save();
         if (this.debounce)
             clearTimeout(this.debounce);
-        this.debounce = setTimeout(() => { void this.sync(); }, 350);
+        this.debounce = setTimeout(() => { void this.sync(); }, 1500);
     }
-    async sync() {
+    async sync(fresh = false) {
         const api = bridge();
+        if (this.running && fresh) this.rerun = true;
         if (!api || this.stopped || this.running)
             return;
         this.running = true;
@@ -369,7 +398,7 @@ export class DesktopDrawingSync {
                 this.show();
             }
             const valid = () => !this.stopped && this.surface.isNewTask() && this.owner === owner && this.context === context && this.surface.session() === localSession && canonicalDrawingMarket(this.surface.symbol()) === market;
-            const read = async () => { const started = Date.now(); const result = await api({ action: 'read', owner, market }); if (valid())
+            const read = async (force = fresh || this.replica.dirty) => { const started = Date.now(); const result = await api({ action: 'read', owner, market, fresh: force }); if (valid())
                 this.replica.merge(result, started); };
             await read();
             if (!valid())
@@ -379,12 +408,14 @@ export class DesktopDrawingSync {
                 const body = this.replica.begin(market, this.replica.interval);
                 if (!this.save())
                     return;
-                await api({ action: 'write', owner, body });
+                if (!body) return;
+                const result = await api({ action: 'write', owner, body });
                 if (!valid())
                     return;
-                this.replica.acknowledge();
+                if (result?.rejected === 'DRAWING_VALIDATION_REJECTED') this.replica.rejectUpload(result.indexes);
+                else this.replica.acknowledge();
                 this.save();
-                await read();
+                await read(true);
                 if (!valid())
                     return;
             }
@@ -398,11 +429,16 @@ export class DesktopDrawingSync {
                 this.replica.correctRejectedClock();
                 this.save();
             }
-            if (!this.stopped && this.surface.isNewTask())
-                this.surface.status(drawingSyncText(this.replica.dirty ? 'pending' : 'failed'));
+            // Ordinary sync stays silent. Durable local edits remain pending;
+            // actual local persistence errors still use the localError path.
         }
         finally {
             this.running = false;
+            if (this.rerun && !this.stopped) {
+                this.rerun = false;
+                if (this.debounce) clearTimeout(this.debounce);
+                this.debounce = setTimeout(() => { void this.sync(true); }, 1500);
+            }
             if (this.owner && !this.stopped)
                 void drainDrawingOutbox(api, this.owner, localStorage);
         }
@@ -458,12 +494,9 @@ export class DesktopDrawingSync {
     destroy() {
         this.stopped = true;
         this.release();
-        if (this.timer)
-            clearInterval(this.timer);
+        this.unsubscribe();
         if (this.debounce)
             clearTimeout(this.debounce);
         window.removeEventListener('haolo-drawing-workspace-clear', this.workspaceCleared);
-        window.removeEventListener('online', this.wake);
-        window.removeEventListener('focus', this.wake);
     }
 }

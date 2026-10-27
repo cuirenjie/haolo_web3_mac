@@ -5,6 +5,8 @@ import {validateCloudEntryResult} from './cloud-entry-result.mjs';
 import {validateCloudRightResult} from './cloud-right-result.mjs';
 import {cloudStrategyMinimumHistory} from '../../shared/cloud-strategy-history.mjs';
 import {marketRecoveryPolicy,readMarketWhenAvailable} from './market-recovery.mjs';
+import {waitForAnalysisAdmission} from './admission-recovery.mjs';
+import {wyckoffPlans,wyckoffPlanPatch} from '../../shared/wyckoff-plan-set.mjs';
 
 const intervals = {'1':'1m','3':'3m','5':'5m','15':'15m','30':'30m','60':'1h','120':'2h','240':'4h','360':'6h','480':'8h','720':'12h','1D':'1d','1W':'1w'};
 const fail = (code, detail={}) => Object.assign(new Error(code), {code,...detail});
@@ -39,7 +41,16 @@ export function validateCloudResult(run, record) {
 export function validateSavedCloudResult(run, plan, {origin}={}) {
   const policy=plan?.monitoringPolicy==='entry_v2'?'entry-v2':
     plan?.monitoringPolicy==='windows_v1'&&plan.executionPolicy==='right-legacy-v1'?'right-legacy-v1':null;
-  const result=run?.desktopResult;
+  let result=run?.desktopResult;
+  if(result?.executionPlan?.wyckoffPlanSet) {
+    const child=wyckoffPlans(result.executionPlan,run.strategy).find(p=>p.planId===plan.id);
+    if(!child||!isDeepStrictEqual(child,plan.executionPlan))throw fail('CLOUD_RESULT_CONTEXT_INVALID');
+    result={...result,executionPlan:child,analysisPlan:{...result.analysisPlan,executionPlan:child,
+      drawingPatch:wyckoffPlanPatch(result.analysisPlan.drawingPatch,child)},
+      cloud:{...result.cloud,planIds:[plan.id],planRecords:result.cloud.planRecords.filter(p=>p.id===plan.id),
+        conditionReceipts:result.cloud.conditionReceipts.filter(r=>r.conditionHash===child.conditionHash)}};
+    run={...run,desktopResult:result};
+  }
   if(!policy||plan.saved!==true||plan.deleted||run?.id!==plan.runId||run?.executionPolicy!==policy
     ||result?.cloud?.executionPolicy!==policy||!Array.isArray(result.cloud.planIds)||!result.cloud.planIds.includes(plan.id)
     ||!Number.isSafeInteger(plan.appliedPreferences?.revision)
@@ -82,11 +93,12 @@ function validateResult(run, record, savedPlan) {
   return {...result,cloud:{...result.cloud,...(record.origin ? {origin:record.origin} : {})}};
 }
 
-export function createCloudStrategyRuntime({owner, api, journal, connection, wait=delay, pollMs=1000, timeoutMs=1860000, now=Date.now, random=Math.random}) {
+export function createCloudStrategyRuntime({owner, api, journal, connection, wait=delay, pollMs=1000, timeoutMs=1860000, now=Date.now, random=Math.random, busyTimeoutMs=120000}) {
   const active = new Set();
+  const stopControllers = new Map();
   const assertOwner = async captured => {
     const current = await owner();
-    if (current.ownerId !== captured.ownerId || current.baseUrl !== captured.baseUrl) throw fail('TRADING_PREFERENCE_OWNER_CHANGED');
+    if (current.ownerId !== captured.ownerId || current.baseUrl !== captured.baseUrl || current.accountId !== captured.accountId) throw fail('TRADING_PREFERENCE_OWNER_CHANGED');
   };
   const request = async (captured, operation, payload={}, options={}) => {
     await assertOwner(captured);
@@ -95,6 +107,21 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
     });
     await assertOwner(captured);
     return response;
+  };
+  const available = (captured, action, options={}) => waitForAnalysisAdmission({
+    request:action,assertOwner:()=>assertOwner(captured),signal:options.signal,onProgress:options.onProgress,
+    wait,now,random,timeoutMs:Math.min(busyTimeoutMs, options.deadline == null ? Infinity : Math.max(0,options.deadline-now())),
+  });
+  const preserveRunFailure = (error, record) => {
+    // A generic retryable transport/status error can make the root tool start
+    // a fresh analysisJobId. Once journaled, recovery must use this exact run.
+    // Explicit resume still works; this flag only forbids automatic new work.
+    if (record && error && typeof error === 'object') {
+      error.retryable = false;
+      error.runId = record.runId;
+      if (!error.code) error.code = 'CLOUD_RUN_PENDING';
+    }
+    return error;
   };
   async function cancelRecord(captured, record) {
     record.cancelRequested = true;
@@ -247,6 +274,9 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
     const lock = `${captured.ownerId}:${key}`;
     if (active.has(lock)) throw fail('CLOUD_RUN_ALREADY_PENDING');
     active.add(lock);
+    const stopController = new AbortController();
+    stopControllers.set(lock,stopController);
+    options={...options,signal:options.signal ? AbortSignal.any([options.signal,stopController.signal]) : stopController.signal};
     let record;
     try {
       const target = cloudMarketContext(params);
@@ -294,7 +324,7 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
       options.signal?.throwIfAborted();
       if (record?.cancelRequested && record.state !== 'succeeded') { await cancelRecord(captured,record); if(record.state!=='succeeded')throw fail('TRADING_ANALYSIS_CANCELLED'); }
       if (!record) {
-        const capabilities = await request(captured,'capabilities',{}, {signal:options.signal});
+        const capabilities = await available(captured,()=>request(captured,'capabilities',{}, {signal:options.signal}),options);
         if (capabilities.windowsContract !== 'windows-v1' || !capabilities.windowsWorkerReady) throw fail('WINDOWS_WORKER_UNAVAILABLE');
         if (!capabilities.strategies?.some(s => s.id === strategyId && s.legacyWindows)) throw fail('WINDOWS_STRATEGY_UNSUPPORTED');
         if (!capabilities.entryV2WorkerReady) throw fail('ENTRY_WORKER_UNAVAILABLE');
@@ -312,17 +342,18 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
         // Independent fresh reads can overlap after capability/history checks.
         // No cached market result or account consent replaces either read.
         const fast = params.pureReferenceAnalysis === true;
+        const readConnection = () => available(captured,()=>connection?.(captured,target,{signal:snapshotSignal}),{...options,signal:snapshotSignal});
         let marketRead, parallelAccount;
         try {
           [marketRead,parallelAccount] = fast
-            ? await Promise.all([readSnapshot(), connection?.(captured,target)])
+            ? await Promise.all([readSnapshot(), readConnection()])
             : [await readSnapshot(), undefined];
         } finally { snapshotController.abort(); }
         const {snapshot,deferred} = marketRead;
         if (snapshot.marketKey !== target.marketKey || snapshot.interval !== target.interval || !snapshot.snapshotId) throw fail('CLOUD_MARKET_CONTEXT_INVALID');
         // A long market cooldown must not reuse an account binding captured
         // before the wait; revocation and rebinding must take effect first.
-        const account = fast && !deferred ? parallelAccount : await connection?.(captured,target);
+        const account = fast && !deferred ? parallelAccount : await available(captured,()=>connection?.(captured,target,{signal:options.signal}),options);
         await assertOwner(captured);
         options.signal?.throwIfAborted();
         const runId = randomUUID();
@@ -330,6 +361,8 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
           requestedEntryMode:input.requestedEntryMode,origin:input.origin,
           marketId:params.marketId,interval:params.interval,state:'prepared',
           body:{clientContract:'windows-v1',clientRunId:runId,executionPolicy:input.executionPolicy,
+            ...(strategyId==='wyckoff'&&capabilities.strategies?.find(s=>s.id===strategyId)?.wyckoffPlanVersion==='wyckoff-dual-v1'
+              ?{wyckoffPlanVersion:'wyckoff-dual-v1'}:{}),
             context:{taskId:/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(input.origin.sourceThreadId) ? input.origin.sourceThreadId : randomUUID(),marketKey:target.marketKey,interval:target.interval,snapshotId:snapshot.snapshotId,version:1},
             strategy:strategyId,prompt:input.instruction,locale:input.locale,preferencesRevision:input.preferencesRevision,analysisKind:input.analysisKind,
             positionManagementRequested:input.positionManagementRequested,analysisContext:input.analysisContext,
@@ -342,7 +375,7 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
         options.signal?.throwIfAborted();
         // Abort is safe: cancellation can fence this preassigned ID even when
         // the admission response was lost. Explicit retry reuses this exact body.
-        const admitted = await request(captured,'createRun',record.body,{signal:options.signal,idempotencyKey:`windows:${record.runId}`});
+        const admitted = await available(captured,()=>request(captured,'createRun',record.body,{signal:options.signal,idempotencyKey:`windows:${record.runId}`}),options);
         if (admitted.id !== record.runId) throw fail('CLOUD_RESULT_CONTEXT_INVALID');
         record.state = admitted.state;
         await journal.put(captured.ownerId,key,record);
@@ -354,8 +387,8 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
         catch (cancelError) { if(cancelError.code==='CLOUD_RUN_PENDING')throw cancelError; throw fail('CLOUD_CANCEL_PENDING',{runId:record.runId}); }
         throw fail('TRADING_ANALYSIS_CANCELLED');
       }
-      throw error;
-    } finally { active.delete(lock); }
+      throw preserveRunFailure(error,record);
+    } finally { active.delete(lock); stopControllers.delete(lock); }
   }
   return {run,
     async pending() { const captured=await owner(); const rows=await journal.list(captured.ownerId); await assertOwner(captured); return rows.filter(r=>!r.acknowledged).map(r=>({key:r.key,runId:r.runId,state:r.state,marketId:r.marketId,interval:r.interval,strategyId:r.body.strategy,cancelRequested:!!r.cancelRequested})); },
@@ -363,6 +396,9 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
       const captured=await owner(),lock=`${captured.ownerId}:${key}`;
       if(active.has(lock))throw fail('CLOUD_RUN_ALREADY_PENDING');
       active.add(lock);
+      const stopController=new AbortController();
+      stopControllers.set(lock,stopController);
+      options={...options,signal:options.signal ? AbortSignal.any([options.signal,stopController.signal]) : stopController.signal};
       let record;
       const deadline=now()+(options.timeoutMs??timeoutMs);
       try {
@@ -378,7 +414,7 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
           catch(error) {
             if(error.status!==404)throw error;
             options.signal?.throwIfAborted();
-            const admitted=await request(captured,'createRun',record.body,{signal:options.signal,idempotencyKey:`windows:${record.runId}`});
+            const admitted=await available(captured,()=>request(captured,'createRun',record.body,{signal:options.signal,idempotencyKey:`windows:${record.runId}`}),{...options,deadline});
             if(admitted.id!==record.runId)throw fail('CLOUD_RESULT_CONTEXT_INVALID');
             record.state=admitted.state;
             await journal.put(captured.ownerId,key,record);
@@ -391,10 +427,16 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
           catch(cancelError){if(cancelError.code==='CLOUD_RUN_PENDING')throw cancelError;throw fail('CLOUD_CANCEL_PENDING',{runId:record.runId});}
           throw fail('TRADING_ANALYSIS_CANCELLED');
         }
-        throw error;
-      } finally {active.delete(lock);}
+        throw preserveRunFailure(error,record);
+      } finally {active.delete(lock);stopControllers.delete(lock);}
     },
-    async cancel(key) {const captured=await owner();const record=await journal.get(captured.ownerId,key);if(!record)throw fail('CLOUD_RUN_NOT_FOUND');return {state:await cancelRecord(captured,record)};},
+    async cancel(key) {
+      const captured=await owner(),record=await journal.get(captured.ownerId,key);
+      if(!record)throw fail('CLOUD_RUN_NOT_FOUND');
+      await assertOwner(captured);
+      stopControllers.get(`${captured.ownerId}:${key}`)?.abort(fail('TRADING_ANALYSIS_CANCELLED'));
+      return {state:await cancelRecord(captured,record)};
+    },
     async acknowledgeGroup(key) {const captured=await owner();const rows=await journal.list(captured.ownerId);await assertOwner(captured);for(const r of rows)if((r.key===key||r.key.startsWith(`${key}:pane:`))&&terminal.has(r.state))await journal.put(captured.ownerId,r.key,{...r,acknowledged:true});},
     async acknowledge(key) {const captured=await owner();const record=await journal.get(captured.ownerId,key);if(record&&terminal.has(record.state))await journal.put(captured.ownerId,key,{...record,acknowledged:true});},
   };

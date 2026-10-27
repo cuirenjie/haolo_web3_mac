@@ -615,7 +615,7 @@ test("multi-model thinking is replaced by the live workflow relay after invited 
 
   assert.match(thinking, /isMultiModelClusterThread\(threadId\)[\s\S]*!multiModelClusterMembersJoined\(run\)/);
   assert.match(thinking, /workflowRelayEntries\(run as WorkflowCanvasRun\)\.length\) return visible/);
-  assert.match(source, /const messagesWithWorkflowRelay = withWorkflowRelayMessages\(threadId, orderedMessages\)/);
+  assert.match(source, /const messagesWithWorkflowRelay = withPacedTradingPrelude\(threadId, withWorkflowRelayMessages\(threadId, orderedMessages\)\)/);
   assert.match(source, /withCollapsedTurnResults\(threadId, messagesWithWorkflowRelay\)/);
   assert.match(source, /withThinkingMessage\(threadId, collapsedMessages\)/);
   assert.match(source, /renderWorkflowRelayBubble\(workflowRelay\)/);

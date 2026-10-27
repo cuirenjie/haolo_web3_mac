@@ -45,21 +45,21 @@ export function createCloudTaskChatController(deps:{
     load,
     ready:(id:string)=>entry(id)?.ready===true,
     busy:(id:string)=>{const e=entry(id);return Boolean(e&&(e.sending||e.history?.activeRunIds.length));},
-    canCancel:(id:string)=>Boolean(entry(id)?.history?.activeRunIds.length),
+    canCancel:(id:string)=>{const e=entry(id);return Boolean(e&&(e.sending||e.history?.activeRunIds.length));},
     async send(id:string,prompt:string,modelId:string,locale:string){
       const e=entry(id);if(!e?.ready||e.sending||e.history?.activeRunIds.length)return false;
       const pending=e.history?.pending;
       if(pending&&pending.prompt!==prompt){deps.restoreDraft(id,pending.prompt);throw new Error('上一条消息的发送结果尚未确认，请先重试原消息。');}
-      e.sending=true;e.version++;if(e.timer)cancel(e.timer);deps.changed(id);
+      e.sending=true;const version=++e.version;if(e.timer)cancel(e.timer);deps.changed(id);
       try{
         const h=unwrap(await deps.request('send',{taskId:taskId(id),prompt,modelId,locale,requestId:pending?.requestId||crypto.randomUUID()}));
-        if(!valid(id,e))return false;
+        if(!valid(id,e)||version!==e.version)return false;
         receive(id,e,h);if(h.activeRunIds.length)poll(id,e);return true;
-      }catch(error){if(valid(id,e)){deps.error(error);poll(id,e);}return false;}
-      finally{if(valid(id,e)){e.sending=false;deps.changed(id);}}
+      }catch(error){if(valid(id,e)&&version===e.version){deps.error(error);poll(id,e);}return false;}
+      finally{if(valid(id,e)&&version===e.version){e.sending=false;deps.changed(id);}}
     },
     async stop(id:string){
-      const e=entry(id);if(!e||e.sending||!e.history?.activeRunIds.length)return;
+      const e=entry(id);if(!e||(!e.sending&&!e.history?.activeRunIds.length))return;
       e.sending=true;e.version++;if(e.timer)cancel(e.timer);deps.changed(id);
       try{const h=unwrap(await deps.request('cancel',{taskId:taskId(id)}));if(valid(id,e)){receive(id,e,h);if(h.activeRunIds.length)poll(id,e);}}
       catch(error){if(valid(id,e)){deps.error(error);poll(id,e);}}

@@ -117,6 +117,7 @@
       "src/main/trading-strategy-runtime/cloud-error.mjs",
       "src/main/trading-strategy-runtime/cloud-plans.mjs",
       "src/main/trading-strategy-runtime/cloud-run-journal.mjs",
+      "src/main/trading-strategy-runtime/admission-recovery.mjs",
       "src/main/trading-strategy-runtime/cloud-runtime.mjs",
       "src/main/trading-strategy-runtime/cloud-task-history.mjs",
       "src/main/trading-strategy-runtime/cloud-task-chat.mjs",

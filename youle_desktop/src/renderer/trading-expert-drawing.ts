@@ -26,6 +26,7 @@ import {
 } from "./trading-expert-order-lines.ts";
 import { buildTradingPlanPriceLines } from './trading-plan-price-lines.ts';
 import { TradingAiPlanAutoscale, tradingAiPlanFitRange } from './trading-ai-plan-autoscale.ts';
+import { tradingAnalysisPlanFocusRange, tradingAnalysisVisibleTimeRange } from './trading-analysis-viewport.mjs';
 import { normalizePlanLevel, type PlanLevel } from '../shared/execution-plan-drawings.mjs';
 import { PLAN_DRAWING_HISTORY_CHANGED, projectStoredTradingPlanDrawings } from './trading-plan-drawing-history.ts';
 import { tradingDrawingLabelObstacles } from './trading-drawing-label-obstacles.ts';
@@ -6519,10 +6520,18 @@ export class TradingDrawingController {
 
   private fitCompletedAiPlan() {
     if (this.drawingScope !== 'main') { this.redraw(); return; }
+    const chart = this.getChart();
+    const drawings = projectStoredTradingPlanDrawings(this.aiDrawings, this.storageSessionId)
+      .filter(drawing => tradingAiDrawingMatchesContext(drawing, this.getSymbol(), this.getInterval())
+        && !isHiddenOrderFlowAnnotation(drawing) && !isHiddenAiArrowDrawing(drawing)
+        && (!this.drawingVisibility.aiHidden || ['strategy-entry', 'strategy-stop', 'strategy-target'].includes(drawing.colorToken || '')));
+    const logicalRange = this.drawingVisibility.plansHidden ? null
+      : tradingAnalysisPlanFocusRange(drawings, this.getCandles(), this.plotBounds().width);
+    if (logicalRange) chart?.timeScale().setVisibleLogicalRange(logicalRange);
     this.aiPlanAutoscale ??= new TradingAiPlanAutoscale();
     this.redraw();
     if (!this.aiPlanPriceRange()) return;
-    this.getChart()?.priceScale('right', this.paneIndex).setAutoScale(true);
+    chart?.priceScale('right', this.paneIndex).setAutoScale(true);
     this.redraw();
     this.getNavigation?.()?.schedule();
   }
@@ -6837,7 +6846,8 @@ export class TradingDrawingController {
     const planPriceLines = buildTradingPlanPriceLines(aiSourceDrawings);
     this.aiPlanAutoscale?.update(candleSeries, this.aiDrawingSetPlaying || this.drawingVisibility.plansHidden ? null
       : tradingAiPlanFitRange(planPriceLines.lines.map(line => line.price),
-        this.drawingVisibility.aiHidden ? [] : aiSourceDrawings.filter(drawing => !isHiddenOrderFlowAnnotation(drawing) && !isHiddenAiArrowDrawing(drawing))));
+        this.drawingVisibility.aiHidden ? [] : aiSourceDrawings.filter(drawing => !isHiddenOrderFlowAnnotation(drawing) && !isHiddenAiArrowDrawing(drawing)),
+        tradingAnalysisVisibleTimeRange(this.getCandles(), this.getChart()?.timeScale().getVisibleLogicalRange() ?? null)));
     const displayedOrderLines = [
       ...(this.drawingVisibility.ordersHidden ? [] : this.orderLines),
       ...(this.drawingVisibility.plansHidden ? [] : planPriceLines.lines),

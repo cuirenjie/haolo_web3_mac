@@ -1,0 +1,439 @@
+/* Scoped visual refresh: market picker, sidebar utilities, and app settings.
+   Keep this after trading-watchlist.css, whose shared column grid is preserved. */
+
+/* Quiet utility strip; each entry keeps its label and existing action. */
+.conversation-list-footer {
+  gap: 2px;
+  margin: 0 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.conversation-list-footer .conversation-list-footer-button {
+  min-height: 46px;
+  gap: 5px;
+  padding: 5px 2px;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: calc(10px + var(--app-font-size-offset));
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.conversation-list-footer .conversation-list-icon {
+  width: 17px;
+  height: 17px;
+  flex-basis: 17px;
+  stroke-width: 1.65;
+}
+
+.conversation-list-footer .conversation-list-footer-button:is(:hover, :focus-visible, .active) {
+  background: var(--surface-hover-translucent);
+  color: var(--text-primary);
+}
+
+/* Compact search surface, softer tags, and shared right-aligned numeric columns. */
+.trading-market-picker[data-market-picker] {
+  width: 620px;
+  max-width: min(620px, calc(100vw - 112px));
+  max-height: min(540px, calc(100vh - 126px));
+  grid-template-columns: minmax(0, 2.3fr) minmax(46px, .6fr) minmax(84px, 1fr) minmax(76px, .8fr) minmax(36px, max-content);
+  border-color: var(--border-subtle);
+  border-radius: 14px;
+  box-shadow: 0 12px 36px rgb(15 20 25 / 12%), 0 2px 8px rgb(15 20 25 / 4%);
+}
+
+[data-market-picker] .trading-market-picker-search {
+  height: 40px;
+  flex-basis: 40px;
+  margin: 14px 16px 8px;
+  padding: 0 13px;
+  gap: 10px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--surface-field);
+}
+
+[data-market-picker] .trading-market-picker-search:hover {
+  background: var(--surface-hover);
+}
+
+[data-market-picker] .trading-market-picker-search:focus-within {
+  border-color: var(--interaction-accent);
+  background: var(--surface-primary);
+  box-shadow: none;
+}
+
+[data-market-picker] .trading-market-picker-search input {
+  font-size: calc(13px + var(--app-font-size-offset));
+  line-height: 1.5;
+}
+
+[data-market-picker] .trading-market-categories {
+  gap: 4px;
+  padding: 0 16px 8px;
+}
+
+[data-market-picker] .trading-market-categories button {
+  height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: calc(12px + var(--app-font-size-offset));
+}
+
+[data-market-picker] .trading-market-categories button:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+[data-market-picker] .trading-market-categories button.active {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+[data-market-picker] .trading-market-picker-head {
+  height: 34px;
+  margin: 0 8px;
+  padding: 0 8px;
+  border-color: var(--border-subtle);
+  color: var(--text-subtle);
+  font-size: calc(10px + var(--app-font-size-offset));
+}
+
+[data-market-picker] .trading-market-list {
+  max-height: min(318px, calc(100vh - 264px));
+  padding: 4px 8px 8px;
+}
+
+[data-market-picker] .trading-market-row {
+  min-height: 50px;
+  padding: 7px 8px;
+  border-bottom: 0;
+}
+
+[data-market-picker] .trading-market-row-select {
+  border-radius: 8px;
+}
+
+[data-market-picker] .trading-market-row:is(:hover, .selected) .trading-market-row-select {
+  background: var(--surface-hover-translucent);
+  box-shadow: none;
+}
+
+[data-market-picker] .trading-market-row-pair {
+  gap: 9px;
+}
+
+[data-market-picker] .trading-market-row-pair strong {
+  font-size: calc(13px + var(--app-font-size-offset));
+  font-weight: 600;
+}
+
+[data-market-picker] .trading-market-row-pair .trading-market-asset-logo {
+  width: 24px;
+  height: 24px;
+  flex-basis: 24px;
+}
+
+[data-market-picker] .trading-market-contract-tag,
+[data-market-picker] .trading-market-row:is(:hover, .selected) .trading-market-contract-tag {
+  border-color: transparent;
+  border-radius: 4px;
+  background: var(--surface-soft);
+  color: var(--text-subtle);
+  font-weight: 400;
+}
+
+[data-market-picker] .trading-market-picker-head > :is(:nth-child(3), :nth-child(4)),
+[data-market-picker] .trading-market-row > :is(b, em) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+[data-market-picker] .trading-market-row > :is(b, em) {
+  font-size: calc(12px + var(--app-font-size-offset));
+  font-weight: 500;
+}
+
+[data-market-picker] .trading-market-favorite {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+}
+
+/* A stable header and simple groups make the settings panel easy to scan. */
+.settings-backdrop {
+  background: rgb(15 20 25 / 36%);
+}
+
+.settings-dialog {
+  width: min(740px, calc(100vw - 40px));
+  height: min(584px, calc(100vh - 40px));
+  border: 1px solid var(--border-subtle);
+  border-radius: 18px;
+  box-shadow: 0 24px 80px rgb(15 20 25 / 18%);
+}
+
+.settings-dialog .settings-panel-form {
+  grid-template-columns: 178px minmax(0, 1fr);
+}
+
+.settings-dialog .settings-side {
+  padding: 24px 12px 14px;
+  border-color: var(--border-subtle);
+  background: var(--surface-primary);
+}
+
+.settings-dialog .settings-side h2 {
+  padding-left: 12px;
+  font-size: calc(17px + var(--app-font-size-offset));
+  line-height: 26px;
+  letter-spacing: -.3px;
+}
+
+.settings-dialog .settings-nav {
+  min-width: 0;
+  margin-top: 24px;
+  gap: 4px;
+}
+
+.settings-dialog .settings-nav-item {
+  min-width: 0;
+  height: auto;
+  min-height: 42px;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: calc(13px + var(--app-font-size-offset));
+  line-height: 1.5;
+}
+
+.settings-dialog .settings-nav-item > span {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  transform: none;
+}
+
+.settings-dialog .settings-nav-item.active {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+  font-weight: 650;
+}
+
+.settings-dialog .settings-nav-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.settings-dialog .settings-side-actions {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.settings-dialog .settings-side-actions > button {
+  min-height: 38px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: transparent;
+  font-size: calc(12px + var(--app-font-size-offset));
+  text-align: left;
+}
+
+.settings-dialog .settings-side-actions > button svg {
+  width: 17px;
+  height: 17px;
+}
+
+.settings-dialog .settings-main {
+  padding: 0 28px 24px;
+  background: var(--surface-primary);
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
+  scroll-padding-top: 76px;
+}
+
+.settings-panel-header {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  min-height: 74px;
+  align-items: center;
+  margin: 0 -28px;
+  padding: 18px 60px 18px 28px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-primary);
+}
+
+.settings-dialog .settings-panel-header h3 {
+  font-size: calc(17px + var(--app-font-size-offset));
+  line-height: 26px;
+  letter-spacing: -.3px;
+}
+
+.settings-panel-header .settings-close-button {
+  top: 21px;
+  right: 18px;
+  width: 32px;
+  height: 32px;
+}
+
+.settings-panel-header .settings-close-button img {
+  width: 18px;
+  height: 18px;
+}
+
+.settings-dialog .settings-general-list {
+  max-width: none;
+  margin-top: 4px;
+  gap: 0;
+}
+
+.settings-general-group {
+  display: grid;
+  padding: 12px 0;
+}
+
+.settings-general-group + .settings-general-group {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.settings-general-group > div {
+  min-width: 0;
+  min-height: 52px;
+  gap: 16px;
+  padding: 8px 0;
+  align-items: center;
+}
+
+.settings-dialog .settings-general-group > div > span,
+.settings-dialog .settings-user-data-copy > span,
+.settings-dialog .settings-storage-copy > span {
+  color: var(--text-primary);
+  font-size: calc(13px + var(--app-font-size-offset));
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.settings-dialog .settings-theme-options {
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
+  height: auto;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 3px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface-soft);
+}
+
+.settings-dialog .settings-theme-option {
+  min-width: 0;
+  height: auto;
+  min-height: 32px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: calc(12px + var(--app-font-size-offset));
+  line-height: 1.5;
+  white-space: normal;
+}
+
+.settings-dialog .settings-theme-option > span {
+  transform: none;
+}
+
+.settings-dialog .settings-theme-option.active {
+  border-color: var(--border-subtle);
+  background: var(--surface-primary);
+  color: var(--text-primary);
+  box-shadow: 0 1px 3px rgb(15 20 25 / 8%);
+}
+
+.settings-dialog .settings-font-size-options {
+  width: 224px;
+  max-width: 100%;
+  transform: none;
+}
+
+.settings-dialog .settings-font-size-option.active .settings-font-size-node {
+  box-shadow: 0 0 0 1px var(--border-subtle);
+}
+
+.settings-dialog .settings-general-list .settings-update-button,
+.settings-dialog .settings-data-button {
+  height: auto;
+  min-height: 32px;
+  border: 1px solid var(--border-field);
+  border-radius: 999px;
+  background: var(--surface-primary);
+  padding: 6px 14px;
+  color: var(--text-primary);
+  font-size: calc(12px + var(--app-font-size-offset));
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.settings-dialog .settings-general-list .settings-update-button:hover:not(:disabled),
+.settings-dialog .settings-data-button:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.settings-dialog .settings-storage-row strong {
+  font-size: calc(11px + var(--app-font-size-offset));
+  line-height: 1.6;
+}
+
+.settings-dialog :is(.settings-nav-item, .settings-close-button, .settings-switch):focus-visible {
+  outline: 2px solid var(--interaction-accent);
+  outline-offset: 2px;
+}
+
+html[data-theme="dark"] .settings-dialog[open] {
+  border-radius: 18px;
+  box-shadow: 0 24px 80px rgb(0 0 0 / 38%);
+}
+
+html[data-theme="dark"] .settings-dialog :is(.settings-main, .settings-panel-header) {
+  background: var(--dialog-surface);
+}
+
+html[data-theme="dark"] .settings-dialog .settings-theme-options {
+  background: var(--surface-soft);
+}
+
+html[data-theme="dark"] .settings-dialog .settings-theme-option.active {
+  border-color: var(--border-subtle);
+  background: var(--surface-primary);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
+}
+
+@media (max-width: 760px) {
+  .settings-dialog .settings-panel-form { grid-template-columns: 158px minmax(0, 1fr); }
+  .settings-dialog .settings-main { padding-inline: 20px; }
+  .settings-panel-header { margin-inline: -20px; padding-left: 20px; }
+  .settings-dialog .settings-theme-row { flex-wrap: wrap; }
+  .settings-dialog .settings-theme-options { margin-left: auto; }
+}
+
+@media (max-width: 560px) {
+  .settings-dialog { width: calc(100vw - 20px); height: calc(100vh - 20px); }
+  .settings-dialog .settings-panel-form { grid-template-columns: 130px minmax(0, 1fr); }
+  .settings-dialog .settings-side { padding-inline: 6px; }
+  .settings-dialog .settings-nav-item { padding-inline: 8px; gap: 6px; }
+  .settings-general-group > div { flex-wrap: wrap; }
+  .settings-dialog .settings-theme-options { width: 100%; }
+  .settings-dialog .settings-theme-icon { display: none; }
+  .settings-dialog .settings-font-size-options { margin-left: auto; }
+}

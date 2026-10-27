@@ -14,8 +14,11 @@ import { turnResultFoldTargets } from "./turn-result-fold";
 import { tradingAnalysisCompletionText } from "./cloud-analysis-text";
 import { marketRecoveryProgressMessage } from "../shared/market-recovery-progress.mjs";
 import { resolvePureTradingAnalysis, pureTradingAnalysisRequest } from "./pure-trading-analysis";
+import { TradingSendReceiptStore } from "./trading-send-receipt";
+import { TradingPreludePacer } from "./trading-prelude-pacing";
 import { pureAnalysisPresentationGroups, revealPureAnalysisReport, type PureAnalysisPresentationGroup } from "./pure-analysis-presentation";
-import {createCloudPlanRefresher,cloudPlanSyncMessage} from './cloud-plan-sync';
+import {createCloudPlanRefresher} from './cloud-plan-sync';
+import {onBackgroundSync} from './background-sync.ts';
 import {createExecutionPlanAutoActivator} from './execution-plan-auto-activation';
 import { accountSettingsSync, type SettingValues } from './account-settings-sync.ts';
 import type { CloudRecoveryApi } from "./cloud-task-recovery.ts";
@@ -46,6 +49,7 @@ import { renderPlanProbabilityReply } from "../main/plan-probability-view.mjs";
 import { executionPlanStickyLayout } from "./execution-plan-card-layout.ts";
 import { executionPlanCardHeading, executionPlanCardBody, executionPlanCardFooter, executionPlanCardAction } from "../main/execution-plan-card-view.mjs";
 import "./trading-watchlist.css";
+import "./workspace-ui-refinement.css";
 import { renderTradingWatchlistHost, renderTradingWatchlistToggle } from "./trading-watchlist-ui.ts";
 import { deferTradingChartShellRender } from "./trading-chart-interaction.ts";
 import { captureTradingWorkspaceDialogs, restoreTradingWorkspaceDialogs } from "./trading-workspace-dialogs.ts";
@@ -1047,6 +1051,7 @@ const BINANCE_ACCOUNT_LIVE_RETRY_MAX_INTERVAL_MS = 60_000;
 const GITHUB_AUTHORIZATION_POLL_INTERVAL_MS = 1_500;
 const MEDIA_CREATION_MODEL_CATALOG_CACHE_TTL_MS = 4 * 60 * 60_000;
 const CONTACT_REQUEST_SYNC_INTERVAL_MS = 6_000;
+const CONTACTS_ENABLED = false;
 const CONTACT_REQUEST_SYNC_BACKOFF_BASE_MS = 15_000;
 const CONTACT_REQUEST_SYNC_MAX_BACKOFF_MS = 5 * 60_000;
 const PROCESS_ITEM_TEXT_LIMIT_CHARS = 200_000;
@@ -2045,6 +2050,8 @@ type DesktopApi = {
   tradingCloudPlans?: (action:'list'|'read'|'save'|'activate'|'lifecycle'|'delete'|'source'|'history',input?:Record<string,unknown>)=>Promise<any>;
   getCloudAlertFeed?:()=>Promise<any>;
   onCloudAlertFeed?:(callback:(value:any)=>void)=>()=>void;
+  onSyncChanges?:(callback:(value:any)=>void)=>()=>void;
+  syncEventsWake?:(force?:boolean)=>Promise<void>;
   cancelTradingAnalysis?(params?: { analysisJobId?: string }): Promise<{ cancelled?: boolean }>;
   getFinnhubMarketDataStatus?(): Promise<any>;
   searchFinnhubMarkets?(params: { query: string; limit?: number }): Promise<any>;
@@ -2115,7 +2122,7 @@ type DesktopApi = {
   }): Promise<any>;
   deleteContact?(params: { contactUserId: string }): Promise<any>;
   openContactChannel?(params: { contactUserId: string }): Promise<any>;
-  listContactRequests?(params?: { box?: "inbox" | "outbox" | "all"; status?: string; page?: number; pageSize?: number; page_size?: number;
+  listContactRequests?(params?: { box?: "inbox" | "outbox" | "all"; status?: string; page?: number; pageSize?: number; page_size?: number; fresh?: boolean;
   }): Promise<any>;
   createContactRequest?(params: { recipientUserId: string; verifyMessage?: string; verify_message?: string; remark?: string;
   }): Promise<any>;
@@ -4727,6 +4734,12 @@ const tradingExpertThreadIds = new Set<string>(threadPreferences.tradingExpertTh
 const tradingExpertWorkspaceThreadReplacements = new Map<string, string>();
 const TRADING_EXPERT_WORKSPACE_SESSION_ALIASES_KEY = "haolo.trading-market.workspace-session-aliases.v1";
 const tradingExpertThinkingStateByThreadId = new Map<string, TradingExpertThinkingState>();
+const tradingSendReceipts = new TradingSendReceiptStore(() => window.localStorage, () => state.auth.profile?.id || "");
+const tradingPreludePacer = new TradingPreludePacer({
+  refresh: threadId => refreshTradingExpertConversationSurface(threadId),
+  scope: () => authenticatedWorkspaceGeneration,
+  isVisible: threadId => state.auth.authenticated && state.currentThreadId === threadId && state.activeView === "chat",
+});
 const tradingStrategyAnalysisTargetByRequest = new WeakMap<object, TradingAnalysisTaskTarget>();
 const pureTradingAnalysisThreads = new Set<string>();
 const pureAnalysisReportReveals = new Map<string, string>();
@@ -5285,6 +5298,8 @@ const CONTACT_REQUESTS: ContactRequestItem[] = [
 
 let cachedLoginIdentity = loadCachedLoginIdentity();
 
+// Temporarily close the sidebar entry; set to true when HaoBao is ready to reopen.
+const HAOBAO_ENTRY_ENABLED = false;
 const haoBaoUi = createHaoBaoUi(() => render());
 let haoBaoChartCollapsed = false;
 
@@ -6471,6 +6486,7 @@ function applyAuthSession(session: any, fallbackBaseUrl = "") {
     state.auth.profile?.email,
   );
   activateAccountSettingsSync();
+  void api.syncEventsWake?.().catch(()=>{});
   if (!state.auth.authenticated || accountIdentity !== previousAccountIdentity || state.auth.baseUrl !== previousBaseUrl) {
     refreshCloudExecutionPlans.reset();
     resetConsumptionData();
@@ -6498,7 +6514,8 @@ function applyAuthSession(session: any, fallbackBaseUrl = "") {
   if (state.auth.authenticated && state.auth.profile) {
     persistLastLoginIdentity(state.auth.profile);
     syncExecutionPlansForCurrentAccount();
-    void refreshCloudExecutionPlans();
+    if(accountIdentity!==previousAccountIdentity||state.auth.baseUrl!==previousBaseUrl)
+      void refreshCloudExecutionPlans();
   }
   state.auth.modelProviders = Array.isArray(session?.modelProviders)
     ? Array.from(new Set<string>(
@@ -7251,7 +7268,7 @@ function wireDesktopEvents() {
           ? `${translateAppText("正在整理结果", language)}.`
           : `${translateAppText("分析阶段已完成", language)}; ${translateAppText("正在整理结果", language)}.`);
     const phase = ["market_waiting", "market_quota_wait", "market_connection_wait"].includes(stage || "")
-      ? "market-waiting" : stage === "market_resuming" || stage === "market_ready" ? "preparing" : "analyzing";
+      ? "market-waiting" : ["market_resuming", "market_ready", "service_waiting", "service_ready"].includes(stage || "") ? "preparing" : "analyzing";
     updateTradingExpertThinkingState(threadId, phase, message);
     // Timing notifications are transient. Only the runner owns transcript
     // progress; otherwise unmatched local stages move behind restored results.
@@ -7266,7 +7283,18 @@ function wireDesktopEvents() {
   api.onTradingAlertTriggered?.((payload) => {
     void handleTradingAlertTriggered(payload);
   });
-  api.onCloudAlertFeed?.(()=>{if(state.activeView==='plans')void refreshCloudExecutionPlans();});
+  let syncScope='', syncTopics:Record<string,string>={};
+  api.onSyncChanges?.(value=>{
+    if(!state.auth.authenticated||value?.accountId!==state.auth.profile?.id||value?.baseUrl!==state.auth.baseUrl)return;
+    const scope=`${value.baseUrl}:${value.accountId}`;
+    if(syncScope!==scope){syncScope=scope;syncTopics={};}
+    const topics=['settings','drawings','plans','alerts'].filter(key=>value.topics?.[key]!==syncTopics[key]);
+    syncTopics={...value.topics};
+    if(topics.length)window.dispatchEvent(new CustomEvent('haolo:sync-changed',{detail:{topics}}));
+  });
+  onBackgroundSync('plans',()=>{void refreshCloudExecutionPlans();});
+  onBackgroundSync('alerts',()=>{if(state.activeView==='alerts')void refreshTradingAlerts({silent:true});});
+  window.addEventListener('online',()=>{void api.syncEventsWake?.(true).catch(()=>{});});
   api.onTradingAlertOpen?.((payload) => {
     void openTradingAlertSourceConversation(payload?.alertId || null, payload?.evidenceId || null);
   });
@@ -13317,6 +13345,7 @@ function stopDesktopAgentCatchup() {
 }
 
 function startContactRequestSync() {
+  if (!CONTACTS_ENABLED) { stopContactRequestSync(); return; }
   if (contactRequestSyncTimer !== null || !api.listContactRequests) return;
   contactRequestSyncSignature = contactRequestsSignature(state.contactRequestsState.items);
   resetContactRequestSyncBackoff();
@@ -24040,6 +24069,7 @@ function removeMatchingLocalUserItem(threadId: string, item: CodexItem) {
     return isMatchingUserMessage(existing, item);
   });
   if (!localIds.length) return;
+  tradingSendReceipts.confirmUser(threadId, localIds, String(item.id));
   state.itemOrder[threadId] = state.itemOrder[threadId].filter((id) => !localIds.includes(id));
   for (const localId of localIds) {
     delete state.items[threadId][localId];
@@ -25521,6 +25551,8 @@ function setPendingComposerSendStatus(
 
 function movePendingComposerSend(previousThreadId: string, nextThreadId: string, itemId: string) {
   if (previousThreadId === nextThreadId) return pendingComposerSendForThread(nextThreadId, itemId);
+  tradingSendReceipts.moveThread(previousThreadId, nextThreadId);
+  tradingPreludePacer.moveThread(previousThreadId, nextThreadId);
   const pending = pendingComposerSendForThread(previousThreadId, itemId);
   if (!pending) return null;
   delete state.pendingComposerSends[previousThreadId];
@@ -27295,9 +27327,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
   if (threadId === state.currentThreadId && isTradingExpertSurfaceThreadId(threadId)) {
     collapseTradingExpertWatchlist();
   }
-  if (!state.serverReady && isBlankNewThread(threadId) && !isLocalBlankThreadId(threadId)) {
-    if (!(await ensureServerReadyForComposerSend())) return;
-  }
+  const needsComposerRuntime = !state.serverReady && isBlankNewThread(threadId) && !isLocalBlankThreadId(threadId);
   const tradingAnalysisTargetAtSend = captureTradingExpertAnalysisTarget();
   const pureAnalysis = resolvePureTradingAnalysis({
     text, catalog: [...tradingStrategyCatalog(), ...tradingIndicatorCatalog()], target: tradingAnalysisTargetAtSend,
@@ -27350,6 +27380,14 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       if (revealThreadGroupForComposerSend(threadId)) saveThreadPreferences();
       state.error = null;
       render();
+    }
+    // Paint the local send receipt before runtime reconnect / thread creation.
+    if (needsComposerRuntime) {
+      if (!(await ensureServerReadyForComposerSend())) {
+        if (pendingSend) failPendingComposerSend(threadId, pendingSend.itemId, state.error || "发送前准备未通过");
+        render();
+        return;
+      }
     }
     const initialAgentText = workflowContractAtSend
       ? workflowInvocationExecutionPrompt(text)
@@ -29506,6 +29544,8 @@ function tradingExpertWorkspaceSessionMigrationSource(targetSessionId: string) {
 function adoptReplacementCodexThread(previousThreadId: string, replacementThread: any, sendSequence: number) {
   const nextThreadId = firstString(replacementThread?.id);
   if (!nextThreadId || nextThreadId === previousThreadId) return previousThreadId;
+  tradingSendReceipts.moveThread(previousThreadId, nextThreadId);
+  tradingPreludePacer.moveThread(previousThreadId, nextThreadId);
 
   tradingExpertAnalysisThreadAliases.set(previousThreadId, nextThreadId);
   if (state.executionPlans.some(plan => plan.sourceThreadId === previousThreadId || plan.cloudReport?.origin?.sourceThreadId === previousThreadId)) {
@@ -29999,6 +30039,7 @@ function settleInterruptedVideoGeneration(
 
 async function interruptCurrentTurn(threadIdOverride?: string | null, source: InterruptTurnSource = "unknown") {
   const threadId = firstString(threadIdOverride, currentComposerThreadId(), state.currentThreadId);
+  if (threadId) tradingPreludePacer.cancelThread(threadId);
   if (threadId && isCloudTaskThread(threadId)) { await getCloudTaskChat().stop(threadId); return; }
   const channelInteraction = threadId ? activeChannelCodexInteractions.get(threadId) : null;
   if (threadId && channelInteraction) {
@@ -30454,6 +30495,7 @@ function appendTradingExpertProgress(
     phase: phase === "error" ? "final_answer" : "commentary",
     text: visibleText,
     createdAt: new Date().toISOString(),
+    __youleTradingProgressPhase: phase,
     __youleExecutionPlanPresentation: "plain",
   };
   upsertItem(threadId, item);
@@ -31880,6 +31922,7 @@ async function runTradingGeneralChartRequest(
     if (codexTradingTools.isToolTurn(threadId)) throw error;
     recordTradingRendererFailure(error, { analysisJobId: analysisId, strategyId: "general", stage: "analysis" });
     if (isTradingAnalysisCancellation(error)) {
+      tradingPreludePacer.cancelThread(targetThreadId());
       updateProgress("complete", "已按你的要求停止本次盘面分析。");
       await persistCompletedTradingExpertTranscript(targetThreadId(), transcriptItems);
     } else if (isTradingAnalysisQuotaFailure(error)) {
@@ -32020,6 +32063,7 @@ async function runTradingStrategyChartRequest(
     if (codexTradingTools.isToolTurn(threadId)) throw error;
     recordTradingRendererFailure(error, { analysisJobId: analysisId, strategyId: strategy.id, stage: earlyReportItem ? "drawing" : "analysis" });
     if (isTradingAnalysisCancellation(error)) {
+      tradingPreludePacer.cancelThread(targetThreadId());
       updateProgress(earlyReportItem ? "error" : "complete", "已按你的要求停止本次盘面分析。");
       const persisted = await persistCompletedTradingExpertTranscript(targetThreadId(), transcriptItems);
       if (earlyReportItem && persisted && isCurrentRequest()) await api.tradingCloudRecovery?.("acknowledgeGroup",analysisId).catch(()=>{});
@@ -35906,6 +35950,8 @@ function render() {
     );
   }
   const restoreTradingPreferenceSettingsView = tradingPreferenceSettings.captureView(root);
+  const previousSettingsTab = root.querySelector<HTMLElement>(".settings-nav-item.active")?.dataset.settingsTab;
+  const previousSettingsScrollTop = root.querySelector<HTMLElement>(".settings-main")?.scrollTop ?? 0;
   root.innerHTML = `
     <div class="${shellClasses}">
       ${renderWindowControls()}
@@ -35959,6 +36005,12 @@ function render() {
   `;
   localizeAppTree(root, state.settings.language);
   restoreTradingPreferenceSettingsView(root);
+  // Background refreshes must not move a reader away from lower settings rows.
+  // A deliberate tab change still starts at the top; trading keeps its own focus restoration.
+  if (state.settingsOpen && previousSettingsTab === state.settings.tab && state.settings.tab !== "trading") {
+    const settingsScroller = root.querySelector<HTMLElement>(".settings-main");
+    if (settingsScroller) settingsScroller.scrollTop = previousSettingsScrollTop;
+  }
   bindTradingExpertPanelResize(root);
   restorePreservedTradingExpertMarketWorkspace(
     preservedTradingExpertMarketWorkspace,
@@ -36542,8 +36594,6 @@ function activateAccountSettingsSync() {
       defaults: () => ({ 'app.theme': 'light', 'app.language': 'zh-CN', 'app.fontScale': 1, 'app.completionNotices': true }),
       apply: applySharedAppSettings,
     });
-    window.addEventListener('online', () => { void sync.sync(true); });
-    window.addEventListener('focus', () => { void sync.sync(true); });
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
       if (sharedThemePreference === 'system') {
         applySharedAppSettings(sharedAppSettings()); render();
@@ -61058,7 +61108,7 @@ function renderSettingsDialog() {
   const installPath = state.settings.installDir || state.settings.cwd || "-";
   return `
     <div class="modal-backdrop settings-backdrop" data-action="close-settings"></div>
-    <dialog class="settings-dialog" open>
+    <dialog class="settings-dialog" aria-labelledby="settings-dialog-title" open>
       <form id="settingsForm" class="settings-panel-form">
         <input type="hidden" id="cwdInput" value="${escapeAttr(state.settings.cwd)}" />
         <input type="hidden" id="modelInput" value="${escapeAttr(selectedChatModelValue())}" />
@@ -61075,21 +61125,21 @@ function renderSettingsDialog() {
         <aside class="settings-side">
           <h2>设置</h2>
           <nav class="settings-nav" aria-label="设置分类">
-            <button type="button" class="settings-nav-item ${activeTab === "profile" ? "active" : ""}" data-settings-tab="profile">
+            <button type="button" class="settings-nav-item ${activeTab === "profile" ? "active" : ""}" data-settings-tab="profile" data-i18n-wrap>
               <img class="settings-nav-icon" src="${escapeAttr(SETTINGS_PROFILE_ICON_URL)}" alt="" />
               <span>个人资料</span>
             </button>
-            <button type="button" class="settings-nav-item ${activeTab === "trading" ? "active" : ""}" data-settings-tab="trading">
+            <button type="button" class="settings-nav-item ${activeTab === "trading" ? "active" : ""}" data-settings-tab="trading" data-i18n-wrap>
               <svg class="settings-nav-icon settings-trading-nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z" /></svg>
               <span>交易偏好</span>
             </button>
-            <button type="button" class="settings-nav-item" data-action="open-consumption">
+            <button type="button" class="settings-nav-item" data-action="open-consumption" data-i18n-wrap>
               <img class="settings-nav-icon" src="${escapeAttr(SETTINGS_CONSUMPTION_ICON_URL)}" alt="" />
               <span>消耗明细</span>
             </button>
             ${
               ENABLE_GITHUB_SETTINGS_UI
-                ? `<button type="button" class="settings-nav-item ${activeTab === "github" ? "active" : ""}" data-settings-tab="github">
+                ? `<button type="button" class="settings-nav-item ${activeTab === "github" ? "active" : ""}" data-settings-tab="github" data-i18n-wrap>
                     <svg class="settings-nav-icon settings-github-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
                       <path d="M12 2.5a9.7 9.7 0 0 0-3.07 18.9c.49.09.67-.21.67-.47v-1.86c-2.73.59-3.3-1.16-3.3-1.16-.45-1.14-1.09-1.44-1.09-1.44-.89-.61.07-.6.07-.6.98.07 1.5 1.01 1.5 1.01.88 1.5 2.3 1.07 2.86.82.09-.63.34-1.07.62-1.32-2.18-.25-4.47-1.09-4.47-4.85 0-1.07.38-1.95 1.01-2.64-.1-.25-.44-1.25.1-2.6 0 0 .83-.27 2.68 1.01A9.3 9.3 0 0 1 12 6.97a9.3 9.3 0 0 1 2.44.33c1.86-1.28 2.68-1.01 2.68-1.01.54 1.35.2 2.35.1 2.6.63.69 1.01 1.57 1.01 2.64 0 3.77-2.3 4.6-4.48 4.85.35.3.66.9.66 1.82v2.73c0 .26.18.57.67.47A9.7 9.7 0 0 0 12 2.5Z" />
                     </svg>
@@ -61099,17 +61149,17 @@ function renderSettingsDialog() {
             }
             ${
               ENABLE_LOCAL_EXTERNAL_MODEL_SETTINGS
-                ? `<button type="button" class="settings-nav-item ${activeTab === "models" ? "active" : ""}" data-settings-tab="models">
+                ? `<button type="button" class="settings-nav-item ${activeTab === "models" ? "active" : ""}" data-settings-tab="models" data-i18n-wrap>
                     <img class="settings-nav-icon" src="${escapeAttr(SETTINGS_GENERAL_ICON_URL)}" alt="" />
                     <span>模型服务</span>
                   </button>`
                 : ""
             }
-            <button type="button" class="settings-nav-item ${activeTab === "general" ? "active" : ""}" data-settings-tab="general">
+            <button type="button" class="settings-nav-item ${activeTab === "general" ? "active" : ""}" data-settings-tab="general" data-i18n-wrap>
               <img class="settings-nav-icon" src="${escapeAttr(SETTINGS_GENERAL_ICON_URL)}" alt="" />
               <span>通用设置</span>
             </button>
-            <button type="button" class="settings-nav-item ${activeTab === "about" ? "active" : ""}" data-settings-tab="about">
+            <button type="button" class="settings-nav-item ${activeTab === "about" ? "active" : ""}" data-settings-tab="about" data-i18n-wrap>
               <img class="settings-nav-icon" src="${escapeAttr(SETTINGS_ABOUT_ICON_URL)}" alt="" />
               <span>关于&反馈</span>
             </button>
@@ -61129,10 +61179,12 @@ function renderSettingsDialog() {
           </div>
         </aside>
         <section class="settings-main">
+          <header class="settings-panel-header">
           <button type="button" class="settings-close-button" data-action="close-settings" aria-label="关闭">
             <img src="${escapeAttr(SETTINGS_CLOSE_ICON_URL)}" alt="" />
           </button>
-          <h3>${activeTab === "profile" ? "个人资料" : activeTab === "models" ? "模型服务" : activeTab === "github" && ENABLE_GITHUB_SETTINGS_UI ? "GitHub" : activeTab === "about" ? "关于&反馈" : activeTab === "trading" ? "交易偏好" : "通用设置"}</h3>
+          <h3 id="settings-dialog-title">${activeTab === "profile" ? "个人资料" : activeTab === "models" ? "模型服务" : activeTab === "github" && ENABLE_GITHUB_SETTINGS_UI ? "GitHub" : activeTab === "about" ? "关于&反馈" : activeTab === "trading" ? "交易偏好" : "通用设置"}</h3>
+          </header>
           ${
             activeTab === "profile"
               ? renderSettingsProfilePanel()
@@ -61146,14 +61198,19 @@ function renderSettingsDialog() {
               ? tradingPreferenceSettings.render()
               : `
                 <div class="settings-general-list">
+                  <div class="settings-general-group">
                   ${renderSettingsLanguageRow()}
+                  ${renderSettingsThemeRow()}
+                  ${renderSettingsFontSizeRow()}
+                  </div>
+                  <div class="settings-general-group">
                   ${renderSettingsDesktopShortcutRow()}
                   ${renderSettingsSwitchRow("固定在桌面任务栏", "taskbar")}
                   ${renderSettingsSwitchRow("固定在开始菜单", "startMenu")}
                   ${renderSettingsSwitchRow("开机启动", "startup")}
+                  </div>
+                  <div class="settings-general-group">
                    ${renderSettingsTaskCompletionPopupRow()}
-                   ${renderSettingsThemeRow()}
-                   ${renderSettingsFontSizeRow()}
                    ${renderSettingsUserDataRow()}
                    <div class="settings-storage-row">
                      <div class="settings-storage-copy">
@@ -61164,6 +61221,7 @@ function renderSettingsDialog() {
                      ${renderSettingsDiagnosticsButton()}
                      <!-- HAOLO-TURN-DIAGNOSTICS-END: removable settings action mount -->
                    </div>
+                  </div>
                 </div>
               `
           }
@@ -62448,6 +62506,10 @@ function handleRightPanelToggle(event: MouseEvent) {
 function bindEvents() {
   haoBaoUi.bind(root);
   root.querySelector<HTMLButtonElement>('[data-conversation-static-action="haobao"]')?.addEventListener("click", () => {
+    if (!HAOBAO_ENTRY_ENABLED) {
+      showToast("即将上线，敬请期待");
+      return;
+    }
     if (state.activeView === "chat") rememberCurrentChatThreadSelection();
     haoBaoChartCollapsed = false;
     collapseTradingExpertWatchlist(tradingExpertFavoriteStorageAccountIdentity());
@@ -69022,6 +69084,7 @@ async function addSelectedUsersToChannel(selectedIds: string[]) {
 }
 
 async function loadContacts(options: { force?: boolean; renderAfter?: boolean } = {}) {
+  if (!CONTACTS_ENABLED) return;
   if (!api.listContacts) return;
   if (state.contactsState.loading || (!options.force && state.contactsState.loaded)) return;
   state.contactsState = { ...state.contactsState, loading: true, error: null };
@@ -69093,13 +69156,14 @@ async function deleteContact(contactId: string) {
 }
 
 async function loadContactRequests(options: { force?: boolean; renderAfter?: boolean } = {}) {
+  if (!CONTACTS_ENABLED) return false;
   if (!api.listContactRequests) return false;
   if (state.contactRequestsState.loading) return false;
   if (!options.force && state.contactRequestsState.loaded) return true;
   state.contactRequestsState = { ...state.contactRequestsState, loading: true, error: null };
   if (options.renderAfter !== false) render();
   try {
-    const result = await api.listContactRequests({ box: "all", page: 1, pageSize: 50 });
+    const result = await api.listContactRequests({ box: "all", page: 1, pageSize: 50, fresh: options.renderAfter !== false });
     const items = arrayFromResponse<ContactRequestApiItem>(result)
       .map(contactRequestFromApi)
       .filter((item): item is ContactRequestItem => Boolean(item));
@@ -69128,6 +69192,7 @@ async function loadContactRequests(options: { force?: boolean; renderAfter?: boo
 }
 
 async function syncContactRequestsAndContacts(options: { renderAfter?: boolean; refreshContacts?: boolean | "acceptedChanged" } = {}) {
+  if (!CONTACTS_ENABLED) return;
   if (!api.listContactRequests || state.contactRequestsState.loading) return;
   const previous = contactRequestSyncSignature || contactRequestsSignature(state.contactRequestsState.items);
   const loaded = await loadContactRequests({ force: true, renderAfter: false }).catch(() => false);
@@ -73053,11 +73118,12 @@ const executionPlanAutoActivation=createExecutionPlanAutoActivator({
 });
 
 const refreshCloudExecutionPlans=createCloudPlanRefresher({
+  eventDriven:true,
   scope:()=>api.tradingCloudPlans&&state.auth.authenticated?currentExecutionPlanStorageScope():null,
   load:()=>api.tradingCloudPlans!('list'),read:()=>state.executionPlans,apply:plans=>{state.executionPlans=plans;executionPlanCloudLoadedScope=state.executionPlansScope;},save:saveExecutionPlans,
   changed:()=>{if(state.activeView==='plans')render();void reconcileMissingExecutionPlanAlerts(state.executionPlansScope||'');},
-  cacheFailure:()=>showToast(cloudPlanSyncMessage('cache',state.settings.language),5000),
-  failure:error=>showToast(cloudPlanSyncMessage('failed',state.settings.language,errorMessage(error)),5000),
+  cacheFailure:()=>{void api.debugLog?.({event:'cloud-plan-sync.cache-failed'}).catch(()=>{});},
+  failure:()=>{},
   diagnostic:payload=>{void api.debugLog?.({event:'cloud-plan-sync.client-failed',payload}).catch(()=>{});},
 });
 
@@ -73961,14 +74027,21 @@ async function removeBinanceAccountBinding() {
   }
 }
 
-async function refreshTradingAlerts() {
+async function refreshTradingAlerts({silent=false}: {silent?:boolean} = {}) {
   if (!api.tradingAlertsSnapshot) return;
-  state.tradingAlerts.loading = true;
-  state.tradingAlerts.error = null;
-  if (state.activeView === "alerts") render();
+  if (silent && (!state.auth.authenticated || state.tradingAlerts.loading)) return;
+  const scope = `${state.auth.baseUrl}:${state.auth.profile?.id}`;
+  if (!silent) {
+    state.tradingAlerts.loading = true;
+    state.tradingAlerts.error = null;
+    if (state.activeView === "alerts") render();
+  }
   try {
-    applyTradingAlertsSnapshot(state.tradingAlerts, await api.tradingAlertsSnapshot());
+    const snapshot = await api.tradingAlertsSnapshot();
+    if (silent && (!state.auth.authenticated || scope !== `${state.auth.baseUrl}:${state.auth.profile?.id}` || snapshot?.ok === false)) return;
+    applyTradingAlertsSnapshot(state.tradingAlerts, snapshot);
   } catch (error) {
+    if (silent) return;
     state.tradingAlerts.loading = false;
     state.tradingAlerts.error = errorMessage(error);
   }
@@ -75268,7 +75341,7 @@ async function flushThreadPinPreferenceSync(threadId: string) {
     }
   } catch (error) {
     if (isConversationNotFoundSyncError(error)) return;
-    showToast(`会话置顶已在本地生效，云端同步失败：${errorMessage(error)}`, 4000);
+    console.debug('[sync] conversation preference remains saved locally');
   } finally {
     activeThreadPinPreferenceSyncs.delete(threadId);
     if (pendingThreadPinPreferenceSyncs.has(threadId)) void flushThreadPinPreferenceSync(threadId);
@@ -75515,11 +75588,21 @@ function messagesForThread(threadId: string) {
     .filter(hasRenderableMessageContent);
   const visibleMessages = withPendingChannelAgentReply(threadId, dedupeRenderedOptimisticUserMessages(dedupeExternalChannelInternalPromptEchoes(threadId, messages)));
   const orderedMessages = preserveLiveConversationSupplementMessageOrder(threadId, visibleMessages);
-  const messagesWithWorkflowRelay = withWorkflowRelayMessages(threadId, orderedMessages);
+  const messagesWithWorkflowRelay = withPacedTradingPrelude(threadId, withWorkflowRelayMessages(threadId, orderedMessages));
   const collapsedMessages = localGroupChatRecord(threadId)
     ? messagesWithWorkflowRelay
     : withCollapsedTurnResults(threadId, messagesWithWorkflowRelay);
   return withThinkingMessage(threadId, collapsedMessages);
+}
+
+function withPacedTradingPrelude(threadId: string, messages: Message[]) {
+  if (!state.auth.authenticated || !isTradingExpertSurfaceThreadId(threadId)
+    || channelIdFromThreadId(threadId) || localGroupChatRecord(threadId)) return messages;
+  const pending = pendingComposerSendForThread(threadId);
+  const withReceipts = tradingSendReceipts.project(threadId, messages, pending, state.settings.language);
+  return tradingPreludePacer.project(threadId, withReceipts, pending?.itemId,
+    id => state.items[threadId]?.[id]?.__youleTradingProgressPhase)
+    .filter(message => !message.id.startsWith("trading-send-receipt-"));
 }
 
 function isFinalAgentTurnResultMessage(threadId: string, message: Message, messages: Message[]) {
@@ -75672,6 +75755,7 @@ function turnResultProcessIndexes(messages: Message[], finalIndex: number) {
 }
 
 function isTurnResultGroupComplete(threadId: string, turnKey: string, isLatestGroup: boolean) {
+  if (isLatestGroup && tradingPreludePacer.isWaiting(threadId)) return false;
   if (isLatestGroup && tradingExpertThinkingStateByThreadId.has(threadId)) return false;
   const turnId = turnIdFromResultKey(turnKey);
   if (completedTradingAnalysisForTurn(threadId, turnId)) return true;
@@ -76274,8 +76358,13 @@ function withWorkflowRelayMessages(threadId: string, messages: Message[]) {
 }
 
 function withThinkingMessage(threadId: string, messages: Message[]) {
-  const visible = messages.filter((message) => !isThinkingNoiseMessage(message));
+  const filtered = messages.filter((message) => !isThinkingNoiseMessage(message));
+  const visible = state.auth.authenticated && isTradingExpertSurfaceThreadId(threadId)
+    && !channelIdFromThreadId(threadId) && !localGroupChatRecord(threadId)
+    ? tradingSendReceipts.project(threadId, filtered, pendingComposerSendForThread(threadId), state.settings.language)
+    : filtered;
   if (state.currentThreadId !== threadId) return visible;
+  if (tradingPreludePacer.isWaiting(threadId)) return visible;
   if (localGroupChatRecord(threadId)) {
     return withLocalGroupChatThinkingMessages(threadId, visible);
   }
@@ -76306,6 +76395,7 @@ function withThinkingMessage(threadId: string, messages: Message[]) {
       } as MessageUiMeta,
     ];
   }
+  if (visible.at(-1)?.id.startsWith("trading-send-receipt-") && pendingComposerSendForThread(threadId)) return visible;
   const busy = isThreadBusy(threadId);
   if (!busy) return visible;
   if (hasActiveContextCompaction(threadId)) return visible;

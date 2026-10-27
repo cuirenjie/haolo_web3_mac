@@ -1,3 +1,4 @@
+import {onBackgroundSync} from './background-sync.ts';
 export type SettingValue = string | number | boolean | null;
 export type SettingValues = Record<string, SettingValue>;
 type Edit = { key: string; value: SettingValue; changeId: string; changedAt: number };
@@ -120,7 +121,9 @@ export class DesktopSettingsSync {
   private replica = new SettingsReplica();
   private surfaces = new Map<string, Surface>();
   private busy: Promise<void> | null = null;
-  private timer: ReturnType<typeof setInterval> | null = null;
+  private rerun = false;
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private unsubscribe: () => void;
   private retryAt = 0;
   private failures = 0;
   private applying = false;
@@ -133,7 +136,10 @@ export class DesktopSettingsSync {
   }
   private storage: Pick<Storage, 'getItem' | 'setItem'>;
   private request: Request;
-  constructor(storage: Pick<Storage, 'getItem' | 'setItem'>, request: Request) { this.storage = storage; this.request = request; }
+  constructor(storage: Pick<Storage, 'getItem' | 'setItem'>, request: Request) {
+    this.storage = storage; this.request = request;
+    this.unsubscribe = onBackgroundSync('settings', () => { void this.sync(true); });
+  }
   private persist() { if (this.key) this.storage.setItem(this.key, this.replica.serialize()); }
   private publish() {
     this.applying = true;
@@ -171,10 +177,11 @@ export class DesktopSettingsSync {
     const hadOwner = !!this.owner;
     this.epoch++;
     this.busy = null;
-    if (this.timer) clearInterval(this.timer);
+    if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     // Drop the previous owner's outbox before reading fallible local storage.
     this.replica = new SettingsReplica();
+    this.rerun = false;
     this.owner = owner;
     this.baseUrl = baseUrl;
     this.key = owner ? `haolo.settings-sync.v1:${encodeURIComponent(baseUrl)}:${encodeURIComponent(owner)}` : '';
@@ -190,7 +197,6 @@ export class DesktopSettingsSync {
       try { this.publish(); } catch {}
       this.status = 'error'; return;
     }
-    this.timer = owner ? setInterval(() => { if (typeof document === 'undefined' || !document.hidden) void this.sync(); }, 5000) : null;
     void this.sync(true);
   }
   edit(before: SettingValues, after: SettingValues) {
@@ -198,14 +204,16 @@ export class DesktopSettingsSync {
     this.replica.edit(before, after);
     this.status = 'pending';
     try { this.persist(); } catch { this.status = 'error'; return; }
-    void this.sync(true);
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = setTimeout(() => { this.timer = null; void this.sync(true); }, 1500);
   }
   sync(force = false): Promise<void> {
+    if (this.busy && force) this.rerun = true;
     if (!this.owner || this.busy || (!force && Date.now() < this.retryAt)) return this.busy ?? Promise.resolve();
     const epoch = this.epoch, replica = this.replica, owner = this.owner, baseUrl = this.baseUrl;
     const current = () => epoch === this.epoch;
-    const read = async () => {
-      const started = Date.now(), receipt = await this.request({ action: 'read', owner, baseUrl });
+    const read = async (fresh = force || replica.dirty) => {
+      const started = Date.now(), receipt = await this.request({ action: 'read', owner, baseUrl, fresh });
       if (!current()) throw new Error('SETTINGS_ACCOUNT_CHANGED');
       replica.merge(receipt, started); this.persist(); this.publish();
     };
@@ -223,7 +231,7 @@ export class DesktopSettingsSync {
             continue;
           }
           replica.acknowledge(); this.persist();
-          await read();
+          await read(true);
         }
         this.failures = 0; this.retryAt = 0;
         this.status = replica.dirty ? 'pending' : 'synced';
@@ -235,10 +243,19 @@ export class DesktopSettingsSync {
       }
     })();
     this.busy = operation;
-    void operation.finally(() => { if (current() && this.busy === operation) this.busy = null; });
+    void operation.finally(() => {
+      if (current() && this.busy === operation) {
+        this.busy = null;
+        if (this.rerun) {
+          this.rerun = false;
+          if (this.timer) clearTimeout(this.timer);
+          this.timer = setTimeout(() => { this.timer=null; void this.sync(true); }, 1500);
+        }
+      }
+    });
     return operation;
   }
-  dispose() { this.epoch++; if (this.timer) clearInterval(this.timer); this.timer = null; }
+  dispose() { this.epoch++; this.unsubscribe(); if (this.timer) clearTimeout(this.timer); this.timer = null; }
 }
 
 let singleton: DesktopSettingsSync | undefined;
