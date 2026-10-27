@@ -25,7 +25,7 @@
 > 最近更新：2026-10-27
 > 当前里程碑：M2 统一 Data Hub 与增量特征层
 > 总体状态：M2 进行中（M2-013 生产基础设施验收受阻）
-> 当前工作焦点：M6-MAC-20261027 已完成本地融合、自测、深度复审及 Universal Mac 测试包交付；未生产发布
+> 当前工作焦点：M6-MAC-RELEASE-20261027 进行中；用户明确要求沿用此前方式，制作无 Developer ID、未公证的 Universal 0.1.180 发布用包；保留本地 ad-hoc 签名，不改正式信任门禁
 > 适用仓库：`D:\youle_desktop\youle_desktop`（桌面端）、`D:\youle_agent_ms`（业务后端）、`D:\zhongzhuan`（统一模型中转）
 
 ## 1. 文档用途与持续更新规则
@@ -5972,3 +5972,8 @@ S4 passed: 41 targeted tests, 5 Python support checks, 40 five-language probabil
 ### M6-MAC-20261027 / S6 完成
 
 本地 Universal 0.1.180 测试包交付：构建源码 0d440b69dfbe8012ba92d4593ba9d962907acc8a，冻结上游 70789e91ff75870c35270b9507a6da4f393b1079。桌面包 SHA-256 2e9e02891180b5bab99567934abf9c58bd083924d3dcd88b37ff1922b4513f74。2731 输入、479 应用文件、278 资源、2036 包内文件隔离审计通过；双架构 Codex 0.163.0 和应用实际启动通过，DMG 校验／挂载身份及签名通过。11 个原有文件差异和旧包保留。签名为 ad-hoc、未公证；无生产上传、部署、真实账号或实盘验收。包路径、已知非阻塞日志与验收边界见 docs/mac-test-package-0.1.180-20261027.zh-CN.md。
+
+
+### M6-MAC-RELEASE-20261027
+
+In progress: the user explicitly selected the same non-Developer-ID, unnotarized package flow as before. Keep Universal 0.1.180 and local ad-hoc signatures. App code is unchanged from the verified M6-MAC-20261027 build; preserve prior regression evidence and validate the new artifact. Existing release files are archived; installed app and user data stay intact. Details: docs/mac-release-0.1.180-20261027.zh-CN.md.
