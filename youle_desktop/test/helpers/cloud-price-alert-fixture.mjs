@@ -2,12 +2,13 @@ import {randomUUID, createHash} from 'node:crypto';
 import {isDeepStrictEqual} from 'node:util';
 export function cloudPriceAlertFixture() {
   const items = [], receipts = new Map(), calls = [];
-  let hideList = false, available = true;
-  return {items,calls, set hideList(v) {hideList=v;}, set available(v) {available=v;},
+  let hideList = false, available = true, singleReadback = false;
+  return {items,calls, set hideList(v) {hideList=v;}, set available(v) {available=v;}, set singleReadback(v) {singleReadback=v;},
     async tradingCloudRequest(operation, body={}, options={}) {
       calls.push({operation,body:structuredClone(body),options});
-      if (operation === 'capabilities') return {priceAlerts:available?'inclusive-intrabar-v1':null};
+      if (operation === 'capabilities') return {priceAlerts:available?'inclusive-intrabar-v1':null, priceAlertReadback:singleReadback?'single-v1':null};
       if (operation === 'priceAlerts') return {items:structuredClone(hideList?[]:items.filter(a=>a.state!=='deleted'))};
+      if (operation === 'priceAlert') return structuredClone(items.find(a=>a.id===body.alertId && a.state!=='deleted'));
       const key=options.idempotencyKey;
       if (receipts.has(key)) {
         const old=receipts.get(key);

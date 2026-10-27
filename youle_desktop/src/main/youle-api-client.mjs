@@ -3416,6 +3416,12 @@ export class YouleApiClient {
       routes[operation] = ['POST', operation === 'confirmPriceAlert' ? `/alert-drafts/${alertId}/confirm` : `/alerts/${alertId}/${action}`];
       payload = body;
     }
+    if (operation === 'priceAlert') {
+      const {alertId} = payload;
+      if (typeof alertId !== 'string' || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(alertId)) throw new TypeError('Invalid cloud alert id');
+      routes.priceAlert = ['GET', `/alerts/${alertId}`];
+      payload = {};
+    }
     if (["plan", "savePlan", "activatePlan", "planLifecycle", "deletePlan"].includes(operation)) {
       const {planId, ...body} = payload;
       if (typeof planId !== 'string' || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(planId)) throw new TypeError('Invalid cloud plan id');

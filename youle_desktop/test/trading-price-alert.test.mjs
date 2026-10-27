@@ -9,6 +9,13 @@ import {chartPriceAlerts} from '../src/renderer/trading-price-alert-store.ts';
 const owner = {ownerId:'host::user',accountId:'user',email:'fixture@example.invalid',baseUrl:'host'};
 const input = (patch={}) => ({requestId:'price-alert-00000001',confirmed:true,marketId:'BINANCE:FUTURES:BTCUSDT',interval:'1h',price:120,referencePrice:100,...patch});
 const setup = () => {const api=cloudPriceAlertFixture(); const create=()=>createCloudPriceAlerts({owner:async()=>owner,api:()=>api});return {api,create,service:create()};};
+
+test('new server protects the complete create chain with a single alert readback', async()=>{
+  const {api,service}=setup(); api.singleReadback=true; api.hideList=true;
+  const result=await service.create(input());
+  assert.ok(result.alert.alertId);
+  assert.deepEqual(api.calls.map(c=>c.operation),['capabilities','createPriceAlertDraft','confirmPriceAlert','priceAlert']);
+});
 test('confirmation, market, timeframe and displayed precision are validated',()=>{
   for (const patch of [{confirmed:false},{price:0},{price:Infinity},{price:'120'},{referencePrice:NaN},{marketId:'HYPERLIQUID:PERPETUAL:BTC'},{interval:'garbage'},{requestId:'../../escape'}]) assert.throws(()=>parsePriceAlertInput(input(patch)));
   assert.equal(formatPriceAlertLabel(82234.77,2),'82,234.77');
