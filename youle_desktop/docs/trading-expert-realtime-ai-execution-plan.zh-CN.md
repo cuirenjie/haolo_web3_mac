@@ -25,7 +25,7 @@
 > 最近更新：2026-10-27
 > 当前里程碑：M2 统一 Data Hub 与增量特征层
 > 总体状态：M2 进行中（M2-013 生产基础设施验收受阻）
-> 当前工作焦点：M6-MAC-181-20261027 进行中；用户指定 0.1.181，沿用已确认的未公证 Universal 包流程；同步版本／客服元数据并重新验包，不修改正式信任门禁
+> 当前工作焦点：M6-MAC-181-20261027 已完成；按用户指定交付 0.1.181 未公证 Universal 包，定向测试、包内版本与双架构启动验收通过；未上传或修改正式信任门禁
 > 适用仓库：`D:\youle_desktop\youle_desktop`（桌面端）、`D:\youle_agent_ms`（业务后端）、`D:\zhongzhuan`（统一模型中转）
 
 ## 1. 文档用途与持续更新规则
@@ -5987,3 +5987,8 @@ Requested unnotarized Universal 0.1.180 package delivered to Desktop with releas
 ### M6-MAC-181-20261027 started
 
 User explicitly requested version 0.1.181. Version and lock metadata updated exactly; five historical support descriptions now refer to older installers without the fix, avoiding ambiguity with the new 181 artifact. Generated Mac contract refreshed. 35 targeted Mac/support/update checks and 5 Python support checks passed. Rebuild Universal with the already authorized ad-hoc/unnotarized flow, preserving existing artifacts, installed app and original worktree changes.
+
+
+### M6-MAC-181-20261027 complete
+
+Universal 0.1.181 delivered with source 2d942d802c3c7061f2e7490149b3842042490538 and DMG SHA-256 fbabd9c5d750378cf6a5a583db8820fdc59733b005176a85e702906638f9a4d6. 35 targeted Node checks, 5 Python checks, typecheck and build passed. Both app architectures report 0.1.181; runtime, 2734 inputs, 479 packaged source files, 278 resources, 2036 package boundary entries, mounted identity/checksum/signatures and support snapshot passed. Installed app and original changes preserved. User-authorized ad-hoc/unnotarized artifact only; no upload or deployment. Details: docs/mac-release-0.1.181-20261027.zh-CN.md.
