@@ -51,7 +51,8 @@ for(const strategy of OFFICIAL_TRADING_CATALOG)test(`${strategy.id}: server acco
     for(const html of [renderCurrentReports([report]).rendered.cards,
       renderCurrentSavedPlan(saved,language),executionPlanStickyHtml({cloudReport:report,language})]){
       for(const value of [...words[locale].slice(0,4),'146.61','73.30','73.31','-1.38','+0.67','+1.61'])assert.ok(html.includes(value),value);
-      assert.equal(html.includes(words[locale][5]), html.includes('class="execution-plan-created-at"') || html.includes('data-execution-plan-sticky'));
+      const visibleMarkup=html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/g,'').replace(/<[^>]*>/g,'');
+      assert.equal(visibleMarkup.split(words[locale][5]).length - 1, 1, 'one current action per surface');
       assert.equal((html.match(/class="execution-plan-account-detail execution-plan-target-profit execution-plan-estimate"/g)||[]).length,2);
       assert.equal((html.match(/class="execution-plan-account-detail execution-plan-target-amount"/g)||[]).length,2);
       assert.doesNotMatch(html,/\+1\.34|\+1\.88|NaN|Infinity/);
@@ -178,11 +179,12 @@ test('explicit exits are authoritative, including missing or malformed arrays',(
   }
 });
 
-test('waiting copy is omitted in each language while blocked plans retain their restriction',()=>{
+test('waiting copy remains visible in each language while blocked plans retain their restriction',()=>{
   for(const locale of Object.keys(words)){
     const report=cloudAccountPlanCardFixture(locale);
     const html=cloudPlanCard(report).html;
-    assert.ok(!html.includes(words[locale][4]));assert.ok(!html.includes(words[locale][5]));
+    assert.ok(html.includes(words[locale][4]));assert.ok(html.includes(words[locale][5]));
+    assert.ok(!cloudPlanCard(report,{separateAction:true}).html.includes(words[locale][5]));
     assert.doesNotMatch(html,/现价做多|现价做空|at market/);
     assert.doesNotMatch(html,/class="execution-plan-expiry"/);
     report.executionPlan.executionBlocked=true;

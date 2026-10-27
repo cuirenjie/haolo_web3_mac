@@ -6489,6 +6489,7 @@ function applyAuthSession(session: any, fallbackBaseUrl = "") {
   void api.syncEventsWake?.().catch(()=>{});
   if (!state.auth.authenticated || accountIdentity !== previousAccountIdentity || state.auth.baseUrl !== previousBaseUrl) {
     refreshCloudExecutionPlans.reset();
+    state.tradingAlerts = createTradingAlertsUiState();
     resetConsumptionData();
     resetTradingPreferenceProfileState();
     authenticatedModelCatalogPreloadPromise = null;
@@ -74032,6 +74033,9 @@ async function refreshTradingAlerts({silent=false}: {silent?:boolean} = {}) {
   if (!api.tradingAlertsSnapshot) return;
   if (silent && (!state.auth.authenticated || state.tradingAlerts.loading)) return;
   const scope = `${state.auth.baseUrl}:${state.auth.profile?.id}`;
+  const alerts = state.tradingAlerts, authenticated = state.auth.authenticated;
+  const current = () => alerts === state.tradingAlerts && authenticated === state.auth.authenticated
+    && scope === `${state.auth.baseUrl}:${state.auth.profile?.id}`;
   if (!silent) {
     state.tradingAlerts.loading = true;
     state.tradingAlerts.error = null;
@@ -74039,10 +74043,10 @@ async function refreshTradingAlerts({silent=false}: {silent?:boolean} = {}) {
   }
   try {
     const snapshot = await api.tradingAlertsSnapshot();
-    if (silent && (!state.auth.authenticated || scope !== `${state.auth.baseUrl}:${state.auth.profile?.id}` || snapshot?.ok === false)) return;
+    if (!current() || (silent && snapshot?.ok === false)) return;
     applyTradingAlertsSnapshot(state.tradingAlerts, snapshot);
   } catch (error) {
-    if (silent) return;
+    if (!current() || silent) return;
     state.tradingAlerts.loading = false;
     state.tradingAlerts.error = errorMessage(error);
   }

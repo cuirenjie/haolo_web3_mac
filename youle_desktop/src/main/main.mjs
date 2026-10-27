@@ -16162,10 +16162,17 @@ ipcMain.handle('tradingCloud:taskChat',async(event,params={})=>{
 const cloudPlans = createCloudPlans({owner:requireHaoloAccountOwner,api:getYouleApiClient,sources:getCloudRunJournal});
 const cloudPriceAlerts = createCloudPriceAlerts({owner:requireHaoloAccountOwner,api:getYouleApiClient});
 async function tradingAlertsCombinedSnapshot() {
+  const token = getYouleApiClient().token;
+  const assertSession = () => {
+    if (token !== getYouleApiClient().token) throw new Error('ALERT_SESSION_CHANGED');
+  };
   const local = await (await getTradingAlertService()).snapshot();
+  assertSession();
   const session = await getYouleApiClient().getSession();
+  assertSession();
   if (!session?.authenticated) return {...local,cloudLoaded:true};
   const remote = await cloudPriceAlerts.snapshot();
+  assertSession();
   return {...local,cloudLoaded:true,alerts:[...remote.alerts,...local.alerts]};
 }
 let cloudAlertFeed, accountEvents;

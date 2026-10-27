@@ -44,6 +44,21 @@ test('last subscriber cancellation aborts body transfer and a new read starts cl
   assert.equal(calls, 2);
 });
 
+test('account switches cancel old reads even when transport ignores abort, without replaying stale 304s', async () => {
+  let owner='alice', calls=0, release;
+  const signals=[];
+  const read=createConditionalPollFetch(async(_url,init)=>{
+    calls++;signals.push(init.signal);
+    if(calls===1)return new Promise(resolve=>release=resolve);
+    return json({entries:[],account:owner});
+  },()=>owner);
+  const old=assert.rejects(read(url),{name:'AbortError'});
+  owner='bob';assert.equal((await (await read(url)).json()).account,'bob');
+  await old;assert.equal(signals[0].aborted,true);
+  release(new Response(null,{status:304}));await turn();
+  assert.equal(calls,2,'cancelled old validators must not cause an unconditional retry');
+});
+
 test('quiet fallback is bounded; explicit refresh, write and account switch fetch fresh state', async () => {
   let now = 0, owner = 'alice', calls = 0, version = 1;
   const read = createConditionalPollFetch(async () => { calls++; return json({ version, entries: [], serverTime: now + 1000 }); },

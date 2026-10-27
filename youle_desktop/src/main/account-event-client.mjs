@@ -87,9 +87,11 @@ export function createAccountEventClient({owner, api, cursor, reminders, gap, st
     running=(async()=>{
       let delay=1000;
       try {
-        const selected=await owner();activeScope=selected.ownerId;activeToken=api().token;
         controller=new AbortController();
-        await consume(controller.signal,selected,revision);
+        const signal=controller.signal;
+        const selected=await withAbort(Promise.resolve().then(owner),signal);
+        activeScope=selected.ownerId;activeToken=api().token;
+        await consume(signal,selected,revision);
       } catch(error) {
         if(!stopped&&revision===epoch) {
           failures=Math.min(8,failures+1);

@@ -83,7 +83,7 @@ test('simultaneous replay is serialized and inbox is bounded',async()=>{
   assert.deepEqual(h.notifications,['event-1']);
 });
 
-function streamFixture({responseStatus,hang=false,failReminders=false,ignoreAbort=false,slowCancel=false,cursor:readCursor}={}) {
+function streamFixture({responseStatus,hang=false,failReminders=false,ignoreAbort=false,slowCancel=false,cursor:readCursor,owner:readOwner}={}) {
   const calls=[],states=[],statuses=[],deliveries=[],timers=new Map();let id=0,wire,current=owner,clock=now;
   const client={token:'token',authHeaders:()=>({Authorization:'Bearer token'}),serviceFetch:async(url,options)=>{
     calls.push({url,options});
@@ -92,7 +92,7 @@ function streamFixture({responseStatus,hang=false,failReminders=false,ignoreAbor
     const body=new ReadableStream({start(c){wire=c;if(!ignoreAbort)options.signal.addEventListener('abort',()=>{try{c.error(Error('aborted'));}catch{}},{once:true});},cancel(){if(slowCancel)return new Promise(()=>{});}});
     return new Response(body,{headers:{'Content-Type':'text/event-stream'}});
   }};
-  const app=createAccountEventClient({owner:async()=>current,api:()=>client,cursor:readCursor|| (async()=>3),
+  const app=createAccountEventClient({owner:readOwner || (async()=>current),api:()=>client,cursor:readCursor|| (async()=>3),
     reminders:async(o,v,valid)=>{await valid();if(failReminders)throw Error('notification unavailable');deliveries.push(v);},gap:async()=>{},state:v=>states.push(v),status:v=>statuses.push(v),
     schedule:(fn,delay)=>{const key=++id;timers.set(key,{fn,delay});return key;},cancel:key=>timers.delete(key),random:()=>0,now:()=>clock});
   const emit=(kind,value)=>wire.enqueue(new TextEncoder().encode(`event: ${kind}\ndata: ${JSON.stringify(value)}\n\n`));
@@ -125,6 +125,16 @@ test('a delayed cursor cannot send an old account request after stop',async()=>{
   let finish;const h=streamFixture({cursor:()=>new Promise(resolve=>finish=resolve)});
   h.app.start();await settle();h.app.stop();await settle();
   assert.equal(h.app.running,false);finish(3);await settle();assert.equal(h.calls.length,0);
+});
+test('stop cancels initial account lookup and a restart ignores its late result',async()=>{
+  let finish,first=true;
+  const h=streamFixture({owner:()=>first?(first=false,new Promise(resolve=>finish=resolve)):Promise.resolve(owner)});
+  h.app.start();await settle();h.app.stop();await settle();
+  assert.equal(h.app.running,false);assert.equal(h.calls.length,0);
+  h.app.start();await settle();assert.equal(h.calls.length,1);
+  finish({...owner,ownerId:'old-account'});await settle();
+  assert.equal(h.app.scope,owner.ownerId);assert.equal(h.calls.length,1);
+  h.app.stop();await settle();assert.equal(h.app.running,false);
 });
 test('one SSE connection replaces business polling; partial chunks and healthy checks are accepted',async()=>{
   const h=streamFixture();h.app.start();await settle();

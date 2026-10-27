@@ -1,5 +1,7 @@
 # 交易专家实时 AI 盘面分析执行方案
 
+> Mac 当前任务：`M6-MAC-20261027`。S0–S5 分阶段融合与累计复审完成，S6 Universal 测试包验收进行中，详见 [本次 Mac 融合记录](windows-sync-20261027.zh-CN.md)。以下 Windows／Android 发布段落为保留的上游历史，不代表本会话发布授权或 Mac 已上线；当前仓库路径和平台流程以本地 AGENTS.md 为准。
+
 2026-10-27 RELEASE-182-20261027（已完成）：Windows 0.1.182／Android 0.1.13+14 已正式发布并延续强制更新，源码与版本均已推送各自origin/dev。两端签名、包内版本、旧版／当前版检查、完整公网下载摘要及精确客服知识激活通过；正式ASAR的真实模型计划／隔离授权操作16项通过。Android已按规范保留数据覆盖安装开发签名0.1.13+14，真实前台及设备摘要一致。Windows上传504通过只读核验恢复原记录，无重复上传。完整源码SHA、失败记录与平台边界见 [本批发布记录](windows-release-0.1.182-20261027.md)。本批未部署后端或网关，iOS未签名构建。
 
 2026-10-27 M1-463D-R2（源码已提交、后端已部署）：本端回滚源码 `77f471f04904581e4f2185a2d792d7a509e1cac2` 已推送origin/dev；后端API/Ideas和独立Worker均部署 `bddf77eb0b4468b60e78f55eeaf802c088cecb54`，回执complete，旧概率任务自然完成后交接，用户明确要求不再等待后主动结束最后1个旧API长连接，各1188文件和同步概率门槛检查通过，API／Worker稳定观察及最终复核零5xx和流式错误。本轮未发布新客户端安装包，正式更新渠道仍为原版本。完整范围、备份及验收见规范后端docs/backend-probability-rollback-release-20261027.md；下方未提交／未部署表述为前一阶段历史记录。
@@ -5960,3 +5962,8 @@ Windows 专属 `.support-bundle.json`、`.support-build.json`、`.support-public
 ### M6-MAC-20261027 / S4
 
 S4 passed: 41 targeted tests, 5 Python support checks, 40 five-language probability UI states, typecheck/build. Adapted source-bound support snapshot to macos/haolo_web3_mac and audited packaged renderer/version. Fixed cached ASAR headers on same-path rebuild. Python/Node candidates match; no publication/activation. Windows EV/EXE pipeline stays excluded. Historical probability supplements remain read-only and result-hash gated.
+
+
+### M6-MAC-20261027 / S5
+
+整体复审及修复复验完成：6083 桌面测试中 6071 通过、12 Windows 专属跳过；网关 142 项中 136 通过、6 环境跳过。类型／构建、48 多语言布局、60 下拉、2960 字体、16 客服隔离授权流程通过。修复预警账户快照、共享读取取消及首次 SSE 账户读取停止边界；新增行为回归。222 来源路径核销、13 Windows 发布路径保持旧基线，11 个原工作区文件差异完整保留。进入 S6 本地 Universal 测试打包，无云端部署或正式发布。

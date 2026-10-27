@@ -64,6 +64,10 @@ export function createConditionalPollFetch(fetchImpl, scope, { changes = false, 
     if (delta) headers['X-Haolo-JSON-Delta'] = '1';
     try {
       let response = await fetchImpl(url, { ...init, headers });
+      if (init.signal?.aborted) {
+        void response.body?.cancel().catch(() => {});
+        init.signal.throwIfAborted();
+      }
       let data, reconstructed = false;
       if (response.status === 304 || response.headers.get('x-haolo-json-delta') === '1') {
         try {
@@ -85,6 +89,7 @@ export function createConditionalPollFetch(fetchImpl, scope, { changes = false, 
           if (valid()) remove(key);
           await response.body?.cancel().catch(() => {});
           delete headers['If-None-Match']; delete headers['X-Haolo-JSON-Delta'];
+          init.signal?.throwIfAborted();
           response = await fetchImpl(url, { ...init, headers });
         }
       }

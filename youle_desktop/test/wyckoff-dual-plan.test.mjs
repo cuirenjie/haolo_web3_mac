@@ -22,15 +22,15 @@ for(const c of cases)test(`${c.run.locale}/${c.bullish}/${c.blocked}: independen
   const chat=renderCurrentReports(reports);
   for(const report of reports) {
     const card=cloudPlanCard(report), language=report.locale==='zh-Hant'?'zh-TW':report.locale;
-    assert.ok(chat.rendered.cards.includes(card.html));
-    assert.ok(executionPlanStickyHtml({cloudReport:report,language}).includes(card.html));
+    assert.ok(chat.rendered.cards.includes(cloudPlanCard(report,{separateAction:true}).html));
+    assert.ok(executionPlanStickyHtml({cloudReport:report,language}).includes(cloudPlanCard(report,{separateAction:true}).html));
     if(!c.blocked) {
       const remote={...report.planRecords[0],saved:true};
       const receipt=validateSavedCloudResult(c.run,remote);
       assert.deepEqual(receipt.executionPlan,report.executionPlan);
       assert.equal(receipt.cloud.planRecords.length,1);
       const p=saved.find(p=>p.cloudReport.executionPlan.planId===remote.id);
-      assert.ok(renderCurrentSavedPlan(p,language).includes(card.html));
+      assert.ok(renderCurrentSavedPlan(p,language).includes(cloudPlanCard(report,{separateAction:true}).html));
       assert.equal(report.drawingPatch.entryConditionRef.conditionHash,report.executionPlan.conditionHash);
     } else assert.equal(card.readOnly,true);
     if(report.locale==='en')assert.doesNotMatch(card.content,/[\u4e00-\u9fff]/);

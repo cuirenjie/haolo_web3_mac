@@ -1,3 +1,4 @@
+import {visibleTradingPlanDrawingPatch} from '../src/renderer/trading-plan-drawing-history.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import fs from 'node:fs';
@@ -108,7 +109,7 @@ test('chart action loads the source market before restoring its frozen drawing a
   const workspace={drawingStorageSessionMatches:id=>id==='source',
     prepareAlertContext:async(marketId,interval,options)=>{calls.push({action:'load',marketId,interval});options.assertActive();},
     showExecutionPlanDrawing:async(patch,assertActive)=>{assertActive();calls.push({action:'drawing',patch});}};
-  const run=Function('normalizeCloudReports','cloudPlanDrawingPatch','activeWorkspace',chartJs+';return showTradingExecutionPlanChart;')(normalizeCloudReports,cloudPlanDrawingPatch,workspace);
+  const run=Function('normalizeCloudReports','visibleTradingPlanDrawingPatch','activeWorkspace',chartJs+';return showTradingExecutionPlanChart;')(normalizeCloudReports,visibleTradingPlanDrawingPatch,workspace);
   const context={marketId:report.marketId,interval:report.interval};
   await run(report,context,'source',()=>valid);
   assert.deepEqual(calls.map(c=>c.action),['load','drawing']);assert.equal(calls[1].patch.drawingTurnId,`plan:${report.runId}`);

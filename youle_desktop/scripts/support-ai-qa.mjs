@@ -43,7 +43,7 @@ async function fixture(){await run(()=>{
   };
 });}
 try{
-  await win.loadFile(path.join(root,"dist/renderer/index.html"),{query:{"i18n-layout-qa":"1"}});
+  await win.loadFile(path.join(root,"dist/renderer/index.html"),{query:{"i18n-layout-qa":"1","desktop-platform":process.platform}});
   await wait(()=>document.querySelector('[data-action="open-native-support"]'));
   for(const language of ["zh-CN","en","zh-TW"])for(const theme of ["light","dark"]){
     await click('[data-action="open-settings"]');
@@ -94,7 +94,7 @@ try{
     [{kind:'set_candle_colors',up_color:'#118844',down_color:'#CC2244'}],
     [{kind:'open_usage'}],
   ]) {
-    await win.loadFile(path.join(root,'dist/renderer/index.html'),{query:{'i18n-layout-qa':'1'}});
+    await win.loadFile(path.join(root,'dist/renderer/index.html'),{query:{'i18n-layout-qa':'1','desktop-platform':process.platform}});
     await wait(()=>document.querySelector('[data-action="open-native-support"]'));
     await fixture();await click('[data-action="open-native-support"]');await wait(()=>window.supportAIQA.device);
     await run(plan=>window.supportAIQA.propose(plan),plan);
@@ -105,7 +105,7 @@ try{
     if(plan[0].kind==='set_candle_colors')assert.equal(await run(()=>JSON.parse(localStorage.getItem('haolo.trading-market.chart-settings.v1')).risingColor.toUpperCase()),'#118844');
     results.push({action:plan[0].kind,verified:true});
   }
-  await win.loadFile(path.join(root,'dist/renderer/index.html'),{query:{'i18n-layout-qa':'1'}});
+  await win.loadFile(path.join(root,'dist/renderer/index.html'),{query:{'i18n-layout-qa':'1','desktop-platform':process.platform}});
   await wait(()=>document.querySelector('[data-action="open-native-support"]'));
   await fixture();await click('[data-action="open-native-support"]');await wait(()=>window.supportAIQA.device);
   await run(()=>window.supportAIQA.propose([{kind:'open_settings'},{kind:'set_theme',theme:'dark'}]));

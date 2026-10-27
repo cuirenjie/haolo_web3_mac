@@ -38,7 +38,7 @@ for(const sample of cases)test(`${sample.name}: backend retest receipt survives 
     Object.assign(savedReceipt.planRecords[0],{saved:true,status:'pending',version:2});
     const saved=mergeCloudExecutionPlans([savedReceipt],[])[0];
     for(const markup of [rendered.cards,renderCurrentSavedPlan(saved,language),executionPlanStickyHtml({cloudReport:restored,language,title:card.title})]){
-      assert.ok(markup.includes(card.html));
+      assert.ok(markup.includes(cloudPlanCard(restored,{separateAction:true}).html));
       assert.ok(markup.includes(scenario.entry.toFixed(2)));
       assert.equal((card.html.match(/class="execution-plan-target"/g)||[]).length,3);
     }

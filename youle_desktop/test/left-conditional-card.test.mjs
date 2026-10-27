@@ -20,7 +20,8 @@ for(const [key,receipt] of Object.entries(fixtures))test(`${key}: formal conditi
   assert.doesNotMatch(card.content,/观察预案|觀察預案|watch plan/i);
   const pending=structuredClone(report);pending.planRecords[0].status='pending';
   const saved=mergeCloudExecutionPlans([pending],[])[0];
-  for(const html of [chat.rendered.cards,renderCurrentSavedPlan(saved,language),executionPlanStickyHtml({cloudReport:report,language})])assert.ok(html.includes(card.html));
+  assert.ok(chat.rendered.cards.includes(card.html));
+  for(const html of [renderCurrentSavedPlan(saved,language),executionPlanStickyHtml({cloudReport:report,language})])assert.ok(html.includes(cloudPlanCard(report,{separateAction:true}).html));
   assert.deepEqual(normalizeCloudReports([report]),[report]);
   assert.equal(leftRouteView(p,language,p.expiresAt).action,'blocked');
   if(report.locale==='en')assert.doesNotMatch(card.content,/[\u4e00-\u9fff]/);

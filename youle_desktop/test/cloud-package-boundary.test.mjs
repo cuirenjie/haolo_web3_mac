@@ -75,7 +75,9 @@ test('macOS and Windows afterPack audits are mandatory and use their actual reso
   const source=fs.readFileSync(path.join(root,'scripts/after-pack-cloud.cjs'),'utf8');
   for(const platform of ['darwin','win32']) for(const reject of [false,true]) {
     const calls=[],module={exports:{}};
-    vm.runInNewContext(source,{module,console:{log(){}},require:name=>{
+    // Inject the build gate at the module boundary; this VM fixture has no ESM loader.
+    const fixtureSource=source.replace("await import('../../tools/mac-support-artifact.mjs')",'({packagedSupport:supportArtifact})');
+    vm.runInNewContext(fixtureSource,{module,console:{log(){}},supportArtifact:target=>calls.push('support:'+target),require:name=>{
       if(name==='node:path')return path;
       if(name==='./restore-windows-icon.cjs')return async()=>calls.push('icon');
       if(name==='./audit-cloud-strategy-package.cjs')return {auditCloudStrategyPackage:target=>{
@@ -86,6 +88,7 @@ test('macOS and Windows afterPack audits are mandatory and use their actual reso
     const appOutDir=path.join(root,'output/qa');
     const operation=module.exports({electronPlatformName:platform,appOutDir,packager:{appInfo:{productFilename:'好咯'}}});
     if(reject)await assert.rejects(operation,/private assets/);else await operation;
-    assert.deepEqual(calls,['icon',platform==='darwin'?path.join(appOutDir,'好咯.app'):appOutDir]);
+    const packageRoot=platform==='darwin'?path.join(appOutDir,'好咯.app'):appOutDir;
+    assert.deepEqual(calls,['icon',...(platform==='darwin'?['support:'+path.join(packageRoot,'Contents/Resources/app.asar')]:[]),packageRoot]);
   }
 });

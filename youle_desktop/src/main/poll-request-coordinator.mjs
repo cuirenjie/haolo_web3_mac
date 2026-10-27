@@ -1,9 +1,14 @@
 // Share only read requests. Each caller keeps its own cancellation, and a
 // cancelled last subscriber aborts the transport instead of leaving an orphan.
+import { withAbort } from './system-proxy-fetch.mjs';
+
 export function createPollRequestCoordinator(read, { now = Date.now, random = Math.random } = {}) {
-  const pending = new Map(), failures = new Map();
+  const pending = new Map(), failures = new Map(), active = new Set();
   let generation = 0;
-  function clear() { generation++; failures.clear(); pending.clear(); }
+  function clear() {
+    generation++; failures.clear(); pending.clear();
+    for (const work of active) work.controller.abort(new DOMException('Polling account changed', 'AbortError'));
+  }
   async function request(url, init, key, cooldownKey) {
     init.signal?.throwIfAborted();
     const failure = failures.get(cooldownKey);
@@ -17,10 +22,10 @@ export function createPollRequestCoordinator(read, { now = Date.now, random = Ma
       work = { controller, users: 0, done: false };
       const selected = work;
       work.promise = (async () => {
-        const response = await read(url, { ...init, signal: controller.signal });
+        const response = await withAbort(read(url, { ...init, signal: controller.signal }), controller.signal);
         // Consume once while the transport cancellation is still active. Return
         // independent bodies so a caller cannot consume another caller's data.
-        const body = await response.arrayBuffer();
+        const body = await withAbort(response.arrayBuffer(), controller.signal);
         if (revision === generation && cooldownKey) {
           if ([429, 503].includes(response.status) && body.byteLength <= 65536) {
             const count = Math.min(6, (failures.get(cooldownKey)?.count || 0) + 1);
@@ -36,8 +41,10 @@ export function createPollRequestCoordinator(read, { now = Date.now, random = Ma
         return { body, status: response.status, headers: response.headers };
       })().finally(() => {
         selected.done = true;
+        active.delete(selected);
         if (pending.get(key) === selected) pending.delete(key);
       });
+      active.add(work);
       // Keys include scope, headers, read mode and the invalidation generation.
       // Bound bookkeeping; excess unique reads still run without being joined.
       if (pending.size < 64) pending.set(key, work);

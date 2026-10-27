@@ -75,3 +75,23 @@ test('background alert reads preserve the original page without loading, error o
   api.tradingAlertsSnapshot=async()=>{throw Error('manual request failed');};await run();
   assert.equal(state.tradingAlerts.error,'Error: manual request failed');
 });
+
+test('foreground alert reads cannot publish delayed data or errors after an account changes',async()=>{
+  const source=fs.readFileSync(new URL('../src/renderer/main.ts',import.meta.url),'utf8');
+  const code=source.match(/async function refreshTradingAlerts\([^\n]+\n[\s\S]*?\n}/)[0];
+  const compiled=ts.transpileModule(code,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
+  for(const fail of [false,true])for(const sameAccount of [false,true]){
+    const state={activeView:'alerts',auth:{authenticated:true,baseUrl:'https://fixture',profile:{id:'a'}},tradingAlerts:createTradingAlertsUiState()};
+    let resolve,reject,renders=0;
+    const api={tradingAlertsSnapshot:()=>new Promise((yes,no)=>{resolve=yes;reject=no;})};
+    const run=Function('state','api','render','applyTradingAlertsSnapshot','errorMessage',compiled+';return refreshTradingAlerts;')(
+      state,api,()=>renders++,applyTradingAlertsSnapshot,String);
+    const pending=run();assert.equal(state.tradingAlerts.loading,true);
+    state.auth.profile.id=sameAccount?'a':'b';
+    state.tradingAlerts=createTradingAlertsUiState();
+    const before=structuredClone(state.tradingAlerts);
+    if(fail)reject(Error('old failure'));else resolve({ok:true,data:{cloudLoaded:true,alerts:[{alertId:'old'}]}});
+    await pending;
+    assert.deepEqual(state.tradingAlerts,before);assert.equal(renders,1);
+  }
+});
