@@ -26,6 +26,8 @@ export function vietnameseText(value, translateSystemValues = false) {
   const cacheKey = `${translateSystemValues ? 'system:' : 'display:'}${source}`;
   if (cache.has(cacheKey)) return cache.get(cacheKey);
   let translated = VIETNAMESE_CATALOG[key];
+  const duration = /^(\d+(?:\.\d+)?)\s*(天|秒)$/.exec(key);
+  if (translated === undefined && duration) translated = `${duration[1]} ${duration[2] === '天' ? 'ngày' : 'giây'}`;
   if (translated === undefined && source.includes('\n')) return source.split('\n').map(line=>vietnameseText(line,translateSystemValues)).join('\n');
   if (translated === undefined) {
     const marker = /^(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+)/.exec(key)?.[0];

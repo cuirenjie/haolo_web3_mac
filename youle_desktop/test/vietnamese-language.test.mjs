@@ -54,3 +54,9 @@ test('Vietnamese dynamic usage and payment accessibility copy keeps inserted dat
  assert.equal(vietnameseText('复制Binance收款账号'), 'Sao chép tài khoản nhận tiền qua Binance');
  assert.equal(vietnameseText('TRC20 USDT 收款二维码'), 'Mã QR nhận USDT qua TRC20');
 });
+
+test('Vietnamese short durations and financial drawing labels keep precise values', () => {
+ assert.equal(vietnameseText('2天'), '2 ngày');
+ assert.equal(vietnameseText('2.5秒'), '2.5 giây');
+ assert.equal(vietnameseText('最低净盈亏比：1:2.75'), 'Tỷ lệ lợi nhuận/rủi ro ròng tối thiểu: 1:2.75');
+});

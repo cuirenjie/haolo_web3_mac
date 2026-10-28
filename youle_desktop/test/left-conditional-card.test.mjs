@@ -5,7 +5,7 @@ import {cloudReportFromResponse,cloudPlanCard,normalizeCloudReports} from '../sr
 import {leftRouteView} from '../src/main/price-action-left-card.mjs';
 import {renderCurrentReports,renderCurrentSavedPlan} from './support/right-renderer-parity.mjs';
 import {mergeCloudExecutionPlans} from '../src/renderer/cloud-plan-sync.ts';
-import {executionPlanStickyHtml} from '../src/main/execution-plan-sticky-view.mjs';
+import {assertStickyCardParity,assertSeparatedCardParity} from './support/sticky-card-parity.mjs';
 const fixtures=JSON.parse(fs.readFileSync(new URL('./fixtures/left-conditional-receipts.json',import.meta.url)));
 
 for(const [key,receipt] of Object.entries(fixtures))test(`${key}: formal conditional plan survives chat, saved plans and sticky`,()=>{
@@ -20,7 +20,9 @@ for(const [key,receipt] of Object.entries(fixtures))test(`${key}: formal conditi
   assert.doesNotMatch(card.content,/观察预案|觀察預案|watch plan/i);
   const pending=structuredClone(report);pending.planRecords[0].status='pending';
   const saved=mergeCloudExecutionPlans([pending],[])[0];
-  for(const html of [chat.rendered.cards,renderCurrentSavedPlan(saved,language),executionPlanStickyHtml({cloudReport:report,language})])assert.ok(html.includes(card.html));
+  assert.ok(chat.rendered.cards.includes(card.html));
+  assertSeparatedCardParity(renderCurrentSavedPlan(saved,language),report,language);
+  assertStickyCardParity(report,language);
   assert.deepEqual(normalizeCloudReports([report]),[report]);
   assert.equal(leftRouteView(p,language,p.expiresAt).action,'blocked');
   if(report.locale==='en')assert.doesNotMatch(card.content,/[\u4e00-\u9fff]/);

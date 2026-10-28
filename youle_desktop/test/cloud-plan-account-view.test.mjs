@@ -15,6 +15,9 @@ const words={
   'zh-CN':['建议开仓','预计止损','预计盈利','止盈仓位','当前动作：','等待条件触发'],
   'zh-Hant':['建議開倉','預計止損','預計盈利','止盈倉位','當前動作：','等待條件觸發'],
   en:['Suggested position','Est. loss','Est. profit','Target position','Current action: ','Wait for the trigger'],
+  ko:['포지션 진입 제안','예상 손절','예상 수익','익절 포지션','현재 동작:','조건 충족 대기'],
+  ja:['新規ポジション推奨','予想損切り','予想利益','利確ポジション','現在のアクション：','条件のトリガーを待機中'],
+  vi:['Đề xuất mở vị thế','Cắt lỗ dự kiến','Lợi nhuận dự kiến','Vị thế chốt lời','Hành động hiện tại:','Chờ điều kiện kích hoạt'],
 };
 
 test('real server sizing uses legacy allocations without changing frozen quantity, budget or receipt',()=>{
@@ -51,7 +54,8 @@ for(const strategy of OFFICIAL_TRADING_CATALOG)test(`${strategy.id}: server acco
     for(const html of [renderCurrentReports([report]).rendered.cards,
       renderCurrentSavedPlan(saved,language),executionPlanStickyHtml({cloudReport:report,language})]){
       for(const value of [...words[locale].slice(0,4),'146.61','73.30','73.31','-1.38','+0.67','+1.61'])assert.ok(html.includes(value),value);
-      assert.equal(html.includes(words[locale][5]), html.includes('class="execution-plan-created-at"') || html.includes('data-execution-plan-sticky'));
+      const visibleText=html.replace(/<style\b[^>]*>[\s\S]*?<\/style>|<script\b[^>]*>[\s\S]*?<\/script>|<[^>]+>/g,'');
+      assert.equal(visibleText.split(words[locale][5]).length - 1, 1, 'each surface shows the waiting action exactly once (excluding its tooltip)');
       assert.equal((html.match(/class="execution-plan-account-detail execution-plan-target-profit execution-plan-estimate"/g)||[]).length,2);
       assert.equal((html.match(/class="execution-plan-account-detail execution-plan-target-amount"/g)||[]).length,2);
       assert.doesNotMatch(html,/\+1\.34|\+1\.88|NaN|Infinity/);
@@ -178,15 +182,15 @@ test('explicit exits are authoritative, including missing or malformed arrays',(
   }
 });
 
-test('waiting copy is omitted in each language while blocked plans retain their restriction',()=>{
+test('waiting action is visible in each language while blocked plans retain their restriction',()=>{
   for(const locale of Object.keys(words)){
     const report=cloudAccountPlanCardFixture(locale);
     const html=cloudPlanCard(report).html;
-    assert.ok(!html.includes(words[locale][4]));assert.ok(!html.includes(words[locale][5]));
+    assert.ok(html.includes(words[locale][4]));assert.ok(html.includes(words[locale][5]));
     assert.doesNotMatch(html,/现价做多|现价做空|at market/);
     assert.doesNotMatch(html,/class="execution-plan-expiry"/);
     report.executionPlan.executionBlocked=true;
-    assert.ok(cloudPlanCard(report).html.includes(locale==='en'?'Do not trade':locale==='zh-Hant'?'暫不交易':'暂不交易'));
+    assert.ok(cloudPlanCard(report).html.includes({en:'Do not trade','zh-Hant':'暫不交易','zh-CN':'暂不交易',ko:'거래 보류',ja:'取引を一時停止',vi:'Tạm không giao dịch'}[locale]));
   }
   const report=cloudAccountPlanCardFixture();
   report.executionPlan.positionSizing.executionBlocked=true;

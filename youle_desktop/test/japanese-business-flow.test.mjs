@@ -61,7 +61,9 @@ test('Japanese cloud receipt survives durable restoration, saved plans and nativ
  assert.match(card.content,/損切り/);
  assert.doesNotMatch(card.content,/入场|仓位|止损|条件失效|[\uac00-\ud7af]/u);
  for(const value of ['82292.3','81682.2','83207.45','83512.5'])assert.ok(card.content.includes(value),value);
- assert.ok(sticky.includes(card.html));
+ const separate=cloudPlanCard(restored,{language:'ja',separateAction:true});
+ assert.ok(sticky.includes(separate.html));
+ assert.equal(sticky.split(separate.actionHtml).length-1,1);
  assert.match(card.html,/プライスアクション/);
  assert.doesNotMatch(sticky,/裸K分析/);
  assert.deepEqual(cloudPlanControls('ja'),{label:'カードの文字サイズと付箋の操作',increase:'拡大',decrease:'縮小',sticky:'付箋'});

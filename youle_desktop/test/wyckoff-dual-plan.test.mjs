@@ -5,7 +5,7 @@ import {validateCloudResult,validateSavedCloudResult} from '../src/main/trading-
 import {cloudReportFromResponse,normalizeCloudReports,cloudPlanCard} from '../src/main/cloud-plan-contract.mjs';
 import {renderCurrentReports,renderCurrentSavedPlan} from './support/right-renderer-parity.mjs';
 import {mergeCloudExecutionPlans} from '../src/renderer/cloud-plan-sync.ts';
-import {executionPlanStickyHtml} from '../src/main/execution-plan-sticky-view.mjs';
+import {assertStickyCardParity,assertSeparatedCardParity} from './support/sticky-card-parity.mjs';
 
 const cases=JSON.parse(fs.readFileSync(new URL('./fixtures/wyckoff-dual-cross-platform.json',import.meta.url))).cases;
 for(const c of cases)test(`${c.run.locale}/${c.bullish}/${c.blocked}: independent Wyckoff cards, history and saved receipts`,()=>{
@@ -23,14 +23,14 @@ for(const c of cases)test(`${c.run.locale}/${c.bullish}/${c.blocked}: independen
   for(const report of reports) {
     const card=cloudPlanCard(report), language=report.locale==='zh-Hant'?'zh-TW':report.locale;
     assert.ok(chat.rendered.cards.includes(card.html));
-    assert.ok(executionPlanStickyHtml({cloudReport:report,language}).includes(card.html));
+    assertStickyCardParity(report,language);
     if(!c.blocked) {
       const remote={...report.planRecords[0],saved:true};
       const receipt=validateSavedCloudResult(c.run,remote);
       assert.deepEqual(receipt.executionPlan,report.executionPlan);
       assert.equal(receipt.cloud.planRecords.length,1);
       const p=saved.find(p=>p.cloudReport.executionPlan.planId===remote.id);
-      assert.ok(renderCurrentSavedPlan(p,language).includes(card.html));
+      assertSeparatedCardParity(renderCurrentSavedPlan(p,language),report,language);
       assert.equal(report.drawingPatch.entryConditionRef.conditionHash,report.executionPlan.conditionHash);
     } else assert.equal(card.readOnly,true);
     if(report.locale==='en')assert.doesNotMatch(card.content,/[\u4e00-\u9fff]/);

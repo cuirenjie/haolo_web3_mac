@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import ts from 'typescript';
 import {YouleApiClient} from '../src/main/youle-api-client.mjs';
 import {normalizeCloudReports} from '../src/main/cloud-plan-contract.mjs';
-import {cloudPlanDrawingPatch} from '../src/shared/execution-plan-drawings.mjs';
+import {visibleTradingPlanDrawingPatch} from '../src/renderer/trading-plan-drawing-history.ts';
 import {TradingAiDrawingSets} from '../src/renderer/trading-ai-drawing-sets.ts';
 import {planMenuOptions, planMenuFacts, planMenuText, planChartContext} from '../src/renderer/execution-plan-menu.ts';
 import {cloudPlanCard} from '../src/main/cloud-plan-contract.mjs';
@@ -108,7 +108,7 @@ test('chart action loads the source market before restoring its frozen drawing a
   const workspace={drawingStorageSessionMatches:id=>id==='source',
     prepareAlertContext:async(marketId,interval,options)=>{calls.push({action:'load',marketId,interval});options.assertActive();},
     showExecutionPlanDrawing:async(patch,assertActive)=>{assertActive();calls.push({action:'drawing',patch});}};
-  const run=Function('normalizeCloudReports','cloudPlanDrawingPatch','activeWorkspace',chartJs+';return showTradingExecutionPlanChart;')(normalizeCloudReports,cloudPlanDrawingPatch,workspace);
+  const run=Function('normalizeCloudReports','visibleTradingPlanDrawingPatch','activeWorkspace',chartJs+';return showTradingExecutionPlanChart;')(normalizeCloudReports,visibleTradingPlanDrawingPatch,workspace);
   const context={marketId:report.marketId,interval:report.interval};
   await run(report,context,'source',()=>valid);
   assert.deepEqual(calls.map(c=>c.action),['load','drawing']);assert.equal(calls[1].patch.drawingTurnId,`plan:${report.runId}`);

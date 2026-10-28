@@ -49,7 +49,7 @@ function rendererSourceFiles(directory = RENDERER_ROOT) {
   });
 }
 
-function chineseLiteralFragments(source, file) {
+function chineseLiteralFragments(source, file, locale = 'en') {
   const fragments = [];
   const separator = "\n"; // DOM text nodes are localized independently.
   const append = (literal) => {
@@ -87,12 +87,28 @@ function chineseLiteralFragments(source, file) {
     file.endsWith(".ts") ? ts.ScriptKind.TS : ts.ScriptKind.JS,
   );
   const visit = (node) => {
-    // Japanese uses kanji: authored Japanese branches are not Chinese source copy.
-    if (ts.isPropertyAssignment(node) && ['ja', 'vi'].includes(node.name?.text)) return;
-    if (ts.isIfStatement(node) && /===\s*["'](?:ja|vi)["']/.test(node.expression.getText(sourceFile))) {
+    // Six-language copy tables contain authored Japanese kanji at index 4.
+    // Audit their Chinese source/aliases, not another language's literal copy.
+    if (ts.isArrayLiteralExpression(node) && node.elements.length >= 5 &&
+        node.elements.slice(0, 3).every(ts.isStringLiteral) &&
+        HAN_TEXT_PATTERN.test(node.elements[0].text) &&
+        !HAN_TEXT_PATTERN.test(node.elements[1].text) &&
+        HAN_TEXT_PATTERN.test(node.elements[2].text)) {
+      const localized = node.elements[{en:1,ko:3,vi:5}[locale]];
+      if (localized && ts.isStringLiteral(localized) && localized.text.trim()) append(localized.text);
+      else node.elements.slice(0, 3).forEach(visit);
+      return;
+    }
+    // Japanese uses kanji; Vietnamese branches must still be inspected in
+    // the Vietnamese audit, including accidentally untranslated copy.
+    const excluded = locale === 'vi' ? ['ja'] : ['ja', 'vi'];
+    const excludedBranch = expression => excluded.includes(
+      /===\s*["'](ja|vi)["']/.exec(expression.getText(sourceFile))?.[1]);
+    if (ts.isPropertyAssignment(node) && excluded.includes(node.name?.text)) return;
+    if (ts.isIfStatement(node) && excludedBranch(node.expression)) {
       visit(node.expression); if (node.elseStatement) visit(node.elseStatement); return;
     }
-    if (ts.isConditionalExpression(node) && /===\s*["'](?:ja|vi)["']/.test(node.condition.getText(sourceFile))) {
+    if (ts.isConditionalExpression(node) && excludedBranch(node.condition)) {
       visit(node.condition); visit(node.whenFalse); return;
     }
     if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
@@ -117,11 +133,11 @@ function chineseLiteralFragments(source, file) {
   return fragments;
 }
 
-for (const locale of ["en", "ko"]) test(`every renderer-owned Chinese literal has a Han-free ${locale} presentation`, () => {
+for (const locale of ["en", "ko", "vi"]) test(`every renderer-owned Chinese literal has a Han-free ${locale} presentation`, () => {
   const failures = [];
   for (const file of rendererSourceFiles()) {
     const source = fs.readFileSync(file, "utf8");
-    for (const text of chineseLiteralFragments(source, file)) {
+    for (const text of chineseLiteralFragments(source, file, locale)) {
       const translated = auditTranslation(text, file, locale);
       if (!HAN_TEXT_PATTERN.test(translated)) continue;
       failures.push({
@@ -156,6 +172,19 @@ test("the corpus audit covers scoped drawing templates and still rejects unknown
   assert.match(auditTranslation(unknown[0], file), HAN_TEXT_PATTERN);
   assert.equal(auditTranslation("置顶", "main.ts"), "Top");
   assert.equal(auditTranslation("置顶", file), "Pin");
+});
+
+test('Vietnamese corpus audit detects residue inside locale-specific branches', () => {
+  for (const snippet of [
+    'const copy = {ja: "日本語", vi: "未收录龘龘提示"};',
+    'if (language === "ja") return "日本語"; if (language === "vi") return "未收录龘龘提示";',
+    'const copy = language === "ja" ? "日本語" : language === "vi" ? "未收录龘龘提示" : "Text";',
+    'const copy = ["中文", "Text", "繁體", "한국어", "日本語", "未收录龘龘提示"];',
+  ]) {
+    const fragments = chineseLiteralFragments(snippet, 'main.ts', 'vi');
+    assert.deepEqual(fragments, ['未收录龘龘提示']);
+    assert.match(auditTranslation(fragments[0], 'main.ts', 'vi'), HAN_TEXT_PATTERN);
+  }
 });
 
 test("every bundled strategy and indicator card has curated Han-free English metadata", () => {
