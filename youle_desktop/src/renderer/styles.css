@@ -39078,8 +39078,14 @@ html[data-theme="dark"] .trading-alert-simulation-point > span {
   text-align: center;
 }
 
+/* The chart pane can be narrower than the settings dialog at high zoom.
+   Use the window viewport and lift its owning stacking context while open. */
+.desktop-body.trading-expert-layout > .trading-expert-chat-panel:has(.trading-chart-settings-backdrop:not([hidden])) {
+  z-index: 126;
+}
+
 .trading-chart-settings-backdrop {
-  position: absolute;
+  position: fixed;
   z-index: 126;
   inset: 0;
   display: grid;
@@ -39093,8 +39099,8 @@ html[data-theme="dark"] .trading-alert-simulation-point > span {
   display: grid;
   width: min(910px, calc(100% - 30px));
   height: min(620px, calc(100% - 30px));
-  min-width: 600px;
-  min-height: 430px;
+  min-width: 0;
+  min-height: 0;
   grid-template-rows: 62px minmax(0, 1fr) 56px;
   overflow: hidden;
   border: 1px solid var(--trading-market-border);

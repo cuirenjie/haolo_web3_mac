@@ -431,6 +431,7 @@ async function inspectLayout(targetWindow, scopeSelector) {
       ".profile-menu", ".profile-stats", ".profile-level-row", ".profile-token-row",
       ".profile-token-balance", ".profile-subscription-row", ".profile-subscription-row > strong",
       ".settings-dialog", ".settings-side", ".settings-main", ".settings-nav-item",
+      ".trading-chart-settings-dialog", ".trading-chart-settings-body", ".trading-chart-settings-row", ".trading-chart-settings-options",
       ".consumption-page", ".consumption-header", ".consumption-profile-card", ".consumption-profile-person",
       ".consumption-metric", ".consumption-calendar-card", ".consumption-calendar-grid", ".consumption-day",
       ".consumption-records-card", ".consumption-table-wrap", ".consumption-detail-title",
@@ -653,6 +654,19 @@ async function inspectLayout(targetWindow, scopeSelector) {
         }
       }
     }
+    // Rectangles can fit their own containers while another stacking context
+    // covers the dialog. Check the actual painted/hit-tested surface as well.
+    const occluded = [];
+    const dialog = scope.matches('.trading-chart-settings-dialog') ? scope : scope.querySelector('.trading-chart-settings-dialog');
+    if (dialog && shown(dialog)) {
+      const rect = dialog.getBoundingClientRect();
+      for (const [x, y] of [[rect.left + 8, rect.top + 8], [rect.right - 8, rect.top + 8],
+        [rect.left + 8, rect.bottom - 8], [rect.right - 8, rect.bottom - 8],
+        [(rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2]]) {
+        const hit = document.elementFromPoint(x, y);
+        if (!hit || !dialog.contains(hit)) occluded.push({ x, y, blocker: hit ? compact(hit) : null });
+      }
+    }
     return {
       missing: false,
       hidden: false,
@@ -666,6 +680,7 @@ async function inspectLayout(targetWindow, scopeSelector) {
       overlaps,
       overflow,
       escapedChildren,
+      occluded,
       englishButtonIssues,
       languageResidue,
       textClipping: (${inspectTextClipping.toString()})(scope),
@@ -808,6 +823,7 @@ async function main() {
                 ...result.overlaps.map((issue) => `text overlap: ${issue.left.text} / ${issue.right.text}`),
                 ...result.overflow.map((issue) => `container overflow: ${issue.element} ${issue.text}`),
                 ...result.escapedChildren.map((issue) => `child escaped: ${issue.container.element} -> ${issue.child.element}`),
+                ...(result.occluded || []).map((issue) => `dialog occluded: ${JSON.stringify(issue)}`),
                 ...result.englishButtonIssues.map((issue) => `English button layout: ${issue.element} ${issue.text}`),
                 ...result.languageResidue.map((issue) => `English UI residue: ${issue.kind} ${issue.value}`),
                 ...result.textClipping.map((issue) => `glyph clipped: ${issue.element} ${issue.text}`),
