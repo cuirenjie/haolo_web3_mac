@@ -15,6 +15,10 @@ const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, mil
 mkdirSync(path.join(OUTPUT, "profile"), { recursive: true });
 app.setPath("userData", path.join(OUTPUT, "profile"));
 app.commandLine.appendSwitch("disable-gpu");
+// A hidden Windows audit window must still receive normal animation frames.
+app.commandLine.appendSwitch("disable-background-timer-throttling");
+app.commandLine.appendSwitch("disable-renderer-backgrounding");
+app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");
 
 async function waitFor(targetWindow, selector, timeoutMs = 15_000) {
   const deadline = Date.now() + timeoutMs;
@@ -799,13 +803,18 @@ async function main() {
                 ...scrollStates.flatMap(state => state.issues.map(issue => `scroll ${state.index}@${state.top}: ${issue}`)),
               ];
               if (issues.length) failures.push({ name, issues, result });
-              if (issues.length || ((["en", "ko", "ja", "vi"].includes(language)) && fontSize === "large" && zoom === 1.5)) {
+              if (issues.length || ((["en", "zh-TW", "ko", "ja", "vi"].includes(language)) && fontSize === "large" && zoom === 1.5)) {
                 const image = await targetWindow.webContents.capturePage();
                 await writeFile(path.join(OUTPUT, `${name}.png`), image.toPNG());
               }
             }
           }
         }
+        // Keep evidence if a long matrix is interrupted before its final report.
+        await writeFile(path.join(OUTPUT, "checkpoint.json"), JSON.stringify({
+          status: "running", language, surface, auditedStates: records.length,
+          records, failures, updatedAt: new Date().toISOString(),
+        }, null, 2));
         targetWindow.webContents.setZoomFactor(1);
         await delay(100);
         if (surface === "profile") {

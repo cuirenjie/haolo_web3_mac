@@ -50,7 +50,7 @@ test('complete placement messages retain counts and technical labels without par
 test('drawing terminology is scoped and Chinese language choices remain available', () => {
   assert.equal(translateDrawingText('趋势角度', 'zh-CN'), '趋势角度');
   assert.equal(translateDrawingText('趋势角度', 'zh-TW'), '趨勢角度');
-  assert.equal(translateAppText('置顶', 'en'), 'Top');
+  assert.equal(translateAppText('置顶', 'en'), 'Pin');
   assert.equal(translateDrawingText('置顶', 'en'), 'Pin');
   assert.equal(englishDrawingText('我的交易笔记'), null);
 });

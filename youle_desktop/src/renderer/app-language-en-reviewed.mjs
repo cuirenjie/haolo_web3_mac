@@ -1,6 +1,8 @@
 // Reviewed product copy. Keep complete phrases ahead of the legacy word map;
 // trading terminology must not be assembled from single-character translations.
+import { REVIEWED_ENGLISH_COPY_R3 } from './app-language-en-review-r3.mjs';
 export const REVIEWED_ENGLISH_UI_PHRASES = Object.freeze({
+  ...REVIEWED_ENGLISH_COPY_R3,
   "在此价格重新创建预警？": "Create a replacement alert at this price?",
   "在此價格重新建立預警？": "Create a replacement alert at this price?",
   "确认后将在此价格创建预警，并自动删除原预警；取消则保留原预警。": "Confirm to create an alert at this price and automatically delete the original. Cancel to keep the original.",

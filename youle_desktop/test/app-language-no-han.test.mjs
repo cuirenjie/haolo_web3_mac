@@ -170,7 +170,7 @@ test("the corpus audit covers scoped drawing templates and still rejects unknown
   const unknown = chineseLiteralFragments('const text = "未收录龘龘提示";', file);
   assert.equal(unknown.length, 1);
   assert.match(auditTranslation(unknown[0], file), HAN_TEXT_PATTERN);
-  assert.equal(auditTranslation("置顶", "main.ts"), "Top");
+  assert.equal(auditTranslation("置顶", "main.ts"), "Pin");
   assert.equal(auditTranslation("置顶", file), "Pin");
 });
 
