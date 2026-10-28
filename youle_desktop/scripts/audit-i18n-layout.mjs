@@ -15,6 +15,9 @@ const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, mil
 mkdirSync(path.join(OUTPUT, "profile"), { recursive: true });
 app.setPath("userData", path.join(OUTPUT, "profile"));
 app.commandLine.appendSwitch("disable-gpu");
+app.commandLine.appendSwitch("disable-background-timer-throttling");
+app.commandLine.appendSwitch("disable-renderer-backgrounding");
+app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");
 
 async function waitFor(targetWindow, selector, timeoutMs = 15_000) {
   const deadline = Date.now() + timeoutMs;
@@ -719,7 +722,7 @@ async function main() {
     width: 1440,
     height: 960,
     backgroundColor: "#111317",
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false, partition: `i18n-layout-qa-${Date.now()}` },
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false, offscreen: process.env.HAOLO_I18N_QA_VISIBLE !== "1", partition: `i18n-layout-qa-${Date.now()}` },
   });
   targetWindow.webContents.on("console-message", (_event, level, message) => { if (level >= 2) console.error("[renderer]", message); });
   const records = [];
@@ -815,10 +818,16 @@ async function main() {
                 failures.push({ name, issues, result });
                 process.stdout.write(`Layout failure ${name}: ${JSON.stringify(issues)}\n`);
               }
-              if (issues.length || ((["en", "ko", "ja", "vi"].includes(language)) && fontSize === "large" && zoom === 1.5)) {
-                const image = await targetWindow.webContents.capturePage();
+              if (issues.length || ((["en", "zh-TW", "ko", "ja", "vi"].includes(language)) && fontSize === "large" && zoom === 1.5)) {
+                await targetWindow.webContents.executeJavaScript("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))", true);
+                const image = await targetWindow.webContents.capturePage(undefined, { stayHidden: true, stayAwake: true });
                 await writeFile(path.join(OUTPUT, `${name}.png`), image.toPNG());
               }
+              // Preserve progress without changing the Mac audit's real-setting loop.
+              await writeFile(path.join(OUTPUT, "checkpoint.json"), JSON.stringify({
+                status: "running", language, surface, auditedStates: records.length,
+                records, failures, updatedAt: new Date().toISOString(),
+              }, null, 2));
               if (surface === "profile") {
                 await click(targetWindow, ".popover-backdrop");
                 await waitForGone(targetWindow, ".profile-menu");

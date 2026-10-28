@@ -286,11 +286,9 @@ html[data-language="en"] .trading-watchlist .trading-watchlist-head button[data-
   scrollbar-color: var(--watchlist-border) transparent;
 }
 .trading-watchlist[data-watchlist-view="recommendations"] .trading-watchlist-rows {
-  overflow: clip;
-  scrollbar-width: none;
-}
-.trading-watchlist[data-watchlist-view="recommendations"] .trading-watchlist-rows::-webkit-scrollbar {
-  display: none;
+  /* Larger fonts and zoom can exceed the recommended-row height estimate. */
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 .trading-watchlist-row {
   position: relative;

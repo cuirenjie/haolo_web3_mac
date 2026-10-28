@@ -12,8 +12,8 @@ test("dynamic accessibility labels translate complete templates and preserve nam
     ["查看Oct 20 2026的用量详情", "View usage details for Oct 20 2026"],
     ["查看Oct 1, 2026的Usage details", "View usage details for Oct 1, 2026"],
     ["Lv16 蛋猫2 蛋1", "Lv16 Egg cat 2 Egg 1"],
-    ["移动平均线 (5,10,20)", "Moving averages (5,10,20)"],
-    ["可见范围成交量分布 (96)", "Visible range volume profile (96)"],
+    ["移动平均线 (5,10,20)", "Moving Average (5,10,20)"],
+    ["可见范围成交量分布 (96)", "Visible Range Volume Profile (96)"],
     ["切换至 BTC/USDT 永续，价格 81,970.70，24小时涨幅 1.40%；拖动调整顺序，Alt+左右键可移动", "Switch to BTC/USDT Perpetual, price 81,970.70, 24h change 1.40%; drag to reorder, or press Alt+Left/Right"],
   ]) assert.equal(translateAppText(source, "en"), expected);
 });

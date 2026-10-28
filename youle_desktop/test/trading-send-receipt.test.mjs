@@ -7,7 +7,7 @@ const user = {id:'user-1',kind:'user_text',role:'user',conversation_id:'thread'}
 
 test('receipt is synchronous, localized, stable during waiting, and not a stored history mutation', () => {
   const messages = [user];
-  for (const locale of ['zh-CN','zh-TW','en','ja','ko']) {
+  for (const locale of ['zh-CN','zh-TW','en','ja','ko','vi']) {
     const receipt = tradingSendReceipt('thread',messages,pending,locale);
     assert.ok(receipt.text);
     assert.equal(receipt.kind,'agent_text');

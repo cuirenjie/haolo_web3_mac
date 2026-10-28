@@ -1,3 +1,4 @@
+import { vietnameseText } from '../shared/vietnamese.mjs';
 import type { Message } from './domain';
 
 const receiptText: Record<string, string> = {
@@ -5,7 +6,7 @@ const receiptText: Record<string, string> = {
   'zh-TW': '收到，我正在準備處理你的請求。',
   'zh-Hant': '收到，我正在準備處理你的請求。',
   en: 'Received. I’m preparing to handle your request.',
-  ja: '受け付けました。リクエストを処理する準備をしています。',
+  ja: '受け付けました。リクエストを処理する準備をしています。', vi: vietnameseText("受け付けました。リクエストを処理する準備をしています。"),
   ko: '요청을 받았습니다. 처리를 준비하고 있습니다.',
 };
 

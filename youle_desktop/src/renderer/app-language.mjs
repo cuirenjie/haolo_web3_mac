@@ -6,6 +6,7 @@ import {
 } from "./app-language-traditional-map.mjs";
 import { GENERATED_ENGLISH_UI_PHRASES } from "./app-language-en-generated.mjs";
 import { REVIEWED_ENGLISH_UI_PHRASES } from "./app-language-en-reviewed.mjs";
+import { reviewedEnglishTemplates } from "./app-language-en-templates.mjs";
 import { PRODUCT_ENGLISH_UI_PHRASES } from "./app-language-en-product.mjs";
 import { GENERATED_TRADITIONAL_UI_PHRASES } from "./app-language-zh-tw-generated.mjs";
 import { englishDrawingText } from "./app-language-en-drawing.mjs";
@@ -1699,7 +1700,7 @@ if (normalizeAppLanguage(language) === "ja") return japaneseText(source);
     ?? exactTranslation(canonicalSource, translationRecord);
   const translated = exact ?? (normalized === "zh-TW"
     ? simplifiedToTraditionalCharacters(replacePhrases(canonicalSource, TRADITIONAL_UI_ENTRIES))
-    : replacePhrases(canonicalSource, ENGLISH_UI_ENTRIES));
+    : replacePhrases(reviewedEnglishTemplates(canonicalSource), ENGLISH_UI_ENTRIES));
   if (translationCache.size >= 6_000) translationCache.clear();
   translationCache.set(cacheKey, translated);
   return translated;
