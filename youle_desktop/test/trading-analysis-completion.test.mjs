@@ -175,6 +175,20 @@ function harness() {
       arguments: { action: "present", artifact: {}, metadata } }) };
 }
 
+test("late live item completion and sparse history retain an incomplete streamed answer", () => {
+  const { context: c, state } = harness();
+  const partial = { id: "answer", type: "agentMessage", turnId: "turn-1", text: "received partial answer", __youleIncompletePartial: true };
+  c.upsertItem("origin", partial);
+  for (const text of ["", "received", undefined]) {
+    c.upsertItem("origin", { id: "answer", type: "agentMessage", turnId: "turn-1", text });
+    assert.equal(state.items.origin.answer.text, partial.text);
+  }
+  const sparse = c.orderedThreadItems({turns: [{id: "turn-1", items: [{id: "answer", type: "agentMessage", text: "received"}]}]}, [state.items.origin.answer], {preserveUnmatched: true});
+  assert.equal(sparse[0].text, partial.text);
+  c.upsertItem("origin", { id: "answer", type: "agentMessage", text: "authoritative corrected answer" });
+  assert.equal(state.items.origin.answer.text, "authoritative corrected answer");
+});
+
 test("visible native plan is an artifact; working state remains until the root answers the request", async () => {
   const h = harness(), c = h.context;
   assert.equal(c.withThinkingMessage("origin", []).at(-1).text, "智能体正在执行");

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
 import ts from "typescript";
+import { modelIncompleteFacts, incompleteResponseCopy, incompleteNoticeItem } from "../src/shared/model-incomplete.mjs";
 import { errorSignals } from "../src/main/error-signals.mjs";
 import { ExternalChannelRecoveryTurns } from "../src/renderer/external-channel-recovery.mjs";
 import * as lifecycle from "../src/renderer/context-compaction-lifecycle.ts";
@@ -19,7 +20,7 @@ const names = new Set([
   "settledContextCompactionNotificationItem", "settleUnfinishedContextCompactions",
   "restoreThreadContextCompactionsFromItems", "rememberTurnResultStatus", "setCodexThreadBusy",
   "automaticTurnRecoveryMeta", "automaticTurnRecoveryIsQueued", "announceAutomaticTurnRecovery",
-  "formatTurnFailureMessage", "handleNotification", "notificationItemWithTurnId", "hasActiveContextCompaction",
+  "formatTurnFailureMessage", "handleNotification", "notificationItemWithTurnId", "hasActiveContextCompaction", "appendIncompleteTurnNotice",
   "renderContextCompactionBubble", "requestAutomaticThreadContextCompaction", "finishInterruptedTurnLocally",
 ]);
 const functions = parsed.statements.filter((node) => ts.isFunctionDeclaration(node) && names.has(node.name?.text));
@@ -45,7 +46,7 @@ function harness() {
   const context = Object.fromEntries([...externalCalls].filter((name) => !names.has(name) && !["String", "Boolean", "Number"].includes(name))
     .map((name) => [name, (...args) => { calls.push({ name, args }); return false; }]));
   Object.assign(context, lifecycle, {
-    state, calls, errorSignals, api: {}, HANDLED_STATUS_LABEL: "已处理",
+    state, calls, errorSignals, modelIncompleteFacts, incompleteResponseCopy, incompleteNoticeItem, api: {}, HANDLED_STATUS_LABEL: "已处理",
     contextCompactionPromises: new Map(), contextCompactionStartedAtMs: new Map(),
     contextCompactionTerminalTurns: new Map(), activeCodexThreadIds: new Set(), pendingCodexTurns: new Map(),
     threadsAwaitingAgentReply: new Set(), contextWindowRecoveryReplays: new Map(), internalSubagentThreadIds: new Set(),
@@ -100,6 +101,19 @@ function assertStopped(h, status = "failed", id = "compact-1") {
   assert.equal(h.contextCompactionStartedAtMs.has("thread"), false);
   assert.equal(h.activeCodexThreadIds.has("thread"), false);
   assert.equal(h.state.activeTurnIds.thread, undefined);
+}
+
+for (const status of ["completed", "incomplete", "failed"]) {
+  test(`incomplete protocol cannot leave turn status as ${status} or lose partial answer identity`, () => {
+    const h = harness(); h.start();
+    h.upsertItem("thread", {id: "partial", type: "agentMessage", turnId: "turn-1", text: "received partial answer"});
+    h.emit("turn/completed", "turn-1", {turn: {id: "turn-1", status, error: {code: "MODEL_RESPONSE_INCOMPLETE", message: "MODEL_RESPONSE_INCOMPLETE reason=max_output_tokens"}}});
+    assertStopped(h);
+    assert.equal(h.contextCompactionTerminalTurns.get("thread:turn-1").status, "failed");
+    assert.equal(h.state.items.thread.partial.__youleIncompletePartial, true);
+    assert.equal(h.state.items.thread['agent-notice-incomplete-turn-1'].actions[0].kind, "continue-incomplete");
+    assert.equal(h.calls.filter(call => call.name === "appendAgentNotice").length, 0);
+  });
 }
 
 test("real notification handler closes failed pre-sampling compaction and exhausts recovery visibly once", () => {

@@ -3179,6 +3179,121 @@
         "youle_desktop/src/renderer/styles.css",
         "youle_desktop/scripts/audit-i18n-layout.mjs"
       ]
+    },
+    {
+      "id": "model-incomplete-response-zh-cn",
+      "title": "模型回答未完成与手动补全",
+      "body": "新版 Mac 源码会区分模型输出达到上限、内容限制和原因未知的未完成响应，并保留已收到的部分回答。可继续的情况提供“继续补全”，点击仅在当前会话填入草稿，由用户检查并发送，不自动重放原请求、不切换备用模型。继续前核对已有工具结果和操作记录，状态不明的操作先核实，不能保证所有外部操作天然幂等。诊断报告保留未完成原因、响应 ID 和用量元数据。此修复待客户端发布，旧安装版本以实际行为为准。网关预热与历史拼接修复独立部署；本项无新增客服代操作。",
+      "category": "usage",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/shared/model-incomplete.mjs",
+        "youle_desktop/src/main/deepseek-responses-adapter.mjs",
+        "youle_desktop/src/main/model-failure-policy.mjs",
+        "youle_desktop/src/main/turn-diagnostics.mjs",
+        "youle_desktop/src/renderer/main.ts"
+      ]
+    },
+    {
+      "id": "model-incomplete-response-zh-hant",
+      "title": "模型回答未完成與手動補全",
+      "body": "新版 Mac 原始碼會區分輸出達到上限、內容限制及原因未知的未完成回應，並保留已收到的部分回答。可繼續時提供「繼續補全」，點選只在目前會話填入草稿，須由使用者檢查後傳送，不會自動重送原請求或切換備用模型。繼續前須核對工具結果與操作紀錄，狀態不明的操作先查證。診斷報告保留原因、回應 ID 及用量中繼資料。此修正尚待發布，舊安裝版本以實際行為為準；閘道修正另行部署。無新增客服代操作。",
+      "category": "usage",
+      "locale": "zh-Hant",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/shared/model-incomplete.mjs",
+        "youle_desktop/src/main/deepseek-responses-adapter.mjs",
+        "youle_desktop/src/main/turn-diagnostics.mjs",
+        "youle_desktop/src/renderer/main.ts"
+      ]
+    },
+    {
+      "id": "model-incomplete-response-en",
+      "title": "Incomplete model answers and manual continuation",
+      "body": "The updated Mac source distinguishes output limits, content restrictions and unknown incomplete responses, retaining received partial answers. When continuation is available, Continue answer fills a draft in the same conversation for the user to review and send. It does not automatically replay the failed request or change models. Check previous tool results and action records, and verify operations with an unknown outcome before proceeding. Diagnostics retain the reason, response ID and usage metadata. This fix is pending a client release; gateway prewarm and history fixes deploy separately. No support action is added.",
+      "category": "usage",
+      "locale": "en",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/shared/model-incomplete.mjs",
+        "youle_desktop/src/main/deepseek-responses-adapter.mjs",
+        "youle_desktop/src/main/turn-diagnostics.mjs",
+        "youle_desktop/src/renderer/main.ts"
+      ]
+    },
+    {
+      "id": "model-incomplete-response-ko",
+      "title": "미완료 모델 답변과 수동 이어가기",
+      "body": "Mac 클라이언트는 출력 한도, 콘텐츠 제한 및 원인을 알 수 없는 미완료 응답을 구분하고 받은 답변을 보존합니다. 이어가기가 가능하면 같은 대화에 초안만 입력하며 사용자가 확인한 뒤 전송합니다. 원래 요청을 자동 재실행하거나 모델을 변경하지 않습니다. 기존 도구 결과와 작업 기록을 확인하고 결과가 불명확한 작업은 먼저 검증하세요. 진단에는 원인, 응답 ID 및 사용량 메타데이터가 포함됩니다. 이 수정은 클라이언트 출시 대기 상태이며 게이트웨이 변경은 별도 배포입니다. 새로운 고객 지원 대행 작업은 없습니다.",
+      "category": "usage",
+      "locale": "ko",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/shared/model-incomplete.mjs",
+        "youle_desktop/src/main/deepseek-responses-adapter.mjs",
+        "youle_desktop/src/main/turn-diagnostics.mjs",
+        "youle_desktop/src/renderer/main.ts"
+      ]
+    },
+    {
+      "id": "model-incomplete-response-ja",
+      "title": "モデルの未完了回答と手動での続行",
+      "body": "Mac クライアントは出力上限、内容制限、原因不明の未完了応答を区別し、受信済みの回答を保持します。続行できる場合は同じ会話に下書きだけを入力し、ユーザーが確認して送信します。元の要求の自動再実行やモデルの切り替えは行いません。既存のツール結果と操作履歴を確認し、結果が不明な操作は先に検証してください。診断には理由、応答 ID、使用量のメタデータを記録します。この修正はクライアントのリリース待ちで、ゲートウェイの変更は別途配布されます。新しいサポート代行操作はありません。",
+      "category": "usage",
+      "locale": "ja",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/shared/model-incomplete.mjs",
+        "youle_desktop/src/main/deepseek-responses-adapter.mjs",
+        "youle_desktop/src/main/turn-diagnostics.mjs",
+        "youle_desktop/src/renderer/main.ts"
+      ]
+    },
+    {
+      "id": "model-incomplete-response-vi",
+      "title": "Câu trả lời chưa hoàn tất và tiếp tục thủ công",
+      "body": "Ứng dụng Mac phân biệt giới hạn đầu ra, hạn chế nội dung và phản hồi chưa hoàn tất không rõ nguyên nhân, đồng thời giữ nội dung đã nhận. Khi có thể tiếp tục, nút tiếp tục chỉ điền bản nháp trong cùng cuộc trò chuyện để người dùng kiểm tra và gửi. Ứng dụng không tự gửi lại yêu cầu hoặc đổi mô hình. Hãy kiểm tra kết quả công cụ và lịch sử thao tác; xác minh thao tác chưa rõ kết quả trước khi tiếp tục. Báo cáo chẩn đoán lưu nguyên nhân, ID phản hồi và siêu dữ liệu sử dụng. Bản sửa đang chờ phát hành ứng dụng; thay đổi cổng kết nối được triển khai riêng. Không có thao tác hỗ trợ thay mặt người dùng mới.",
+      "category": "usage",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/shared/model-incomplete.mjs",
+        "youle_desktop/src/main/deepseek-responses-adapter.mjs",
+        "youle_desktop/src/main/turn-diagnostics.mjs",
+        "youle_desktop/src/renderer/main.ts"
+      ]
     }
   ]
 }

@@ -10,6 +10,7 @@ import { migrateRetiredModelSelection } from "../src/main/retired-model-policy.m
 import { normalizeConversationMode, IMAGE_GENERATION_CONVERSATION_MODE, VIDEO_GENERATION_CONVERSATION_MODE } from "../src/main/conversation-mode.mjs";
 import { TurnAutoRecoveryCoordinator } from "../src/main/turn-auto-recovery.mjs";
 import { translateAppText } from "../src/renderer/app-language.mjs";
+import { modelIncompleteFacts, incompleteResponseCopy } from "../src/shared/model-incomplete.mjs";
 
 const main = fs.readFileSync(new URL("../src/main/main.mjs", import.meta.url), "utf8");
 const renderer = fs.readFileSync(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
@@ -105,7 +106,7 @@ test("production turn start registers media recovery selection on the actual tar
 
 test("actual media recovery notices describe the GPT continuation and translate without fallback claims", () => {
   const notices = [];
-  const deps = { firstString, automaticTurnRecoveryNoticeKeys: new Set(), appendAgentNotice: (_id, text) => notices.push(text), isContextWindowExhaustedError: () => false };
+  const deps = { firstString, modelIncompleteFacts, incompleteResponseCopy, automaticTurnRecoveryNoticeKeys: new Set(), appendAgentNotice: (_id, text) => notices.push(text), isContextWindowExhaustedError: () => false };
   const announce = new Function(...Object.keys(deps), `${functions(renderer, ["formatTurnFailureMessage", "announceAutomaticTurnRecovery"])}; return announceAutomaticTurnRecovery;`)(...Object.values(deps));
   for (const status of ["scheduled", "starting", "cooling_down", "exhausted"]) announce("media", { chainId: "media", status, modelId: "gpt-5.6-sol", conversationMode: "image-generation" });
   assert.equal(notices.length, 3, "deduplicates scheduled/starting for the same recovery");
