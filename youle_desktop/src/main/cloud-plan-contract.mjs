@@ -1,3 +1,4 @@
+import { vietnameseText } from '../shared/vietnamese.mjs';
 import { koreanText, localizedChoice } from '../shared/korean.mjs';
 // Public presentation contract shared with the renderer and durable history.
 // Contains no strategy decisions. The main process validates the server receipt;
@@ -25,7 +26,7 @@ export function cloudPlanControls(language) {
     'zh-TW':['卡片文字與便利貼操作','放大','縮小','便利貼'],
     en:['Card text and sticky note controls','Larger','Smaller','Sticky note'],
     ko:['카드 글자 및 메모 제어','확대','축소','메모'],
-    ja:['カードの文字サイズと付箋の操作','拡大','縮小','付箋'],
+    ja:['カードの文字サイズと付箋の操作','拡大','縮小','付箋'], vi: [vietnameseText("カードの文字サイズと付箋の操作"),vietnameseText("拡大"),vietnameseText("縮小"),vietnameseText("付箋")],
   };
   const [label,increase,decrease,sticky]=rows[language]||rows['zh-CN'];
   return {label,increase,decrease,sticky};
@@ -41,7 +42,7 @@ export function normalizeCloudReports(value) {
   return rows.map(row=>{
     const identity=row.executionPlan?.wyckoffScenario ? `${row.runId}:${row.executionPlan.planId}` : row.runId;
     if(row?.schemaVersion!==1||!uuid(row.runId)||seen.has(identity)||!hash(row.resultHash)
-      ||!['zh-CN','en','zh-Hant','ko','ja'].includes(row.locale)||typeof row.marketId!=='string'||typeof row.interval!=='string'
+      ||!['zh-CN','en','zh-Hant','ko','ja', 'vi'].includes(row.locale)||typeof row.marketId!=='string'||typeof row.interval!=='string'
       ||typeof row.strategyId!=='string'||typeof row.report!=='string'||row.report.length>500000
       ||!Array.isArray(row.planRecords)) fail();
     seen.add(identity);

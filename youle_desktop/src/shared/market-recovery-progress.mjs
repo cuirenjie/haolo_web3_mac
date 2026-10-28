@@ -1,3 +1,4 @@
+import { vietnameseText } from './vietnamese.mjs';
 import { japaneseText } from './japanese.mjs';
 import { koreanText } from './korean.mjs';
 const messages = {
@@ -11,5 +12,5 @@ const messages = {
 };
 
 export function marketRecoveryProgressMessage(stage,language='zh-CN') {
-  return language === 'ja' ? messages[stage]?.[4] || japaneseText(messages[stage]?.[0] || '') : language === 'ko' ? messages[stage]?.[3] || koreanText(messages[stage]?.[0] || '') : messages[stage]?.[language === 'en' || language === 'en-US' ? 1 : ['zh-Hant','zh-TW','zh-HK'].includes(language) ? 2 : 0] || '';
+  return language === 'vi' ? vietnameseText(messages[stage]?.[0] || '') : language === 'ja' ? messages[stage]?.[4] || japaneseText(messages[stage]?.[0] || '') : language === 'ko' ? messages[stage]?.[3] || koreanText(messages[stage]?.[0] || '') : messages[stage]?.[language === 'en' || language === 'en-US' ? 1 : ['zh-Hant','zh-TW','zh-HK'].includes(language) ? 2 : 0] || '';
 }

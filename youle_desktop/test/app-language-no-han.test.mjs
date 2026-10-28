@@ -88,11 +88,11 @@ function chineseLiteralFragments(source, file) {
   );
   const visit = (node) => {
     // Japanese uses kanji: authored Japanese branches are not Chinese source copy.
-    if (ts.isPropertyAssignment(node) && node.name?.text === 'ja') return;
-    if (ts.isIfStatement(node) && /===\s*["']ja["']/.test(node.expression.getText(sourceFile))) {
+    if (ts.isPropertyAssignment(node) && ['ja', 'vi'].includes(node.name?.text)) return;
+    if (ts.isIfStatement(node) && /===\s*["'](?:ja|vi)["']/.test(node.expression.getText(sourceFile))) {
       visit(node.expression); if (node.elseStatement) visit(node.elseStatement); return;
     }
-    if (ts.isConditionalExpression(node) && /===\s*["']ja["']/.test(node.condition.getText(sourceFile))) {
+    if (ts.isConditionalExpression(node) && /===\s*["'](?:ja|vi)["']/.test(node.condition.getText(sourceFile))) {
       visit(node.condition); visit(node.whenFalse); return;
     }
     if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {

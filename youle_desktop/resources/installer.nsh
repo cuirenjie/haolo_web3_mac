@@ -29,6 +29,7 @@
   Var haoloShortcutOutput
   Var haoloShortcutOptOut
   LangString haoloShortcutFailure 1033 "HaoLo is installed, but its desktop shortcut could not be verified. Check the desktop folder permissions and the installation account. Retry to try again, or Cancel to finish with shortcut setup incomplete. You can create it later in Settings."
+  LangString haoloShortcutFailure 1066 "HaoLo đã được cài đặt nhưng chưa thể tạo hoặc xác minh lối tắt trên màn hình nền. Vui lòng kiểm tra quyền truy cập thư mục màn hình nền và tài khoản cài đặt. Chọn Thử lại để thử lại hoặc Hủy để hoàn tất cài đặt khi lối tắt chưa được thiết lập. Bạn có thể tạo lối tắt sau trong phần Cài đặt."
   LangString haoloShortcutFailure 1041 "HaoLo はインストールされましたが、デスクトップのショートカットを作成または確認できませんでした。デスクトップフォルダーの権限とインストール時のアカウントをご確認ください。「再試行」でやり直すか、「キャンセル」でインストールを終了できます。ショートカットは後で設定から作成できます。"
   LangString haoloShortcutFailure 1042 "HaoLo가 설치되었지만 바탕 화면 바로 가기를 만들거나 확인하지 못했습니다. 바탕 화면 폴더의 권한과 설치 계정을 확인하세요. 다시 시도하거나 취소를 눌러 설치를 마칠 수 있습니다. 바로 가기는 나중에 설정에서 다시 만들 수 있습니다."
   LangString haoloShortcutFailure 2052 "HaoLo 已安装，但桌面快捷方式未能创建或验证。请检查桌面目录权限，以及安装账户是否为您日常使用的账户。点击重试再次尝试；点击取消将结束安装，快捷方式问题仍需处理，之后可在设置中重试。"

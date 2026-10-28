@@ -1,3 +1,4 @@
+import { vietnameseText } from '../shared/vietnamese.mjs';
 import {executionPlanCardHeading} from './execution-plan-card-view.mjs';
 
 const words = {
@@ -31,7 +32,7 @@ const noSignalCopy = {
   'zh-TW': ['暫無交易訊號', '目前尚未形成有效入場條件。', '等待新的確認訊號後重新分析；具體原因見分析正文。'],
   en: ['No trading signal', 'No valid entry conditions have formed yet.', 'Reanalyse after a new confirmation signal. See the analysis for details.'],
   ko: ['현재 거래 신호 없음', '유효한 진입 조건이 아직 형성되지 않았습니다.', '새로운 확인 신호가 나타나면 다시 분석하세요. 자세한 이유는 분석 본문을 확인하세요.'],
-  ja: ['現在、取引シグナルなし', '有効なエントリー条件はまだ成立していません。', '新たな確認シグナルが出たら再分析してください。詳しい理由は分析本文をご確認ください。'],
+  ja: ['現在、取引シグナルなし', '有効なエントリー条件はまだ成立していません。', '新たな確認シグナルが出たら再分析してください。詳しい理由は分析本文をご確認ください。'], vi: [vietnameseText("現在、取引シグナルなし"), vietnameseText("有効なエントリー条件はまだ成立していません。"), vietnameseText("新たな確認シグナルが出たら再分析してください。詳しい理由は分析本文をご確認ください。")],
 };
 const historicalCopy = {
   ko: {
@@ -59,6 +60,18 @@ const historicalCopy = {
     missing:'十分かつ連続した最新の市場データを復旧し、戦略評価を完了してから発動価格を決めてください。',
     invalidate:'回復・再テストの失敗、構造の無効化、計画の期限切れの場合は、その方向を取り消して再分析してください。',
     notice:'これは条件付きの予備計画であり、即時エントリーのシグナルではありません。', expiry:'計画の有効期限', expired:'計画の有効期限が切れています。再分析してください。',
+  }, vi: {
+    left:vietnameseText("左側の条件付き計画 · 発動待ち"), right:vietnameseText("右側の条件付き計画 · 確認待ち"), long:vietnameseText("ロング条件"), short:vietnameseText("ショート条件"),
+    at_or_below:vietnameseText("価格が次の水準以下に戻る"), at_or_above:vietnameseText("価格が次の水準以上に戻る"),
+    cross_up:vietnameseText("ローソク足の終値が次の水準を上抜ける"), cross_down:vietnameseText("ローソク足の終値が次の水準を下抜ける"),
+    reclaim_follow:vietnameseText("ゾーン到達後の回復と、その後の確定足による同方向の追随を確認し、エントリー・損切り・利確を再分析してください。"),
+    closed_breakout_retest:vietnameseText("終値でのブレイク後に、その価格の再テストと維持を確認し、エントリー・損切り・利確を再分析してください。"),
+    closed_range:vietnameseText("直近20本の確定足のレンジを参考にしたもので、戦略シグナルは未確認です。"),
+    native_structure:vietnameseText("戦略の構造に基づく参考価格です。確認を待っています。"), reason:vietnameseText("現在満たされていない条件"),
+    recheck:vietnameseText("発動後に選択した戦略、口座リスク、コスト、純リスクリワード比を再確認してからエントリー通知を有効にできます。"),
+    missing:vietnameseText("十分かつ連続した最新の市場データを復旧し、戦略評価を完了してから発動価格を決めてください。"),
+    invalidate:vietnameseText("回復・再テストの失敗、構造の無効化、計画の期限切れの場合は、その方向を取り消して再分析してください。"),
+    notice:vietnameseText("これは条件付きの予備計画であり、即時エントリーのシグナルではありません。"), expiry:vietnameseText("計画の有効期限"), expired:vietnameseText("計画の有効期限が切れています。再分析してください。"),
   },
 };
 
@@ -103,7 +116,7 @@ function historicalConditionalWatchCard(report, language, now = Date.now()) {
   if (!watch || !validConditionalWatch(watch, report.executionPlan, report.strategyId)) return null;
   // Historical reasonText has three frozen languages; keep its English text
   // for newer locales instead of translating or rewriting the saved reason.
-  const index = ['en','ko','ja'].includes(language) ? 1 : ['zh-TW','zh-Hant'].includes(language) ? 2 : 0;
+  const index = ['en','ko','ja', 'vi'].includes(language) ? 1 : ['zh-TW','zh-Hant'].includes(language) ? 2 : 0;
   const t = key => historicalCopy[language]?.[key] || words[key][index];
   const title = `${report.marketId} · ${report.interval} · ${t(watch.mode)}`;
   const lines = [t(watch.mode), `${t('reason')}: ${watch.reasonText[index]}`];

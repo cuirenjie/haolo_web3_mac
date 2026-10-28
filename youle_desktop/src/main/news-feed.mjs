@@ -9,7 +9,7 @@ export function validNewsItem(item) {
 }
 export function newsArticleUrl(id, locale = 'zh-CN') {
   if (!uuid(id)) throw new Error('NEWS_ID_INVALID');
-  return `https://haolo.com/api/news/read/${encodeURIComponent(id)}?lang=${encodeURIComponent(['zh-CN','zh-Hant','en','ko','ja'].includes(locale) ? locale : 'zh-CN')}`;
+  return `https://haolo.com/api/news/read/${encodeURIComponent(id)}?lang=${encodeURIComponent(['zh-CN','zh-Hant','en','ko','ja', 'vi'].includes(locale) ? locale : 'zh-CN')}`;
 }
 
 // Public articles only. Persist the queue before advancing its cursor, and only

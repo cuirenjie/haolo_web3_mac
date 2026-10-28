@@ -1,3 +1,4 @@
+import { vietnameseText } from '../shared/vietnamese.mjs';
 export type SupportAction = { kind: string; theme?: "light" | "dark"; indicator?: string; parameters?: Record<string, number>; up_color?: string; down_color?: string };
 export type SupportProposal = { id: string; epoch: number; title: string; plan: SupportAction[]; status: string; device_id: string; next_step: number; reply_locale?: string; context_binding?: Record<string, any> };
 export type SupportAI = { mode: "ai" | "human" | "closed"; phase: string; epoch: number; actions: SupportProposal[]; reply_locale?: string; protocol_version?: number; copy?: Record<string, string> };
@@ -19,7 +20,7 @@ const text = {
 export const assistText = (locale: string, key: keyof typeof text.en) => (text[(locale === "zh-Hant" ? "zh-TW" : locale) as keyof typeof text] || text["zh-CN"])[key];
 export const supportIsTyping = (ai?: SupportAI | null) => ai?.mode === "ai" && ["queued", "thinking", "retrying"].includes(ai.phase);
 export function describeSupportAction(action: SupportAction, locale: string) {
-  const labels = locale === "ja" ? ["設定を開く", "テーマを変更", "利用履歴を開く", "インジケーター設定を開く", "インジケーター設定", "ローソク足の色設定を開く", "ローソク足の色を変更", "ライト", "ダーク", "上昇", "下落", "パラメーター"] : locale === "ko" ? ["설정 열기", "테마 변경", "사용 내역 열기", "지표 설정 열기", "지표 설정", "캔들 색상 설정 열기", "캔들 색상 변경", "밝게", "어둡게", "상승", "하락", "매개변수"] : locale === "en"
+  const labels = locale === "vi" ? [vietnameseText("設定を開く"), vietnameseText("テーマを変更"), vietnameseText("利用履歴を開く"), vietnameseText("インジケーター設定を開く"), vietnameseText("インジケーター設定"), vietnameseText("ローソク足の色設定を開く"), vietnameseText("ローソク足の色を変更"), vietnameseText("ライト"), vietnameseText("ダーク"), vietnameseText("上昇"), vietnameseText("下落"), vietnameseText("パラメーター")] : locale === "ja" ? ["設定を開く", "テーマを変更", "利用履歴を開く", "インジケーター設定を開く", "インジケーター設定", "ローソク足の色設定を開く", "ローソク足の色を変更", "ライト", "ダーク", "上昇", "下落", "パラメーター"] : locale === "ko" ? ["설정 열기", "테마 변경", "사용 내역 열기", "지표 설정 열기", "지표 설정", "캔들 색상 설정 열기", "캔들 색상 변경", "밝게", "어둡게", "상승", "하락", "매개변수"] : locale === "en"
     ? ["Open Settings", "Set appearance", "Open usage details", "Open indicator settings", "Set indicator", "Open candle color settings", "Set candle colors", "Light", "Dark", "Rising", "Falling", "Parameter"]
     : ["zh-TW", "zh-Hant"].includes(locale)
       ? ["開啟設定", "切換主題外觀", "開啟積分消耗", "開啟指標設定", "設定指標", "開啟 K 線漲跌顏色設定", "設定 K 線顏色", "明亮", "黑暗", "上漲", "下跌", "參數"]

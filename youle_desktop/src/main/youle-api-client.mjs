@@ -3581,11 +3581,11 @@ export class YouleApiClient {
     if (operation === 'list' && !NEWS_CATEGORIES.includes(category)) throw Error('INVALID_NEWS_CATEGORY');
     if (operation === 'vote' && ![-1,0,1].includes(params.direction)) throw Error('INVALID_NEWS_VOTE');
     const endpoint = '/api/market-data/news' + (operation === 'list' ? '' : `/${id}${operation === 'vote' ? '/vote' : ''}`);
-    const target = operation === 'list' ? appendQuery(endpoint, {day:params.day,cursor:params.cursor,language:params.language === 'ja' ? 'ja' : params.language === 'en' ? 'en' : 'cn',category}) : endpoint;
+    const target = operation === 'list' ? appendQuery(endpoint, {day:params.day,cursor:params.cursor,language:params.language === 'vi' ? 'vi' : params.language === 'ja' ? 'ja' : params.language === 'en' ? 'en' : 'cn',category}) : endpoint;
     const response = await this.requestJson(joinUrl(this.baseUrl, target), {
       method: operation === 'vote' ? 'PUT' : 'GET', headers: this.clientHeaders({auth:true,json:operation === 'vote'}),
       ...(operation === 'vote' ? {body:JSON.stringify({direction:params.direction})} : {}),
-      timeoutMs: params.language === 'ja' ? 120_000 : 25_000, timeoutMessage:'NEWS_UNAVAILABLE',
+      timeoutMs: params.language === 'vi' ? 120_000 : params.language === 'ja' ? 120_000 : 25_000, timeoutMessage:'NEWS_UNAVAILABLE',
     });
     if (revision !== this.authRevision) throw Error('SESSION_CHANGED');
     this.requireAuth(); return response;
@@ -7419,7 +7419,7 @@ function extractProviderChatText(payload, { allowEmpty = false } = {}) {
 }
 
 function normalizeConsumptionLanguage(value) {
-  return value === "ja" || value === "ko" || value === "en" || value === "zh-TW" ? value : "zh-CN";
+  return (value === "vi" || value === "ja") || value === "ko" || value === "en" || value === "zh-TW" ? value : "zh-CN";
 }
 
 function fixedProviderReasoningEffort(params = {}) {

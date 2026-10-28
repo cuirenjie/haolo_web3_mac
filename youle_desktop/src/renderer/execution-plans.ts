@@ -1,3 +1,4 @@
+import { vietnameseText } from '../shared/vietnamese.mjs';
 import { japaneseText } from '../shared/japanese.mjs';
 import { executionPlanRecognitionText as planText } from '../shared/execution-plan-language.mjs';
 import { koreanText, localizedChoice } from '../shared/korean.mjs';
@@ -269,19 +270,20 @@ export function executionPlanCardTitle(input: {
     if (context) break;
   }
   const english = input.language === "en";
-  const japanese = input.language === "ja" || (!input.language && /[\p{Script=Hiragana}\p{Script=Katakana}]|Binance\s*無期限|実行計画/u.test(String(input.fallbackTitle)));
+  const vietnamese = input.language === "vi";
+const japanese = input.language === "ja" || (!input.language && /[\p{Script=Hiragana}\p{Script=Katakana}]|Binance\s*無期限|実行計画/u.test(String(input.fallbackTitle)));
   const cleanedFallbackTitle = cleanExecutionPlanDisplayText(input.fallbackTitle).slice(0, 120);
   const safeFallbackTitle = english && /[\u3400-\u9fff]/u.test(cleanedFallbackTitle)
     ? "Execution plan"
     : cleanedFallbackTitle;
   const baseTitle = context
-    ? `${context.baseAsset}/${context.quoteAsset} ${japanese ? japaneseText("币安永续") : english ? "Binance Perpetual" : "币安永续"} ${context.interval}`
-    : safeFallbackTitle || (japanese ? japaneseText("执行计划") : english ? "Execution plan" : "执行计划");
+    ? `${context.baseAsset}/${context.quoteAsset} ${vietnamese ? vietnameseText("币安永续") : japanese ? japaneseText("币安永续") : english ? "Binance Perpetual" : "币安永续"} ${context.interval}`
+    : safeFallbackTitle || (vietnamese ? vietnameseText("执行计划") : japanese ? japaneseText("执行计划") : english ? "Execution plan" : "执行计划");
   const fallback = planText(input.fallbackTitle);
   const sideSuffix = fallback.match(/(?:·|-)\s*(多头|空头)条件方案/u)?.[1]
     || fallback.match(/(?:·|-)\s*(LONG|SHORT) SETUP/iu)?.[1]?.toLowerCase();
   const localizedSideSuffix = sideSuffix
-    ? japanese
+    ? vietnamese ? vietnameseText(`${sideSuffix === "多头" || sideSuffix === "long" ? "多头" : "空头"}条件方案`) : japanese
       ? japaneseText(`${sideSuffix === "多头" || sideSuffix === "long" ? "多头" : "空头"}条件方案`)
       : english
       ? `${sideSuffix === "多头" || sideSuffix === "long" ? "Long" : "Short"} setup`

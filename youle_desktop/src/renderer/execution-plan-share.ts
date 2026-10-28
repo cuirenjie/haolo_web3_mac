@@ -1,3 +1,4 @@
+import { vietnameseText } from '../shared/vietnamese.mjs';
 import { withKoreanVariants } from '../shared/korean.mjs';
 import QRCode from 'qrcode';
 import { cloudPlanCard } from '../main/cloud-plan-contract.mjs';
@@ -31,8 +32,8 @@ export function planShareSnapshot(candidate: ExecutionPlanCandidate, language: s
   const pair = symbol.replace(/(USDT|USDC|BUSD)$/, '/$1');
   const interval = text('.execution-plan-heading h2').split(' · ')[1] || /(?:永续|永續|perpetual)\s+(\d+[mhdw])/i.exec(candidate.title)?.[1] || '';
   const venue = market.startsWith('BINANCE:') ? (market.includes(':FUTURES:')
-    ? language === 'ja' ? 'Binance 無期限先物' : language === 'ko' ? '바이낸스 무기한 선물' : language === 'en' ? 'Binance Perpetual' : language === 'zh-TW' ? '幣安永續' : '币安永续'
-    : language === 'ja' ? 'Binance 現物' : language === 'ko' ? '바이낸스 현물' : language === 'en' ? 'Binance Spot' : language === 'zh-TW' ? '幣安現貨' : '币安现货') : market.split(':')[0];
+    ? language === 'vi' ? vietnameseText("Binance 無期限先物") : language === 'ja' ? 'Binance 無期限先物' : language === 'ko' ? '바이낸스 무기한 선물' : language === 'en' ? 'Binance Perpetual' : language === 'zh-TW' ? '幣安永續' : '币安永续'
+    : language === 'vi' ? vietnameseText("Binance 現物") : language === 'ja' ? 'Binance 現物' : language === 'ko' ? '바이낸스 현물' : language === 'en' ? 'Binance Spot' : language === 'zh-TW' ? '幣安現貨' : '币安现货') : market.split(':')[0];
   return Object.freeze({ title: `${pair} · ${interval}`, venue,
     badges: [...host.querySelectorAll('.execution-plan-badge')].map(node => node.textContent?.trim() || ''),
     entry: prices[0], stop: prices[1], long: host.querySelector('.execution-plan-price')?.classList.contains('bullish') === true,

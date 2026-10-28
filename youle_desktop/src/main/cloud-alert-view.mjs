@@ -1,3 +1,4 @@
+import { vietnameseText } from '../shared/vietnamese.mjs';
 import { koreanText, localizedChoice } from '../shared/korean.mjs';
 import {isCloudPriceRule} from './trading-alerts/cloud-notification-event.mjs';
 const words={
@@ -15,8 +16,9 @@ const words={
 };
 const korean={title:'계획 알림',notice:'조건 충족은 알림만 생성하며 체결을 의미하거나 주문을 실행하지 않습니다.',entry:'진입 조건 충족',stop:'손절 조건 충족',target:'익절 조건 충족',break_even:'본전 조건 충족: 계획된 본전 가격으로 손절을 이동하세요',time:'계획된 최대 보유 시간에 도달했습니다',structure:'계획 구조가 무효화되었습니다'};
 Object.assign(korean,{alertTitle:'알림 발생',price:'가격 조건 충족',compound:'복합 알림 조건 충족'});
+const vietnamese={title:vietnameseText("プラン通知"),alertTitle:vietnameseText("アラート発動"),price:vietnameseText("価格条件を満たしました"),compound:vietnameseText("複合アラート条件を満たしました")};
 const japanese={title:'プラン通知',alertTitle:'アラート発動',price:'価格条件を満たしました',compound:'複合アラート条件を満たしました'};
-const t=(key,language)=>language==='ja'&&japanese[key]?japanese[key]:language==='ko'&&korean[key]?korean[key]:words[key]?localizedChoice(words[key],language):key;
+const t=(key,language)=>language==='vi'&&vietnamese[key] ? vietnamese[key] : language==='ja'&&japanese[key]?japanese[key]:language==='ko'&&korean[key]?korean[key]:words[key]?localizedChoice(words[key],language):key;
 const time=value=>{const date=new Date(Number(value));return Number(value)>0&&Number.isFinite(date.getTime())?date.toISOString():'';};
 const eventLabel=(event,language)=>{
   const condition=event.data.condition||'price',key=condition.startsWith('target:')?'target':condition;

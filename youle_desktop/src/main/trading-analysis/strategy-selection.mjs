@@ -1,12 +1,15 @@
-const NATURAL_STRATEGY_PREFIX = /(?:请|帮我|给我|麻烦)?(?:改用|换成|切换到|使用|采用|按照|依照|基于|运用|调用|按|用|以)$/u;
-const NATURAL_STRATEGY_SUFFIX = /^(?:来|去)?(?:分析|研判|复盘|看盘|看下|看看|看一下|画线|绘图|画图|标注)/u;
-const NEGATED_STRATEGY_PREFIX = /(?:不要(?:再)?用|不用|别用|无需使用|不使用|不采用|不按照|不按|排除|剔除|而不是|非)$/u;
+import { vietnameseText } from "../../shared/vietnamese.mjs";
+
+const NATURAL_STRATEGY_PREFIX = /(?:请|帮我|给我|麻烦)?(?:改用|换成|切换到|使用|采用|按照|依照|基于|运用|调用|按|用|以|sửdụng|ápdụng|dựatrên|dùng)$/u;
+const NATURAL_STRATEGY_SUFFIX = /^(?:来|去)?(?:分析|研判|复盘|看盘|看下|看看|看一下|画线|绘图|画图|标注|phântích|vẽbiểuđồ)/u;
+const NEGATED_STRATEGY_PREFIX = /(?:不要(?:再)?用|不用|别用|无需使用|不使用|不采用|不按照|不按|排除|剔除|而不是|非|khôngdùng|khôngsửdụng|đừngdùng|đừngsửdụng|khôngápdụng)$/u;
 
 function compactSemanticText(value) {
   return String(value || "")
     .normalize("NFKC")
     .trim()
     .toLocaleLowerCase("zh-CN")
+    .replace(/@(?:chiến\s*lược|chỉ\s*báo|strategy|indicator)\s*[:：]\s*/gu, "@策略:")
     .replace(/[\s_\-./:：，,。！？!?()[\]{}'"“”‘’]/gu, "");
 }
 
@@ -33,19 +36,23 @@ function semanticTermOccurrences(source, term) {
   return occurrences;
 }
 
-function strategyTerms(strategy) {
-  return [...new Set([
+function strategyNames(strategy) {
+  return [
     strategy?.display?.name,
     strategy?.mentions?.canonical,
     ...(Array.isArray(strategy?.mentions?.aliases) ? strategy.mentions.aliases : []),
-  ].map(compactSemanticText).filter((term) => term.length >= 2))];
+  ].flatMap(name => [name, vietnameseText(String(name || ""))]);
+}
+
+function strategyTerms(strategy) {
+  return [...new Set(strategyNames(strategy).map(compactSemanticText).filter(term => term.length >= 2))];
 }
 
 function occurrenceScore(source, term, index) {
-  const prefix = source.slice(Math.max(0, index - 18), index);
+  const prefix = source.slice(Math.max(0, index - 36), index);
   const suffix = source.slice(index + term.length, index + term.length + 12);
   if (NEGATED_STRATEGY_PREFIX.test(prefix)) return null;
-  const explicitMention = ["@策略", "@指标"].some((marker) => prefix.endsWith(marker));
+  const explicitMention = ["@策略", "@指标", "@chiếnlược", "@chỉbáo", "@strategy", "@indicator"].some((marker) => prefix.endsWith(marker));
   if (explicitMention) return 1_000;
   let score = source === term ? 320 : 100;
   if (NATURAL_STRATEGY_PREFIX.test(prefix)) score += 400;
@@ -83,11 +90,7 @@ export function resolveExplicitTradingStrategyId(text, strategies = []) {
 }
 
 function explicitStrategyMentionPosition(source, strategy) {
-  const names = [
-    strategy?.mentions?.canonical,
-    ...(Array.isArray(strategy?.mentions?.aliases) ? strategy.mentions.aliases : []),
-    strategy?.display?.name,
-  ].map((name) => String(name || "").trim()).filter(Boolean);
+  const names = strategyNames(strategy).map(name => String(name || "").trim()).filter(Boolean);
   let position = Number.POSITIVE_INFINITY;
   for (const name of names) {
     const normalizedName = String(name)
@@ -97,7 +100,9 @@ function explicitStrategyMentionPosition(source, strategy) {
     for (const prefix of ["@策略:", "@策略："]) {
       const token = `${prefix}${normalizedName}`;
       const index = source.indexOf(token);
-      if (index >= 0 && index < position) position = index;
+      // A short Latin alias such as MA must not match a MACD mention.
+      const suffix = source[index + token.length] || "";
+      if (index >= 0 && !(asciiWordCharacter(normalizedName.at(-1)) && asciiWordCharacter(suffix)) && index < position) position = index;
     }
   }
   return position;
@@ -113,7 +118,7 @@ export function resolveExplicitTradingStrategyIds(text, strategies = []) {
     .normalize("NFKC")
     .toLocaleLowerCase("zh-CN")
     .replace(/\s*\/\s*/gu, "/")
-    .replace(/@策略\s*：\s*/gu, "@策略:");
+    .replace(/@(?:策略|chiến\s*lược|chỉ\s*báo|strategy|indicator)\s*[:：]\s*/gu, "@策略:");
   return strategies
     .map((strategy, catalogIndex) => ({
       strategyId: String(strategy?.id || "").trim(),

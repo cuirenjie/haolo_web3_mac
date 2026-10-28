@@ -2024,6 +2024,953 @@
         "youle_desktop/src/main/poll-request-coordinator.mjs",
         "youle_desktop/src/renderer/manual-drawing-sync.ts"
       ]
+    },
+    {
+      "id": "recharge-entitlement-refresh-vi",
+      "title": "Sau khi nạp tiền, tư cách hội viên và điểm sẽ tự động làm mới",
+      "body": "Bản vá ứng dụng Windows sẽ tự động làm mới tư cách hội viên và điểm khả dụng sau khi thanh toán đơn hàng thành công; nếu làm mới tạm thời thất bại sẽ tiếp tục thử lại, và vẫn tiếp tục sau khi quay lại cuộc trò chuyện. Các yêu cầu số dư trước đó không thể ghi đè quyền lợi mới đã nhận, việc xác minh hội viên mô hình sẽ cập nhật theo hồ sơ mới. Khi tiến trình mô hình khởi động mà chưa lấy được thông tin xác thực kết nối DeepSeek, lần bắt đầu hoặc khôi phục tác vụ tiếp theo sẽ lấy lại và an toàn dựng lại tiến trình nhàn rỗi, không cần khởi động lại toàn bộ ứng dụng; khi có các tác vụ khác đang chạy sẽ không ngắt chúng, nếu thông tin xác thực vẫn không khả dụng sẽ nhắc thử lại sau. Không cần khôi phục sử dụng bằng cách thanh toán lặp lại. Đây là bản sửa mã nguồn chờ phát hành, phiên bản cài đặt cũ căn cứ theo hành vi thực tế; nếu khôi phục sau khi khởi động lại, có thể xuất báo cáo chẩn đoán gửi hỗ trợ khách hàng chính thức để kiểm tra. Hỗ trợ khách hàng không thể chỉ dựa vào hiện tượng này để xác nhận đơn hàng đã đến hoặc bổ sung điểm, không có thêm khả năng thao tác thay.",
+      "category": "usage",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/recharge-profile-refresh.ts",
+        "youle_desktop/src/renderer/main.ts",
+        "youle_desktop/src/main/youle-api-client.mjs",
+        "youle_desktop/src/main/main.mjs",
+        "youle_desktop/src/main/execution-credential-refresh.mjs",
+        "youle_desktop/src/main/app-server-client.mjs"
+      ]
+    },
+    {
+      "id": "support-publication-integrity-vi",
+      "title": "Đồng bộ phát hành ứng dụng và năng lực hỗ trợ khách hàng",
+      "body": "Việc phát hành gói cài đặt Windows mới sẽ đồng bộ kiến thức hỗ trợ khách hàng và các năng lực thao tác thay đã triển khai của cùng lần xây dựng. Thao tác thay vẫn cần người dùng nhấn đồng ý; nếu từ chối hoặc phiên bản không khớp sẽ không thực hiện. Nến đỏ tăng xanh giảm sử dụng năng lực đổi màu sẵn có, sau khi ủy quyền sẽ kiểm tra tăng màu đỏ, giảm màu xanh đều đã được lưu. Đây là bản sửa quy trình phát hành chờ phát hành, không có nghĩa năng lực hỗ trợ khách hàng của gói cài đặt cũ đã được kích hoạt.",
+      "category": "support",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": false,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "tools/windows-support-artifact.mjs",
+        "tools/publish-windows-support.mjs",
+        "tools/release-windows.ps1",
+        "tools/upload-windows-release.ps1",
+        "youle_desktop/scripts/seal-support-artifact.cjs"
+      ]
+    },
+    {
+      "id": "alert-email-desktop-vi",
+      "title": "Email cảnh báo và cửa sổ nổi trên màn hình máy tính",
+      "body": "Cảnh báo trên Windows vẫn giữ nhắc nhở qua email, đồng thời hiển thị cửa sổ nổi trên màn hình máy tính khi ứng dụng trực tuyến và bật thông báo bật lên. Bao gồm giá trên đám mây, điều kiện phức hợp và kích hoạt mới của kế hoạch giao dịch; khi thoát ứng dụng vẫn do đám mây gửi email. Cửa sổ nổi xếp hàng liên tiếp, tiêu đề chỉ hiển thị cặp giao dịch (như BTCUSDT), không hiển thị binance:usdm: hoặc binance:spot:; nhấn vào cảnh báo giá có thể quay về biểu đồ tương ứng. Sự kiện hết hạn chỉ ghi lịch sử. Cần di chuyển phía máy chủ đi kèm và ứng dụng phiên bản mới; hiện là ứng viên mã nguồn chờ phát hành. Hỗ trợ khách hàng có thể giải thích cài đặt và hành vi, không có thêm thao tác thay.",
+      "category": "alerts",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/cloud-alert-view.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-alert-feed.mjs",
+        "youle_desktop/src/main/desktop-notification-queue.mjs",
+        "youle_desktop/src/shared/price-alert-copy.mjs",
+        "youle_desktop/docs/alert-desktop-and-email-20261027.zh-CN.md"
+      ]
+    },
+    {
+      "id": "binance-private-usage-recovery-vi",
+      "title": "Khôi phục báo cáo nền tảng khi liên kết và đọc Binance",
+      "body": "Windows xử lý kết quả tài khoản ngay khi nhận được phản hồi đầy đủ từ Binance qua kênh riêng; việc báo cáo mức sử dụng nền tảng chậm hoặc thất bại sẽ không còn báo nhầm việc đọc đã hoàn tất thành hết thời gian kết nối Binance. Kiểm tra quyền tài khoản, mã xác minh, thời gian chờ yêu cầu và giới hạn tần suất của sàn vẫn được giữ nguyên, lỗi kết nối thực sự vẫn sẽ được nhắc. Báo cáo mức sử dụng giữ thời gian chờ riêng, giới hạn tồn đọng và hủy khi đóng, hạn mức giấy phép vẫn do máy chủ khấu trừ trước. Đây là bản sửa mã nguồn chờ phát hành, gói cài đặt cũ chưa bao gồm; không thể chỉ dựa vào cùng nội dung hết thời gian để xác định mọi lỗi mạng cùng nguyên nhân. Hỗ trợ khách hàng có thể giải thích và hỗ trợ thu thập nhật ký mạng, không có thêm thao tác thay.",
+      "category": "account",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/binance-account/private-proxy-fetch.mjs",
+        "youle_desktop/src/main/binance-gateway-client.mjs",
+        "youle_desktop/src/main/binance-account/service.mjs"
+      ]
+    },
+    {
+      "id": "chat-plan-current-action-vi",
+      "title": "Hành động hiện tại của thẻ kế hoạch trong phiên",
+      "body": "Thẻ kế hoạch chính thức trong phiên Windows hiển thị hành động hiện tại và trạng thái tương ứng ở góc dưới bên trái trong thẻ, ví dụ \"Hành động hiện tại: Chờ điều kiện kích hoạt\". Sử dụng nội dung trạng thái sẵn có của kế hoạch, nhất quán với ghi chú; văn bản này không phải trạng thái khớp lệnh thời gian thực, không thay đổi mức giá kế hoạch, quy tắc lưu hoặc nhắc nhở. Kế hoạch văn bản cũ giữ nguyên hành động ban đầu, không tạo thêm trạng thái còn thiếu. Hiện là ứng viên mã nguồn, có hiệu lực sau khi ứng dụng tải bản cập nhật, không có thêm thao tác thay của hỗ trợ khách hàng.",
+      "category": "analysis",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/execution-plan-card-view.mjs",
+        "youle_desktop/src/main/cloud-plan-contract.mjs"
+      ]
+    },
+    {
+      "id": "wyckoff-dual-plan-vi",
+      "title": "Kế hoạch điều kiện hai chiều sau khi phá vỡ theo phương pháp Wyckoff",
+      "body": "Windows và Android/iOS sau khi hộp Wyckoff đã xác nhận và còn hiệu lực bị phá vỡ có thể đồng thời hiển thị hai kế hoạch điều kiện độc lập mua và bán, giữ nguyên kiểu thẻ kế hoạch ban đầu. Phương án bán khi phá vỡ đáy hộp chờ kiểm tra hồi phục và nến đóng cửa sau đó chuyển yếu; phương án đảo chiều mua phải đóng cửa thu hồi đáy hộp, kiểm tra lại, rồi được nến đóng cửa sau đó xác nhận chuyển mạnh. Phá vỡ đỉnh hộp xử lý theo điều kiện đối xứng. Mỗi thẻ có kích hoạt, cắt lỗ, ba mức chốt lời và nhắc nhở độc lập; chạm mức giá không có nghĩa là kích hoạt, phương án đảo chiều không có nghĩa tích lũy/phân phối đã được xác nhận. Khi người dùng rõ ràng chỉ muốn một phía thì tuân theo hướng đó; nếu rủi ro không đạt giữ nguyên tham khảo chỉ đọc hoặc thẻ chờ, không thể kích hoạt. Lưu và bật nhắc nhở vẫn cần thao tác ban đầu, không tự động đặt lệnh. Cần API, toàn bộ Worker chiến lược và phiên bản ứng dụng khớp nhau; ứng viên mã nguồn cục bộ chưa trực tuyến, không có thêm thao tác hỗ trợ khách hàng. Giữ hai thẻ; biểu đồ AI chỉ đánh dấu điểm vào lệnh, ba mức chốt lời và cắt lỗ của kế hoạch đã xác minh có xác suất lợi nhuận cao nhất. Khi xác suất bằng nhau hoặc không có xác suất hợp lệ thì dùng kế hoạch chính tiếp diễn; không tạo tỷ lệ thắng, không thay đổi hai thẻ, lưu và nhắc nhở. Lịch sử và nhảy biểu đồ từ thẻ tuân theo cùng lựa chọn.",
+      "category": "analysis",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/shared/wyckoff-plan-set.mjs",
+        "youle_desktop/src/main/cloud-plan-contract.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs",
+        "youle_desktop/src/shared/execution-plan-drawings.mjs",
+        "youle_desktop/src/renderer/trading-plan-drawing-history.ts"
+      ]
+    },
+    {
+      "id": "trading-preference-restore-defaults-vi",
+      "title": "Khôi phục mặc định tùy chọn giao dịch",
+      "body": "Trong phần Cài đặt ứng dụng Windows → Tùy chọn giao dịch, ở phía dưới, bên trái nút «Lưu thay đổi» có nút nhẹ «Khôi phục mặc định». Khi nhấn, toàn bộ tùy chọn giao dịch mặc định sẽ được khôi phục và lưu: vào lệnh bên phải, lỗ tối đa mỗi lệnh bằng 2% giá trị tài khoản ròng, dời cắt lỗ về hòa vốn khi lãi thả nổi đạt 1R, tỷ lệ lãi/lỗ ròng tối thiểu 1:0.4, phân tích gọn, mục phân tích đầy đủ, kỷ luật giao dịch cơ bản, đồng thời xóa nội dung tùy chỉnh và ghi chú bổ sung. Lưu thành công sẽ áp dụng cho phân tích mới; nếu thất bại, giữ bản nháp giá trị mặc định và có thể thử lưu lại. Không thể khôi phục mặc định khi tải thất bại, đang lưu, tùy chọn cục bộ và đám mây đang chờ đối chiếu hoặc kết quả lưu đang chờ xác nhận. Tuân theo giao thức lưu tùy chọn giao dịch; hỗ trợ khách hàng có thể hướng dẫn thao tác, không có khả năng thao tác thay mới. Đây là bản mã nguồn ứng viên chờ phát hành, lấy phiên bản ứng dụng thực tế làm chuẩn.",
+      "category": "trading-preferences",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-preference-settings.ts",
+        "youle_desktop/src/shared/trading-preference-fields.mjs",
+        "youle_desktop/src/main/personal-context/cloud-trading-preferences.mjs"
+      ]
+    },
+    {
+      "id": "account-sync-events-vi",
+      "title": "Đồng bộ im lặng và nhắc nhở kế hoạch đáng tin cậy",
+      "body": "Danh sách cài đặt, vẽ tay, kế hoạch và cảnh báo dùng thông báo thay đổi trực tuyến và đọc dự phòng khoảng 24 giờ; phía ngoại tuyến không xếp hàng đẩy, khi trực tuyến sẽ đọc trạng thái mới nhất. Đồng bộ hoàn toàn im lặng, không thêm giao diện, dấu trạng thái, gợi ý tải hay hộp thoại lỗi. Thất bại sẽ giữ nguyên thay đổi cục bộ. Tắt đồng bộ danh bạ Windows chạy nền; giữ nhắc nhở kích hoạt của kế hoạch giao dịch hiện có, tiến độ nhận được lưu bền vững và hỗ trợ nhận bù khi mất kết nối, sự kiện quá hạn chỉ ghi nhận nội bộ. Nhắc nhở di động giữ nguyên kênh FCM/APNs hiện có. Nhận bù không tạo phân tích, lệnh hay chi phí mô hình. Chưa triển khai ứng viên, phải phát hành backend tương thích trước rồi mới cập nhật ứng dụng. Thay đổi nền chỉ đánh thức tài khoản trực tuyến tương ứng, giữ giới hạn tần suất và thời gian chờ; nhắc nhở không hợp lệ để lại biên nhận thất bại rồi tiếp tục nhận, không được coi là thông báo thành công. Vẽ đường trên di động chia theo byte, thay đổi không hợp lệ giữ lại trên máy và dừng thử lại nguyên trạng. Danh sách kế hoạch sau khi tạm thời đọc thất bại sẽ đọc bù im lặng có số lần giới hạn; kết nối ngắn bất thường sẽ giãn cách lùi dần. Cài đặt di động tuân theo thời gian chờ của máy chủ, tạm dừng khi chạy nền, thay đổi chưa hoàn tất được giữ lại.",
+      "category": "account-sync",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/account-event-client.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-alert-feed.mjs",
+        "youle_desktop/src/renderer/background-sync.ts",
+        "youle_desktop/src/main/conditional-poll-fetch.mjs",
+        "youle_desktop/src/renderer/cloud-plan-sync.ts"
+      ]
+    },
+    {
+      "id": "ai-drawing-cursor-vi",
+      "title": "Chuột ảo vẽ AI",
+      "body": "Tính năng vẽ AI trên biểu đồ chính và chia màn hình của ứng dụng Windows sẽ hiển thị chuột ảo bám theo nét vẽ, kể cả khi tắt hiệu ứng động Windows cũng không ẩn. Khi vẽ điểm đơn và chữ sẽ hiển thị vị trí hiện tại, dọn dẹp sau khi hoàn tất hoặc hủy. Chế độ giảm hiệu ứng động vẫn giữ chuột bám theo nhưng bỏ qua hoạt ảnh di chuyển giữa các đối tượng và gợn sóng nhấp, không cần thay đổi cài đặt hệ thống. Đây là bản sửa lỗi ứng dụng chờ phát hành; gói cài đặt phiên bản cũ 0.1.181 vẫn có thể ẩn chuột ảo do cài đặt hiệu ứng động hệ thống, cần cài gói mới có bản sửa lỗi. Không có thao tác thay mới của hỗ trợ khách hàng.",
+      "category": "analysis",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-expert-ai-playback.ts",
+        "youle_desktop/src/renderer/trading-expert-drawing.ts"
+      ]
+    },
+    {
+      "id": "wyckoff-complete-chart-vi",
+      "title": "Hiển thị đầy đủ mô hình Wyckoff",
+      "body": "Tính năng vẽ AI Wyckoff trên Windows sẽ định vị theo mô hình đầy đủ đã nhận diện, cố gắng đồng thời hiển thị vùng giao dịch, các giai đoạn, sự kiện chính và đường dự đoán, đồng thời chừa khoảng trống cho chú thích. Trước khi vẽ, khi kết thúc vẽ và khi chủ động mở kế hoạch đã lưu đều dùng cùng một phạm vi; khi không có kế hoạch giao dịch vẫn chứa được mô hình Wyckoff. Quy tắc định vị của các chiến lược khác giữ nguyên, người dùng vẫn có thể thu phóng thủ công. Đây là bản mã nguồn ứng dụng chờ phát hành, không có thao tác thay mới của hỗ trợ khách hàng.",
+      "category": "analysis",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-analysis-viewport.mjs",
+        "youle_desktop/src/renderer/trading-ai-plan-autoscale.ts"
+      ]
+    },
+    {
+      "id": "send-receipt-retained-vi",
+      "title": "Bong bóng phản hồi đầu tiên sau khi gửi",
+      "body": "Ba bong bóng tiền đề lần lượt hiển thị với khoảng cách 1 giây; phân tích nền vẫn chạy bình thường, dừng hoặc lỗi sẽ hiển thị ngay. Phiên giao dịch Windows sau khi gửi sẽ hiển thị ngay bong bóng xác nhận đã nhận yêu cầu; tiến độ và phản hồi tiếp theo hiển thị bên dưới nó, bong bóng đầu tiên được giữ lại. Biên nhận được lưu trên máy theo tài khoản, mở lại cùng phiên vẫn hiển thị, không gọi thêm mô hình. Khi chuẩn bị trước khi gửi thất bại vẫn hiển thị lỗi gửi ban đầu. Đây là bản mã nguồn ứng dụng chờ phát hành, hỗ trợ khách hàng có thể giải thích cách hiển thị, không có khả năng thao tác thay mới.",
+      "category": "analysis",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-send-receipt.ts",
+        "youle_desktop/src/renderer/trading-prelude-pacing.ts"
+      ]
+    },
+    {
+      "id": "preference-save-busy-vi",
+      "title": "Khôi phục khi lưu tùy chọn giao dịch bận",
+      "body": "Khi tùy chọn giao dịch gặp từ chối rõ ràng do máy chủ bận, sẽ giữ nguyên bản sửa đổi và tự động chờ thử lại, mỗi giai đoạn chờ tối đa 30 giây; sau khi nhận biên nhận lưu còn đọc cấu hình đám mây để xác minh. Khi liên tục bận sẽ giữ bản nháp và nhắc thử lại sau, khi lưu đã được tiếp nhận nhưng xác nhận bị gián đoạn sẽ hiển thị kết quả chờ xác nhận. Chuyển tài khoản sẽ dừng thử lại, xung đột phiên bản và gửi mạng không xác định không tự động lưu lặp. API đi kèm giữ suất yêu cầu phía trước cho lưu thủ công. Đây là bản mã nguồn ứng viên chờ phát hành, để có hiệu lực đầy đủ cần backend phát hành và ứng dụng cập nhật.",
+      "category": "trading-preferences",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/personal-context/cloud-trading-preferences.mjs",
+        "youle_desktop/src/renderer/trading-preference-settings.ts"
+      ]
+    },
+    {
+      "id": "analysis-entry-recovery-vi",
+      "title": "Khôi phục khi dịch vụ phân tích bận",
+      "body": "Phiên bản đi kèm sẽ chờ và tiếp tục khi gặp dịch vụ bận tạm thời trước khi bắt đầu phân tích, có thể dừng trong lúc chờ. Đồng bộ cài đặt nền và vẽ đường không chiếm hết lối vào phân tích. Khôi phục sẽ dùng lại mã tác vụ gốc, không tạo lại phân tích; thiếu điểm, lỗi quyền và gửi mạng không xác nhận được sẽ không bị coi là lỗi bận có thể thử lại. Hiện là bản mã nguồn chờ phát hành, cần cập nhật backend và khởi động lại ứng dụng đã sửa để có hiệu lực đầy đủ.",
+      "category": "analysis",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/trading-strategy-runtime/admission-recovery.mjs",
+        "youle_desktop/src/main/personal-context/cloud-trading-preferences.mjs",
+        "youle_desktop/src/main/main.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-runtime.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-task-chat.mjs",
+        "youle_desktop/src/renderer/cloud-task-chat.ts"
+      ]
+    },
+    {
+      "id": "windows-workspace-ui-refinement-vi",
+      "title": "Tìm kiếm cặp giao dịch, lối vào dưới cùng và bố cục cài đặt",
+      "body": "Tìm kiếm cặp giao dịch trên ứng dụng Windows dùng bảng bo góc gọn gàng, bộ lọc phân loại và giá cùng mức tăng xếp phải, giữ chức năng tìm kiếm, phân loại, yêu thích và thêm vào danh sách theo dõi. Phía dưới bên trái giữ ba lối vào dạng chữ: cài đặt, hỗ trợ khách hàng, nạp hội viên, dùng nút nhẹ không nền. Hộp thoại cài đặt bên trái giữ thông tin cá nhân, tùy chọn giao dịch, chi tiết tiêu dùng, cài đặt chung, giới thiệu & phản hồi; mời nhận quà và đăng xuất chuyển thành dòng chữ ở dưới cùng; tiêu đề và nút đóng bên phải cuộn theo nội dung và luôn hiển thị. Cài đặt chung hiển thị trước ngôn ngữ, giao diện chủ đề và cỡ chữ, sau đó hiển thị lối tắt màn hình, ghim thanh tác vụ, ghim menu Start và khởi động cùng máy, nhóm cuối giữ thông báo bật lên, nhập xuất dữ liệu người dùng và thư mục cài đặt. Chỉ điều chỉnh bố cục và kiểu dáng, giao thức thao tác và cách đồng bộ cài đặt hiện có không đổi. Hỗ trợ khách hàng có thể giải thích lối vào và vị trí, không có khả năng thao tác thay mới; đây là bản mã nguồn ứng viên chờ phát hành, lấy phiên bản cài đặt thực tế làm chuẩn.",
+      "category": "workspace",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/main.ts",
+        "youle_desktop/src/renderer/workspace-ui-refinement.css"
+      ]
+    },
+    {
+      "id": "watchlist-follow-recommendations-vi",
+      "title": "Danh sách theo dõi và thêm từng mục",
+      "body": "Khi danh sách theo dõi mặc định trên Windows trống, hiển thị danh sách theo dõi một cột gọn gàng, cung cấp đủ 11 cặp giao dịch gợi ý, thêm mới KORU, SPCX, TSLA; bỏ tiêu đề hướng dẫn, mô tả, nhãn cặp giao dịch phổ biến và đường phân cách dưới cùng, thu nhỏ biểu tượng, chữ, nút và khoảng cách dòng. Mỗi dòng «Thêm» sẽ thêm ngay vào danh sách theo dõi và chuyển thành «Đã thêm», nhấn lại có thể xóa ra; sau khi thêm vẫn có thể tiếp tục chọn, nhấn «Xem danh sách theo dõi» hoặc nhấn lại nhóm theo dõi để vào danh sách thị trường. Trạng thái gợi ý ẩn tiêu đề giá và mức tăng cùng thanh cuộn danh sách, số đếm «Đã thêm» và «Xem danh sách theo dõi» ở dưới cùng giữ không gian riêng, hiển thị đầy đủ; trang thêm gợi ý hiển thị cố định, vô hiệu hóa cuộn chuột và cuộn chương trình, giữ vị trí đầu khi làm mới. Sau khi vào danh sách thị trường theo dõi hiện có, khi nội dung vượt quá sẽ khôi phục thanh cuộn, giữ chức năng thị trường, sắp xếp và nhóm; nút «Thêm» ở trên cùng tiếp tục mở tìm kiếm thị trường. Biểu đồ chính, chia màn hình, danh sách theo dõi, tìm kiếm thị trường và cảnh báo của ứng dụng Windows dùng chung biểu tượng thương hiệu gốc tài chính truyền thống của Binance, đi kèm ứng dụng và giữ nguồn chính thức cùng mã băm, chủ đề sáng tối không đổi màu; khi chưa có hoặc tải thất bại sẽ giữ biểu tượng dự phòng. Hỗ trợ khách hàng có thể giải thích thao tác, không có giao thức thao tác thay mới; đây là bản mã nguồn ứng viên chờ phát hành, lấy phiên bản cài đặt thực tế làm chuẩn.",
+      "category": "workspace",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-watchlist-ui.ts",
+        "youle_desktop/src/renderer/trading-watchlist.css",
+        "youle_desktop/src/renderer/trading-watchlist.ts",
+        "youle_desktop/src/renderer/trading-expert-market-identity.ts",
+        "youle_desktop/src/renderer/trading-tradfi-logo-assets.ts"
+      ]
+    },
+    {
+      "id": "chart-settings-full-sync-vi",
+      "title": "Cài đặt nến và đồng bộ đa thiết bị",
+      "body": "Mục đầu tiên «Cài đặt nến» trong Cài đặt cá nhân → Cài đặt chung, gồm kiểu biểu đồ chính, nền biểu đồ, thu phóng nến, màu tăng giảm, chọn trục tọa độ, giá thời gian thực, công cụ vẽ đường, ẩn hình vẽ và hiển thị lệnh. Thay đổi áp dụng ngay; cùng một tài khoản đồng bộ 38 trường biểu đồ qua hàng đợi từng trường, thay đổi ngoại tuyến được giữ lại, khôi phục mặc định cũng tham gia đồng bộ. Màu chủ đề sáng tối lưu riêng; khóa nến và năm loại công tắc ẩn là tùy chọn tài khoản, chuyển thị trường hay phiên không bị xóa. Đặt lại biểu đồ chỉ đặt lại chế độ xem hiện tại, không gửi thao tác qua thiết bị. Điều chỉnh giá giữ giá gốc trên dữ liệu không có sự kiện điều chỉnh; lệnh chỉ là hiển thị chỉ đọc của tài khoản đã liên kết. Đồng bộ đầy đủ cần giao thức cài đặt Windows v8 đi kèm và máy chủ thêm xác thực sáu trường được phát hành; đây là bản mã nguồn ứng viên chờ phát hành. Hỗ trợ khách hàng chỉ giải thích các bước, chưa có khả năng thao tác thay mới cho cài đặt nến.",
+      "category": "chart-settings",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-expert-chart-settings.ts",
+        "youle_desktop/src/renderer/trading-expert-market.ts",
+        "youle_desktop/src/renderer/account-settings-sync.ts"
+      ]
+    },
+    {
+      "id": "watchlist-remove-hover-vi",
+      "title": "Nút xóa cặp giao dịch trong danh sách theo dõi",
+      "body": "Trong danh sách theo dõi trên Windows, chỉ khi rê chuột lên dòng cặp giao dịch mới hiển thị nút × xóa ở bên phải; sau khi nhấn chọn cặp giao dịch, khi rê chuột ra ngoài nút sẽ ẩn và khôi phục khoảng cách bình thường của cột mức tăng. Hỗ trợ khách hàng có thể giải thích thao tác, không có giao thức thao tác thay mới; lấy phiên bản cài đặt thực tế làm chuẩn.",
+      "category": "workspace",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-watchlist.css",
+        "youle_desktop/src/renderer/trading-watchlist-ui.ts"
+      ]
+    },
+    {
+      "id": "analysis-request-priority-vi",
+      "title": "Ưu tiên yêu cầu phân tích trong lượt này",
+      "body": "Phân tích chiến lược và chỉ báo giữ nguyên toàn bộ đầu vào của lượt này; khi yêu cầu rõ ràng mua hoặc bán, chỉ phát hành kế hoạch theo hướng tương ứng. Hướng, cách vào lệnh, rủi ro và yêu cầu bổ sung của lượt này được ưu tiên hơn tùy chọn giao dịch đã lưu bị xung đột, các tùy chọn còn lại được giữ, cài đặt dài hạn không đổi. Mô hình kiểm tra ứng viên gốc trước, nếu chưa đáp ứng sẽ tiếp tục tìm phương án vào lệnh có điều kiện trong cửa sổ rộng hơn trên dữ liệu thị trường đã đóng băng; điều kiện chưa kích hoạt không đồng nghĩa giao dịch ngay. Khi thiếu căn cứ thực, điều kiện mâu thuẫn hoặc kiểm tra mô hình thất bại sẽ giải thích lý do, không bịa giá hoặc thay bằng hướng ngược lại. Cần API, Worker độc lập và phiên bản ứng dụng đi kèm để kích hoạt, đây là bản mã nguồn ứng viên chưa phát hành.",
+      "category": "trading-preferences",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/shared/analysis-request-contract.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs"
+      ]
+    },
+    {
+      "id": "expanded-conversation-header-vi",
+      "title": "Thanh tiêu đề và danh sách cặp giao dịch của phiên mở rộng",
+      "body": "Lối vào LOLO hiện tạm đóng, nhấn «LOLO của bạn» ở thanh bên (hoặc biệt danh đã lưu) chỉ hiển thị «Sắp ra mắt, vui lòng chờ đợi», không chuyển trang; bố cục LOLO dưới đây là phần triển khai dự phòng, dùng được sau khi mở lại. Sau khi mở rộng phiên tác vụ trên Windows sẽ ẩn nút thanh bên trái ở góc trên bên trái, danh sách cặp giao dịch trên cùng cũng ẩn theo, hiển thị lại khi khôi phục biểu đồ nến bên trái cộng phiên bên phải. Khi thu gọn phiên khôi phục bố cục biểu đồ, nút thanh bên trái trở về phía trên thanh công cụ biểu đồ. Phiên đầy đủ LOLO cũng ẩn nút góc trên bên trái, đồng nhất phông chữ, chiều cao và khoảng cách tiêu đề; nút tùy chỉnh góc trên bên phải đổi thành nút mở rộng/thu gọn phiên, có thể chuyển giữa phiên đầy đủ và biểu đồ nến bên trái cộng phiên LOLO bên phải. Sau lần gửi hợp lệ đầu tiên của LOLO sẽ tự động hiển thị biểu đồ nến bên trái cộng phiên bên phải; mỗi lần vào sau và mở sau khi khởi động lại đều mặc định bố cục này. Góc trên bên phải cung cấp mở rộng/thu gọn danh sách theo dõi giống tác vụ mới, khi mở rộng hiển thị danh sách theo dõi hiện có, khi thu gọn trở về tin nhắn; chuyển đổi giữ tin nhắn và bản nháp, vẫn có thể nhấn tiêu đề phiên hoặc ảnh đại diện tin nhắn LOLO để sửa ảnh đại diện và biệt danh. Khu vực cặp giao dịch trên cùng chỉ gắn một danh sách của biểu đồ hiện hành, callback trễ sau khi biểu đồ cũ bị hủy sẽ không thêm danh sách trùng lặp. Hỗ trợ khách hàng có thể giải thích lối vào, không có giao thức thao tác thay mới; lấy phiên bản cài đặt thực tế làm chuẩn.",
+      "category": "workspace",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/main.ts",
+        "youle_desktop/src/renderer/styles.css",
+        "youle_desktop/src/renderer/haobao.ts",
+        "youle_desktop/src/renderer/haobao.css",
+        "youle_desktop/src/renderer/trading-expert-market.ts",
+        "youle_desktop/src/renderer/trading-watchlist-ui.ts"
+      ]
+    },
+    {
+      "id": "plan-probability-reply-vi",
+      "title": "Đánh giá xác suất của mô hình bên dưới thẻ kế hoạch",
+      "body": "Sau khi phiên bản ứng dụng và đám mây đi kèm được kích hoạt, khi phân tích chiến lược, chỉ báo hoặc phân tích văn bản thuần tổng quát (không cần @) ở hai bên tạo ra kế hoạch chính thức hợp lệ, có thể hiển thị đánh giá xác suất của mô hình bên dưới thẻ kế hoạch tương ứng và thanh thao tác. Thẻ hiển thị xác suất có lãi, mô tả đánh giá gốc của mô hình và tiêu chí điều kiện có thể mở rộng, không hiển thị dòng công thức phần bù xác suất cắt lỗ, cũng không hiển thị tiêu đề đánh giá cố định, số nến/chu kỳ và thời điểm dữ liệu tính đến; căn cứ đóng băng và xác thực vẫn được giữ. Dựa trên dữ liệu thị trường lịch sử đã đóng và kế hoạch đóng băng, xác suất có lãi tính bằng 100% trừ xác suất cắt lỗ, chỉ hiển thị khi lớn hơn 50% một cách nghiêm ngặt; khi nhỏ hơn hoặc bằng 50%, thiếu căn cứ hoặc đánh giá thất bại sẽ không thêm phản hồi, thẻ kế hoạch vẫn được giữ. Kết quả được đánh dấu rõ ràng là ước tính mô hình có điều kiện chưa được hiệu chuẩn bằng kiểm thử lịch sử: chỉ biểu thị xác suất chốt lời thứ 1 chạm trước, khi sau khi vào lệnh, trong thời hạn hiệu lực, chốt lời thứ 1 hoặc cắt lỗ ít nhất một cái được chạm tới, không phải tỷ lệ thắng ròng cuối cùng của giao dịch chia phần. Không ngẫu nhiên nâng cao kết quả, không sửa giá kế hoạch, không tự động giao dịch. Mở lại lịch sử sẽ dùng kết quả gốc, không ước tính lại. Hỗ trợ khách hàng có thể giải thích tính năng, không thể thay phân tích thị trường hoặc điều chỉnh xác suất. Bản mã nguồn ứng viên chưa đồng nghĩa với phát hành.",
+      "category": "plans",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/plan-probability-view.mjs",
+        "youle_desktop/src/main/cloud-plan-contract.mjs",
+        "youle_desktop/src/renderer/plan-probability-reply.css"
+      ]
+    },
+    {
+      "id": "haobao-preview-vi",
+      "title": "Lối vào LOLO của bạn, Quảng trường chiến lược và Quảng trường chỉ báo",
+      "body": "Tên mặc định được thống nhất là LOLO; khi tải dữ liệu máy này, tên mặc định cũ sẽ tự động hiển thị là LOLO; các biệt danh tùy chỉnh khác và nội dung tin nhắn lịch sử được giữ nguyên. Hiện tại mục \"LOLO của bạn\" (hoặc biệt danh đã lưu) ở thanh bên Windows tạm thời đóng; nhấp vào chỉ hiện Toast \"Sắp ra mắt, vui lòng chờ đợi\" và ở lại trang hiện tại. Mã chức năng gốc, cài đặt giao diện và tin nhắn cục bộ được giữ lại, sẽ mở lại sau khi hoàn thiện. Các hướng dẫn thao tác LOLO dưới đây chỉ tương ứng với phần triển khai được giữ lại, hiện không thể truy cập từ mục này; mục Quảng trường chiến lược và Quảng trường chỉ báo vẫn sử dụng được. Dưới tác vụ mới trên Windows có thêm mục nổi cố định \"LOLO của bạn\". Lần đầu vào sẽ hiển thị giới thiệu, nhấp tiếp tục để vào trang chào mừng; nhấp vào ảnh đại diện, tên ở phía trên hoặc \"Tùy chỉnh LOLO của bạn\" để chọn màu mây, nhân vật, biểu cảm và tên 1–5 ký tự, thanh bên và ảnh đại diện tin nhắn được cập nhật đồng bộ; sau khi lưu biệt danh, mục thanh bên hiển thị đồng bộ \"Biệt danh mới của bạn\", khi mở lại sẽ khôi phục tên đã lưu của tài khoản hiện tại. Sau khi gửi tin nhắn đầu tiên, giao diện chuyển sang biểu đồ nến bên trái và cuộc hội thoại bên phải, các lần vào sau đều mặc định bố cục này; có thể mở rộng toàn bộ cuộc hội thoại qua nút điều khiển góc trên bên phải. Ảnh đại diện lớn chào mừng, tên, trạng thái chờ và nội dung chào mừng được thu gọn, khi vào lại cũng không xuất hiện; dòng tiêu đề cuộc hội thoại đầy đủ và dòng tiêu đề sau khi mở rộng tác vụ mới được thống nhất chiều cao, phông chữ và khoảng cách, khi mở rộng ẩn nút điều khiển góc trên bên trái; nút tùy chỉnh góc trên bên phải được thay bằng nút điều khiển mở rộng/thu gọn, có thể chuyển đổi giữa cuộc hội thoại đầy đủ và biểu đồ nến bên trái kèm cuộc hội thoại LOLO bên phải. Có thể tiếp tục chỉnh sửa giao diện qua tiêu đề cuộc hội thoại. Khi di chuột lên ảnh đại diện tin nhắn LOLO trong cuộc hội thoại, góc trên bên phải hiển thị biểu tượng bút chì, nhấp vào ảnh đại diện hoặc bút chì để mở cùng một cửa sổ cài đặt ảnh đại diện và biệt danh; khi dùng bàn phím chọn ảnh đại diện cũng hiển thị, sau khi lưu hoặc hủy, tiêu điểm quay về ảnh đại diện ban đầu. Tin nhắn được sắp xếp trái phải và hiển thị ảnh đại diện, tên của cả hai bên; khi di chuột lên bong bóng, góc dưới bên phải hiển thị thời gian màu xám, sao chép và trích dẫn, tin nhắn người dùng còn có thêm lưu cục bộ và chỉnh sửa; khi di chuột ra sẽ tự động ẩn, khi dùng bàn phím thao tác cũng hiển thị. Giao diện, trạng thái trò chuyện, 200 tin nhắn demo gần nhất cùng trích dẫn và đánh dấu lưu của chúng được lưu cục bộ theo tài khoản, bản nháp chỉ được giữ trong cuộc hội thoại hiện tại. Trang chào mừng không có thông báo tạo thành công hay trải nghiệm giao diện thường trực. Hiện tại chỉ là trải nghiệm giao diện: không tải lên tin nhắn hoặc tệp, không thực hiện giám sát, không tạo máy tính đám mây, không gửi tin nhắn chủ động, giọng nói chưa được tích hợp, mục lưu không đồng bộ với thư mục lưu đám mây. Mục chiến lược gốc ở thanh bên được chuyển lên đầu hộp tùy chọn của dấu cộng ô nhập → chiến lược, tên là \"Quảng trường chiến lược\", vào trang chiến lược gốc; đầu hộp tùy chọn của dấu cộng → chỉ báo có thêm \"Quảng trường chỉ báo\", trực tiếp vào danh mục chỉ báo của trang chiến lược. Hỗ trợ khách hàng chỉ có thể giải thích thao tác, chưa có giao thức LOLO thao tác thay; ứng viên mã không đại diện cho bản phát hành chính thức.",
+      "category": "haobao",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/haobao.ts",
+        "youle_desktop/src/renderer/haobao-avatar.ts",
+        "youle_desktop/src/renderer/haobao.css",
+        "youle_desktop/src/renderer/main.ts"
+      ]
+    },
+    {
+      "id": "haobao-language-vi",
+      "title": "Ngôn ngữ giao diện LOLO và bảo vệ biệt danh",
+      "body": "Tên mặc định và giao diện các ngôn ngữ đều thống nhất sử dụng LOLO, tên mặc định cũ đã có sẽ tự động hiển thị là LOLO; các biệt danh tùy chỉnh khác và nội dung tin nhắn lịch sử được giữ nguyên. Hiện mục LOLO tạm thời đóng, nhấp vào mục thanh bên chỉ hiển thị \"Sắp ra mắt, vui lòng chờ đợi\", không vào trang. Các chức năng giao diện và ngôn ngữ dưới đây được giữ lại, chờ mở lại; tên và tin nhắn đã có được giữ nguyên, không thêm thao tác thay của hỗ trợ khách hàng. Phần giới thiệu, nội dung chào mừng, màu giao diện/nhân vật/biểu cảm, gợi ý cài đặt và nhãn trợ năng của LOLO hỗ trợ tiếng Trung giản thể, tiếng Trung phồn thể, tiếng Anh và tiếng Hàn. Sau khi chuyển ngôn ngữ, nội dung chào mừng cập nhật theo giao diện; tên tùy chỉnh của người dùng, tin nhắn đã lưu và nội dung người dùng nhập được giữ nguyên văn. Quảng trường chiến lược và Quảng trường chỉ báo tiếp tục được mở qua mục tương ứng trong dấu cộng ô nhập, kiểu thẻ kế hoạch gốc không thay đổi. Hiện LOLO vẫn là trải nghiệm giao diện cục bộ, không thêm giám sát đám mây, tin nhắn chủ động hay thao tác thay của hỗ trợ khách hàng. Đây là ứng viên mã nguồn chưa phát hành.",
+      "category": "haobao",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/haobao.ts",
+        "youle_desktop/src/renderer/haobao-avatar.ts",
+        "youle_desktop/src/renderer/main.ts",
+        "youle_desktop/src/renderer/app-language-en-product.mjs",
+        "youle_desktop/src/renderer/app-language.mjs",
+        "youle_desktop/src/shared/korean-catalog.mjs"
+      ]
+    },
+    {
+      "id": "news-notifications-vi",
+      "title": "Thông báo tin tức trên máy tính và đọc bài viết",
+      "body": "Sau khi phiên bản đi kèm ra mắt, tin tức do siêu quản trị viên phát hành và chọn đồng bộ đến máy tính sẽ hiển thị dưới dạng cửa sổ nổi liên tục ở góc dưới bên phải màn hình với tiêu đề và tóm tắt. Nhấp để mở bài viết tương ứng trên trang web chính thức trong trình duyệt hệ thống, nút đóng chỉ đóng thông báo đó. Cửa sổ nổi không tự động biến mất theo bộ hẹn giờ của thông báo hoàn thành tác vụ, thông báo chưa xử lý được giữ đến lần khởi động tiếp theo của ứng dụng. Ứng dụng tự động kiểm tra tin nhắn mới khi đang chạy và có kết nối mạng; sau khi ngoại tuyến rồi có mạng lại có thể nhận bù tin tức trong 30 ngày gần nhất. Windows/macOS dùng cùng một cách triển khai, macOS vẫn cần nghiệm thu gốc.",
+      "category": "news",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": false,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/news-feed.mjs",
+        "youle_desktop/src/main/news-windows.mjs"
+      ]
+    },
+    {
+      "id": "chart-price-alert-markers-vi",
+      "title": "Đường cảnh báo giá trên biểu đồ, kéo và xóa",
+      "body": "Dấu cộng bên trái nhãn giá trên biểu đồ Windows có thể tạo cảnh báo giá đám mây. Sau khi xác nhận tạo, biểu đồ chính và màn hình chia của cùng cặp giao dịch hiển thị đường nét đứt và tam giác hướng phải tại mức giá mục tiêu; khi di chuột hiển thị cặp giao dịch, điều kiện kích hoạt, giá và nút xóa, chuột hiển thị mũi tên kéo lên xuống. Xóa phải được xác nhận qua cửa sổ bật lên. Khi kéo, ẩn hộp mô tả, sau khi thả xác nhận giá mới; hủy giữ nguyên cảnh báo gốc, sau khi xác nhận trước tiên xác minh tạo cảnh báo mới thành công, rồi tự động xóa cảnh báo gốc. Tạo thất bại sẽ không xóa cảnh báo gốc; khi thay thế chưa hoàn tất, hãy thử lại theo gợi ý của cửa sổ bật lên, không nên nhấp lại dấu cộng để tạo thêm. Cảnh báo đã tạm dừng, đã kích hoạt xong hoặc đã xóa sẽ không còn hiển thị đường cảnh báo hợp lệ. Hỗ trợ Binance giao ngay và hợp đồng tương lai vĩnh cửu, khi đạt giá sẽ gửi một email đến hộp thư đã liên kết, khi ứng dụng trực tuyến và bật cửa sổ thông báo tin nhắn sẽ đồng bộ cửa sổ nổi trên máy tính, giám sát và email không phụ thuộc vào việc máy tính trực tuyến. Cần đối chiếu phiên bản cài đặt thực tế; mã nguồn và gói kiến thức ứng viên không đại diện cho đã ra mắt. Hỗ trợ khách hàng có thể giải thích thao tác, không thể tạo, di chuyển hoặc xóa cảnh báo thay người dùng.",
+      "category": "alerts",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-price-alert.ts",
+        "youle_desktop/src/renderer/trading-price-alert-markers.ts",
+        "youle_desktop/src/renderer/trading-price-alert-store.ts",
+        "youle_desktop/src/main/trading-alerts/cloud-price-alerts.mjs",
+        "youle_desktop/docs/chart-price-alert-markers-20261025.zh-CN.md"
+      ]
+    },
+    {
+      "id": "saved-plan-menu-vi",
+      "title": "Menu thẻ kế hoạch và chuyển đến nguồn",
+      "body": "Thẻ trên trang kế hoạch Windows có mũi tên phải ở góc trên bên phải, nhấp vào thẻ có thể kết thúc, mở lại hoặc xóa kế hoạch, cũng có thể chuyển đến đường vẽ trên biểu đồ nến hoặc cuộc hội thoại liên quan. Kiểu cửa sổ bật lên giống với thẻ kế hoạch trong cuộc hội thoại, nhấp vào chỗ trống hoặc nhấn Escape để đóng; xóa vẫn cần xác nhận. Chuyển đến ưu tiên mở cuộc hội thoại gốc, khôi phục thị trường gốc, chu kỳ phân tích và đường vẽ đã lưu tương ứng với kế hoạch. Khi không có nguồn cục bộ, đọc cuộc hội thoại lịch sử gốc theo runId của kế hoạch và taskId đám mây, giữ nguyên danh tính tác vụ gốc, tiêu đề, các câu hỏi và trả lời từng vòng; sau khi mở có thể tiếp tục gửi câu hỏi văn bản, trả lời mới được thêm vào cùng tác vụ gốc, mở lại vẫn giữ đầy đủ lịch sử. Có thể dừng khi đang gửi, khi kết quả mạng không chắc chắn, thử lại tin nhắn gốc dùng cùng mã định danh gửi để tránh thêm trùng lặp. Không tạo bản ghi khôi phục mới hoặc chèn bong bóng giải thích khôi phục; chỉ mở cuộc hội thoại sẽ không phân tích lại. Khi lịch sử gốc không tồn tại sẽ thông báo không thể đọc, không giả tạo cuộc hội thoại thay thế. Liên kết nguồn được lưu theo tài khoản và mã định danh duy nhất của kế hoạch, có thể tiếp tục sử dụng sau khi khởi động lại. Hỗ trợ khách hàng có thể giải thích các mục này, không thể thực hiện giao dịch hoặc xóa kế hoạch thay người dùng.",
+      "category": "plans",
+      "locale": "vi",
+      "status": "approved",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/saved-execution-plan-menu.ts",
+        "youle_desktop/src/renderer/saved-plan-source.ts",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-plans.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-task-history.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-task-chat.mjs",
+        "youle_desktop/src/renderer/cloud-task-chat.ts",
+        "youle_desktop/docs/plan-card-menu-20261021.zh-CN.md"
+      ]
+    },
+    {
+      "id": "support-service-vi",
+      "title": "Phạm vi, chi phí và danh tính của hỗ trợ khách hàng haolo",
+      "body": "Hỗ trợ khách hàng haolo là hỗ trợ khách hàng thông minh, xử lý cài đặt Haolo, tài khoản, thao tác trang, chức năng biểu đồ, điểm thành viên, mời và sự cố sản phẩm; bản thân hỗ trợ khách hàng miễn phí và không trừ điểm người dùng. Sau khi đăng nhập, có thể mở cùng một cuộc hội thoại hỗ trợ khách hàng gốc qua \"Hỗ trợ khách hàng\" ở góc dưới bên trái Windows hoặc \"Cài đặt → Giới thiệu & Phản hồi → Liên hệ hỗ trợ khách hàng\"; khi vào từ cài đặt sẽ đóng cửa sổ cài đặt, không chuyển đến trang web. Mục hỗ trợ khách hàng trên trang đăng nhập và nạp tiền được giữ lại, giao thức thao tác không thay đổi. Dự đoán thị trường, viết văn bản thông thường và các tác vụ độc lập khác không thuộc phạm vi hỗ trợ khách hàng. Việc người dùng hỏi cách sử dụng chức năng phân tích của sản phẩm thuộc tư vấn sản phẩm. Diễn đạt mơ hồ thì hỏi lại trước, không thể chỉ vì xuất hiện tên tiền tệ như BTC mà từ chối trả lời. Sau khi ứng dụng khách đi kèm và phía máy chủ ra mắt, gợi ý tham gia cuộc hội thoại nằm dưới tin nhắn người dùng đã kích hoạt nó; trả lời mới của AI và nhân viên sẽ định vị đến cuối cuộc hội thoại, làm mới giao diện vẫn giữ vị trí. Trả lời AI nhắm đến hiển thị trong 10 đến 20 giây sau khi nhận tin nhắn, tính cả thời gian tạo, các mô hình chậm hơn không chờ thêm; trả lời của nhân viên không tăng độ trễ nhịp độ. Sửa đổi mã nguồn không đại diện cho đã có hiệu lực trực tuyến.",
+      "category": "support-service",
+      "locale": "vi",
+      "status": "approved",
+      "requires_login": false,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/docs/native-support.zh-CN.md",
+        "youle_desktop/src/renderer/main.ts",
+        "youle_desktop/src/renderer/native-support.ts",
+        "youle_desktop/src/renderer/native-support-view.ts"
+      ]
+    },
+    {
+      "id": "assist-permission-vi",
+      "title": "Thao tác thay được ủy quyền và xử lý sau khi từ chối",
+      "body": "Hỗ trợ khách hàng cung cấp kế hoạch thao tác cụ thể, chỉ thực hiện sau khi người dùng đồng ý. Ủy quyền chỉ ràng buộc cuộc hội thoại, thiết bị và kế hoạch lần này. Trong quá trình thao tác hiển thị viền xanh, di chuyển con trỏ và gợi ý thao tác, đồng thời tạm khóa nhập liệu; sau khi hoàn thành hoặc gặp bất thường sẽ mở khóa. Sau khi từ chối tiếp tục cung cấp hướng dẫn bằng văn bản. Không hỗ trợ giao dịch, thanh toán, chuyển khoản, rút tiền, xóa dữ liệu hoặc sửa thông tin xác thực. Ủy quyền trên trang web chính thức chỉ áp dụng cho trang web chính thức hiện tại, không thể sửa cài đặt Windows.",
+      "category": "assist-permission",
+      "locale": "vi",
+      "status": "approved",
+      "requires_login": false,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/docs/native-support.zh-CN.md"
+      ]
+    },
+    {
+      "id": "theme-vi",
+      "title": "Giao diện chủ đề và ngôn ngữ giao diện Windows",
+      "body": "Tại Cài đặt → Chung ở góc dưới bên trái Windows, có thể chọn chủ đề sáng hoặc tối, cũng có thể chuyển đổi tiếng Trung giản thể, tiếng Anh, tiếng Trung phồn thể. Hỗ trợ khách hàng có thể mở cài đặt và thay đổi chủ đề sau khi người dùng đồng ý kế hoạch cụ thể; sau khi thay đổi phải kiểm tra chủ đề thực tế và kết quả lưu cục bộ.",
+      "category": "theme",
+      "locale": "vi",
+      "status": "approved",
+      "requires_login": false,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {
+        "open_settings": 1,
+        "set_theme": 1
+      },
+      "sources": [
+        "youle_desktop/src/renderer/main.ts"
+      ]
+    },
+    {
+      "id": "usage-vi",
+      "title": "Xem tiêu hao điểm",
+      "body": "Trong cài đặt Windows có mục tiêu hao điểm, có thể xem chi tiết tiêu hao. Hỗ trợ khách hàng có thể mở trang này sau khi được ủy quyền. Hỗ trợ khách hàng không thể suy đoán số dư, trạng thái đơn hàng hoặc khoản trừ thực tế của người dùng từ nội dung câu hỏi; số tiền cụ thể và bản ghi tác vụ lấy theo chi tiết tiêu hao của chính người dùng và kiểm tra phía máy chủ. Bản thân cuộc hội thoại hỗ trợ khách hàng không trừ điểm.",
+      "category": "usage",
+      "locale": "vi",
+      "status": "approved",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {
+        "open_usage": 1
+      },
+      "sources": [
+        "youle_desktop/src/renderer/main.ts"
+      ]
+    },
+    {
+      "id": "indicators-vi",
+      "title": "Cấu hình và tham số chỉ báo",
+      "body": "Khu vực biểu đồ nến Windows có mục cài đặt chỉ báo ở phía dưới. Khi người dùng muốn sửa chỉ báo, trước tiên xác định rõ chỉ báo nào, tham số chu kỳ nào và giá trị mục tiêu; sử dụng danh mục chỉ báo và phạm vi cho phép do ứng dụng hiện tại cung cấp. Hỗ trợ khách hàng có thể được ủy quyền mở cài đặt chỉ báo và điền, lưu tham số, sau đó kiểm tra kết quả lưu thực tế. Giải thích chỉ báo có thể dùng để hướng dẫn sản phẩm, không thay khách hàng phán đoán mua bán.",
+      "category": "indicators",
+      "locale": "vi",
+      "status": "approved",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {
+        "open_indicators": 1,
+        "set_indicator": 1
+      },
+      "sources": [
+        "youle_desktop/src/renderer/trading-expert-market.ts"
+      ]
+    },
+    {
+      "id": "candle-colors-vi",
+      "title": "Màu tăng giảm của nến",
+      "body": "Cài đặt nến Windows bao gồm trang màu tăng giảm và trang kiểu biểu đồ chính. Màu tăng giảm có thể chọn xanh tăng đỏ giảm hoặc đỏ tăng xanh giảm; kiểu biểu đồ chính có thể đặt màu tăng, giảm cụ thể. Hỗ trợ khách hàng cần xác định rõ hai màu rồi xin ủy quyền, và kiểm tra kết quả lưu, không thay đổi chiến lược giao dịch hoặc phân tích.",
+      "category": "candle-colors",
+      "locale": "vi",
+      "status": "approved",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {
+        "open_candle_settings": 1,
+        "set_candle_colors": 1
+      },
+      "sources": [
+        "youle_desktop/src/renderer/trading-expert-chart-settings.ts"
+      ]
+    },
+    {
+      "id": "chart-issue-vi",
+      "title": "Thị trường, biểu đồ hoặc kết quả phân tích không hiển thị được",
+      "body": "Biểu đồ BTC không mở được, giá ngừng cập nhật, chỉ báo không hiển thị, mục phân tích báo lỗi đều là sự cố sản phẩm. Khi biểu đồ nến chính Windows mở lần đầu, chuyển cặp giao dịch hoặc chu kỳ, nếu dữ liệu lịch sử Binance gặp lỗi kết nối tạm thời sẽ tự động thử lại trong 30 giây của lần tải này, sau khi thành công hiển thị trực tiếp biểu đồ; chỉ khi không có bộ nhớ đệm khả dụng và 30 giây vẫn chưa thành công mới hiển thị mục thử lại màu đỏ, nhấp vào có thể thử lại. Tự động chọn tuyến chờ phản hồi thành công đầy đủ JSON thị trường rồi mới xác định tuyến, dữ liệu bị ngắt giữa chừng, cắt ngắn hoặc JSON không hợp lệ sẽ kích hoạt tuyến dự phòng tiếp quản; đọc nến của cổng ưu tiên có giới hạn thời gian thử riêng, để dành thời gian chuyển tuyến. Thời gian hạ nhiệt giới hạn tốc độ phía máy chủ vẫn được tuân thủ, lỗi rõ ràng như cặp giao dịch đã hủy niêm yết được thông báo trực tiếp; chuyển cặp giao dịch, chu kỳ hoặc hủy trang sẽ hủy tải cũ. Thay đổi này là ứng viên mã nguồn chờ phát hành, lấy phiên bản cài đặt thực tế làm chuẩn, không thêm thao tác thay của hỗ trợ khách hàng. Trước tiên hỏi nền tảng và phiên bản ứng dụng khách, loại giao dịch, chu kỳ, vị trí xảy ra sự cố, các bước tái hiện và nội dung báo lỗi. Không thể trực tiếp đánh giá là Bug khi không có bản ghi kiến thức, không thể tuyên bố đã đọc nội dung ảnh chụp màn hình người dùng chưa cung cấp. Khi thực sự cần xử lý kỹ thuật, đăng ký vấn đề đã khử nhận dạng.",
+      "category": "chart-issue",
+      "locale": "vi",
+      "status": "approved",
+      "requires_login": false,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/docs/native-support.zh-CN.md",
+        "youle_desktop/src/renderer/trading-expert-market.ts",
+        "youle_desktop/src/renderer/trading-market-load-retry.ts",
+        "youle_desktop/src/main/binance-network-router.mjs",
+        "youle_desktop/src/main/binance-response-body.mjs"
+      ]
+    },
+    {
+      "id": "support-resolution-vi",
+      "title": "Theo dõi kỹ thuật, email và tiếp quản thủ công",
+      "body": "Sau khi vấn đề sản phẩm công khai được gửi thành công hoặc liên kết bài đăng đồng xây dựng sẽ nhắc quản trị viên; vấn đề riêng tư sau khi đăng ký nội bộ sẽ nhắc quản trị viên. Hỗ trợ khách hàng thông thường giải quyết không gửi email, sự cố thực sự dù thử lại khôi phục vẫn giữ cảnh báo. Sửa chữa cần thực sự phát hành và đăng ký phiên bản rồi mới thông báo cho người dùng liên quan, không cam kết thời gian sửa chữa cụ thể. Khi người dùng yêu cầu nhân viên, đăng ký nhu cầu và tiếp tục hỗ trợ; sau khi quản trị viên thực sự tiếp quản, AI của cuộc hội thoại đó vĩnh viễn ngừng trả lời.",
+      "category": "support-resolution",
+      "locale": "vi",
+      "status": "approved",
+      "requires_login": false,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/docs/native-support.zh-CN.md"
+      ]
+    },
+    {
+      "id": "membership-vi",
+      "title": "Ranh giới giữa thành viên và vấn đề phân tích trả phí",
+      "body": "Quyền lợi thành viên, mục nạp tiền và tiêu hao điểm tác vụ thuộc tư vấn sản phẩm. Quyền lợi và giá hiện tại lấy theo trang thành viên trên trang web chính thức và hiển thị thực tế trong tài khoản, không suy đoán giá hoặc tình trạng đã nhận từ kiến thức cũ. Bất thường thanh toán chuyển vào xử lý nội bộ, hỗ trợ khách hàng không thể thay người dùng gửi thanh toán hoặc công khai thông tin đơn hàng. Hỗ trợ khách hàng miễn phí không có nghĩa các chức năng phân tích khác miễn phí.",
+      "category": "membership",
+      "locale": "vi",
+      "status": "approved",
+      "requires_login": false,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/docs/native-support.zh-CN.md"
+      ]
+    },
+    {
+      "id": "credit-exhaustion-vi",
+      "title": "Kiểm tra khi thành viên còn hiệu lực nhưng thiếu điểm",
+      "body": "Thời hạn hiệu lực thành viên và điểm khả dụng là hai thông tin độc lập, thành viên còn hiệu lực cũng có thể đã dùng hết điểm. Trước tiên kiểm tra đơn hàng đã thanh toán và hoàn tất cấp quyền lợi chưa, rồi kiểm tra số dư khả dụng hiện tại và tiêu hao sau khi mua. Hạn mức đã cấp không phải số dư còn lại, hạn mức chờ cấp không thể coi là số dư khả dụng hiện tại. Khi thiếu thông tin không thể khẳng định đã nhận hoặc đã dùng hết; khởi động lại không thể khôi phục điểm đã tiêu. Gợi ý thiếu điểm trên Windows có thể mở chi tiết tiêu hao; nếu vừa thanh toán nên kiểm tra đơn hàng. Khi người dùng có ý kiến về tiêu hao, kiểm tra sổ nội bộ, không tự động hoàn tiền, tặng điểm hoặc thanh toán lặp, không để lộ tài khoản và đơn hàng trong nội dung công khai.",
+      "category": "membership",
+      "locale": "vi",
+      "status": "approved",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {
+        "open_usage": 1
+      },
+      "sources": [
+        "youle_desktop/src/renderer/quota-balance.ts",
+        "youle_desktop/src/renderer/main.ts",
+        "youle_desktop/docs/credit-exhaustion-message-20261025.zh-CN.md"
+      ]
+    },
+    {
+      "id": "deepseek-analysis-route-vi",
+      "title": "Giải thích mô hình phân tích và thời gian xử lý",
+      "body": "Phân tích văn bản được Haolo ủy thác sử dụng DeepSeek, mức suy luận thống nhất là low; tên sản phẩm lịch sử, bản ghi lựa chọn của người dùng và tên tính phí không đại diện cho việc thực tế sử dụng GPT. Sự cố mô hình không tự động chuyển sang GPT. Thời gian phân tích chịu ảnh hưởng của quy mô đầu vào, độ phức tạp chiến lược và độ dài nội dung tạo ra, tiến trình đầu tiên xuất hiện không có nghĩa phân tích đầy đủ đã hoàn thành; không thể cam kết mỗi lần phân tích đều nhanh hơn. Khi gặp phân tích thất bại hoặc không có tài khoản khả dụng, nên thu thập phiên bản ứng dụng khách, thời điểm xảy ra và lỗi đã khử nhận dạng, giao cho nhân viên kỹ thuật kiểm tra, hỗ trợ khách hàng không thể thay người dùng đổi tài khoản mô hình hoặc phát lại phân tích trả phí.",
+      "category": "analysis",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": false,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/analysis-model-policy.mjs",
+        "youle_desktop/src/main/app-server-client.mjs",
+        "youle_desktop/src/main/model-request-policy.mjs"
+      ]
+    },
+    {
+      "id": "context-efficiency-vi",
+      "title": "Ngữ cảnh cuộc hội thoại dài và tiêu hao điểm",
+      "body": "Suy luận tiếp theo sau khi gọi công cụ sẽ tiếp tục dùng lịch sử, và đầu vào được lưu trong bộ nhớ đệm cũng có thể tiêu tốn điểm. Bản tối ưu sắp phát hành sẽ gộp các bản sao văn bản dài hoàn toàn giống nhau trong cùng một kết quả công cụ khi gửi yêu cầu thực tế tới mô hình, đồng thời tránh chèn lại phiên hiện tại làm bối cảnh cho tác vụ khác; vẫn giữ nguyên bản ghi gốc, bối cảnh của tác vụ khác và các dữ kiện khác nhau. Việc dọn dẹp sớm đã không vượt qua thử nghiệm, ngưỡng dọn dẹp ban đầu đã được khôi phục. Thử nghiệm đối chứng với tác vụ tổng hợp thực tế đã xác minh tính chính xác của dữ kiện và tính liên tục, nhưng mức tiết kiệm phụ thuộc vào từng tác vụ, không thể cam kết tỷ lệ mẫu là mức giảm trên hóa đơn của người dùng. Trước tiên hãy kiểm tra phiên bản cài đặt của khách hàng và bản ghi tiêu thụ thực tế; mã nguồn hoặc gói tri thức ứng viên không có nghĩa là đã được đưa vào vận hành.",
+      "category": "analysis",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": false,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/model-context-projection.mjs",
+        "youle_desktop/docs/context-efficiency-20261025.zh-CN.md",
+        "youle_desktop/src/main/group-memory-context.mjs",
+        "youle_desktop/docs/context-model-validation-20261025.zh-CN.md"
+      ]
+    },
+    {
+      "id": "deepseek-protocol-compatibility-vi",
+      "title": "Nội dung phân tích xuất hiện mã công cụ hoặc DSML",
+      "body": "Nội dung phân tích xuất hiện DSML hoặc mã công cụ, cho thấy định dạng phản hồi của mô hình bất thường, không có nghĩa là công cụ đã được thực thi hoặc phân tích đã hoàn tất. Bản sửa lỗi Windows sắp phát hành cung cấp khả năng tương thích giao thức và bảo vệ phiên cũ, giữ nguyên bản ghi gốc, không thực thi mã lịch sử. Đối với lệnh gọi công cụ có định dạng hợp lệ nhưng không tồn tại, lượt hiện tại có thể tái sử dụng kết quả đã có, chỉ bổ sung một lần văn bản khôi phục với tất cả công cụ bị vô hiệu hóa, không lặp lại thao tác nghiệp vụ; việc này sẽ tiêu tốn thêm một lần suy luận mô hình thông thường. DSML, lệnh gọi bị hỏng hoặc vi phạm lần nữa vẫn báo thất bại, không thể cam kết mọi phân tích đều có thể khôi phục. Hỗ trợ khách hàng nên thu thập phiên bản, thời gian và lỗi đã ẩn thông tin; trước tiên kiểm tra gói cài đặt có bao gồm bản sửa lỗi hay không, mã nguồn và thử nghiệm đạt không có nghĩa là đã đưa vào vận hành.",
+      "category": "analysis",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": false,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/deepseek-responses-adapter.mjs",
+        "youle_desktop/src/main/model-request-relay.mjs",
+        "youle_desktop/src/main/app-server-client.mjs",
+        "youle_desktop/src/shared/model-protocol-text.mjs",
+        "youle_desktop/docs/deepseek-protocol-compatibility-20261025.zh-CN.md"
+      ]
+    },
+    {
+      "id": "korean-interface-vi",
+      "title": "Giao diện bốn ngôn ngữ và tiếng Hàn chuyên nghiệp",
+      "body": "Ứng dụng hỗ trợ tiếng Trung giản thể, tiếng Anh, tiếng Trung phồn thể và tiếng Hàn. Có thể đổi ngôn ngữ trong phần Cài đặt trên Windows và thiết bị di động hoặc qua trình đơn ngôn ngữ trên website và trung tâm giới thiệu. Giao diện nghiệp vụ, thông báo xác thực, định dạng ngày và báo cáo do hệ thống tạo sẽ dùng ngôn ngữ đã chọn. Phản hồi của mô hình bằng tiếng Hàn sử dụng thuật ngữ chuyên ngành, đồng thời giữ nguyên mã thị trường, số liệu, tên trường giao diện, nội dung gốc của người dùng và tên riêng của bên thứ ba. Đổi ngôn ngữ không thay đổi tài khoản, kế hoạch giao dịch hoặc dữ liệu thị trường. Ngôn ngữ hỗ trợ khách hàng có thể được chọn riêng cho từng cuộc hội thoại. Tính khả dụng phụ thuộc vào phiên bản thực tế đã cài đặt và phát hành.",
+      "category": "settings",
+      "locale": "vi",
+      "status": "approved",
+      "requires_login": false,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/app-language.mjs",
+        "youle_desktop/src/main/trading-analysis/model-output-language.mjs"
+      ]
+    },
+    {
+      "id": "custom-appearance-sync-vi",
+      "title": "Chủ đề tùy chỉnh và đồng bộ hai nền tảng",
+      "body": "Windows: Cài đặt chung → Giao diện chủ đề → Tùy chỉnh; Android/iOS: Cài đặt cá nhân → Giao diện → Tùy chỉnh. Tái sử dụng bộ chọn màu, có thể chọn màu không phải trắng thuần và độ mờ 0–100%. Cửa sổ tùy chỉnh giữ bảng màu tiêu chuẩn, việc làm mới nền sẽ không đóng cửa sổ hoặc làm mất màu đang nhập; nhấp ra ngoài, nhấp lại vào tùy chỉnh hoặc nhấn Esc để đóng, rời khỏi cài đặt hoặc chuyển tài khoản cũng sẽ đóng. Lớp phủ bán trong suốt giữ màu đen mặc định và độ mờ ban đầu; chỉ các điều khiển không phải màu trắng và vùng xám ban đầu đổi màu theo các tầng sáng tối của chế độ ban ngày, bao gồm viền và gradient tương ứng. Vùng trắng ban đầu và độ mờ ban đầu không thay đổi, chữ, giá tăng giảm thị trường, trang trí màu và mẫu bảng màu không thay đổi. Cùng một tài khoản dùng chung một cấu hình màu và độ mờ, đồng bộ qua thăm dò định kỳ ở tiền cảnh, thay đổi ngoại tuyến được giữ lại để thử lại, chuyển tài khoản được cách ly. Cần backend nghiệp vụ và ứng dụng hai nền tảng hỗ trợ giao thức chủ đề tùy chỉnh. Hỗ trợ khách hàng có thể hướng dẫn các bước, thao tác thay hiện có chỉ hỗ trợ sáng/tối, không tuyên bố có thể chọn màu tùy chỉnh thay người dùng.",
+      "category": "settings",
+      "locale": "vi",
+      "status": "approved",
+      "requires_login": false,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/custom-theme.ts",
+        "youle_desktop/src/renderer/color-picker.ts",
+        "youle_desktop/src/renderer/main.ts",
+        "youle_desktop/src/renderer/account-settings-sync.ts"
+      ]
+    },
+    {
+      "id": "right-target-bands-vi",
+      "title": "Tùy chọn giao dịch và thẻ kế hoạch",
+      "body": "Phân tích chiến lược Windows mới áp dụng từng trường theo thứ tự ưu tiên: điều kiện rõ ràng của lượt này, tùy chọn đã lưu, giá trị mặc định, không sửa đổi cài đặt dài hạn. Tỷ lệ lãi/lỗ ròng tối thiểu được phóng đại theo tỷ lệ ba mức tỷ lệ ròng, tính cả phí và độ chính xác giá; ví dụ 0.4/0.7/1.1 với mức tối thiểu 2 cho ra 2/3.5/5.5. Giá thực tế, vị thế, biểu đồ, bản ghi đã lưu và thông báo chốt lời/giữ vốn ba mức dùng chung kết quả đã đóng băng, khôi phục không tạo lại. Khi kỷ luật tin tức hoặc xung đột rủi ro vẫn hiển thị thẻ tham khảo theo kiểu gốc, lý do và giải thích không khuyến nghị vào lệnh nằm trong nội dung trò chuyện, không thêm phần tử mới trong thẻ; khi phân tích hoàn tất nhưng không có tín hiệu giao dịch hoặc phương án giá, giữ nguyên nội dung và hiển thị thẻ giải thích chỉ đọc \"Tạm thời không có tín hiệu giao dịch\", không hiển thị trường vào lệnh, cắt lỗ, chốt lời trống, cũng không thể thêm vào kế hoạch hoặc bật thông báo. Thẻ quan sát điều kiện lịch sử khôi phục bố cục văn bản gốc; dữ liệu không đủ hoặc phân tích thất bại không giả mạo là kết quả không có tín hiệu. Thẻ tham khảo không thể kích hoạt thông báo, cài đặt rủi ro của người dùng là giới hạn trên, vị thế thực tế có thể thấp hơn do ràng buộc của tài khoản và chiến lược. Kế hoạch cũ và thiết bị di động giữ nguyên chính sách ban đầu. Hiện chỉ là ứng viên mã nguồn, chưa triển khai; cần ứng dụng khách, API và Worker đi kèm, hỗ trợ khách hàng không thể thay người dùng sửa quản lý rủi ro, đặt lệnh hoặc kích hoạt kế hoạch.",
+      "category": "analysis",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/plan-presentation-card.mjs",
+        "youle_desktop/src/main/conditional-watch-card.mjs",
+        "youle_desktop/src/shared/plan-presentation.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-alert-feed.mjs",
+        "youle_desktop/docs/preference-plan-presentation-20261025.zh-CN.md"
+      ]
+    },
+    {
+      "id": "cloud-plan-sync-validation-vi",
+      "title": "Đồng bộ và xác minh kế hoạch trên đám mây",
+      "body": "Đồng bộ kế hoạch trên đám mây của Windows tương thích với kế hoạch đã lưu có ràng buộc câu hỏi của lượt này; khi phiên gốc hết hạn hoặc biên nhận không chứa câu hỏi gốc vẫn có thể đọc được, nội dung kế hoạch và điều kiện kích hoạt tiếp tục được xác minh. Đồng bộ thất bại giữ nguyên kế hoạch hiện có trên máy, không có nghĩa là kế hoạch chưa được lưu hoặc đã bị mất. Lỗi mạng tạm thời sẽ tự động thử lại; lỗi xác minh dữ liệu sẽ được thông báo rõ ràng, nên cập nhật ứng dụng khách, nếu vẫn thất bại hãy liên hệ hỗ trợ khách hàng. Hỗ trợ khách hàng chỉ có thể giải thích và hỗ trợ kiểm tra, không thể sửa đổi kế hoạch giao dịch hoặc kích hoạt thông báo thay người dùng.",
+      "category": "plans",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-plans.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-runtime.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-entry-result.mjs",
+        "youle_desktop/src/main/cloud-plan-sync-response.mjs",
+        "youle_desktop/docs/cloud-plan-request-receipt-20261025.zh-CN.md"
+      ]
+    },
+    {
+      "id": "market-news-vi",
+      "title": "Nến, tin nhanh và lối vào trình duyệt",
+      "body": "Danh mục được chọn phân biệt bằng chữ in đậm, không hiển thị gạch chân. Thanh trên cùng của tin nhanh gồm bảy danh mục: Tinh tuyển (mặc định), Cá voi, Dòng tiền chính, Thị trường, Niêm yết mới, Fed và Trump; khi cuộn xuống, lối vào trang, danh mục, ngày và lối vào làm mới vẫn hiển thị. Chuyển danh mục giữ nguyên ngày đã chọn và quay về trang đầu, làm mới trả về tin nhanh mới nhất của danh mục hiện tại, phân trang và tự động làm mới mỗi phút theo danh mục hiện tại. Khi tạm thời không có tin nhanh và khi đang tải, vị trí thanh trên cùng không thay đổi; cửa sổ hẹp có thể cuộn ngang danh mục. Nhấp vào nội dung hoặc vùng trống của thẻ tin nhanh có thể mở bài tin nhanh tương ứng trong trung tâm tin tức trang web chính thức; nút bình chọn, chia sẻ, mở rộng toàn văn và cặp giao dịch phản hồi độc lập, chọn văn bản sẽ không chuyển trang. Thời gian đăng hiển thị bên phải nút chia sẻ. Biểu tượng ở góc trên bên trái của nến có thể chuyển đổi giữa nến và tin nhanh. Tin nhanh dùng thương hiệu Haolo và dòng thông tin một cột, không hiển thị tiêu đề trang bổ sung, đường phân cách mục hoặc điều khiển toàn màn hình nến. Nút ngày nằm trong vùng nội dung tin nhanh, có thể mở lịch; biểu tượng làm mới bên cạnh trả về mới nhất. Bài dài có thể mở rộng toàn văn. Hỗ trợ phân trang, chuyển đến nến của cặp giao dịch đã kết nối, chia sẻ hình ảnh và liên kết. Mỗi tài khoản chỉ có thể bình chọn một phiếu tích cực hoặc tiêu cực cho mỗi tin nhanh, nhấp lại để hủy. Trình duyệt thông báo đang phát triển, chưa đưa vào vận hành. Cần ứng dụng khách và phiên bản API nghiệp vụ đi kèm, mục này là ứng viên phát hành.",
+      "category": "market-news",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/market-news.ts",
+        "youle_desktop/src/renderer/market-news.css",
+        "youle_desktop/src/main/youle-api-client.mjs",
+        "youle_desktop/src/shared/market-news-categories.mjs"
+      ]
+    },
+    {
+      "id": "japanese-interface-candidate-vi",
+      "title": "Tiếng Nhật chuyên nghiệp và cài đặt năm ngôn ngữ (ứng viên mã nguồn)",
+      "body": "Đây là mã nguồn ứng viên chưa được triển khai hoặc phát hành. Tính khả dụng thực tế phụ thuộc vào phiên bản ứng dụng đã cài đặt và dịch vụ đang chạy. Các phiên bản tương thích hỗ trợ tiếng Trung giản thể, tiếng Trung phồn thể, tiếng Anh, tiếng Hàn và tiếng Nhật. Chọn tiếng Nhật trong Cài đặt trên Windows hoặc thiết bị di động, hay trong trình đơn ngôn ngữ trên website và trung tâm giới thiệu. Giao diện, thông báo nghiệp vụ và phản hồi của mô hình sử dụng tiếng Nhật chuyên nghiệp. Nội dung gốc của người dùng, mã thị trường, tên trường giao diện, số tiền và mức giá được giữ nguyên. Đổi ngôn ngữ không thực hiện giao dịch hoặc thay đổi quyền nghiệp vụ. Ngôn ngữ hỗ trợ khách hàng có thể được chọn riêng.",
+      "category": "settings",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": false,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/app-language.mjs",
+        "youle_desktop/src/shared/japanese.mjs",
+        "youle_desktop/src/main/assistant-output-language.mjs",
+        "youle_desktop/src/main/cloud-plan-contract.mjs",
+        "youle_desktop/src/main/execution-plan-card-view.mjs",
+        "youle_desktop/src/shared/execution-plan-language.mjs",
+        "youle_desktop/src/main/legacy-execution-plan-presentation.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/execution-plan-builder.mjs"
+      ]
+    },
+    {
+      "id": "background-sync-capacity-vi",
+      "title": "Đồng bộ nền và lưu đường vẽ",
+      "body": "Windows sẽ gộp các lần đọc nền trùng lặp, giảm dần tần suất khi dữ liệu không thay đổi, việc lưu chủ động và đọc lại giữ thời gian thực. Khi dịch vụ bận sẽ lùi thời gian; các sửa đổi đường vẽ bị máy chủ từ chối rõ ràng được giữ trên máy và tạm dừng gửi lại, có thể thử lại sau khi chỉnh sửa, các đường vẽ hợp lệ khác có thể tiếp tục đồng bộ. Cần ứng dụng khách và phiên bản backend nghiệp vụ đi kèm; hiện là ứng viên mã nguồn chưa phát hành.",
+      "category": "settings",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/conditional-poll-fetch.mjs",
+        "youle_desktop/src/main/poll-request-coordinator.mjs",
+        "youle_desktop/src/renderer/manual-drawing-sync.ts"
+      ]
+    },
+    {
+      "id": "vietnamese-interface-candidate-zh-cn",
+      "title": "越南语支持",
+      "body": "配套源码新增专业越南语（vi，兼容 vi-VN），与简中、繁中、英语、韩语、日语共六种语言。Windows 和移动端在设置中选择 Tiếng Việt；官网和邀请中心通过语言菜单切换。系统界面、接口提示和模型回复跟随语言；用户原文、标识符、接口键名及数值保持原样。客服会话语言可独立选择。本次仅提交源码，不代表部署或发布；以实际安装的客户端及服务版本为准。",
+      "locale": "zh-CN",
+      "category": "settings",
+      "status": "pending",
+      "requires_login": false,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/app-language.mjs",
+        "youle_desktop/src/shared/vietnamese.mjs"
+      ]
+    },
+    {
+      "id": "vietnamese-interface-candidate-zh-hant",
+      "title": "越南語支援",
+      "body": "配套原始碼新增專業越南語（vi，相容 vi-VN），與簡中、繁中、英語、韓語、日語共六種語言。Windows 和行動端在設定中選擇 Tiếng Việt；官網和邀請中心透過語言選單切換。系統介面、介面提示和模型回覆跟隨語言；使用者原文、識別碼、介面鍵名及數值保持原樣。客服對話語言可獨立選擇。本次僅提交原始碼，不代表部署或發佈；以實際安裝的用戶端及服務版本為準。",
+      "locale": "zh-Hant",
+      "category": "settings",
+      "status": "pending",
+      "requires_login": false,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/app-language.mjs",
+        "youle_desktop/src/shared/vietnamese.mjs"
+      ]
+    },
+    {
+      "id": "vietnamese-interface-candidate-en",
+      "title": "Vietnamese support",
+      "body": "The matching source adds professional Vietnamese (vi, including vi-VN), alongside Simplified Chinese, Traditional Chinese, English, Korean and Japanese. Select Tiếng Việt in Windows or mobile Settings, or in the website and invitation center language menu. System copy, API messages and model prose follow the selection. User content, identifiers, protocol keys and numeric values remain unchanged. Support conversations may use an independent language. This source change is not a deployment or release; availability depends on the installed client and service versions.",
+      "locale": "en",
+      "category": "settings",
+      "status": "pending",
+      "requires_login": false,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/app-language.mjs",
+        "youle_desktop/src/shared/vietnamese.mjs"
+      ]
+    },
+    {
+      "id": "vietnamese-interface-candidate-ko",
+      "title": "베트남어 지원",
+      "body": "대응 소스에 전문 베트남어(vi, vi-VN 호환)를 추가하여 중국어 간체·번체, 영어, 한국어, 일본어와 함께 6개 언어를 지원합니다. Windows와 모바일 설정 또는 웹사이트와 초대 센터의 언어 메뉴에서 Tiếng Việt를 선택합니다. 시스템 문구, API 메시지와 모델 응답에 적용되며 사용자 원문, 식별자, 프로토콜 키와 수치는 유지됩니다. 상담 언어는 별도로 선택할 수 있습니다. 이번 변경은 소스 제출이며 배포나 출시가 아닙니다. 실제 사용 가능 여부는 설치된 앱과 서비스 버전에 따라 다릅니다.",
+      "locale": "ko",
+      "category": "settings",
+      "status": "pending",
+      "requires_login": false,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/app-language.mjs",
+        "youle_desktop/src/shared/vietnamese.mjs"
+      ]
+    },
+    {
+      "id": "vietnamese-interface-candidate-ja",
+      "title": "ベトナム語対応",
+      "body": "対応するソースに専門的なベトナム語（vi、vi-VN互換）を追加し、簡体字中国語、繁体字中国語、英語、韓国語、日本語と合わせて6言語に対応します。Windowsとモバイルの設定、または公式サイトと招待センターの言語メニューでTiếng Việtを選択します。システム文言、APIメッセージ、モデルの回答に適用されます。ユーザーの原文、識別子、プロトコルのキー、数値は保持します。サポートの会話言語は個別に選択できます。今回はソースの提出であり、デプロイやリリースではありません。利用可否は実際のアプリとサービスのバージョンによります。",
+      "locale": "ja",
+      "category": "settings",
+      "status": "pending",
+      "requires_login": false,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/app-language.mjs",
+        "youle_desktop/src/shared/vietnamese.mjs"
+      ]
+    },
+    {
+      "id": "vietnamese-interface-candidate-vi",
+      "title": "Hỗ trợ tiếng Việt",
+      "body": "Mã nguồn tương thích bổ sung tiếng Việt chuyên nghiệp (vi, bao gồm vi-VN), bên cạnh tiếng Trung giản thể, tiếng Trung phồn thể, tiếng Anh, tiếng Hàn và tiếng Nhật. Chọn Tiếng Việt trong Cài đặt trên Windows hoặc thiết bị di động, hay trong trình đơn ngôn ngữ trên website và trung tâm giới thiệu. Giao diện hệ thống, thông báo API và phản hồi của mô hình dùng ngôn ngữ đã chọn. Nội dung gốc của người dùng, mã định danh, tên trường giao thức và các giá trị số được giữ nguyên. Có thể chọn riêng ngôn ngữ hỗ trợ khách hàng. Đây là thay đổi mã nguồn, chưa phải triển khai hoặc phát hành; tính khả dụng phụ thuộc vào phiên bản ứng dụng và dịch vụ thực tế.",
+      "locale": "vi",
+      "category": "settings",
+      "status": "pending",
+      "requires_login": false,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/app-language.mjs",
+        "youle_desktop/src/shared/vietnamese.mjs"
+      ]
     }
   ]
 }

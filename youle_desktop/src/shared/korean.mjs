@@ -1,3 +1,4 @@
+import { vietnameseText, vietnameseCopy } from './vietnamese.mjs';
 import { japaneseText, japaneseCopy } from './japanese.mjs';
 import { KOREAN_CATALOG } from './korean-catalog.mjs';
 
@@ -51,9 +52,9 @@ export function koreanCopy(value) {
 
 export function withKoreanVariants(mapping) {
   const source = mapping['zh-CN'] ?? mapping.zh ?? mapping['zh-TW'] ?? mapping['zh-Hant'];
-  return source === undefined ? mapping : {...mapping, ko: mapping.ko ?? koreanCopy(source), ja: mapping.ja ?? japaneseCopy(source)};
+  return source === undefined ? mapping : {...mapping, ko: mapping.ko ?? koreanCopy(source), ja: mapping.ja ?? japaneseCopy(source), vi: mapping.vi ?? vietnameseCopy(source)};
 }
 
 export function localizedChoice(choices, language) {
-  return language === 'ja' ? japaneseText(choices[0]) : language === 'ko' ? koreanText(choices[0]) : choices[language === 'en' ? 1 : ['zh-TW', 'zh-Hant'].includes(language) ? 2 : 0];
+  return language === 'vi' ? vietnameseText(choices[0]) : language === 'ja' ? japaneseText(choices[0]) : language === 'ko' ? koreanText(choices[0]) : choices[language === 'en' ? 1 : ['zh-TW', 'zh-Hant'].includes(language) ? 2 : 0];
 }

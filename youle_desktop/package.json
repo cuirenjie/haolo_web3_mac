@@ -229,7 +229,8 @@
         "zh_CN",
         "zh_TW",
         "ko_KR",
-        "ja_JP"
+        "ja_JP",
+        "vi_VN"
       ],
       "perMachine": false,
       "installerIcon": "resources/haolo-logo.ico",

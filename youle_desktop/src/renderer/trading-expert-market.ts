@@ -171,7 +171,8 @@ export function recordTradingRendererFailure(error: unknown, context: Record<str
 
 function activeTradingAnalysisLanguage(): AppLanguage {
   const locale = appLanguageLocale();
-  if (locale === "ja-JP") return "ja";
+  if (locale === "vi-VN") return "vi";
+if (locale === "ja-JP") return "ja";
   if (locale === "ko-KR") return "ko";
   return locale === "zh-CN" || locale === "zh-TW" ? locale : "en";
 }
@@ -7273,7 +7274,7 @@ class TradingExpertMarketWorkspace {
       const changeClass = market.quoteAvailable
         ? market.changePercent >= 0 ? "positive" : "negative"
         : "";
-      const name = `${market.displaySymbol} ${market.tag}`;
+      const name = `${market.displaySymbol} ${translateAppText(market.tag)}`;
       return `
         <button
           type="button"
@@ -7344,7 +7345,7 @@ class TradingExpertMarketWorkspace {
         button.setAttribute("aria-busy", String(!market.quoteAvailable));
         button.setAttribute(
           "aria-label",
-          `切换至 ${market.displaySymbol} ${market.tag}，价格 ${priceText}，24小时涨幅 ${changeText}；拖动调整顺序，Alt+左右键可移动`,
+          translateAppText(`切换至 ${market.displaySymbol} ${translateAppText(market.tag)}，价格 ${priceText}，24小时涨幅 ${changeText}；拖动调整顺序，Alt+左右键可移动`),
         );
       });
       if (!this.picker.hidden) this.paintVisibleMarketQuotes();

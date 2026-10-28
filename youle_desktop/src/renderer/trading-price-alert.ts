@@ -1,3 +1,4 @@
+import { vietnameseText } from '../shared/vietnamese.mjs';
 import { japaneseText } from '../shared/japanese.mjs';
 import { priceAlertDeliveryDescription } from '../shared/price-alert-copy.mjs';
 import { koreanText } from '../shared/korean.mjs';
@@ -33,6 +34,7 @@ const copy = {
 function t(key: keyof typeof copy | 'detail') {
   const language = document.documentElement.lang;
   if (key === 'detail') return priceAlertDeliveryDescription(language);
+  if (language.startsWith('vi')) return vietnameseText(copy[key][0]);
   if (language.startsWith('ja')) return japaneseText(copy[key][0]);
   if (language.startsWith('ko')) return (copy[key] as string[])[3] || koreanText(copy[key][0]);
   return copy[key][language.startsWith('en') ? 1 : /TW|Hant/i.test(language) ? 2 : 0];
@@ -124,7 +126,7 @@ export class TradingPriceAlertControl {
     const language = document.documentElement.lang;
     const frozen = { ...sample, interval: replaces?.interval ?? priceAlertInterval(sample.interval), requestId: crypto.randomUUID(), confirmed: true as const,
       ...(replaces ? { replacesAlertId: replaces.alertId, replacesVersion: replaces.version } : {}),
-      locale:language.startsWith('ja') ? 'ja' : language.startsWith('ko') ? 'ko' : language.startsWith('en') ? 'en' : /TW|Hant/i.test(language) ? 'zh-Hant' : 'zh-CN' };
+      locale:language.startsWith('vi') ? 'vi' : language.startsWith('ja') ? 'ja' : language.startsWith('ko') ? 'ko' : language.startsWith('en') ? 'en' : /TW|Hant/i.test(language) ? 'zh-Hant' : 'zh-CN' };
     const previousFocus = document.activeElement as HTMLElement | null;
     const dialog = document.createElement('dialog');
     this.dialog = dialog;

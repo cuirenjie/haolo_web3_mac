@@ -1,4 +1,5 @@
 import { fibonacciWedgeEndpoint } from './trading-fibonacci-radial.ts';
+import { tradingPriceAxisLabelGeometry } from './trading-price-axis.ts';
 import { deferInteractionRender } from "./interaction-render-guard.ts";
 import { rotatedRectangleGeometry, rotatedRectangleWidthPoint, moveRotatedRectangleHandle } from './trading-rotated-rectangle.ts';
 import { isPositionDrawing, isPredictionDrawing, positionAnchors, movePositionAnchor, normalizePositionOptions, renderPositionDrawing, renderForecastDrawing, type PositionOptions } from './trading-position-tools.ts';
@@ -6315,9 +6316,10 @@ export class TradingDrawingController {
     })
       .map((marker) => ({ ...marker, screen: this.pointToScreen(marker.point) }))
       .filter((marker): marker is TradingDrawingAxisMarkerPoint & { drawingId: string; markerColor: string; screen: ScreenPoint } => Boolean(marker.screen));
-    const priceScaleWidth = this.drawingScope === "main"
-      ? Math.max(this.getChart()?.priceScale("right", this.paneIndex).width() || 0, 64)
-      : 0;
+    const chart = this.getChart();
+    const priceAxisLabel = chart ? tradingPriceAxisLabelGeometry(chart, this.paneIndex) : null;
+    const priceScaleWidth = this.drawingScope === "main" ? Math.max(priceAxisLabel?.width || 0, 64) : 0;
+    const priceLabelLeft = priceAxisLabel?.overlay ? Math.max(0, bounds.width - priceScaleWidth) : bounds.width;
     const priceMarkers = markers.filter((marker, index, entries) => (
       marker.showPrice
       && marker.screen.y >= 0
@@ -6355,7 +6357,7 @@ export class TradingDrawingController {
     }
     const priceHtml = priceScaleWidth > 0 ? priceMarkers.map((marker) => {
       const top = patternMarkerTops.get(marker) ?? Math.min(Math.max(marker.screen.y, 12), Math.max(12, bounds.height - 12));
-      return `<div class="trading-drawing-axis-marker price" data-drawing-axis-price style="--trading-drawing-axis-marker:${marker.markerColor};--trading-drawing-axis-marker-text:${marker.markerColor === DRAWING_SELECTION_COLOR ? "var(--interaction-on-accent)" : "#fff"};left:${bounds.width}px;top:${top}px;width:${priceScaleWidth}px">${escapeHtml(formatTradingDrawingAxisPrice(marker.point.price))}</div>`;
+      return `<div class="trading-drawing-axis-marker price" data-drawing-axis-price style="--trading-drawing-axis-marker:${marker.markerColor};--trading-drawing-axis-marker-text:${marker.markerColor === DRAWING_SELECTION_COLOR ? "var(--interaction-on-accent)" : "#fff"};left:${priceLabelLeft}px;top:${top}px;width:${priceScaleWidth}px">${escapeHtml(formatTradingDrawingAxisPrice(marker.point.price))}</div>`;
     }).join("") : "";
     const timeHalfWidth = 70;
     const minimumTimeX = Math.min(timeHalfWidth + 4, bounds.width / 2);
@@ -6372,7 +6374,7 @@ export class TradingDrawingController {
         const bottom = Math.min(bounds.height, Math.max(endpoints[0].y, endpoints[1].y));
         const color = selectedDrawing.color ?? manualDrawingDefaults(selectedDrawing.tool).color;
         const rangeClass = selectedDrawing.tool === 'trend-angle' ? 'trading-trend-angle-axis-range' : 'trading-info-line-axis-range';
-        if (bottom > top) infoLineRange = `<div class="${rangeClass}" style="left:${bounds.width}px;top:${top}px;width:${priceScaleWidth}px;height:${bottom - top}px;background:${color}"></div>`;
+        if (bottom > top) infoLineRange = `<div class="${rangeClass}" style="left:${priceLabelLeft}px;top:${top}px;width:${priceScaleWidth}px;height:${bottom - top}px;background:${color}"></div>`;
       }
     }
     let harmonicRange = '';
@@ -6382,7 +6384,7 @@ export class TradingDrawingController {
       if (endpoints.length > 1) {
         const top = Math.max(0, Math.min(...endpoints.map(p => p.y))), bottom = Math.min(bounds.height, Math.max(...endpoints.map(p => p.y)));
         const left = Math.max(0, Math.min(...endpoints.map(p => p.x))), right = Math.min(bounds.width, Math.max(...endpoints.map(p => p.x)));
-        if (priceScaleWidth && bottom > top) harmonicRange += `<div class="trading-harmonic-axis-range" style="left:${bounds.width}px;top:${top}px;width:${priceScaleWidth}px;height:${bottom - top}px"></div>`;
+        if (priceScaleWidth && bottom > top) harmonicRange += `<div class="trading-harmonic-axis-range" style="left:${priceLabelLeft}px;top:${top}px;width:${priceScaleWidth}px;height:${bottom - top}px"></div>`;
         if (right > left) harmonicRange += `<div class="trading-harmonic-axis-range" data-pattern-time-range style="left:${left}px;bottom:0;width:${right - left}px;height:28px"></div>`;
       }
     }
@@ -6765,7 +6767,10 @@ export class TradingDrawingController {
     // remains clipped to its own plot/pane, including during zoom and resize.
     const orderLineOverlay = this.orderLineContent.ownerSVGElement;
     const priceScaleWidth = orderLineOverlay ? Math.max(0, this.getChart()?.priceScale("right").width() ?? 0) : 0;
-    const orderLineBounds = { ...bounds, priceScaleWidth };
+    const priceLabelChart = orderLineOverlay ? this.getChart() : null;
+    const priceAxisLabel = priceLabelChart ? tradingPriceAxisLabelGeometry(priceLabelChart, this.paneIndex) : null;
+    const orderLineBounds = { ...bounds, priceScaleWidth,
+      ...(priceAxisLabel?.overlay ? { priceScaleOverlayWidth: priceAxisLabel.width } : {}) };
     if (orderLineOverlay) {
       const width = bounds.width + priceScaleWidth;
       const attributes = { viewBox: `0 0 ${width} ${bounds.height}`, width: String(width), height: String(bounds.height) };

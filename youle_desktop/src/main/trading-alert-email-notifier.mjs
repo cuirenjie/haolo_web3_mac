@@ -4,7 +4,7 @@ import path from "node:path";
 
 const STORE_VERSION = 1;
 const FILE_NAME = "email-notifications-v1.json";
-const SUPPORTED_LOCALES = new Set(["zh-CN", "zh-Hant", "en", "ko", "ja"]);
+const SUPPORTED_LOCALES = new Set(["zh-CN", "zh-Hant", "en", "ko", "ja", 'vi']);
 const BASE_RETRY_MS = 5_000;
 const MAX_RETRY_MS = 60 * 60_000;
 

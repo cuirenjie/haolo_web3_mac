@@ -3934,7 +3934,7 @@ html[data-language="ko"] body {
 }
 
 /* English and Korean action labels can grow past legacy CJK widths. */
-html:is([data-language="en"], [data-language="ko"], [data-language="ja"]) button[data-i18n-single-line] {
+html:is([data-language="en"], [data-language="ko"], [data-language="ja"], [data-language="vi"]) button[data-i18n-single-line] {
   box-sizing: border-box;
   min-inline-size: max-content;
   overflow-wrap: normal;
@@ -20650,6 +20650,25 @@ html[data-theme="dark"] .consumption-loading { color: #a8c7ee; }
   font-weight: 780;
   letter-spacing: -0.04em;
   line-height: 1.15;
+}
+
+/* Longer localized headings need their own row above balances and actions. */
+html:is([data-language="en"], [data-language="vi"]) .recharge-page-intro {
+  display: flex;
+  flex-wrap: wrap;
+}
+html:is([data-language="en"], [data-language="vi"]) .recharge-page-intro > div:first-child {
+  flex: 1 0 100%;
+  min-inline-size: 0;
+}
+html:is([data-language="en"], [data-language="vi"]) .recharge-page-intro h1 {
+  white-space: normal;
+}
+html:is([data-language="en"], [data-language="vi"]) .recharge-page-intro > .recharge-page-balances {
+  flex: 1 1 auto;
+}
+html:is([data-language="en"], [data-language="vi"]) .recharge-history-action {
+  flex-wrap: wrap;
 }
 
 .recharge-history-action {
@@ -42491,13 +42510,40 @@ html[data-theme="dark"] .recharge-page {
 }
 
 /* L10N-JA-001: translated payment labels retain their column without overlap. */
-html:is([data-language="en"], [data-language="ja"]) .recharge-payment-step-label {
+html:is([data-language="en"], [data-language="ja"], [data-language="vi"]) .recharge-payment-step-label {
   white-space: normal;
   overflow-wrap: anywhere;
   line-height: 1.4;
 }
 
 /* Long translated recommendation labels must stay reachable at enlarged sizes. */
-html:is([data-language="en"], [data-language="ja"]) .trading-watchlist[data-watchlist-view="recommendations"] .trading-watchlist-rows {
+html:is([data-language="en"], [data-language="ja"], [data-language="vi"]) .trading-watchlist[data-watchlist-view="recommendations"] .trading-watchlist-rows {
   overflow-y: auto;
+}
+
+/* L10N-VI-001: footer labels wrap within their own action at large text sizes. */
+.conversation-list-footer-button > span {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+html[data-language] .conversation-list-footer-button[data-i18n-single-line] {
+  min-inline-size: 0;
+  white-space: normal;
+}
+
+/* Full payment-channel names remain distinguishable at enlarged text sizes. */
+html:is([data-language="en"], [data-language="vi"]) .recharge-payment-methods {
+  height: auto;
+  grid-template-columns: minmax(0, 1fr);
+}
+html:is([data-language="en"], [data-language="vi"]) .recharge-payment-network-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+}
+html:is([data-language="en"], [data-language="vi"]) .recharge-payment-network-label {
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
