@@ -4,6 +4,22 @@ import { createConditionalPollFetch } from '../src/main/conditional-poll-fetch.m
 
 const url = 'https://test/api/mobile/v1/client-settings';
 const initial = () => new Response(JSON.stringify({ entries: [{ value: '001.000' }], version: 1, serverTime: 1000 }), { headers: { etag: 'W/"1"' } });
+
+test('alert list joins concurrent readers and backs off while single-item readback remains available',async()=>{
+  let calls=0,release,now=1000;
+  const read=createConditionalPollFetch(async(url)=>{
+    calls++;
+    if(url.endsWith('/alerts')) {await new Promise(r=>{release=r;});return new Response('{}',{status:429,headers:{'retry-after':'5'}});}
+    return new Response('{"id":"saved"}');
+  },()=> 'account',{background:true,now:()=>now,random:()=>0});
+  const url='https://test/api/mobile/v1/alerts';
+  const readers=Array.from({length:12},()=>read(url));
+  release();
+  assert.ok((await Promise.all(readers)).every(r=>r.status===429));assert.equal(calls,1);
+  assert.equal((await read(url)).status,429);assert.equal(calls,1);
+  assert.equal((await read(url+'/saved')).status,200);assert.equal(calls,2);
+  read.close();
+});
 test('each poll hits network, 304 restores immutable receipt and refreshes clock', async () => {
   const requests = [];
   const fetch = createConditionalPollFetch(async (_url, init) => {

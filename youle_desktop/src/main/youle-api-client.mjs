@@ -276,6 +276,9 @@ export class YouleApiClient {
     this.modelKeys = [];
     this.profile = null;
     this.premiumEntitlementCache = null;
+    this.entitlementRefreshSequence = 0;
+    this.appliedEntitlementRefreshSequence = 0;
+    this.appliedModelKeysRefreshSequence = 0;
     this.deviceId = null;
     // The legacy client device id is also used by non-mobile endpoints and
     // may be an arbitrary string.  Account connections use the mobile API's
@@ -447,7 +450,7 @@ export class YouleApiClient {
   async refreshProfile() {
     await this.load();
     this.requireAuth();
-    const authRevision = this.authRevision;
+    const refresh = this.beginEntitlementRefresh();
     const accessToken = this.token;
     const [profile, refreshedModelKeys] = await Promise.all([
       this.fetchProfileWithBalance(accessToken),
@@ -456,16 +459,23 @@ export class YouleApiClient {
         return null;
       }),
     ]);
-    if (authRevision !== this.authRevision || accessToken !== this.token) {
+    if (!this.isCurrentEntitlementRefreshScope(refresh)) {
       return this.sessionSummary();
     }
-    this.profile = mergeProfileLevel(this.profile, profile);
-    this.updatePremiumEntitlementCacheFromFreshProfile(this.profile);
-    if (refreshedModelKeys) {
+    if (this.canApplyEntitlementRefresh(refresh)) {
+      this.appliedEntitlementRefreshSequence = refresh.sequence;
+      this.profile = mergeProfileLevel(this.profile, profile);
+      this.updatePremiumEntitlementCacheFromFreshProfile(this.profile);
+    }
+    // Balance-only reads have no model credentials. Their newer entitlement
+    // receipt must not discard keys fetched by this full profile refresh.
+    const applyModelKeys = refreshedModelKeys && refresh.sequence >= this.appliedModelKeysRefreshSequence;
+    if (applyModelKeys) {
+      this.appliedModelKeysRefreshSequence = refresh.sequence;
       this.modelKeys = refreshedModelKeys;
     }
     await this.save();
-    if (refreshedModelKeys) {
+    if (applyModelKeys && this.isCurrentEntitlementRefreshScope(refresh)) {
       await this.saveModelAuth();
     }
     return this.sessionSummary();
@@ -524,6 +534,9 @@ export class YouleApiClient {
       && cached
       && cached.authRevision === this.authRevision
       && cached.token === this.token
+      && cached.sequence === this.entitlementRefreshSequence
+      && cached.baseUrl === this.baseUrl
+      && cached.accountId === premiumEntitlementAccountId(this.profile)
       && Date.now() - cached.refreshedAt <= maxAgeMs
     ) {
       return cached.result;
@@ -532,16 +545,21 @@ export class YouleApiClient {
       this.sub2ApiAccountRefreshPromise
       && this.sub2ApiAccountRefreshAuthRevision === this.authRevision
       && this.sub2ApiAccountRefreshToken === this.token
+      && this.sub2ApiAccountRefreshContext?.sequence === this.entitlementRefreshSequence
+      && this.sub2ApiAccountRefreshContext?.baseUrl === this.baseUrl
+      && this.sub2ApiAccountRefreshContext?.accountId === premiumEntitlementAccountId(this.profile)
     ) {
       return this.sub2ApiAccountRefreshPromise;
     }
 
+    const refresh = this.beginEntitlementRefresh();
     const authRevision = this.authRevision;
     const token = this.token;
     const assertCurrentAccount = () => {
       // A normal access-token renewal preserves authRevision. Login/logout
       // changes it; no late response or cache fallback may cross that boundary.
-      if (authRevision !== this.authRevision) {
+      if (authRevision !== this.authRevision || refresh.baseUrl !== this.baseUrl
+        || refresh.accountId !== premiumEntitlementAccountId(this.profile)) {
         throw Object.assign(new Error("账号已切换，请重新查询会员权益。"), {
           code: "ACCOUNT_CHANGED", retryable: false,
         });
@@ -556,6 +574,7 @@ export class YouleApiClient {
         });
       } catch (error) {
         assertCurrentAccount();
+        if (!this.canApplyEntitlementRefresh(refresh, true)) return { session: this.sessionSummary() };
         const cachedEntitlement = this.validPremiumEntitlementCache();
         if (isPremiumEntitlementRetryableError(error) && cachedEntitlement) {
           return this.cachedSub2ApiAccountResult(cachedEntitlement);
@@ -563,6 +582,7 @@ export class YouleApiClient {
         throw error;
       }
       assertCurrentAccount();
+      if (!this.canApplyEntitlementRefresh(refresh, true)) return { session: this.sessionSummary() };
       const balance = extractSub2ApiBalance(response);
       if (!balance) {
         const cachedEntitlement = this.validPremiumEntitlementCache();
@@ -573,6 +593,7 @@ export class YouleApiClient {
         error.retryable = true;
         throw error;
       }
+      this.appliedEntitlementRefreshSequence = refresh.sequence;
       this.profile = mergeProfileBalance(this.profile, balance);
       const accessState = this.updatePremiumEntitlementCacheFromFreshProfile(this.profile);
       try {
@@ -583,6 +604,7 @@ export class YouleApiClient {
         safeConsoleLog("[youle-api] entitlement snapshot persistence deferred", error?.message || String(error));
       }
       assertCurrentAccount();
+      if (!this.canApplyEntitlementRefresh(refresh, true)) return { session: this.sessionSummary() };
       if (accessState === "unknown") {
         const cachedEntitlement = this.validPremiumEntitlementCache();
         if (cachedEntitlement) return this.cachedSub2ApiAccountResult(cachedEntitlement);
@@ -597,6 +619,9 @@ export class YouleApiClient {
       };
       this.sub2ApiAccountRefreshCache = {
         authRevision,
+        sequence: refresh.sequence,
+        baseUrl: refresh.baseUrl,
+        accountId: refresh.accountId,
         token: this.token,
         refreshedAt: Date.now(),
         result,
@@ -610,6 +635,7 @@ export class YouleApiClient {
       }
     });
     this.sub2ApiAccountRefreshPromise = refreshPromise;
+    this.sub2ApiAccountRefreshContext = refresh;
     this.sub2ApiAccountRefreshAuthRevision = authRevision;
     this.sub2ApiAccountRefreshToken = token;
     return refreshPromise;
@@ -617,6 +643,30 @@ export class YouleApiClient {
 
   getPremiumEntitlementCache() {
     return this.premiumEntitlementCache;
+  }
+
+  beginEntitlementRefresh() {
+    return {
+      sequence: ++this.entitlementRefreshSequence,
+      authRevision: this.authRevision,
+      accessToken: this.token,
+      baseUrl: this.baseUrl,
+      accountId: premiumEntitlementAccountId(this.profile),
+    };
+  }
+
+  isCurrentEntitlementRefreshScope(refresh, allowTokenRenewal = false) {
+    return refresh.authRevision === this.authRevision
+      && (allowTokenRenewal || refresh.accessToken === this.token)
+      && refresh.baseUrl === this.baseUrl
+      && refresh.accountId === premiumEntitlementAccountId(this.profile);
+  }
+
+  canApplyEntitlementRefresh(refresh, allowTokenRenewal = false) {
+    // Profile, foreground and before-send balance reads share one ordering.
+    // A response issued before payment must not replace a newer paid snapshot.
+    return this.isCurrentEntitlementRefreshScope(refresh, allowTokenRenewal)
+      && refresh.sequence >= this.appliedEntitlementRefreshSequence;
   }
 
   updatePremiumEntitlementCacheFromFreshProfile(profile = this.profile, now = Date.now()) {
@@ -3485,6 +3535,12 @@ export class YouleApiClient {
       if (operation === 'priceAlertAction' && !['pause','resume','delete'].includes(action)) throw new TypeError('Invalid cloud alert action');
       routes[operation] = ['POST', operation === 'confirmPriceAlert' ? `/alert-drafts/${alertId}/confirm` : `/alerts/${alertId}/${action}`];
       payload = body;
+    }
+    if (operation === 'priceAlert') {
+      const {alertId} = payload;
+      if (typeof alertId !== 'string' || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(alertId)) throw new TypeError('Invalid cloud alert id');
+      routes.priceAlert = ['GET', `/alerts/${alertId}`];
+      payload = {};
     }
     if (["plan", "savePlan", "activatePlan", "planLifecycle", "deletePlan"].includes(operation)) {
       const {planId, ...body} = payload;

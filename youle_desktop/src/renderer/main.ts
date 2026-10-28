@@ -540,6 +540,7 @@ import {
   migrateGpt6SolSelection,
 } from "../main/gpt6-sol-alias-policy.mjs";
 import { formatProfileBalancePoints } from "./profile-balance";
+import { createRechargeProfileRefresh } from "./recharge-profile-refresh";
 import {
   canRetainRechargePaymentOrder,
   normalizeRechargePaymentAmount,
@@ -876,7 +877,13 @@ let rechargePaymentPollingOrderNo: string | null = null;
 let rechargePaymentPollingSelectionKey: string | null = null;
 let rechargePaymentPollInFlight = false;
 let rechargePaymentPollGeneration = 0;
-let rechargePaymentProfileRefreshOrderNo: string | null = null;
+const rechargeProfileRefresh = createRechargeProfileRefresh({
+  refresh: () => refreshProfileFromApi({ renderAfter: false, reportError: false, showRefreshing: false }),
+  isCurrentScope: (scope) => state.auth.authenticated && currentRechargePaymentOrderScope() === scope,
+  onRefreshed: () => scheduleRender({ protectComposer: true }),
+  schedule: (callback, delay) => window.setTimeout(callback, delay),
+  cancel: (timer) => window.clearTimeout(timer),
+});
 let rechargePaymentViewActive = false;
 let rechargeHistoryModalOpen = false;
 let rechargeHistoryLoading = false;
@@ -6488,6 +6495,7 @@ function applyAuthSession(session: any, fallbackBaseUrl = "") {
   activateAccountSettingsSync();
   void api.syncEventsWake?.().catch(()=>{});
   if (!state.auth.authenticated || accountIdentity !== previousAccountIdentity || state.auth.baseUrl !== previousBaseUrl) {
+    rechargeProfileRefresh.reset();
     refreshCloudExecutionPlans.reset();
     state.tradingAlerts = createTradingAlertsUiState();
     resetConsumptionData();
@@ -59609,7 +59617,7 @@ function resetRechargePaymentOrdersForScope(scope: string) {
   rechargePaymentExpiryChecksInFlight.clear();
   rechargePaymentQrDataUrlCache.clear();
   rechargePaymentOrder = null;
-  rechargePaymentProfileRefreshOrderNo = null;
+  rechargeProfileRefresh.reset();
   rechargeHistoryModalOpen = false;
   rechargeHistoryLoading = false;
   rechargeHistoryError = "";
@@ -60014,10 +60022,7 @@ function activateRechargePaymentSelection() {
 }
 
 async function refreshRechargeProfileAfterPayment(order: Web3PaymentOrder) {
-  if (rechargePaymentProfileRefreshOrderNo === order.order_no) return;
-  rechargePaymentProfileRefreshOrderNo = order.order_no;
-  const refreshed = await refreshProfileFromApi({ renderAfter: false, reportError: false, showRefreshing: false });
-  if (refreshed && state.activeView === "recharge") render();
+  await rechargeProfileRefresh.refresh(order.order_no, currentRechargePaymentOrderScope());
 }
 
 async function applyRechargePaymentOrder(

@@ -102,8 +102,10 @@ export function createCloudPriceAlerts({owner, api}) {
         if (!uuid.test(draft?.id) || !equal(draft.rule,rule) || !Number.isSafeInteger(draft.version) || !/^[a-f0-9]{64}$/.test(draft.ruleHash)) fail('CLOUD_RESULT_CONTEXT_INVALID');
         const confirmed = await request(captured, 'confirmPriceAlert', {alertId:draft.id, version:draft.version, ruleHash:draft.ruleHash}, `price-confirm:${receiptId}`);
         if (confirmed?.id !== draft.id || confirmed.ruleHash !== draft.ruleHash || confirmed.confirmedVersion == null) fail('CLOUD_RESULT_CONTEXT_INVALID');
-        const saved = (await list(captured)).find(a => a.id === draft.id);
-        if (!saved || saved.ruleHash !== draft.ruleHash || saved.confirmedVersion == null || ['draft','deleted'].includes(saved.state)) fail('PRICE_ALERT_READBACK_FAILED');
+        const saved = caps.priceAlertReadback === 'single-v1'
+          ? await request(captured, 'priceAlert', {alertId:draft.id})
+          : (await list(captured)).find(a => a.id === draft.id);
+        if (!saved || saved.id !== draft.id || saved.ruleHash !== draft.ruleHash || saved.confirmedVersion == null || ['draft','deleted'].includes(saved.state)) fail('PRICE_ALERT_READBACK_FAILED');
         if (spec.replacesAlertId) {
           try {
             await mutate(captured, 'delete', {alertId:spec.replacesAlertId,version:spec.replacesVersion});

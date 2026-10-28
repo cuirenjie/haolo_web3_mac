@@ -1,6 +1,6 @@
 # 交易专家实时 AI 盘面分析执行方案
 
-> Mac 当前任务：`M6-MAC-20261027`。S0–S6 分阶段融合、累计复审及 Universal 测试包验收完成，详见 [本次 Mac 融合记录](windows-sync-20261027.zh-CN.md)。以下 Windows／Android 发布段落为保留的上游历史，不代表本会话发布授权或 Mac 已上线；当前仓库路径和平台流程以本地 AGENTS.md 为准。
+> Mac 当前任务：`M6-MAC-20261028`，进行中。上游 a80ab85 分阶段融合与 Universal 测试包，详见 [本次 Mac 融合记录](windows-sync-20261028.zh-CN.md)。以下 Windows／Android 发布段落为保留的上游历史，不代表本会话发布授权或 Mac 已上线；当前仓库路径和平台流程以本地 AGENTS.md 为准。
 
 2026-10-27 RELEASE-182-20261027（已完成）：Windows 0.1.182／Android 0.1.13+14 已正式发布并延续强制更新，源码与版本均已推送各自origin/dev。两端签名、包内版本、旧版／当前版检查、完整公网下载摘要及精确客服知识激活通过；正式ASAR的真实模型计划／隔离授权操作16项通过。Android已按规范保留数据覆盖安装开发签名0.1.13+14，真实前台及设备摘要一致。Windows上传504通过只读核验恢复原记录，无重复上传。完整源码SHA、失败记录与平台边界见 [本批发布记录](windows-release-0.1.182-20261027.md)。本批未部署后端或网关，iOS未签名构建。
 
@@ -25,7 +25,7 @@
 > 最近更新：2026-10-27
 > 当前里程碑：M2 统一 Data Hub 与增量特征层
 > 总体状态：M2 进行中（M2-013 生产基础设施验收受阻）
-> 当前工作焦点：M6-MAC-182-20261027 已完成；0.1.182 Universal 包已交付桌面，包内版本、资源、双架构启动、签名及 DMG 校验通过；沿用用户指定的 ad-hoc／未公证流程，无上传或部署
+> 当前工作焦点：M6-MAC-20261028 进行中；S0 整体审查、来源冻结、原工作区备份及全量基线完成，S1 业务修复完成，进入 S2 六语言与图表融合。
 > 适用仓库：`D:\youle_desktop\youle_desktop`（桌面端）、`D:\youle_agent_ms`（业务后端）、`D:\zhongzhuan`（统一模型中转）
 
 ## 1. 文档用途与持续更新规则
@@ -6002,3 +6002,13 @@ User requested exactly 0.1.182 using the previously authorized ad-hoc/unnotarize
 ### M6-MAC-182-20261027 complete
 
 Universal 0.1.182 delivered with source a1c4e8277fc0601994ae36abc8423061c0ffd175 and DMG SHA-256 aeb816ff2ea00abc4b99a7a7aaa8b2d3ab851e5a1f29bc590b9766af9e87d3fc. 35 targeted Node checks, 5 Python checks, typecheck and build passed. All 1627 implementation/resource/support files remain identical to the prior 181 source. Both app architectures report 0.1.182; runtime, 2735 inputs, 479 packaged source files, 278 resources, 2036 package boundary entries, mounted identity/checksum/signatures and support snapshot passed. Installed app and original changes preserved. User-authorized ad-hoc/unnotarized artifact only; no upload or deployment. Details: docs/mac-release-0.1.182-20261027.zh-CN.md.
+
+
+### M6-MAC-20261028 / S0
+
+2026-10-28：冻结上游 a80ab852bff07a5bcd67c14d3db417f847291956，5 提交／102 路径；11 原文件备份，全量基线 6071 通过／12 Windows 跳过／0 失败。按 windows-sync-20261028.zh-CN.md 逐阶段门禁执行；仅本地融合与 Mac 测试包，无部署或上传。
+
+
+### M6-MAC-20261028 / S1
+
+301 通过／2 Windows 跳过，类型与构建通过；网关 136 通过／6 环境跳过。合入预警、充值、运行时和 Chrome 修复；保留 Mac 账户单飞／缓存及身份保护，修复并发余额刷新误丢模型凭据，真实 Mac 运行时隔离恢复通过。客服双生成器一致。原有 11 文件保持；未部署或上传。

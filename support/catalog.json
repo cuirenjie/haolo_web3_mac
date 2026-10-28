@@ -4,6 +4,69 @@
   "surface": "macos",
   "features": [
     {
+      "id": "recharge-entitlement-refresh-zh-cn",
+      "title": "充值后会员与积分自动刷新",
+      "body": "修复版 Mac 客户端在订单支付成功后自动刷新会员和可用积分；刷新暂时失败会继续重试，返回聊天后也会继续。较早的余额请求不能覆盖已取得的新权益，模型会员校验随新资料更新。模型进程启动时若未取得 DeepSeek 连接凭证，下次开始或恢复任务前会重新获取并安全重建空闲进程，不必重启整个客户端；存在其他执行中任务时不会中断它们，凭证仍不可用会提示稍后重试。无需通过重复付款恢复使用。此项为待发布源码修复，旧安装版本以实际行为为准；若重启后恢复，可导出诊断报告交官方客服核查。客服不能仅凭此现象认定订单到账或补发积分，无新增代操作能力。",
+      "category": "usage",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/recharge-profile-refresh.ts",
+        "youle_desktop/src/renderer/main.ts",
+        "youle_desktop/src/main/youle-api-client.mjs",
+        "youle_desktop/src/main/main.mjs",
+        "youle_desktop/src/main/execution-credential-refresh.mjs",
+        "youle_desktop/src/main/app-server-client.mjs"
+      ]
+    },
+    {
+      "id": "recharge-entitlement-refresh-zh-hant",
+      "title": "儲值後會員與積分自動更新",
+      "body": "修正版 Mac 用戶端會在訂單付款成功後自動更新會員與可用積分；更新暫時失敗時會重試，返回聊天後也會繼續。較早的餘額請求不會覆蓋已取得的新權益，模型會員檢查會隨新資料更新。模型程序啟動時若未取得 DeepSeek 連線憑證，下次開始或恢復任務前會重新取得並安全重建閒置程序，無須重新啟動整個用戶端；不會中斷其他執行中的任務，憑證仍不可用時會提示稍後重試。無須重複付款來恢復使用。此項為尚待發布的原始碼修正，舊安裝版本以實際行為為準；若重新啟動後恢復，可匯出診斷報告交官方客服核查。客服不能僅憑此現象認定訂單到帳或補發積分，無新增代操作能力。",
+      "category": "usage",
+      "locale": "zh-Hant",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/recharge-profile-refresh.ts",
+        "youle_desktop/src/renderer/main.ts",
+        "youle_desktop/src/main/youle-api-client.mjs",
+        "youle_desktop/src/main/main.mjs",
+        "youle_desktop/src/main/execution-credential-refresh.mjs",
+        "youle_desktop/src/main/app-server-client.mjs"
+      ]
+    },
+    {
+      "id": "recharge-entitlement-refresh-en",
+      "title": "Membership and credit refresh after payment",
+      "body": "The fixed Mac client refreshes membership and available credits after a paid order. Temporary refresh failures retry even after returning to chat. Earlier balance requests cannot overwrite newer entitlements, and model membership checks follow the refreshed profile. If the model runtime started without DeepSeek credentials, starting or resuming a task refreshes credentials and safely recreates an idle runtime without restarting the desktop app. Active tasks are not interrupted; credentials that remain unavailable produce a retry-later connection message. Repeating a payment is unnecessary. This source fix is pending release; older installed versions may behave differently. If restarting restores access, export a diagnostic report for official support. Support must verify payment records before concluding that credits arrived or granting credits. No new assisted action is added.",
+      "category": "usage",
+      "locale": "en",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/recharge-profile-refresh.ts",
+        "youle_desktop/src/renderer/main.ts",
+        "youle_desktop/src/main/youle-api-client.mjs",
+        "youle_desktop/src/main/main.mjs",
+        "youle_desktop/src/main/execution-credential-refresh.mjs",
+        "youle_desktop/src/main/app-server-client.mjs"
+      ]
+    },
+    {
       "id": "support-publication-integrity-zh-cn",
       "title": "客户端发布与客服能力同步",
       "body": "Mac 构建将同次源码生成的客服知识快照嵌入安装包，并校验版本、Mac 合同与渲染代码一致。本地生成或测试打包不代表服务端登记、生产发布或代操作启用。服务端不识别 Mac 合同时仍保留文字客服并关闭代操作；已支持的动作仍需用户同意。Mac 发布、签名与公证须独立核验，不使用 Windows 发布身份。",

@@ -317,9 +317,11 @@ export class AppServerClient extends EventEmitter {
       throw error;
     }
 
-    this.child.stdout?.on("data", (chunk) => this.emitLog("stdout", chunk));
-    this.child.stderr?.on("data", (chunk) => this.emitLog("stderr", chunk));
-    this.child.once("exit", (code, signal) => {
+    const child = this.child;
+    child.stdout?.on("data", (chunk) => this.emitLog("stdout", chunk));
+    child.stderr?.on("data", (chunk) => this.emitLog("stderr", chunk));
+    child.once("exit", (code, signal) => {
+      if (this.child !== child) return;
       const wasReady = this.status === "ready";
       this.status = "stopped";
       this.activeRuntimeTurns.clear();
@@ -333,7 +335,8 @@ export class AppServerClient extends EventEmitter {
         this.emit("server-exit", { code, signal });
       }
     });
-    this.child.once("error", (error) => {
+    child.once("error", (error) => {
+      if (this.child !== child) return;
       this.status = "failed";
       void this.stopModelRequestRelays();
       this.emit("status", this.getStatus({ error: error.message }));
@@ -392,10 +395,16 @@ export class AppServerClient extends EventEmitter {
   }
 
   async connectWebSocket(url) {
-    this.ws = new WebSocket(url, { perMessageDeflate: false });
-    this.ws.on("message", (data) => this.handleMessage(data.toString()));
-    this.ws.on("error", (error) => this.emit("transport-error", error));
-    this.ws.on("close", () => {
+    const ws = new WebSocket(url, { perMessageDeflate: false });
+    this.ws = ws;
+    ws.on("message", (data) => {
+      if (this.ws === ws) this.handleMessage(data.toString());
+    });
+    ws.on("error", (error) => {
+      if (this.ws === ws) this.emit("transport-error", error);
+    });
+    ws.on("close", () => {
+      if (this.ws !== ws) return;
       if (this.status === "ready") {
         this.status = "stopped";
         this.emit("status", this.getStatus());
@@ -404,11 +413,11 @@ export class AppServerClient extends EventEmitter {
     });
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("timed out opening app-server websocket")), START_TIMEOUT_MS);
-      this.ws.once("open", () => {
+      ws.once("open", () => {
         clearTimeout(timer);
         resolve();
       });
-      this.ws.once("error", (error) => {
+      ws.once("error", (error) => {
         clearTimeout(timer);
         reject(error);
       });
@@ -580,18 +589,23 @@ export class AppServerClient extends EventEmitter {
   async stop() {
     this.status = "stopping";
     this.emit("status", this.getStatus());
+    // Retire the old handles before awaiting Windows taskkill. Its exit/close
+    // notifications can arrive after the replacement process has started.
+    const ws = this.ws;
+    const child = this.child;
+    this.ws = null;
+    this.child = null;
+    this.rejectAll(new Error("app-server stopped"));
     try {
-      this.ws?.close();
+      ws?.close();
     } catch {
       // ignore close errors
     }
-    this.ws = null;
-    await stopProcessTree(this.child);
+    await stopProcessTree(child);
     this.activeRuntimeTurns.clear();
     this.toolRecoveryStates.clear();
     this.historyModelSelections.clear();
     this.conversationModes.clear();
-    this.child = null;
     await this.stopModelRequestRelays();
     this.status = "stopped";
     this.emit("status", this.getStatus());
@@ -673,8 +687,8 @@ export class AppServerClient extends EventEmitter {
 
   async stopModelRequestRelays() {
     const relays = this.modelRequestRelays.splice(0);
-    await Promise.allSettled(relays.map((relay) => relay.stop()));
     this.modelTransport = { enabled: false, routes: [] };
+    await Promise.allSettled(relays.map((relay) => relay.stop()));
   }
 
   emitModelRelayMetrics(metrics) {

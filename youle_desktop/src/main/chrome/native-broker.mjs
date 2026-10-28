@@ -37,7 +37,7 @@ export class ChromeNativeBroker extends EventEmitter {
     this.userDataPath = path.resolve(userDataPath);
     this.extensionOrigins = normalizeExtensionOrigins(extensionOrigins);
     if (!this.extensionOrigins.length) throw new TypeError("ChromeNativeBroker requires at least one extension origin");
-    this.desktopExecutable = path.resolve(desktopExecutable);
+    this.desktopExecutable = chromeAutoStartExecutable(desktopExecutable);
     this.releasePolicy = normalizeChromeReleasePolicy(releasePolicy);
     this.release = chromeRolloutDecision(this.releasePolicy, installationKey);
     this.timeoutMs = timeoutMs;
@@ -327,6 +327,16 @@ export class ChromeNativeBroker extends EventEmitter {
     }
     this.emit("status", this.status());
   }
+}
+
+function chromeAutoStartExecutable(executable) {
+  if (!executable) return "";
+  const name = path.win32.basename(executable);
+  // The native host launches this path with only --from-chrome-extension.
+  // Electron development runtimes need an app entry point (and usually Vite),
+  // so reconnecting Chrome must not launch their default welcome window.
+  if (/^(?:electron(?:\.exe)?|haolo_desktop_dev(?:-[a-z0-9]+)?\.exe)$/i.test(name)) return "";
+  return path.resolve(executable);
 }
 
 export function chromeNativePipeName(userDataPath, user = os.userInfo().username) {

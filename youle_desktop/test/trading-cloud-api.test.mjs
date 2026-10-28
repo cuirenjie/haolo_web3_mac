@@ -10,6 +10,20 @@ function client(fetch) {
   return api;
 }
 
+test('single alert readback validates the resource id and retains account scope', async () => {
+  const requests=[];
+  const api=client(async (url,init)=>{requests.push({url:String(url),init});return new Response('{}',{headers:{'content-type':'application/json'}});});
+  api.profile={id:'owner'};
+  const alertId='11111111-2222-4333-8444-555555555555';
+  await api.tradingCloudRequest('priceAlert',{alertId},{expectedAccountId:'owner'});
+  assert.equal(requests[0].url,`https://haolo.example/api/mobile/v1/alerts/${alertId}`);
+  assert.equal(requests[0].init.method,'GET');
+  assert.equal(requests[0].init.headers.Authorization,'Bearer test-account-token');
+  await assert.rejects(api.tradingCloudRequest('priceAlert',{alertId:'../../escape'}));
+  await assert.rejects(api.tradingCloudRequest('priceAlert',{alertId},{expectedAccountId:'another-owner'}));
+  assert.equal(requests.length,1);
+});
+
 test('price alerts use owner-scoped cloud draft, confirmation and versioned lifecycle routes', async () => {
   const requests=[];
   const api=client(async (url,init)=>{requests.push({url:String(url),init});return new Response('{}',{headers:{'content-type':'application/json'}});});

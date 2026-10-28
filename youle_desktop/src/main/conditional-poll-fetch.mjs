@@ -26,7 +26,7 @@ export function createConditionalPollFetch(fetchImpl, scope, { changes = false, 
     const delta = path === '/api/market-data/indices'
       || ['/api/mobile/v1/plans', '/api/mobile/v1/trading-plans'].includes(path)
       || /^\/api\/mobile\/v1\/(?:tasks\/[^/]+|agent-runs\/[^/]+(?:\/events)?)$/.test(path);
-    const eligible = delta || path === '/api/mobile/v1/client-settings' || path === '/api/contact-requests'
+    const eligible = delta || path === '/api/mobile/v1/client-settings' || path === '/api/contact-requests' || path === '/api/mobile/v1/alerts'
       || path === '/api/mobile/v1/new-task/manual-sync' || /^\/api\/mobile\/v1\/charts\/[^/]+\/manual-sync$/.test(path);
     const writing = String(init.method || 'GET').toUpperCase() !== 'GET';
     if (writing && (path.startsWith('/api/mobile/v1/') || path.startsWith('/api/contact-requests'))) {
@@ -125,7 +125,7 @@ export function createConditionalPollFetch(fetchImpl, scope, { changes = false, 
     const path = new URL(url).pathname;
     const allowed = path === '/api/contact-requests' || path === '/api/mobile/v1/client-settings'
       || path.endsWith('/manual-sync') && path.startsWith('/api/mobile/v1/')
-      || ['/api/mobile/v1/plans', '/api/mobile/v1/trading-plans', '/api/mobile/v1/trading-alert-feed'].includes(path);
+      || ['/api/mobile/v1/plans', '/api/mobile/v1/trading-plans', '/api/mobile/v1/trading-alert-feed', '/api/mobile/v1/alerts'].includes(path);
     if (String(init.method || 'GET').toUpperCase() !== 'GET' || !allowed) return read(url, init);
     const headers = [...new Headers(init.headers)].sort(([a], [b]) => a.localeCompare(b));
     const key = JSON.stringify([owner, generation, String(url), headers, init.cache || 'default']);

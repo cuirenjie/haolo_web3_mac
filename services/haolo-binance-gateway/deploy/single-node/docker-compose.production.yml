@@ -29,10 +29,9 @@ services:
       retries: 6
       start_period: 15s
     logging:
-      driver: json-file
+      driver: journald
       options:
-        max-size: "10m"
-        max-file: "5"
+        tag: "haolo-container-{{.Name}}"
 
   redis:
     image: redis:7.4-alpine
@@ -63,10 +62,9 @@ services:
       timeout: 3s
       retries: 12
     logging:
-      driver: json-file
+      driver: journald
       options:
-        max-size: "10m"
-        max-file: "3"
+        tag: "haolo-container-{{.Name}}"
 
 volumes:
   redis_data:
