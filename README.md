@@ -3,6 +3,13 @@
 Cross-platform macOS/Windows desktop shell for running the local Codex
 app-server through an Electron UI.
 
+## Mac 签名与官网分发
+
+当前组织的 Developer ID Application 证书已创建并完成本机签名自检。
+完整创建经验、Universal 打包、公证、票据验证与官网交付步骤见
+[Mac 签名与公证指南](docs/mac-signing-notarization.zh-CN.md)。
+产品正式签名、公证和发布仍须逐项执行验收；证书及私钥保存在仓库外，不提交 Git。
+
 ## Layout
 
 - `youle_desktop/` - Electron app source.
