@@ -112,6 +112,13 @@ async function click(targetWindow, selector) {
 }
 
 async function settle(targetWindow, theme, fontSize) {
+  // Drive production preferences: changing only DOM attributes is overwritten
+  // by the next render and leaves chart canvases using the old theme.
+  await openSurface(targetWindow, "settings");
+  await nativeClick(targetWindow, `[data-settings-theme="${theme}"]`);
+  await nativeClick(targetWindow, `[data-settings-font-size="${fontSize}"]`);
+  await nativeClick(targetWindow, ".settings-close-button");
+  await waitForGone(targetWindow, ".settings-dialog");
   await targetWindow.webContents.executeJavaScript(`new Promise((resolve) => {
     let style = document.getElementById("i18n-layout-qa-motion");
     if (!style) {
@@ -120,8 +127,7 @@ async function settle(targetWindow, theme, fontSize) {
       style.textContent = "*, *::before, *::after { animation: none !important; transition: none !important; }";
       document.head.append(style);
     }
-    document.documentElement.dataset.theme = ${JSON.stringify(theme)};
-    document.documentElement.dataset.fontSize = ${JSON.stringify(fontSize)};
+
     void document.body.offsetHeight;
     requestAnimationFrame(() => requestAnimationFrame(resolve));
   })`, true);
@@ -773,14 +779,14 @@ async function main() {
       const transitionSource = language === "en" ? "zh-TW" : language === "zh-CN" ? "en" : "zh-CN";
       await switchLanguage(targetWindow, transitionSource);
       await switchLanguage(targetWindow, language);
-      for (const surface of (selectedSurface ? [selectedSurface] : surfaces).filter(surface => !process.env.HAOLO_I18N_QA_SURFACES || process.env.HAOLO_I18N_QA_SURFACES.split(",").includes(surface))) {
-        process.stdout.write(`Auditing ${language} ${surface}\n`);
-        const scopeSelector = await openSurface(targetWindow, surface);
-        for (const zoom of zooms) {
-          targetWindow.webContents.setZoomFactor(zoom);
-          for (const fontSize of fontSizes) {
-            for (const theme of ["light", "dark"]) {
-              await settle(targetWindow, theme, fontSize);
+      for (const zoom of zooms) {
+        targetWindow.webContents.setZoomFactor(zoom);
+        for (const fontSize of fontSizes) {
+          for (const theme of ["light", "dark"]) {
+            await settle(targetWindow, theme, fontSize);
+            for (const surface of (selectedSurface ? [selectedSurface] : surfaces).filter(surface => !process.env.HAOLO_I18N_QA_SURFACES || process.env.HAOLO_I18N_QA_SURFACES.split(",").includes(surface))) {
+              process.stdout.write(`Auditing ${language} ${surface} ${theme} ${fontSize} ${zoom}\n`);
+              const scopeSelector = await openSurface(targetWindow, surface);
               const result = await inspectLayout(targetWindow, scopeSelector);
               const name = `${language}-${surface}-${theme}-${fontSize}-${Math.round(zoom * 100)}`;
               const selectStates = surface === "settings" && zoom === 1.5
@@ -805,30 +811,32 @@ async function main() {
                 ...selectStates.flatMap((state) => state.textClipping.map((issue) => `glyph clipped (${state.state}): ${issue.element} ${issue.text}`)),
                 ...scrollStates.flatMap(state => state.issues.map(issue => `scroll ${state.index}@${state.top}: ${issue}`)),
               ];
-              if (issues.length) failures.push({ name, issues, result });
+              if (issues.length) {
+                failures.push({ name, issues, result });
+                process.stdout.write(`Layout failure ${name}: ${JSON.stringify(issues)}\n`);
+              }
               if (issues.length || ((["en", "ko", "ja", "vi"].includes(language)) && fontSize === "large" && zoom === 1.5)) {
                 const image = await targetWindow.webContents.capturePage();
                 await writeFile(path.join(OUTPUT, `${name}.png`), image.toPNG());
               }
+              if (surface === "profile") {
+                await click(targetWindow, ".popover-backdrop");
+                await waitForGone(targetWindow, ".profile-menu");
+              } else if (surface.startsWith("settings")) {
+                await click(targetWindow, ".settings-close-button");
+                await waitForGone(targetWindow, ".settings-dialog");
+              } else if (surface.startsWith("chart-")) {
+                await click(targetWindow, '[data-market-action="close-chart-settings"]');
+                await waitForGone(targetWindow, ".trading-chart-settings-dialog");
+              } else if (surface.startsWith("auto-task")) {
+                await click(targetWindow, '[data-action="close-auto-task-dialog"]');
+                await waitForGone(targetWindow, ".auto-task-dialog");
+              }
             }
           }
         }
-        targetWindow.webContents.setZoomFactor(1);
-        await delay(100);
-        if (surface === "profile") {
-          await click(targetWindow, ".popover-backdrop");
-          await waitForGone(targetWindow, ".profile-menu");
-        } else if (surface.startsWith("settings")) {
-          await click(targetWindow, ".settings-close-button");
-          await waitForGone(targetWindow, ".settings-dialog");
-        } else if (surface.startsWith("chart-")) {
-          await click(targetWindow, '[data-market-action="close-chart-settings"]');
-          await waitForGone(targetWindow, ".trading-chart-settings-dialog");
-        } else if (surface.startsWith("auto-task")) {
-          await click(targetWindow, '[data-action="close-auto-task-dialog"]');
-          await waitForGone(targetWindow, ".auto-task-dialog");
-        }
       }
+      targetWindow.webContents.setZoomFactor(1);
     }
     const report = {
       schemaVersion: 1,

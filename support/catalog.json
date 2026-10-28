@@ -3071,6 +3071,114 @@
         "youle_desktop/src/renderer/app-language.mjs",
         "youle_desktop/src/shared/vietnamese.mjs"
       ]
+    },
+    {
+      "id": "mac-compact-titlebar-zh-cn",
+      "title": "Mac 紧凑标题栏的个人资料与连手机入口",
+      "body": "Mac 标题栏较窄时，“连手机”显示为插头图标，悬停提示和无障碍名称仍保留；点击图标打开原连接菜单。个人资料头像保持可点击，昵称可省略显示。展开侧栏空间后会按可用宽度显示文字。无需新增权限或客服代操作。",
+      "category": "workspace",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/main.ts",
+        "youle_desktop/src/renderer/styles.css",
+        "youle_desktop/scripts/audit-i18n-layout.mjs"
+      ]
+    },
+    {
+      "id": "mac-compact-titlebar-zh-hant",
+      "title": "Mac 緊湊標題列的個人資料與連手機入口",
+      "body": "Mac 標題列較窄時，「連手機」顯示為插頭圖示，懸停提示和無障礙名稱仍保留；點擊圖示開啟原連線選單。個人資料頭像保持可點擊，暱稱可省略顯示。側欄空間增加後會按可用寬度顯示文字。無需新增權限或客服代操作。",
+      "category": "workspace",
+      "locale": "zh-Hant",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/main.ts",
+        "youle_desktop/src/renderer/styles.css",
+        "youle_desktop/scripts/audit-i18n-layout.mjs"
+      ]
+    },
+    {
+      "id": "mac-compact-titlebar-en",
+      "title": "Profile and phone connection in the compact Mac titlebar",
+      "body": "In a narrow Mac titlebar, Connect phone appears as a plug icon with its tooltip and accessible name. Click it to open the existing connection menu. The profile avatar remains clickable and the nickname may be truncated. The text label returns when the sidebar has enough room. No new permission or support action is required.",
+      "category": "workspace",
+      "locale": "en",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/main.ts",
+        "youle_desktop/src/renderer/styles.css",
+        "youle_desktop/scripts/audit-i18n-layout.mjs"
+      ]
+    },
+    {
+      "id": "mac-compact-titlebar-ko",
+      "title": "좁은 Mac 제목 표시줄의 프로필 및 휴대폰 연결",
+      "body": "Mac 제목 표시줄이 좁으면 휴대폰 연결이 플러그 아이콘으로 표시되며 도구 설명과 접근성 이름은 유지됩니다. 아이콘을 클릭하면 기존 연결 메뉴가 열립니다. 프로필 아바타는 계속 클릭할 수 있고 닉네임은 줄여 표시될 수 있습니다. 사이드바 공간이 충분하면 텍스트가 다시 표시됩니다. 새로운 권한이나 고객지원 대행 작업은 필요하지 않습니다.",
+      "category": "workspace",
+      "locale": "ko",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/main.ts",
+        "youle_desktop/src/renderer/styles.css",
+        "youle_desktop/scripts/audit-i18n-layout.mjs"
+      ]
+    },
+    {
+      "id": "mac-compact-titlebar-ja",
+      "title": "狭い Mac タイトルバーのプロフィールとスマートフォン接続",
+      "body": "Mac のタイトルバーが狭い場合、スマートフォン接続はプラグのアイコンで表示されます。ツールチップとアクセシビリティ名は維持され、クリックすると既存の接続メニューが開きます。プロフィール画像は引き続きクリックでき、ニックネームは省略表示される場合があります。サイドバーに十分な幅があれば文字が再表示されます。追加の権限やサポートによる代行操作は不要です。",
+      "category": "workspace",
+      "locale": "ja",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/main.ts",
+        "youle_desktop/src/renderer/styles.css",
+        "youle_desktop/scripts/audit-i18n-layout.mjs"
+      ]
+    },
+    {
+      "id": "mac-compact-titlebar-vi",
+      "title": "Hồ sơ và kết nối điện thoại trên thanh tiêu đề Mac thu gọn",
+      "body": "Khi thanh tiêu đề Mac hẹp, mục kết nối điện thoại hiển thị bằng biểu tượng phích cắm, vẫn giữ chú giải và tên hỗ trợ tiếp cận. Nhấp vào biểu tượng để mở menu kết nối hiện có. Ảnh đại diện hồ sơ vẫn có thể nhấp được; biệt danh có thể hiển thị rút gọn. Nhãn chữ xuất hiện lại khi thanh bên đủ rộng. Không yêu cầu quyền mới hay thao tác thay người dùng từ bộ phận hỗ trợ.",
+      "category": "workspace",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/main.ts",
+        "youle_desktop/src/renderer/styles.css",
+        "youle_desktop/scripts/audit-i18n-layout.mjs"
+      ]
     }
   ]
 }

@@ -40854,7 +40854,7 @@ function renderMySkillPlazaCard(card: SkillPlazaCard) {
   const libraryIcon = strategyIcon || indicatorIcon;
   const strategyCardClass = libraryIcon ? " trading-strategy-skill-card" : "";
   return `
-    <article class="my-skill-card${strategyCardClass}" data-skill-id="${escapeAttr(card.id)}" role="button" tabindex="0" aria-label="打开${escapeAttr(card.title)}">
+    <article class="my-skill-card${strategyCardClass}" data-skill-id="${escapeAttr(card.id)}" role="button" tabindex="0" aria-label="${escapeAttr(translateAppText("打开", state.settings.language))} ${escapeAttr(card.title)}">
       ${
         libraryIcon ||
         `<div class="my-skill-icon">

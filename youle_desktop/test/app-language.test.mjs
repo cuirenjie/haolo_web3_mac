@@ -622,3 +622,14 @@ test("client-owned chat notices are localized while user and model content remai
   assert.doesNotMatch(renderer, /This response could not be displayed because it was not generated entirely in English/);
   assert.doesNotMatch(language, /Annotation unavailable in English|Summary unavailable in English/);
 });
+
+
+test("dynamic strategy descriptions and chart themes translate as complete UI labels", () => {
+  assert.equal(translateAppText("缠论交易策略 Skill", "en"), "Chan Theory trading strategy skill");
+  assert.equal(translateAppText("MACD (12,26,9)交易策略 Skill", "vi"), "Kỹ năng chiến lược giao dịch MACD (12,26,9)");
+  for (const [theme, english] of [["暗色", "dark"], ["亮色", "light"]]) {
+    const source = `当前正在编辑${theme}主题；切换主题后可分别设置另一套颜色。`;
+    assert.equal(translateAppText(source, "en"), `Currently editing the ${english} theme; switch themes to configure a separate color set.`);
+    assert.match(translateAppText(source, "vi"), /^Bạn đang chỉnh sửa chủ đề/);
+  }
+});

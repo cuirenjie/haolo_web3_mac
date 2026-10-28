@@ -1652,6 +1652,8 @@ function reviewedTraditionalEnglish() {
 // and names are not partially rewritten by short phrase substitutions.
 function englishDynamicUiLabel(source) {
   let match;
+  if ((match = /^(.+)交易策略 Skill$/.exec(source))) return `${translateAppText(match[1], "en")} trading strategy skill`;
+  if ((match = /^当前正在编辑(暗色|亮色)主题；切换主题后可分别设置另一套颜色。$/.exec(source))) return `Currently editing the ${match[1] === "暗色" ? "dark" : "light"} theme; switch themes to configure a separate color set.`;
   if ((match = /^打开个人资料[:：](.+)$/.exec(source))) return `Open profile: ${match[1].trim()}`;
   if ((match = /^当前套餐[:：](.+)，查看充值方案$/.exec(source))) return `Current plan: ${translateAppText(match[1], "en")}; view top-up options`;
   if ((match = /^查看(.+)的(?:用量详情|使用明细|消耗明细|Usage details)$/.exec(source))) return `View usage details for ${translateAppText(match[1], "en")}`;
@@ -1667,7 +1669,10 @@ function englishDynamicUiLabel(source) {
 
 export function translateAppText(value, language = currentAppLanguage) {
   const source = String(value ?? "").replace(/\bDeepSeek\s+V4\.1\s+Flash\b/gi, "GPT-6 Astra");
-  if (normalizeAppLanguage(language) === "vi") return vietnameseText(source);
+  if (normalizeAppLanguage(language) === "vi") {
+    const strategySkill = /^(.+)交易策略 Skill$/.exec(source);
+    return strategySkill ? `Kỹ năng chiến lược giao dịch ${vietnameseText(strategySkill[1])}` : vietnameseText(source);
+  }
 if (normalizeAppLanguage(language) === "ja") return japaneseText(source);
   if (normalizeAppLanguage(language) === "ko") {
     const cacheKey = `ko\u0000${source}`;

@@ -5382,6 +5382,20 @@ html[data-language="en"] .titlebar-channel-label {
   flex-shrink: 1;
 }
 
+/* Traffic lights reduce the Mac sidebar's available titlebar space. Keep the
+   profile target large enough for its avatar; the phone action keeps its aria
+   label and tooltip when the compact row only has room for its icon. */
+.mac-titlebar .titlebar-sidebar-controls {
+  container-type: inline-size;
+  container-name: mac-titlebar-sidebar;
+}
+.mac-titlebar .titlebar-sidebar-controls > .titlebar-profile {
+  min-inline-size: 30px;
+}
+@container mac-titlebar-sidebar (max-width: 140px) {
+  .titlebar-channel-label { display: none; }
+}
+
 .desktop-shell:has(.trading-expert-panel-resizing) .titlebar-sidebar-controls {
   transition: none;
 }

@@ -1,4 +1,6 @@
 export const VIETNAMESE_CATALOG = Object.freeze({
+  "当前正在编辑暗色主题；切换主题后可分别设置另一套颜色。": "Bạn đang chỉnh sửa chủ đề tối; hãy chuyển chủ đề để thiết lập một bộ màu riêng cho chủ đề còn lại.",
+  "当前正在编辑亮色主题；切换主题后可分别设置另一套颜色。": "Bạn đang chỉnh sửa chủ đề sáng; hãy chuyển chủ đề để thiết lập một bộ màu riêng cho chủ đề còn lại.",
   "本地对话体验，云端任务尚未接入。": "Trải nghiệm trò chuyện cục bộ; tác vụ đám mây chưa được kết nối.",
   "本地体验": "Trải nghiệm cục bộ",
   "媒体任务自动恢复仍未完成。任务记录已保留，请稍后重试。": "Tác vụ đa phương tiện vẫn chưa tự động khôi phục xong. Bản ghi tác vụ đã được giữ lại; vui lòng thử lại sau.",
