@@ -20,7 +20,7 @@ export interface TradingAnalysisJobContext {
   marketId: string;
   symbol: string;
   interval: string;
-  language: "en" | "zh-CN" | "zh-TW" | "ko" | "ja";
+  language: "en" | "zh-CN" | "zh-TW" | "ko" | "ja" | "vi";
   market: object | null;
   startedAt: number;
   status: TradingAnalysisJobStatus;
@@ -47,7 +47,7 @@ export class TradingAnalysisJobController {
     marketId: string;
     symbol: string;
     interval: string;
-    language?: "en" | "zh-CN" | "zh-TW" | "ko" | "ja";
+    language?: "en" | "zh-CN" | "zh-TW" | "ko" | "ja" | "vi";
     market?: object | null;
   }) {
     const analysisId = normalizedAnalysisId(options.analysisId);
@@ -63,7 +63,7 @@ export class TradingAnalysisJobController {
       marketId: String(options.marketId || "").trim().toUpperCase(),
       symbol: String(options.symbol || "").trim().toUpperCase(),
       interval: String(options.interval || "").trim().toUpperCase(),
-      language: options.language === "ja" || options.language === "ko" || options.language === "en" || options.language === "zh-TW" ? options.language : "zh-CN",
+      language: (options.language === "vi" || options.language === "ja") || options.language === "ko" || options.language === "en" || options.language === "zh-TW" ? options.language : "zh-CN",
       market: options.market ? { ...options.market } : null,
       startedAt: Date.now(),
       status: "running",

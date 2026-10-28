@@ -92,3 +92,17 @@ test("explicit strategy mentions preserve input order and deduplicate aliases", 
     4,
   );
 });
+
+
+test("Vietnamese catalog names and mentions select only installed enabled strategies", async () => {
+  const {vietnameseText} = await import('../src/shared/vietnamese.mjs');
+  const catalog = await bundledAnalysisCatalog();
+  for (const strategy of catalog.filter(item => item.enabled !== false)) {
+    const name = vietnameseText(strategy.mentions.canonical);
+    assert.equal(resolveExplicitTradingStrategyId(`@Chiến lược: ${name}`, catalog), strategy.id, name);
+    assert.deepEqual(resolveExplicitTradingStrategyIds(`@Chiến lược: ${name}`, catalog), [strategy.id]);
+  }
+  assert.equal(resolveExplicitTradingStrategyId('Không sử dụng Lý thuyết Dow', catalog), null);
+  assert.deepEqual(resolveExplicitTradingStrategyIds('@Chiến lược: không tồn tại', catalog), []);
+  assert.deepEqual(resolveExplicitTradingStrategyIds('@Strategy: MACD @Chỉ báo: RSI', catalog), ['macd-analysis','rsi-analysis']);
+});

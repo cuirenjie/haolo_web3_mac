@@ -74,7 +74,7 @@ test("a mobile-only binding reaches desktop sizing, markdown, saved card and sti
     assert.equal((body.match(/class="execution-plan-target"/g) || []).length, plan.positionSizing.accountPlan.targetOrders.length);
     assert.ok(body.includes(language === "en" ? "Target position" : "止盈仓位"));
     assert.ok(body.includes(language === "en" ? "Est. loss" : "预计止损"));
-    assert.match(body, /等待条件触发|Wait for the trigger/);
+    assert.equal(body.split(language === 'en' ? 'Wait for the trigger' : '等待条件触发').length - 1, 1);
   }
 });
 

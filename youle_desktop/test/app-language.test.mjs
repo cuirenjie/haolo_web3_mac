@@ -279,9 +279,9 @@ test("application language safely defaults to Simplified Chinese and exposes fou
   assert.equal(appLanguageLocale("zh-CN"), "zh-CN");
 });
 
-test("all five language choices use native names regardless of the active language", () => {
+test("all six language choices use native names regardless of the active language", () => {
   try {
-    for (const language of ["en", "zh-CN", "zh-TW", "ko", "ja"]) {
+    for (const language of ["en", "zh-CN", "zh-TW", "ko", "ja", "vi"]) {
       applyAppLanguage(language);
       assert.deepEqual(appLanguageOptions(), [
         { value: "en", label: "English" },
@@ -289,6 +289,7 @@ test("all five language choices use native names regardless of the active langua
         { value: "zh-TW", label: "繁體中文" },
         { value: "ko", label: "한국어" },
         { value: "ja", label: "日本語" },
+        { value: "vi", label: "Tiếng Việt" },
       ]);
     }
   } finally {
@@ -462,7 +463,11 @@ test("language initializes before boot and reconciles renderer and main-process 
   assert.match(source, /reconcileStartupAppLanguage\(defaults\.language, defaults\.languagePreferenceStored === true\)/);
   assert.match(source, /resolveAppLanguagePreference\(\{[\s\S]*mainPreferenceStored,[\s\S]*rendererLanguage: storedRendererLanguage,[\s\S]*userSelected: appLanguageSelectionRevision > 0/);
   assert.match(main, /DEFAULT_APP_PREFERENCES = Object\.freeze\(\{\s*theme: "light",\s*language: "zh-CN"/s);
-  assert.match(main, /function normalizeAppLanguage\(value\) \{[\s\S]*?return value === "en" \|\| value === "zh-TW" \|\| value === "ko" \|\| value === "ja" \? value : "zh-CN";\s*\}/s);
+  const tree = ts.createSourceFile('main.mjs', main, ts.ScriptTarget.Latest, true);
+  const normalize = tree.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'normalizeAppLanguage');
+  const normalizeMain = new Function(normalize.getText(tree) + ';return normalizeAppLanguage;')();
+  for (const locale of ['en', 'zh-CN', 'zh-TW', 'ko', 'ja', 'vi']) assert.equal(normalizeMain(locale), locale);
+  assert.equal(normalizeMain('vi-VN'), 'vi');
   assert.match(main, /function appLanguagePreferenceStored\(\)/);
   assert.match(main, /languagePreferenceStored: appLanguagePreferenceStored\(\)/);
   assert.match(main, /ipcMain\.handle\("app:setLanguage"/);
@@ -533,7 +538,7 @@ test("runtime language audit uses control interactions and verifies reload persi
   assert.match(audit, /function verifyLanguageTransitionMatrix/);
   assert.match(audit, /for \(const source of languages\)/);
   assert.match(audit, /for \(const target of languages\)/);
-  assert.match(audit, /for \(const language of \["en", "zh-CN", "zh-TW", "ko", "ja"\]\)/);
+  assert.match(audit, /for \(const language of \["en", "zh-CN", "zh-TW", "ko", "ja", "vi"\]\)/);
   assert.match(audit, /verifyLanguageSurvivesReload\(targetWindow, language\)/);
   assert.match(audit, /targetWindow\.reload\(\)/);
 });

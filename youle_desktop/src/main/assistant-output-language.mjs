@@ -1,6 +1,7 @@
 const HAN_CHARACTER_PATTERN = /\p{Script=Han}/u;
 
 export function normalizeAssistantOutputLanguage(value) {
+  if (/^vi(?:[-_]VN)?$/i.test(String(value))) return "vi";
   if (/^ja(?:[-_]JP)?$/i.test(String(value))) return "ja";
   if (value === "ko" || value === "ko-KR" || value === "ko_KR") return "ko";
   return value === "zh-CN" || value === "zh-TW" ? value : "en";
@@ -12,6 +13,14 @@ export function containsHanCharacters(value) {
 
 export function assistantOutputLanguageInstruction(language) {
   const normalized = normalizeAssistantOutputLanguage(language);
+  if (normalized === "vi") return [
+    "<haolo_output_language>",
+    "The HaoLo application language is Vietnamese (Tiếng Việt). Write all assistant-authored visible text in natural, professional Vietnamese with full diacritics: progress, tool cards, headings, chart annotations, errors, explanations and final answers.",
+    "Financial glossary: long=mua (Long); short=bán (Short); entry=vào lệnh; stop loss=cắt lỗ; take profit=chốt lời; margin=ký quỹ; leverage=đòn bẩy; position=vị thế; perpetual futures=hợp đồng tương lai vĩnh cửu; credits=điểm; commission sharing=chia hoa hồng.",
+    "Translate source evidence and examples. Preserve all facts, numbers, prices, units, uncertainty, negation and confirmation/invalidation conditions. Never invent completed actions or guarantees or omit substantive findings.",
+    "Preserve machine-readable JSON keys, enums, identifiers, URLs, code, exact file contents and quoted user input. Official names and standard technical abbreviations may remain unchanged. Application language overrides examples and source prose.",
+    "</haolo_output_language>",
+  ].join("\n");
   if (normalized === "ja") return [
     "<haolo_output_language>",
     "The HaoLo app interface language is Japanese (日本語).",

@@ -41,7 +41,7 @@ test("general and Windows branding uses HaoLo while macOS keeps its localized pa
   for (const file of files) {
     const raw = await readFile(file, "utf8");
     // Old translation lookup keys are retained for migration; displayed values use HaoLo.
-    const source = /(?:app-language-(?:en|zh-tw)-generated|(?:korean|japanese)-catalog)\.mjs$/.test(file) ? raw.replace(/^\s*"[^"\n]+":/gm, "") : raw;
+    const source = /(?:app-language-(?:en|zh-tw)-generated|(?:korean|japanese|vietnamese)-catalog)\.mjs$/.test(file) ? raw.replace(/^\s*"[^"\n]+":/gm, "") : raw;
     assert.equal(source.includes(legacyChineseBrand), false, `legacy brand remains in ${file}`);
   }
 });

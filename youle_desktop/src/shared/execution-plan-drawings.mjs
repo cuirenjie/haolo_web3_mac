@@ -1,3 +1,4 @@
+import { vietnameseText } from './vietnamese.mjs';
 // Presentation only: copy the final plan's prices, never recalculate trading
 // decisions. Also used by the cloud desktop projection before receipt signing.
 import {normalizePlanProbability} from '../main/plan-probability-view.mjs';
@@ -50,7 +51,7 @@ export function projectExecutionPlanDrawings(patch, plan, language = 'zh-CN') {
       ...scenario.targets.map(target => ['target', target])];
     for (const [index, [role, level]] of levels.entries()) {
       const targetIndex = role === 'target' ? index - 1 : undefined;
-      const label = language === 'ja' ? (role === 'entry' ? `${scenario.side === 'long' ? 'ロング' : 'ショート'}エントリー` : role === 'stop' ? '損切り' : `利確 ${targetIndex}`) : language === 'ko' ? (role === 'entry' ? `진입 ${scenario.side === 'long' ? '롱' : '숏'}` : role === 'stop' ? '손절' : `${targetIndex}차 익절`) : role === 'entry' ? (english ? `Entry ${scenario.side}` : `${traditional ? '入場' : '入场'}做${scenario.side === 'long' ? '多' : '空'}`)
+      const label = language === 'vi' ? (role === 'entry' ? `Vào lệnh ${scenario.side === 'long' ? 'mua (Long)' : 'bán (Short)'}` : role === 'stop' ? 'Cắt lỗ' : `Chốt lời ${targetIndex}`) : language === 'ja' ? (role === 'entry' ? `${scenario.side === 'long' ? 'ロング' : 'ショート'}エントリー` : role === 'stop' ? '損切り' : `利確 ${targetIndex}`) : language === 'ko' ? (role === 'entry' ? `진입 ${scenario.side === 'long' ? '롱' : '숏'}` : role === 'stop' ? '손절' : `${targetIndex}차 익절`) : role === 'entry' ? (english ? `Entry ${scenario.side}` : `${traditional ? '入場' : '入场'}做${scenario.side === 'long' ? '多' : '空'}`)
         : role === 'stop' ? (english ? 'Stop loss' : traditional ? '止損' : '止损')
         : english ? `TP${targetIndex}` : `第${targetIndex}止盈`;
       operations.push({op: 'upsert', drawing: {

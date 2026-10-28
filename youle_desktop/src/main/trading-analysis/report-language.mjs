@@ -2,6 +2,7 @@ import { ANALYSIS_ENGLISH } from "./report-language-en.mjs";
 import { boundedTradingAnnotation } from "./model-output-language.mjs";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { koreanText } from "../../shared/korean.mjs";
+import { vietnameseText } from "../../shared/vietnamese.mjs";
 import { japaneseText } from "../../shared/japanese.mjs";
 
 const requestLanguage = new AsyncLocalStorage();
@@ -12,7 +13,12 @@ export function withTradingReportLanguage(language, operation) {
 // Formatting at the source template keeps interpolation boundaries exact,
 // including nested semicolons, repeated numbers and Markdown emphasis.
 export function tradingReportText(source, ...values) {
-  if (requestLanguage.getStore() === "ja") {
+  if (requestLanguage.getStore() === "vi") {
+    const quotedInput = /^(分析要求|你的问题|你的要求)：/.test(source);
+    const intervalSlot = source.match(/(?:根 |画布 )\{(\d+)\} (?:已收盘 )?(?:OHLCV )?K 线/)?.[1];
+    return vietnameseText(source).replace(/\{(\d+)\}/g, (_, index) => quotedInput ? String(values[Number(index)] ?? "") : index === intervalSlot ? vietnameseTradingInterval(values[Number(index)]) : vietnameseText(values[Number(index)] ?? "", true));
+  }
+if (requestLanguage.getStore() === "ja") {
     const quotedInput = /^(分析要求|你的问题|你的要求)：/.test(source);
     const intervalSlot = source.match(/(?:根 |画布 )\{(\d+)\} (?:已收盘 )?(?:OHLCV )?K 线/)?.[1];
     return japaneseText(source).replace(/\{(\d+)\}/g, (_, index) => quotedInput ? String(values[Number(index)] ?? "") : index === intervalSlot ? japaneseTradingInterval(values[Number(index)]) : japaneseText(values[Number(index)] ?? ""));
@@ -34,6 +40,14 @@ export function tradingReportText(source, ...values) {
   return english && !quotedInput ? englishPunctuation(text) : text;
 }
 
+export function vietnameseTradingInterval(value) {
+  const interval = String(value);
+  if (/^\d+$/.test(interval)) return `${interval} phút`;
+  const match = /^(\d+)([sSmhHdDwWM])$/.exec(interval);
+  const units = {s:'giây',S:'giây',m:'phút',h:'giờ',H:'giờ',d:'ngày',D:'ngày',w:'tuần',W:'tuần',M:'tháng'};
+  return match ? `${match[1]} ${units[match[2]]}` : interval;
+}
+
 export function japaneseTradingInterval(value) {
   const interval = String(value);
   if (/^\d+$/.test(interval)) return `${interval}分足`;
@@ -53,7 +67,8 @@ export function englishTradingInterval(value) {
 
 export function tradingReportTime(milliseconds) {
   const date = new Date(milliseconds);
-  if (requestLanguage.getStore() === "ja") return date.toLocaleString("ja-JP", { hour12: false });
+  if (requestLanguage.getStore() === "vi") return date.toLocaleString("vi-VN", { hour12: false });
+if (requestLanguage.getStore() === "ja") return date.toLocaleString("ja-JP", { hour12: false });
   if (requestLanguage.getStore() === "ko") return date.toLocaleString("ko-KR", { hour12: false });
   return requestLanguage.getStore() === "en"
     ? date.toISOString().replace("T", " ").replace(/\.\d{3}Z$/, " UTC")
@@ -116,8 +131,8 @@ export function englishAnalysisText(value, depth = 0) {
 }
 
 export function localizeTradingAnalysisResult(result, language) {
-  if (["ko", "ja"].includes(language) && result?.analysisPlan) {
-    const translate = language === "ja" ? japaneseText : koreanText;
+  if (["ko", "ja", 'vi'].includes(language) && result?.analysisPlan) {
+    const translate = language === "vi" ? value => vietnameseText(value, true) : language === "ja" ? japaneseText : koreanText;
     const proseKeys = new Set(["report", "narrative", "summary", "rationale", "confirmation", "observeTrigger", "text", "label", "title", "description", "reason", "riskWarning"]);
     const visit = (value, key = "") => typeof value === "string" ? (proseKeys.has(key) ? translate(value) : value)
       : Array.isArray(value) ? value.map(item => visit(item, key))

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
 import ts from "typescript";
+import {rendererImports} from './support/renderer-imports.mjs';
 import { businessPresentationItems, businessPresentationResult } from "../src/shared/codex-business-presentation.mjs";
 import { completedTradingAnalysisReport, isCompletedTradingAnalysisReport, tradingAnalysisDeliveryItems } from "../src/renderer/trading-analysis-completion.ts";
 import { turnResultFoldTargets } from "../src/renderer/turn-result-fold.ts";
@@ -15,6 +16,7 @@ import * as businessErrors from "../src/shared/business-tool-error.mjs";
 
 const source = fs.readFileSync(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
 const ast = ts.createSourceFile("main.ts", source, ts.ScriptTarget.Latest, true);
+const imported = await rendererImports(ast, ['preserveIncompletePartial']);
 const functions = [
   "isCloudTaskThread",
   "orderedThreadItems", "flattenThreadItemRows", "incomingTurnIndexById",
@@ -54,6 +56,7 @@ function harness() {
     itemOrder: { origin: [] }, artifacts: [], threadRoles: {}, voiceInput: { status: "idle" }, resultProcessExpanded: {} };
   const noop = () => {};
   const context = {
+    ...imported,
     state, businessPresentationItems, businessPresentationResult, rememberTradingPlanDrawingHistory, isObsoletePlanRecoveryNotice,
     completedTradingAnalysisReport, isCompletedTradingAnalysisReport, tradingAnalysisDeliveryItems, turnResultFoldTargets, pureAnalysisPresentationGroups,
     activeThinkingResponseId, isFinalAnswerForThinkingResponse,

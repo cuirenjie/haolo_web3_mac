@@ -5,7 +5,7 @@ import {validateCloudEntryResult} from '../src/main/trading-strategy-runtime/clo
 import {cloudReportFromResponse,normalizeCloudReports,cloudPlanCard} from '../src/main/cloud-plan-contract.mjs';
 import {renderCurrentReports,renderCurrentSavedPlan} from './support/right-renderer-parity.mjs';
 import {mergeCloudExecutionPlans} from '../src/renderer/cloud-plan-sync.ts';
-import {executionPlanStickyHtml} from '../src/main/execution-plan-sticky-view.mjs';
+import {assertStickyCardParity,assertSeparatedCardParity} from './support/sticky-card-parity.mjs';
 
 // Same synthetic backend-generated fixture is consumed by Flutter. No local
 // trading algorithm is reintroduced into the cloud-only Windows runtime.
@@ -37,11 +37,15 @@ for(const sample of cases)test(`${sample.name}: backend retest receipt survives 
     const savedReceipt=structuredClone(restored);
     Object.assign(savedReceipt.planRecords[0],{saved:true,status:'pending',version:2});
     const saved=mergeCloudExecutionPlans([savedReceipt],[])[0];
-    for(const markup of [rendered.cards,renderCurrentSavedPlan(saved,language),executionPlanStickyHtml({cloudReport:restored,language,title:card.title})]){
-      assert.ok(markup.includes(cloudPlanCard(restored,{separateAction:true}).html));
+    for(const markup of [rendered.cards]){
+      assert.ok(markup.includes(card.html));
       assert.ok(markup.includes(scenario.entry.toFixed(2)));
       assert.equal((card.html.match(/class="execution-plan-target"/g)||[]).length,3);
     }
+    assertSeparatedCardParity(renderCurrentSavedPlan(saved,language),restored,language);
+    const sticky=assertStickyCardParity(restored,language);
+    assert.ok(sticky.includes(scenario.entry.toFixed(2)));
+    assert.equal((sticky.match(/class="execution-plan-target"/g)||[]).length,3);
     assert.equal(plan.conditionHash,scenario.conditionHash);
   }
   assert.deepEqual(result,before);

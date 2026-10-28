@@ -3,14 +3,20 @@ import test from 'node:test';
 import { assistText, describeSupportAction, validateSupportProposal, SUPPORT_EXECUTOR_VERSIONS } from '../src/renderer/support-assist.ts';
 import { supportRuntime } from '../src/renderer/support-runtime.ts';
 
-test('four reply languages localize consent and operation descriptions',()=>{
-  for(const locale of ['zh-CN','zh-Hant','en','ko']) {
+test('six reply languages localize consent and operation descriptions',()=>{
+  for(const locale of ['zh-CN','zh-Hant','en','ko','ja','vi']) {
     assert.ok(assistText(locale,'accept'));
     assert.ok(describeSupportAction({kind:'set_theme',theme:'dark'},locale));
   }
   assert.equal(assistText('ko','accept'),'허용');
   assert.match(describeSupportAction({kind:'set_theme',theme:'dark'},'ko'),/테마/);
   assert.equal(assistText('zh-Hant','consent'),assistText('zh-TW','consent'));
+  for (const [locale, accept] of [['vi', 'Đồng ý'], ['ja', '許可']]) {
+    assert.equal(assistText(locale, 'accept'), accept);
+    const regional = locale === 'vi' ? 'vi-VN' : 'ja-JP';
+    assert.equal(assistText(regional, 'consent'), assistText(locale, 'consent'));
+    assert.equal(describeSupportAction({kind:'set_theme',theme:'dark'},regional), describeSupportAction({kind:'set_theme',theme:'dark'},locale));
+  }
 });
 test('registered feature adapters are implemented locally',()=>{
   for(const [k,v] of Object.entries(supportRuntime.action_versions)) assert.equal(SUPPORT_EXECUTOR_VERSIONS[k],v);

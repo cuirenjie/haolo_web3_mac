@@ -1,3 +1,4 @@
+import { isVietnameseProse } from '../../shared/vietnamese.mjs';
 import { isJapaneseProse } from '../../shared/japanese.mjs';
 const PROSE_KEYS = new Set(["summary", "report", "answer", "rationale", "strategyRationale", "text", "narrative", "description", "riskWarning", "confirmation", "observeTrigger", "title", "label", "reason"]);
 
@@ -18,6 +19,12 @@ export function boundedTradingAnnotation(value, maximum = 120) {
 }
 
 export function tradingModelLanguageInstruction(language) {
+  if (/^vi(?:[-_]VN)?$/i.test(String(language))) return [
+    "OUTPUT LANGUAGE REQUIREMENT (overrides prose-language examples):",
+    "Write every user-visible heading, analysis, summary, rationale, answer, risk condition and chart annotation in natural professional Vietnamese (Tiếng Việt), with full diacritics and consistent financial terminology.",
+    "long=mua (Long); short=bán (Short); entry=vào lệnh; stop loss=cắt lỗ; take profit=chốt lời; margin=ký quỹ; leverage=đòn bẩy; position=vị thế; perpetual futures=hợp đồng tương lai vĩnh cửu.",
+    "Translate source evidence. Preserve JSON keys, enum values, evidence IDs, instrument symbols, all numbers, units, negation, uncertainty and confirmation/invalidation conditions exactly. Keep complete explanations; never invent facts, actions or guarantees. Keep an empty report if required by the schema.",
+  ].join("\n");
   if (/^ja(?:[-_]JP)?$/i.test(String(language))) return [
     "OUTPUT LANGUAGE REQUIREMENT (overrides earlier prose-language examples):",
     "Write every user-visible analysis, heading, summary, rationale, answer, risk condition and chart annotation in professional Japanese (日本語), using natural financial terminology and polite Japanese sentences.",
@@ -43,15 +50,16 @@ export function tradingModelLanguageInstruction(language) {
 }
 
 export function validateTradingModelLanguage(review, language, allowedLiterals = []) {
+  const vietnamese = /^vi(?:[-_]VN)?$/i.test(String(language));
   const japanese = /^ja(?:[-_]JP)?$/i.test(String(language));
-  if (language !== "en" && language !== "ko" && language !== "ko-KR" && !japanese) return review;
+  if (language !== "en" && language !== "ko" && language !== "ko-KR" && !japanese && !vietnamese) return review;
   const korean = language === "ko" || language === "ko-KR";
   const literals = allowedLiterals.filter((value) => typeof value === "string" && /\p{Script=Han}/u.test(value));
   function visit(value, key = "") {
     if (typeof value === "string" && PROSE_KEYS.has(key)) {
       const prose = literals.reduce((text, literal) => text.split(literal).join(""), value);
-      if (japanese ? !isJapaneseProse(prose) : /\p{Script=Han}/u.test(prose) || (korean && /[A-Za-z]{3}/.test(prose) && !/\p{Script=Hangul}/u.test(prose) && prose.trim().split(/\s+/).length > 4))
-        throw new TypeError(`Output language mismatch in ${key}: rewrite the complete analysis in professional ${japanese ? 'Japanese' : korean ? 'Korean' : 'English'}; preserve all facts and numbers.`);
+      if (vietnamese ? !isVietnameseProse(prose) : japanese ? !isJapaneseProse(prose) : /\p{Script=Han}/u.test(prose) || (korean && /[A-Za-z]{3}/.test(prose) && !/\p{Script=Hangul}/u.test(prose) && prose.trim().split(/\s+/).length > 4))
+        throw new TypeError(`Output language mismatch in ${key}: rewrite the complete analysis in professional ${vietnamese ? 'Vietnamese' : japanese ? 'Japanese' : korean ? 'Korean' : 'English'}; preserve all facts and numbers.`);
     } else if (Array.isArray(value)) value.forEach((entry) => visit(entry, key));
     else if (value && typeof value === "object") Object.entries(value).forEach(([name, entry]) => visit(entry, name));
   }

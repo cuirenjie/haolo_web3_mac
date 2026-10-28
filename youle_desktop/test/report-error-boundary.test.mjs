@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
 import ts from "typescript";
+import {rendererImports} from './support/renderer-imports.mjs';
 import { errorSignals, isQuotaFailure } from "../src/main/error-signals.mjs";
 import { loadTradingStrategyManifestFiles } from "../src/main/trading-strategy-runtime/manifest-loader.mjs";
 import { withTradingTranscriptItems } from "../src/main/trading-expert-transcript.mjs";
@@ -10,6 +11,7 @@ import { isCompletedTradingAnalysisReport } from "../src/renderer/trading-analys
 
 const source = readFileSync(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
 const ast = ts.createSourceFile("main.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+const imported = await rendererImports(ast, ['modelIncompleteFacts', 'incompleteResponseCopy']);
 const names = new Set([
   "isInsufficientQuotaError", "isInsufficientQuotaSignalFields", "isInsufficientQuotaTurnSignal",
   "shouldHideChatItem", "appendTradingExpertReport", "turnResultDisplayStatus",
@@ -29,6 +31,7 @@ const code = ts.transpileModule([
 
 function harness() {
   const c = {
+    ...imported,
     errorSignals, isQuotaFailure, isCompletedTradingAnalysisReport,
     errorMessage: value => typeof value === "string" ? value : value?.message || "",
     state: { items: { chat: {} } },

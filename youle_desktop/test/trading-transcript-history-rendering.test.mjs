@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 import ts from "typescript";
+import {rendererImports} from './support/renderer-imports.mjs';
 import { withTradingTranscriptItems, tradingTranscriptInjectionItems, parseTradingTranscriptMarkerText } from "../src/main/trading-expert-transcript.mjs";
 import { executionPlanCandidatesFromText } from "../src/renderer/execution-plans.ts";
 import { isCompletedTradingAnalysisReport } from "../src/renderer/trading-analysis-completion.ts";
@@ -12,6 +13,7 @@ import { completedTradingAnalysisReport, tradingAnalysisDeliveryItems } from "..
 
 const source = fs.readFileSync(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
 const ast = ts.createSourceFile("main.ts", source, ts.ScriptTarget.Latest, true);
+const awaitedRendererImports = await rendererImports(ast, ['preserveIncompletePartial']);
 const names = [
   "orderedThreadItems", "flattenThreadItemRows", "incomingTurnIndexById",
   "preservedExistingThreadItemRow", "preservedSameTurnItemIndex", "compareThreadItemRows",
@@ -61,6 +63,7 @@ function harness() {
   const state = { items: { thread: {} }, resultProcessExpanded: {} };
   const firstString = (...values) => values.find((value) => typeof value === "string" && value.trim())?.trim() || "";
   const deps = {
+    ...awaitedRendererImports,
     state, firstString, isCompletedTradingAnalysisReport, businessPresentationItems, turnResultFoldTargets, pureAnalysisPresentationGroups, localHistoryAheadThreadIds: new Set(["thread"]),
     liveConversationSupplementIds: new Set(), interruptedCodexTurnIds: new Set(),
     agentMessagePhase: (item) => item?.phase || "",

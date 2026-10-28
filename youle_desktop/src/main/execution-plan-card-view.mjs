@@ -1,4 +1,5 @@
 import { withKoreanVariants } from '../shared/korean.mjs';
+import { vietnameseText } from '../shared/vietnamese.mjs';
 import { japaneseText } from '../shared/japanese.mjs';
 import { executionPlanRecognitionText } from '../shared/execution-plan-language.mjs';
 // Presentation only: keep the stored report and all plan/alert inputs untouched.
@@ -89,7 +90,8 @@ function strategyLabel(value, language) {
     ["trend-band", "趋势带", "趨勢帶", "Trend Band"],
   ];
   const match = names.find(([aliases]) => aliases.split("|").some((alias) => alias.toLowerCase() === raw.toLowerCase()));
-  if(match&&language==='ja')return japaneseText(match[1]);
+  if (match&&language==='vi') return vietnameseText(match[1]);
+if(match&&language==='ja')return japaneseText(match[1]);
   if(match&&language==='ko')return ['프라이스 액션','오더 플로우','찬 이론','와이코프','엘리엇 파동','차트 패턴','하모닉','다우 이론','갠 이론','SMT 다이버전스','ICT / SMC','이동평균','볼린저 밴드','MACD','RSI','KDJ','VPVR','추세 밴드'][names.indexOf(match)];
   return match ? match[language === "en" ? 3 : language === "zh-TW" ? 2 : 1] : raw;
 }

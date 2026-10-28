@@ -4,7 +4,7 @@ export interface CloudTradingReport {
   selectedCardIndex?: number;
   runId: string;
   resultHash: string;
-  locale: 'zh-CN'|'en'|'zh-Hant'|'ko'|'ja';
+  locale: 'zh-CN'|'en'|'zh-Hant'|'ko'|'ja' | 'vi';
   marketId: string;
   interval: string;
   strategyId: string;

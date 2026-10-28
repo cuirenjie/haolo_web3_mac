@@ -1,3 +1,4 @@
+import { vietnameseText } from '../shared/vietnamese.mjs';
 // Optional public model commentary. Invalid/missing commentary never hides a plan.
 const finite = value => typeof value === 'number' && Number.isFinite(value);
 const samePrices = (a,b) => Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((n,i) => finite(n) && n === b[i]);
@@ -46,7 +47,9 @@ export function normalizePlanProbability(value, report) {
 const copy = {
   ja: ['モデルによる確率評価','利益到達確率（モデル推定）','確定足 {count} 本に基づく · {interval}',
     'エントリー成立後、有効期限内に第1利確目標または損切り価格のいずれかに到達することを条件として、第1利確目標に先に到達する確率を推定します。未エントリー、未決済、および分割決済による最終的な純損益は対象外です。',
-    '過去のバックテストによる較正は行われておらず、実際の取引勝率を示すものではありません。','データ基準時刻'],
+    '過去のバックテストによる較正は行われておらず、実際の取引勝率を示すものではありません。','データ基準時刻'], vi: [vietnameseText("モデルによる確率評価"),vietnameseText("利益到達確率（モデル推定）"),vietnameseText("確定足 {count} 本に基づく · {interval}"),
+    vietnameseText("エントリー成立後、有効期限内に第1利確目標または損切り価格のいずれかに到達することを条件として、第1利確目標に先に到達する確率を推定します。未エントリー、未決済、および分割決済による最終的な純損益は対象外です。"),
+    vietnameseText("過去のバックテストによる較正は行われておらず、実際の取引勝率を示すものではありません。"),vietnameseText("データ基準時刻")],
   'zh-CN': ['模型概率评估','盈利概率（模型估算）','依据 {count} 根已收盘 K 线 · {interval}',
     '口径：入场后，在有效期内第1止盈或止损至少触达一个的条件下，估算第1止盈先于止损的概率。未触发、未退出及分批退出的最终净盈亏不在此口径内。',
     '未经历史回测校准，不代表实际交易胜率。','数据截至'],

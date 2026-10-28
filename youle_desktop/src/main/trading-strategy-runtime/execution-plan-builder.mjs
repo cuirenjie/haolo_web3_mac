@@ -1,3 +1,4 @@
+import { vietnameseText } from '../../shared/vietnamese.mjs';
 import { japaneseText } from '../../shared/japanese.mjs';
 import { koreanText, localizedChoice } from '../../shared/korean.mjs';
 import crypto from "node:crypto";
@@ -1824,7 +1825,8 @@ function formatExecutionPlanMarkdownEnglish(validated) {
 
 export function formatExecutionPlanMarkdown(plan, options = {}) {
   const validated = validateExecutionPlan(plan);
-  if (options?.language === "ja") return japaneseText(formatExecutionPlanMarkdown(validated, {...options, language: "zh-CN"}), true);
+  if (options?.language === "vi") return vietnameseText(formatExecutionPlanMarkdown(validated, {...options, language: "zh-CN"}), true);
+if (options?.language === "ja") return japaneseText(formatExecutionPlanMarkdown(validated, {...options, language: "zh-CN"}), true);
   if (options?.language === "ko") return koreanText(formatExecutionPlanMarkdown(validated, {...options, language: "zh-CN"}));
   if (validated.preconditions.some((item) => item.id === "personal-risk-unavailable")) {
     return options.language === "en"

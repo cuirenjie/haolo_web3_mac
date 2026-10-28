@@ -1,3 +1,5 @@
+import { vietnameseText } from '../shared/vietnamese.mjs';
+import { normalizeAppLanguage } from './app-language.mjs';
 export type SupportAction = { kind: string; theme?: "light" | "dark"; indicator?: string; parameters?: Record<string, number>; up_color?: string; down_color?: string };
 export type SupportProposal = { id: string; epoch: number; title: string; plan: SupportAction[]; status: string; device_id: string; next_step: number; reply_locale?: string; context_binding?: Record<string, any> };
 export type SupportAI = { mode: "ai" | "human" | "closed"; phase: string; epoch: number; actions: SupportProposal[]; reply_locale?: string; protocol_version?: number; copy?: Record<string, string> };
@@ -11,15 +13,19 @@ export function validateSupportProposal(proposal: SupportProposal, context: Reco
   }
 }
 const text = {
+  vi: { typing: "haolo đang nhập...", identity: "Hỗ trợ khách hàng AI haolo", consent: "Bộ phận hỗ trợ haolo xin phép thao tác giúp bạn trong ứng dụng. Bạn có đồng ý không?", accept: "Đồng ý", decline: "Từ chối", operating: "Bộ phận hỗ trợ haolo đang thao tác giúp bạn", failed: "Thao tác chưa hoàn tất. Vui lòng tiếp tục liên hệ bộ phận hỗ trợ.", return: "Quay lại cuộc trò chuyện hỗ trợ" },
+  ja: { typing: "haolo が入力中です...", identity: "haolo AI カスタマーサポート", consent: "haolo サポートがアプリの操作をお手伝いします。許可しますか？", accept: "許可", decline: "拒否", operating: "haolo サポートがアプリを操作しています", failed: "操作が完了しませんでした。引き続きサポートにお問い合わせください。", return: "サポートの会話に戻る" },
   ko: { typing: "haolo가 입력 중입니다...", identity: "haolo AI 고객지원", consent: "haolo 고객지원이 앱 조작을 도와드리려고 합니다. 허용하시겠습니까?", accept: "허용", decline: "거절", operating: "haolo 고객지원이 앱을 조작하고 있습니다", failed: "작업이 완료되지 않았습니다. 고객지원에 계속 문의해 주세요.", return: "고객지원 대화로 돌아가기" },
   "zh-CN": { typing: "haolo 输入中...", identity: "智能客服 haolo", consent: "客服 haolo 请求帮您操作，是否同意？", accept: "同意", decline: "拒绝", operating: "客服 haolo 正在为您操作", failed: "操作未完成，请继续联系客服。", return: "返回客服会话" },
   "zh-TW": { typing: "haolo 輸入中...", identity: "智能客服 haolo", consent: "客服 haolo 請求幫您操作，是否同意？", accept: "同意", decline: "拒絕", operating: "客服 haolo 正在為您操作", failed: "操作未完成，請繼續聯繫客服。", return: "返回客服會話" },
   en: { typing: "haolo is typing...", identity: "Intelligent support haolo", consent: "Support haolo requests permission to help you operate the app. Allow?", accept: "Allow", decline: "Decline", operating: "Support haolo is operating the app for you", failed: "The operation was not completed. Please continue with support.", return: "Return to support" },
 };
-export const assistText = (locale: string, key: keyof typeof text.en) => (text[(locale === "zh-Hant" ? "zh-TW" : locale) as keyof typeof text] || text["zh-CN"])[key];
+const supportLanguage = (locale: string) => normalizeAppLanguage(locale === "zh-Hant" ? "zh-TW" : locale);
+export const assistText = (locale: string, key: keyof typeof text.en) => text[supportLanguage(locale)][key];
 export const supportIsTyping = (ai?: SupportAI | null) => ai?.mode === "ai" && ["queued", "thinking", "retrying"].includes(ai.phase);
 export function describeSupportAction(action: SupportAction, locale: string) {
-  const labels = locale === "ja" ? ["設定を開く", "テーマを変更", "利用履歴を開く", "インジケーター設定を開く", "インジケーター設定", "ローソク足の色設定を開く", "ローソク足の色を変更", "ライト", "ダーク", "上昇", "下落", "パラメーター"] : locale === "ko" ? ["설정 열기", "테마 변경", "사용 내역 열기", "지표 설정 열기", "지표 설정", "캔들 색상 설정 열기", "캔들 색상 변경", "밝게", "어둡게", "상승", "하락", "매개변수"] : locale === "en"
+  locale = supportLanguage(locale);
+  const labels = locale === "vi" ? [vietnameseText("設定を開く"), vietnameseText("テーマを変更"), vietnameseText("利用履歴を開く"), vietnameseText("インジケーター設定を開く"), vietnameseText("インジケーター設定"), vietnameseText("ローソク足の色設定を開く"), vietnameseText("ローソク足の色を変更"), vietnameseText("ライト"), vietnameseText("ダーク"), vietnameseText("上昇"), vietnameseText("下落"), vietnameseText("パラメーター")] : locale === "ja" ? ["設定を開く", "テーマを変更", "利用履歴を開く", "インジケーター設定を開く", "インジケーター設定", "ローソク足の色設定を開く", "ローソク足の色を変更", "ライト", "ダーク", "上昇", "下落", "パラメーター"] : locale === "ko" ? ["설정 열기", "테마 변경", "사용 내역 열기", "지표 설정 열기", "지표 설정", "캔들 색상 설정 열기", "캔들 색상 변경", "밝게", "어둡게", "상승", "하락", "매개변수"] : locale === "en"
     ? ["Open Settings", "Set appearance", "Open usage details", "Open indicator settings", "Set indicator", "Open candle color settings", "Set candle colors", "Light", "Dark", "Rising", "Falling", "Parameter"]
     : ["zh-TW", "zh-Hant"].includes(locale)
       ? ["開啟設定", "切換主題外觀", "開啟積分消耗", "開啟指標設定", "設定指標", "開啟 K 線漲跌顏色設定", "設定 K 線顏色", "明亮", "黑暗", "上漲", "下跌", "參數"]

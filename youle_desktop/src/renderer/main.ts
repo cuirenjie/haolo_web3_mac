@@ -1,3 +1,4 @@
+import { vietnameseText } from '../shared/vietnamese.mjs';
 import { applyCustomTheme, decodeCustomTheme, encodeCustomTheme, DEFAULT_CUSTOM_THEME } from './custom-theme.ts';
 import { openColorPicker, splitColor, withOpacity } from './color-picker.ts';
 import {createCloudTaskChatController} from './cloud-task-chat.ts';
@@ -988,14 +989,14 @@ function canonicalizeTradingExpertMentionText(value: string) {
   for (const item of [...tradingStrategyCatalog(), ...tradingIndicatorCatalog()]) {
     const canonical = item.mentionTokens[0];
     if (!canonical) continue;
-    for (const language of ["en", "zh-TW", "ko", "ja"] as const) {
+    for (const language of ["en", "zh-TW", "ko", "ja", 'vi'] as const) {
       const localized = localizedTradingCatalogMentionToken(item, language);
       source = source.split(localized).join(canonical);
     }
   }
   const trendBandCanonical = "@指标:趋势带";
   const alertCanonical = "@预警";
-  for (const language of ["en", "zh-TW", "ko", "ja"] as const) {
+  for (const language of ["en", "zh-TW", "ko", "ja", 'vi'] as const) {
     source = source
       .split(localizedTradingExpertMentionToken("指标", "趋势带", language)).join(trendBandCanonical)
       .split(localizedTradingExpertMentionToken("预警", "", language)).join(alertCanonical);
@@ -27004,12 +27005,12 @@ function deepSeekMediaComposerValidationError(threadId: string) {
 
 function personalStrategyCreationDescription(text: string) {
   return String(text || "")
-    .replace(/^\s*@创建策略(?:[：:]\s*|\s*)/u, "")
+    .replace(/^\s*@(?:创建策略|建立策略|Create\s+strategy|Tạo\s+chiến\s+lược|전략\s*생성|戦略作成)(?:[：:]\s*|\s*)/iu, "")
     .trim();
 }
 
 function isPersonalStrategyCreationCommand(text: string) {
-  return /^\s*@创建策略(?:$|[：:\s])/u.test(String(text || ""));
+  return /^\s*@(?:创建策略|建立策略|Create\s+strategy|Tạo\s+chiến\s+lược|전략\s*생성|戦略作成)(?:$|[：:\s])/iu.test(String(text || ""));
 }
 
 function personalStrategyFeedbackIntent(text: string) {
@@ -36558,7 +36559,7 @@ let sharedAppSettingsRegistered = false;
 function sharedAppSettings(): SettingValues {
   return {
     'app.theme': sharedThemePreference,
-    'app.language': state.settings.language === 'ja' ? 'ja' : state.settings.language === 'zh-TW' ? 'zh-Hant' : state.settings.language === 'ko' ? 'ko' : state.settings.language === 'en' ? 'en' : 'zh-CN',
+    'app.language': state.settings.language === 'vi' ? 'vi' : state.settings.language === 'ja' ? 'ja' : state.settings.language === 'zh-TW' ? 'zh-Hant' : state.settings.language === 'ko' ? 'ko' : state.settings.language === 'en' ? 'en' : 'zh-CN',
     'app.fontScale': sharedFontScales[state.settings.fontSize],
     'app.completionNotices': state.settings.taskCompletionPopupEnabled,
   };
@@ -36573,7 +36574,7 @@ function applySharedAppSettings(values: SettingValues) {
   const theme = sharedThemePreference === 'system'
     ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
     : sharedThemePreference === 'dark' ? 'dark' : 'light';
-  const language: AppLanguage = values['app.language'] === 'ja' ? 'ja' : values['app.language'] === 'ko' ? 'ko' : values['app.language'] === 'en' ? 'en' : values['app.language'] === 'zh-Hant' ? 'zh-TW' : 'zh-CN';
+  const language: AppLanguage = values['app.language'] === 'vi' ? 'vi' : values['app.language'] === 'ja' ? 'ja' : values['app.language'] === 'ko' ? 'ko' : values['app.language'] === 'en' ? 'en' : values['app.language'] === 'zh-Hant' ? 'zh-TW' : 'zh-CN';
   const fontSize = (Object.entries(sharedFontScales).find(([, scale]) => scale === values['app.fontScale'])?.[0] || 'default') as AppFontSize;
   const completion = values['app.completionNotices'] !== false;
   if (state.settings.theme !== theme) {
@@ -36646,7 +36647,7 @@ function reconcileStartupAppLanguage(
 }
 
 function selectAppLanguage(language: AppLanguage) {
-  accountSettingsSync().edit({ 'app.language': sharedAppSettings()['app.language'] }, { 'app.language': language === 'ja' ? 'ja' : language === 'zh-TW' ? 'zh-Hant' : language === 'ko' ? 'ko' : language === 'en' ? 'en' : 'zh-CN' });
+  accountSettingsSync().edit({ 'app.language': sharedAppSettings()['app.language'] }, { 'app.language': language === 'vi' ? 'vi' : language === 'ja' ? 'ja' : language === 'zh-TW' ? 'zh-Hant' : language === 'ko' ? 'ko' : language === 'en' ? 'en' : 'zh-CN' });
   appLanguageSelectionRevision += 1;
   state.settings.language = language;
   applyAppLanguage(language, { persist: true, root: document.body });
@@ -39317,7 +39318,7 @@ function renderMessageExecutionPlan(
 ): {bubbleContent:string; cards:string} | null {
   const presentation = (message as MessageUiMeta).executionPlanPresentation;
   if (presentation === "position-plan") {
-    const title = state.settings.language === "ja" ? "ポジション調整計画" : state.settings.language === "ko" ? "포지션 관리 계획" : state.settings.language === "en" ? "Position management plan" : state.settings.language === "zh-TW" ? "倉位調整方案" : "仓位调整方案";
+    const title = state.settings.language === "vi" ? vietnameseText("ポジション調整計画") : state.settings.language === "ja" ? "ポジション調整計画" : state.settings.language === "ko" ? "포지션 관리 계획" : state.settings.language === "en" ? "Position management plan" : state.settings.language === "zh-TW" ? "倉位調整方案" : "仓位调整方案";
     return { bubbleContent: "", cards: `<section class="message-execution-plan execution-plan-surface" data-trading-result-kind="position-management"><h3>${escapeHtml(title)}</h3><div class="execution-plan-card-content">${formatMessageText(text, options)}</div></section>` };
   }
 
@@ -43403,7 +43404,7 @@ function renderConversationListFooter() {
           <path d="m3 6 4.5 4L12 4l4.5 6L21 6l-2 12H5L3 6Z" />
           <path d="M6 21h12" />
         </svg>
-        <span>${state.settings.language === "en" ? "Top up" : "会员充值"}</span>
+        <span>${state.settings.language === "vi" ? "Nạp tiền" : state.settings.language === "en" ? "Top up" : "会员充值"}</span>
       </button>
     </footer>
   `;
@@ -59711,10 +59712,13 @@ function renderRechargeMembershipAgreement(
   const productName = translateAppText(product.name, language);
   const escapedProductName = escapeHtml(productName);
   const escapedOrderNumber = escapeHtml(order.order_no);
-  const tutorialLabel = language === "ja" ? "チュートリアルを見る" : language === "ko" ? "튜토리얼 보기" : language === "en" ? "View tutorial" : language === "zh-TW" ? "查看教學" : "查看教程";
+  const tutorialLabel = language === "vi" ? vietnameseText("チュートリアルを見る") : language === "ja" ? "チュートリアルを見る" : language === "ko" ? "튜토리얼 보기" : language === "en" ? "View tutorial" : language === "zh-TW" ? "查看教學" : "查看教程";
   const tutorialButton = `<button type="button" class="recharge-payment-tutorial-link" data-recharge-payment-tutorial-url="${escapeAttr(network.tutorialUrl)}">${tutorialLabel}</button>`;
   if (language === "en") {
     return `<p class="recharge-payment-agreement">By subscribing, you agree to <span>${escapedProductName} Membership Service Agreement</span> · Order number ${escapedOrderNumber} ${tutorialButton}</p>`;
+  }
+  if (language === "vi") {
+    return `<p class="recharge-payment-agreement">Khi đăng ký, bạn đồng ý với <span>Thỏa thuận dịch vụ thành viên ${escapedProductName}</span> · Mã đơn hàng ${escapedOrderNumber} ${tutorialButton}</p>`;
   }
   if (language === "zh-TW") {
     return `<p class="recharge-payment-agreement">開通即視為同意 <span>《${escapedProductName}會員服務協議》</span> · 訂單編號 ${escapedOrderNumber} ${tutorialButton}</p>`;
@@ -59728,6 +59732,7 @@ function rechargePaymentStepsAriaLabel(
   const language = state.settings.language;
   const networkLabel = translateAppText(network.label, language);
   if (language === "en") return `${networkLabel} payment steps`;
+  if (language === "vi") return `Các bước thanh toán qua ${networkLabel}`;
   if (language === "zh-TW") return `${networkLabel}付款步驟`;
   return `${networkLabel}支付步骤`;
 }
@@ -59738,6 +59743,7 @@ function rechargePaymentAccountCopyAriaLabel(
   const language = state.settings.language;
   const networkLabel = translateAppText(network.label, language);
   if (language === "en") return `Copy ${networkLabel} recipient account`;
+  if (language === "vi") return `Sao chép tài khoản nhận tiền qua ${networkLabel}`;
   if (language === "zh-TW") return `複製${networkLabel}收款帳號`;
   return `复制${networkLabel}收款账号`;
 }
@@ -59748,6 +59754,7 @@ function rechargePaymentQrAlt(
   const language = state.settings.language;
   const networkLabel = translateAppText(network.label, language);
   if (language === "en") return `${networkLabel} USDT payment QR code`;
+  if (language === "vi") return `Mã QR thanh toán USDT qua ${networkLabel}`;
   if (language === "zh-TW") return `${networkLabel} USDT 收款二維碼`;
   return `${networkLabel} USDT 收款二维码`;
 }
@@ -59852,7 +59859,7 @@ function renderRechargePaymentDetailsContent(order: Web3PaymentOrder) {
             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16.5 7.25A7 7 0 0 0 4.1 5.1L2.5 6.7m0 0V3m0 3.7h3.7M3.5 12.75A7 7 0 0 0 15.9 14.9l1.6-1.6m0 0V17m0-3.7h-3.7" /></svg>
             检测到账中
           </span>
-          <span class="recharge-payment-internal-countdown">订单剩余：<time data-recharge-payment-countdown>30:00</time></span>
+          <span class="recharge-payment-internal-countdown">${state.settings.language === "vi" ? "Thời gian còn lại: " : "订单剩余："}<time data-recharge-payment-countdown>30:00</time></span>
         </aside>
       </div>
       ${renderRechargeMembershipAgreement(product, order, network)}
@@ -59908,7 +59915,7 @@ function renderRechargePaymentDetailsContent(order: Web3PaymentOrder) {
           <span class="recharge-payment-qr-logo">${renderRechargePaymentMethodLogo(network)}</span>
           <span class="recharge-payment-qr-loading">正在生成二维码</span>
         </div>
-        <span class="recharge-payment-internal-countdown">订单剩余：<time data-recharge-payment-countdown>30:00</time></span>
+        <span class="recharge-payment-internal-countdown">${state.settings.language === "vi" ? "Thời gian còn lại: " : "订单剩余："}<time data-recharge-payment-countdown>30:00</time></span>
       </div>
     </div>
     ${chainPaymentNotice}
@@ -59953,7 +59960,7 @@ function updateRechargePaymentCountdown() {
     return;
   }
   const remaining = Math.max(0, rechargePaymentCountdownEndsAt - Date.now());
-  countdown.textContent = `${formatRechargePaymentCountdown(remaining)} 剩余`;
+  countdown.textContent = state.settings.language === "vi" ? formatRechargePaymentCountdown(remaining) : `${formatRechargePaymentCountdown(remaining)} 剩余`;
   if (remaining === 0) {
     stopRechargePaymentCountdown();
     void updateRechargePaymentDetails();
@@ -60411,7 +60418,8 @@ function formatConsumptionDuration(value: unknown): string {
   if (state.settings.language === "en") {
     return [days ? `${days}d` : "", hours ? `${hours}h` : "", `${minutes}m`].filter(Boolean).join(" ");
   }
-  if (state.settings.language === 'ja') return [days ? `${days}日` : '', hours ? `${hours}時間` : '', `${minutes}分`].filter(Boolean).join(' ');
+  if (state.settings.language === 'vi') return [days ? `${days} ngày` : '', hours ? `${hours} giờ` : '', `${minutes} phút`].filter(Boolean).join(' ');
+if (state.settings.language === 'ja') return [days ? `${days}日` : '', hours ? `${hours}時間` : '', `${minutes}分`].filter(Boolean).join(' ');
   if (state.settings.language === 'ko') {
     return [days ? `${days}일` : '', hours ? `${hours}시간` : '', `${minutes}분`].filter(Boolean).join(' ');
   }
@@ -60490,6 +60498,7 @@ function consumptionWeekdayLabels(): string[] {
 
 function formatConsumptionLoginDays(value: unknown): string {
   const days = Math.max(Number(value) || 0, 0);
+  if (state.settings.language === "vi") return `${days} ngày`;
   if (state.settings.language === "en") return `${days} ${days === 1 ? "day" : "days"}`;
   return `${days} 天`;
 }
@@ -78925,6 +78934,7 @@ function isLevelIconType(value: unknown): value is LevelIconType {
 }
 
 function levelIconLabel(type: LevelIconType) {
+  if (state.settings.language === "vi") return ({egg:vietnameseText("卵"),egg_cat:vietnameseText("卵の猫"),cat:vietnameseText("猫"),cat_king:vietnameseText("猫の王様")} as Record<string,string>)[type] || vietnameseText("猫の王様");
   if (state.settings.language === 'ja') return ({egg:'卵',egg_cat:'卵の猫',cat:'猫',cat_king:'猫の王様'} as Record<string,string>)[type] || '猫の王様';
   if (state.settings.language === 'ko') return ({egg:'알',egg_cat:'알 고양이',cat:'고양이',cat_king:'고양이 왕'} as Record<string,string>)[type] || '고양이 왕';
   if (type === "egg") return "蛋";

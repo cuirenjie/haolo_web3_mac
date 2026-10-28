@@ -4,6 +4,7 @@ import { runInNewContext } from "node:vm";
 import test from "node:test";
 import ts from "typescript";
 import { fetchServiceJson } from "../src/main/haolo-service-fetch.mjs";
+import { appLanguageLocale } from "../src/renderer/app-language.mjs";
 
 // Execute the production updater and its normalizers without starting Electron.
 const source = await readFile(new URL("../src/main/main.mjs", import.meta.url), "utf8");
@@ -19,11 +20,12 @@ const variant = "haolo_windows_web3";
 const available = { client_variant: variant, update_available: true, force_update: true,
   latest: { version: "0.1.168" }, download: { url: "https://assets.example.test/update.dmg", sha256: "test-hash" } };
 
-function updater({ platform = "darwin", arch = "arm64", requestedArch = "universal", timeoutMs = 1000,
+function updater({ platform = "darwin", arch = "arm64", requestedArch = "universal", timeoutMs = 1000, language = "en",
   respond = () => Response.json(available) } = {}) {
   const calls = [];
   const check = runInNewContext(`${declarations}\ncheckAppUpdate`, {
     URL, process: { platform, arch }, app: { getVersion: () => "0.1.167" }, fetchServiceJson,
+    appLanguageLocale: () => appLanguageLocale(language),
     MAC_UPDATE_BASE_URL: "https://haolo.com", MAC_UPDATE_CHECK_PATH: "/api/app-updates/mac/check",
     MAC_UPDATE_ARCH: requestedArch, MAC_UPDATE_CLIENT_VARIANT: variant,
     WINDOWS_UPDATE_BASE_URL: "https://haolo.com", WINDOWS_UPDATE_CHECK_PATH: "/api/app-updates/windows/check",
@@ -34,6 +36,7 @@ function updater({ platform = "darwin", arch = "arm64", requestedArch = "univers
       assert.equal(init.method, "GET");
       assert.equal(init.cache, "no-store");
       assert.equal(init.headers.Accept, "application/json");
+      assert.equal(init.headers["Accept-Language"], appLanguageLocale(language));
       assert.equal(url.searchParams.get("client_variant"), variant);
       assert.equal(url.searchParams.get("version"), "0.1.167");
       return respond(url, init, calls.length);
@@ -109,3 +112,11 @@ test("Mac updater returns no update after exhausting unique architectures", asyn
   assert.equal(result.download, null);
   assert.deepEqual(calls.map(({ url }) => url.searchParams.get("arch")), ["arm64", "universal"]);
 });
+
+for (const [language, locale] of Object.entries({ "zh-CN": "zh-CN", "zh-TW": "zh-TW", en: "en-US", ko: "ko-KR", ja: "ja-JP", vi: "vi-VN" })) {
+  test(`Mac update request uses selected ${language} locale`, async () => {
+    const { check, calls } = updater({ language });
+    await check();
+    assert.equal(calls[0].init.headers["Accept-Language"], locale);
+  });
+}

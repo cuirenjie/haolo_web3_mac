@@ -1,3 +1,4 @@
+import { vietnameseText } from './vietnamese.mjs';
 import { japaneseText } from './japanese.mjs';
 import { koreanText } from './korean.mjs';
 // Public receipt validation and localized display; no strategy calculation.
@@ -29,9 +30,18 @@ const words={
 };
 export function smtDiagnosticPresentation(d,language='zh-CN') {
   const i=language==='en'?1:['zh-TW','zh-Hant'].includes(language)?2:0;
-  const t=code=>language==='ja'?japaneseText((words[code]??words.SMT_SOURCE_UNAVAILABLE)[0]):language==='ko'?koreanText((words[code]??words.SMT_SOURCE_UNAVAILABLE)[0]):(words[code]??words.SMT_SOURCE_UNAVAILABLE)[i];
+  const t=code=>language==='vi' ? vietnameseText((words[code]??words.SMT_SOURCE_UNAVAILABLE)[0]) : language==='ja'?japaneseText((words[code]??words.SMT_SOURCE_UNAVAILABLE)[0]):language==='ko'?koreanText((words[code]??words.SMT_SOURCE_UNAVAILABLE)[0]):(words[code]??words.SMT_SOURCE_UNAVAILABLE)[i];
   const n=v=>Number.isFinite(v)?v.toFixed(3):'—';
   const selected=d.checks.find(c=>c.marketId===d.selectedMarketId)??d.checks[0];
+  if (language === 'vi') {
+    const details = [`Thị trường chính: ${d.primaryMarketId} · ${d.interval}`,
+      ...d.checks.map(c => `${c.marketId}${c.marketId === d.selectedMarketId ? ' (đã chọn)' : ''}: ${t(c.code)}. Nến đã đóng: thị trường chính ${c.primaryCount} / thị trường đối chiếu ${c.comparisonCount}; đã căn chỉnh ${c.alignedCandleCount} nến / ${(c.alignmentRatio * 100).toFixed(1)}%; hệ số tương quan lợi suất ${n(c.correlation)} (≥0.450)${d.policyVersion === 'smt-pairing-v1' ? `; cửa sổ lịch sử ngắn/dài ${n(c.shortCorrelation)} / ${n(c.longCorrelation)}` : ''}`)];
+    if (d.policyVersion === 'smt-pairing-v1') details[0] += '. Cơ sở ghép cặp: xếp hạng các ứng viên tương thích theo tương quan lợi suất của 80/160 nến trước cửa sổ tín hiệu 18 nến gần nhất; cần ít nhất 60 nến và tỷ lệ căn chỉnh ≥85%.';
+    if (d.venueWarning) details.push(`Kiểm chứng bổ sung giữa các sàn: ${t(d.venueWarning)}; các cặp liên tài sản đã đạt yêu cầu vẫn sử dụng được.`);
+    const insufficient = d.code.startsWith('SMT_CORRELATION_') && selected;
+    const metric = d.code === 'SMT_CORRELATION_UNSTABLE' && selected ? `${n(selected.shortCorrelation)}, ${n(selected.longCorrelation)}` : n(selected?.correlation);
+    return {summary:t(d.code), compact:`SMT: ${t(d.code)}${insufficient ? ` (${metric}; ≥0.450)` : ''}`, details};
+  }
   const details=[
     language==='ko'?`주 시장: ${d.primaryMarketId} · ${d.interval}`:[ `主市场：${d.primaryMarketId} · ${d.interval}`,`Primary: ${d.primaryMarketId} · ${d.interval}`,`主市場：${d.primaryMarketId} · ${d.interval}` ][i],
     ...d.checks.map(c=>{

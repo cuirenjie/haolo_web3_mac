@@ -1,11 +1,10 @@
-import {visibleTradingPlanDrawingPatch} from '../src/renderer/trading-plan-drawing-history.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import fs from 'node:fs';
 import ts from 'typescript';
 import {YouleApiClient} from '../src/main/youle-api-client.mjs';
 import {normalizeCloudReports} from '../src/main/cloud-plan-contract.mjs';
-import {cloudPlanDrawingPatch} from '../src/shared/execution-plan-drawings.mjs';
+import {visibleTradingPlanDrawingPatch} from '../src/renderer/trading-plan-drawing-history.ts';
 import {TradingAiDrawingSets} from '../src/renderer/trading-ai-drawing-sets.ts';
 import {planMenuOptions, planMenuFacts, planMenuText, planChartContext} from '../src/renderer/execution-plan-menu.ts';
 import {cloudPlanCard} from '../src/main/cloud-plan-contract.mjs';

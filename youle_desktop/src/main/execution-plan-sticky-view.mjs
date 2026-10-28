@@ -61,7 +61,7 @@ function nearestFontSize(value) {
 
 export function normalizeExecutionPlanStickyPayload(input = {}) {
   const cloudReport=input.cloudReport?normalizeCloudReports([input.cloudReport])[0]:null;
-  const language = input.language === "ja" || input.language === "ko" || input.language === "en" || input.language === "zh-TW" ? input.language : "zh-CN";
+  const language = (input.language === "vi" || input.language === "ja") || input.language === "ko" || input.language === "en" || input.language === "zh-TW" ? input.language : "zh-CN";
   const lines = Array.isArray(input.lines)
     ? input.lines.slice(0, MAX_LINES).map((line = {}) => {
         const lineText = text(line.text, MAX_LINE_TEXT_LENGTH);
