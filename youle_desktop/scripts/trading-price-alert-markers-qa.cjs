@@ -64,6 +64,12 @@ fs.writeFileSync(preload, `const {contextBridge,ipcRenderer}=require('electron')
   };
   const aligned = async expected => {
     const delta=await js(`(()=>{const r=(${line}).getBoundingClientRect();const c=workspace.chartElement.getBoundingClientRect();return Math.abs(r.y+r.height/2-c.y-(workspace.candleSeries||workspace.series).priceToCoordinate(${expected}))})()`);
+    if(delta>=1.1){
+      await shot('alignment-failure');
+      console.error('Alignment context',await js(`({coasting:!!workspace.chartNavigation.coasting,drag:!!workspace.chartNavigation.drag,frame:workspace.chartNavigation.frame,remaining:workspace.chartNavigation.framesRemaining,resetting:workspace.resettingChartViewport,updating:workspace.updatingChartData,rebuilding:workspace.rebuildingIndicatorPanes,top:(${line}).style.top,price:(workspace.candleSeries||workspace.series).priceToCoordinate(${expected})})`));
+      await pause(2500);
+      console.error('Settled alignment',await js(`(()=>{const r=(${line}).getBoundingClientRect(),c=workspace.chartElement.getBoundingClientRect();return{coasting:!!workspace.chartNavigation.coasting,delta:r.y+r.height/2-c.y-(workspace.candleSeries||workspace.series).priceToCoordinate(${expected})}})()`));
+    }
     assert.ok(delta<1.1,`marker/price mismatch: ${delta}px`);
   };
   const drag = async (dy, escape=false) => {
@@ -84,7 +90,8 @@ fs.writeFileSync(preload, `const {contextBridge,ipcRenderer}=require('electron')
     await win.loadURL((process.env.HAOLO_PRICE_QA_URL || process.env.HAOLO_QA_URL || 'http://127.0.0.1:5177')+'/@fs/'+path.join(root,'test/fixtures/trading-chart-navigation.html').replaceAll('\\','/'));
     await until('window.ready===true');
     await js(`(async()=>{document.documentElement.dataset.theme='${theme}';document.documentElement.lang='zh-CN';window.primary=workspace;
-      workspace.loadingHistory=true;workspace.splitLayoutId='1-single';workspace.applySplitLayout();workspace.applyChartTheme();
+      workspace.loadingHistory=true;workspace.splitLayoutId='1-single';workspace.applySplitLayout();
+      workspace.chartSettings.hidePriceAxis=${process.env.HAOLO_PRICE_QA_HIDE_AXIS === '1'};workspace.applyChartTheme();
       window.codexDesktop.tradingAlertsCreateCloudPriceAlert=window.priceQa.create;window.codexDesktop.tradingAlertsSnapshot=window.priceQa.snapshot;window.codexDesktop.tradingAlertsDelete=window.priceQa.delete;
       window.alertStore=await import('/trading-price-alert-store.ts');await alertStore.refreshChartPriceAlerts();})()`);
     if(layout==='split') {
@@ -195,11 +202,18 @@ fs.writeFileSync(preload, `const {contextBridge,ipcRenderer}=require('electron')
     await js(`workspace.loadedMarketId=window.savedLoadedMarket;workspace.priceAlertControl.updateMarkers()`);
     await aligned(moved);
 
-    // Native price-axis scaling must keep the marker at its exact price.
-    const axisX=h.x+h.width-15,axisY=h.y+h.height*.4;
-    await move(axisX,axisY);mouse('mouseDown',axisX,axisY);
+    // A collapsed axis is plot space. Exercise plot panning there; choose a
+    // clear row so this gesture cannot instead start an alert replacement.
+    const axis=await js(`(()=>{const r=workspace.chartElement.getBoundingClientRect(),height=workspace.chart.panes()[0].getHeight();const rows=[...workspace.priceAlertControl.markers.layer.querySelectorAll('.trading-price-alert-line:not([hidden])')].map(e=>e.getBoundingClientRect().y+6);const y=[.2,.4,.6,.8].map(n=>r.top+height*n).find(y=>rows.every(top=>Math.abs(top-y)>45));return{x:${process.env.HAOLO_PRICE_QA_HIDE_AXIS === '1'}?r.left+r.width*.65:r.right-15,y}})()`);
+    assert.ok(Number.isFinite(axis.y),'a clear chart row is required for the navigation gesture');
+    const axisX=axis.x,axisY=axis.y;
+    await move(axisX,axisY);
+    assert.equal(await js(`Boolean(document.elementFromPoint(${axisX},${axisY})?.closest('.trading-price-alert-line'))`),false,'navigation gesture must not grab an alert line');
+    mouse('mouseDown',axisX,axisY);
     win.webContents.sendInputEvent({type:'mouseMove',x:Math.round(axisX),y:Math.round(axisY+35),button:'left',modifiers:['leftButtonDown']});
-    mouse('mouseUp',axisX,axisY+35);await settle();await aligned(moved);
+    mouse('mouseUp',axisX,axisY+35);await settle();
+    assert.equal(await js(`Boolean(document.querySelector('dialog[open]'))`),false,'navigation must not open an alert edit');
+    await until('!workspace.chartNavigation.coasting');await settle();await aligned(moved);
     // Completed/paused snapshots disappear; restoring active state restores the line.
     active.state='paused';active.enabled=false;
     await js('alertStore.refreshChartPriceAlerts()');assert.equal(await js(`Boolean(${line})`),false);

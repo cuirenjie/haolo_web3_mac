@@ -10,6 +10,7 @@ import { IFIND_BUSINESS_ENABLED, tradingMarketAvailable, tradingMarketUnavailabl
 import { binanceCandleBackfillLimit, binanceCandleHistoryComplete } from "../shared/binance-candle-request.mjs";
 import {chartTickLabel} from "./trading-chart-time.ts";
 import { TradingChartClock } from "./trading-chart-clock.ts";
+import { setTradingPriceAxisOverlay, tradingPriceAxisLabelGeometry } from './trading-price-axis.ts';
 import { TradingPriceAlertControl } from './trading-price-alert.ts';
 import { fetchVolumeHistoryPages, type VolumeHistoryRequest, type VolumeHistoryResult } from './trading-volume-history.ts';
 import { accountSettingsSync, flattenSettings, applySettingValues, type SettingValues } from './account-settings-sync.ts';
@@ -5970,6 +5971,7 @@ class TradingExpertMarketWorkspace {
       || key === "showPriceLabel"
       || key === "showCountdown"
       || key === "autoScale"
+      || key === "hidePriceAxis"
     ) {
       this.chartSettings[key] = target.checked;
     } else if (key === "risingColor" || key === "fallingColor") {
@@ -12892,6 +12894,11 @@ class TradingExpertMarketWorkspace {
       crosshairMarkerVisible: false,
     });
     this.addPrimarySeries();
+    // Scale textColor affects tick numbers only; live/custom price labels keep their own colors.
+    this.chart.priceScale("right", 0).applyOptions({
+      textColor: this.chartSettings.hidePriceAxis ? "transparent" : theme.text,
+    });
+    setTradingPriceAxisOverlay(this.chart, this.chartSettings.hidePriceAxis);
     this.extremaOverlay?.destroy();
     this.extremaOverlay = new TradingChartExtremaOverlay({
       root: this.viewport,
@@ -13584,6 +13591,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private applyChartTheme(syncSplitPriceMode = true) {
+    setTradingPriceAxisOverlay(this.chart, this.chartSettings.hidePriceAxis);
     if (!this.chart) return;
     const manualRanges = captureManualTradingPriceRanges(this.chart);
     const theme = marketTheme(isDarkTheme());
@@ -13634,6 +13642,7 @@ class TradingExpertMarketWorkspace {
     this.chart.priceScale("right", 0).applyOptions({
       ...(this.chart.priceScale("right", 0).options().mode !== this.chartPriceScaleMode()
         ? { mode: this.chartPriceScaleMode(), autoScale: true } : {}),
+      textColor: this.chartSettings.hidePriceAxis ? "transparent" : theme.text,
       scaleMargins: {
         top: this.chartSettings.verticalPaddingPercent / 100,
         bottom: this.chartSettings.verticalPaddingPercent / 100,
@@ -13987,7 +13996,7 @@ class TradingExpertMarketWorkspace {
       this.hideCandleCountdown();
       return;
     }
-    const priceScaleWidth = Math.max(this.chart.priceScale("right", 0).width(), 1);
+    const priceLabel = tradingPriceAxisLabelGeometry(this.chart);
     const priceLabelHalfHeight = 12 * this.chart.options().layout.fontSize / 11;
     const countdownHeight = 19;
     const priceCenterY = Math.min(
@@ -14011,8 +14020,8 @@ class TradingExpertMarketWorkspace {
       }
     }
     this.candleCountdownElement.dataset.placement = placement;
-    this.candleCountdownElement.style.left = `${Math.max(this.chart.timeScale().width(), 0)}px`;
-    this.candleCountdownElement.style.width = `${priceScaleWidth}px`;
+    this.candleCountdownElement.style.left = `${priceLabel.left}px`;
+    this.candleCountdownElement.style.width = `${priceLabel.width}px`;
     this.candleCountdownElement.style.top = `${top}px`;
     this.candleCountdownElement.hidden = false;
   }
@@ -14029,16 +14038,15 @@ class TradingExpertMarketWorkspace {
 
   private positionFocusPriceLabel(element: HTMLElement, y: number) {
     if (!this.chart) return;
-    const priceScaleWidth = Math.max(this.chart.priceScale("right", 0).width(), 1);
-    const plotWidth = this.chart.timeScale().width();
+    const priceLabel = tradingPriceAxisLabelGeometry(this.chart);
     const plotHeight = this.chart.panes()[0]?.getHeight() ?? 0;
     const labelHalfHeight = 12 * this.chart.options().layout.fontSize / 11;
     const top = Math.min(
       Math.max(y, labelHalfHeight),
       Math.max(labelHalfHeight, plotHeight - labelHalfHeight),
     );
-    element.style.left = `${Math.max(plotWidth, 0)}px`;
-    element.style.width = `${priceScaleWidth}px`;
+    element.style.left = `${priceLabel.left}px`;
+    element.style.width = `${priceLabel.width}px`;
     element.style.top = `${top}px`;
     element.hidden = false;
   }

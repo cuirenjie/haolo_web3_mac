@@ -763,7 +763,7 @@ async function main() {
       }
       await verifyLanguageTransitionMatrix(targetWindow);
     }
-    const supportedLanguages = process.env.HAOLO_I18N_QA_ENGLISH_ONLY === "1" ? ["en"] : QUICK_ENGLISH_BUTTON_AUDIT ? ["en", "ko", "ja", "vi"] : ["en", "zh-CN", "zh-TW", "ko", "ja", "vi"];
+    const supportedLanguages = process.env.HAOLO_I18N_QA_ENGLISH_ONLY === "1" ? ["en"] : QUICK_ENGLISH_BUTTON_AUDIT && !process.env.HAOLO_I18N_QA_LANGUAGES ? ["en", "ko", "ja", "vi"] : ["en", "zh-CN", "zh-TW", "ko", "ja", "vi"];
     const languages = supportedLanguages.filter(language => !process.env.HAOLO_I18N_QA_LANGUAGES || process.env.HAOLO_I18N_QA_LANGUAGES.split(',').includes(language));
     if (!languages.length) throw new Error('No supported audit language selected');
     const zooms = QUICK_ENGLISH_BUTTON_AUDIT ? [1, 1.5] : [1, 1.25, 1.5];

@@ -246,6 +246,8 @@ export const PRODUCT_ENGLISH_UI_PHRASES = Object.freeze({
   "文字对齐   顶部  中间  底部    居左  居中  居右": "Text alignment   Top  Middle  Bottom    Left  Center  Right",
   "样式": "Style",
   "坐标": "Coordinates",
+  "隐藏价格轴": "Hide price scale",
+  "隐藏主图价格刻度并收起轴空间，K线画布自动扩展；实时价格、十字线及其他价格标注保留在画布右边缘。": "Hide the main price ticks and expand the chart into the axis space. Live prices, crosshair prices and other price labels remain at the chart's right edge.",
   "即将上线，敬请期待": "Coming soon. Stay tuned.",
   "部分画线未通过同步校验，已保留在本机；请编辑后重试": "Some drawings could not be validated for synchronization and remain on this device. Edit them and try again.",
   "部分畫線未通過同步驗證，已保留在本機；請編輯後重試": "Some drawings could not be validated for synchronization and remain on this device. Edit them and try again.",

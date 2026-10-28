@@ -3,11 +3,11 @@ import { readFileSync } from 'node:fs';
 
 // Lightweight Charts 5.1.0 (Apache-2.0), unminified ESM distribution. Keep the
 // installed package intact; Vite applies this same guarded patch in dev/build.
-// An upgrade must review the upstream row lifecycle before accepting a hash.
+// An upgrade must review row lifecycle, navigation and axis layout before accepting a hash.
 const upstreamHash = '887eb4645fc3fd785614ec2389106aa881a74be84f4fa763488ce39d5d1ccb3e';
 export function patchTradingChartLibrary(source) {
   if (createHash('sha256').update(source).digest('hex') !== upstreamHash) {
-    throw new Error('Lightweight Charts source changed: review the retained render-point patch before upgrading.');
+    throw new Error('Lightweight Charts source changed: review the native chart adapter before upgrading.');
   }
   const prefix = 'this._internal__items = this._internal__series._internal_conflatedBars()._internal_rows().map(';
   if (source.split(prefix).length !== 3) throw new Error('Expected line and bar renderers in Lightweight Charts 5.1.0');
@@ -35,6 +35,16 @@ export function patchTradingChartLibrary(source) {
   // after every series sees the same revision. Time-domain and data writes stay
   // synchronous. Nested batches and throwing callers still flush in finally.
   source = source.replace('class ChartApi {', `class ChartApi {
+    haoloSetPriceAxisOverlay(enabled) {
+        const widget = this._private__chartWidget;
+        if (Boolean(widget._haoloPriceAxisOverlay) === enabled) return;
+        widget._haoloPriceAxisOverlay = enabled;
+        widget._private__adjustSizeImpl();
+        widget._internal_model()._internal_fullUpdate();
+    }
+    haoloPriceAxisLabelWidth() {
+        return this._private__chartWidget._private__rightPriceAxisWidth;
+    }
     // Pixel-space navigation uses the native price transform (including log,
     // percentage and inversion) and native time boundaries. No CSS translation
     // or synthetic pointer events: candles, indicators and hit tests stay real.
@@ -83,6 +93,48 @@ export function patchTradingChartLibrary(source) {
     if (source.split(before).length !== 2) throw new Error('Unexpected native chart navigation hook');
     source = source.replace(before, after);
   };
+  // Keep native axis labels (including indicator values and series price tags)
+  // as transparent overlays, while returning the entire reserved column to the
+  // real plot. Pointer coordinates and exported canvas geometry use that plot.
+  replaceOnce('const paneWidth = Math.max(width - leftPriceAxisWidth - rightPriceAxisWidth, 0);',
+    'const paneWidth = Math.max(width - leftPriceAxisWidth - (this._haoloPriceAxisOverlay ? 0 : rightPriceAxisWidth), 0);');
+  replaceOnce('timeAxisVisible ? rightPriceAxisWidth : 0);',
+    'timeAxisVisible && !this._haoloPriceAxisOverlay ? rightPriceAxisWidth : 0);');
+  replaceOnce(`    _internal_getPriceAxisWidth(position) {`, `    _internal_getPriceAxisWidth(position) {
+        if (position === 'right' && this._haoloPriceAxisOverlay) return 0;`);
+  replaceOnce(`        ensureNotNull(priceAxisWidget)._internal_setSize(size$1({ width, height: this._private__size.height }));`,
+    `        ensureNotNull(priceAxisWidget)._internal_setSize(size$1({ width, height: this._private__size.height }));
+        if (position === 'right') {
+            const overlay = this._private__chart._haoloPriceAxisOverlay;
+            const element = priceAxisWidget._internal_getElement();
+            this._private__rightAxisCell.style.position = 'relative';
+            Object.assign(element.style, {
+                position: overlay ? 'absolute' : 'relative',
+                left: overlay ? 'auto' : '0', right: overlay ? '0' : '', top: '0',
+                pointerEvents: overlay ? 'none' : '', zIndex: overlay ? '3' : '',
+            });
+        }`);
+  replaceOnce(`        const model = this._private__pane._internal_state()._internal_model();
+        const topColor = model._internal_backgroundTopColor();`,
+    `        const model = this._private__pane._internal_state()._internal_model();
+        if (!this._private__isLeft && this._private__pane._internal_chart()._haoloPriceAxisOverlay) {
+            ctx.clearRect(0, 0, width, height);
+            return;
+        }
+        const topColor = model._internal_backgroundTopColor();`);
+  replaceOnce(`        if (this._private__size === null || this._private__priceScale === null || !this._private__priceScale._internal_options().borderVisible) {`,
+    `        if ((!this._private__isLeft && this._private__pane._internal_chart()._haoloPriceAxisOverlay)
+            || this._private__size === null || this._private__priceScale === null || !this._private__priceScale._internal_options().borderVisible) {`);
+  replaceOnce(`            drawPriceAxises('right', totalWidth);
+            const rightAxisBitmapWidth = ensureNotNull(firstPane._internal_rightPriceAxisWidget())._internal_getBitmapSize().width;
+            totalWidth += rightAxisBitmapWidth;`,
+    `            const rightAxisBitmapWidth = ensureNotNull(firstPane._internal_rightPriceAxisWidget())._internal_getBitmapSize().width;
+            drawPriceAxises('right', totalWidth - (this._haoloPriceAxisOverlay ? rightAxisBitmapWidth : 0));
+            if (!this._haoloPriceAxisOverlay) totalWidth += rightAxisBitmapWidth;`);
+  replaceOnce(`                if (this._private__isRightAxisVisible()) {
+                    drawStub('right', targetX, totalHeight);`,
+    `                if (this._private__isRightAxisVisible() && !this._haoloPriceAxisOverlay) {
+                    drawStub('right', targetX, totalHeight);`);
   // Seed from mouse-down, not the second drag event. The upstream path discarded
   // the first two movements, felt sticky, and became worse on a busy renderer.
   replaceOnce(`        this._private__mouseTouchDownEvent();

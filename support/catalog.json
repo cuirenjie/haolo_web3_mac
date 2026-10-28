@@ -994,7 +994,7 @@
     {
       "id": "chart-settings-full-sync-zh-cn",
       "title": "K线设置与跨设备同步",
-      "body": "个人设置→通用设置首项「K线设置」，包含主图样式、图表背景、K线缩放、涨跌颜色、坐标选择、实时价格、画线工具、隐藏绘图及订单显示。修改即时应用；同一账号通过逐字段队列同步38个图表字段，离线修改保留，恢复默认也参与同步。明暗主题颜色分开保存；锁定K线和五类隐藏开关为账号偏好，切换市场或会话不会清除。重置图表只重置当前视图，不跨设备发送操作。复权在没有除权事件的数据上保留原始价格；订单仅为绑定账户的只读显示。全部同步需要配套macOS v8设置协议及服务端新增六字段校验上线；此条为待发布源码候选。客服仅说明步骤，尚无新增K线设置代操作能力。",
+      "body": "个人设置→通用设置首项「K线设置」，包含主图样式、图表背景、K线缩放、涨跌颜色、坐标选择、实时价格、画线工具、隐藏绘图及订单显示。修改即时应用；同一账号通过逐字段队列同步39个图表字段，离线修改保留，恢复默认也参与同步。明暗主题颜色分开保存；锁定K线和五类隐藏开关为账号偏好，切换市场或会话不会清除。坐标选择新增「隐藏价格轴」，默认关闭；开启后隐藏主图和分屏的普通价格刻度数字，同时收起右侧价格轴预留空间，让K线画布扩展到右边缘；实时价格、倒计时、十字线、绘图及订单价格标注覆盖显示在画布右边缘，成交量等副图刻度保留；设置即时生效、本机保存，恢复默认重新显示。此新增字段跨设备同步仍需服务端配套支持。重置图表只重置当前视图，不跨设备发送操作。复权在没有除权事件的数据上保留原始价格；订单仅为绑定账户的只读显示。全部同步需要配套Mac v8设置协议及服务端新增六字段校验上线；此条为待发布源码候选。客服仅说明步骤，尚无新增K线设置代操作能力。",
       "category": "chart-settings",
       "locale": "zh-CN",
       "status": "pending",
@@ -1006,13 +1006,18 @@
       "sources": [
         "youle_desktop/src/renderer/trading-expert-chart-settings.ts",
         "youle_desktop/src/renderer/trading-expert-market.ts",
-        "youle_desktop/src/renderer/account-settings-sync.ts"
+        "youle_desktop/src/renderer/account-settings-sync.ts",
+        "youle_desktop/src/renderer/trading-price-axis.ts",
+        "youle_desktop/src/renderer/trading-expert-split-pane.ts",
+        "youle_desktop/src/renderer/trading-expert-drawing.ts",
+        "youle_desktop/src/renderer/trading-expert-order-lines.ts",
+        "youle_desktop/scripts/trading-chart-library-patch.mjs"
       ]
     },
     {
       "id": "chart-settings-full-sync-en",
       "title": "Chart settings and cross-device sync",
-      "body": "Personal settings → the first General settings entry, Chart settings, provides chart style, background, zoom, up/down colors, price scale, live price, drawing tools, drawing visibility and order display. Changes apply immediately. Per-field account queues synchronize all 38 chart fields, retain offline edits and sync restored defaults. Light and dark colors are saved separately. The chart lock and five visibility switches follow the account across markets and conversations. Reset chart is a local viewport command. Adjustment modes preserve original prices when corporate-action data is absent. Account order overlays are read-only. Full synchronization requires the macOS v8 settings protocol and the six-field server extension to be released; this is a pending source candidate. Support explains steps and has no new delegated chart-settings action.",
+      "body": "Personal settings → the first General settings entry, Chart settings, provides chart style, background, zoom, up/down colors, price scale, live price, drawing tools, drawing visibility and order display. Changes apply immediately. Per-field account queues synchronize all 39 chart fields, retain offline edits and sync restored defaults. Light and dark colors are saved separately. The chart lock and five visibility switches follow the account across markets and conversations. Price scale settings include Hide price scale, off by default. It hides ordinary price ticks on main and split charts and collapses the reserved right axis column, expanding the canvas to the right edge. Live prices, countdowns, crosshair, drawing and order price labels overlay the right edge, while indicator tick labels remain visible. It applies immediately, saves locally and resets to visible with restored defaults. Cross-device sync of this new field requires server support. Reset chart is a local viewport command. Adjustment modes preserve original prices when corporate-action data is absent. Account order overlays are read-only. Full synchronization requires the Mac v8 settings protocol and the six-field server extension to be released; this is a pending source candidate. Support explains steps and has no new delegated chart-settings action.",
       "category": "chart-settings",
       "locale": "en",
       "status": "pending",
@@ -1024,13 +1029,18 @@
       "sources": [
         "youle_desktop/src/renderer/trading-expert-chart-settings.ts",
         "youle_desktop/src/renderer/trading-expert-market.ts",
-        "youle_desktop/src/renderer/account-settings-sync.ts"
+        "youle_desktop/src/renderer/account-settings-sync.ts",
+        "youle_desktop/src/renderer/trading-price-axis.ts",
+        "youle_desktop/src/renderer/trading-expert-split-pane.ts",
+        "youle_desktop/src/renderer/trading-expert-drawing.ts",
+        "youle_desktop/src/renderer/trading-expert-order-lines.ts",
+        "youle_desktop/scripts/trading-chart-library-patch.mjs"
       ]
     },
     {
       "id": "chart-settings-full-sync-zh-hant",
       "title": "K線設定與跨裝置同步",
-      "body": "個人設定→通用設定首項「K線設定」，包含主圖樣式、圖表背景、K線縮放、漲跌顏色、座標選擇、即時價格、畫線工具、隱藏繪圖及訂單顯示。修改立即套用；同一帳號逐欄位同步38個圖表欄位，保留離線修改，恢復預設亦參與同步。明暗主題顏色分開儲存；鎖定K線與五類隱藏開關隨帳號跨市場、會話保留。重設圖表僅重設目前視圖。缺少除權事件時保留原始價格；訂單僅顯示綁定帳戶的唯讀資料。完整同步需配套macOS v8設定協定與服務端新增六欄位校驗上線；本條為待發布原始碼候選。客服僅說明步驟，尚無新增K線設定代操作能力。",
+      "body": "個人設定→通用設定首項「K線設定」，包含主圖樣式、圖表背景、K線縮放、漲跌顏色、座標選擇、即時價格、畫線工具、隱藏繪圖及訂單顯示。修改立即套用；同一帳號逐欄位同步39個圖表欄位，保留離線修改，恢復預設亦參與同步。明暗主題顏色分開儲存；鎖定K線與五類隱藏開關隨帳號跨市場、會話保留。重設圖表僅重設目前視圖。缺少除權事件時保留原始價格；訂單僅顯示綁定帳戶的唯讀資料。完整同步需配套Mac v8設定協定與服務端新增六欄位校驗上線；本條為待發布原始碼候選。客服僅說明步驟，尚無新增K線設定代操作能力。 座標選擇新增「隱藏價格軸」，預設關閉。啟用後隱藏主圖及分屏的普通價格刻度，收起右側軸空間並擴展畫布；即時價格、倒數、十字線、繪圖及訂單價格標註保留在右邊緣，副圖刻度保留。設定立即套用並儲存於本機，恢復預設會重新顯示；新增欄位的跨裝置同步需服務端配套支援。",
       "category": "chart-settings",
       "locale": "zh-Hant",
       "status": "pending",
@@ -1042,13 +1052,18 @@
       "sources": [
         "youle_desktop/src/renderer/trading-expert-chart-settings.ts",
         "youle_desktop/src/renderer/trading-expert-market.ts",
-        "youle_desktop/src/renderer/account-settings-sync.ts"
+        "youle_desktop/src/renderer/account-settings-sync.ts",
+        "youle_desktop/src/renderer/trading-price-axis.ts",
+        "youle_desktop/src/renderer/trading-expert-split-pane.ts",
+        "youle_desktop/src/renderer/trading-expert-drawing.ts",
+        "youle_desktop/src/renderer/trading-expert-order-lines.ts",
+        "youle_desktop/scripts/trading-chart-library-patch.mjs"
       ]
     },
     {
       "id": "chart-settings-full-sync-ko",
       "title": "차트 설정 및 기기 간 동기화",
-      "body": "개인 설정 → 일반 설정의 첫 항목인 차트 설정에서 메인 차트 스타일, 배경, 확대/축소, 상승·하락 색상, 가격 축, 실시간 가격, 그리기 도구, 도형 숨기기 및 주문 표시를 설정합니다. 변경 사항은 즉시 적용되며 계정별 필드 큐가 38개 차트 필드, 오프라인 변경 및 기본값 복원을 동기화합니다. 밝은 테마와 어두운 테마의 색상은 별도로 저장됩니다. 차트 잠금과 다섯 가지 표시 설정은 시장·대화를 바꿔도 유지됩니다. 차트 초기화는 현재 기기의 보기만 변경합니다. 권리락 정보가 없으면 원래 가격을 유지하고 계좌 주문은 읽기 전용으로 표시합니다. 전체 동기화에는 macOS v8 설정 프로토콜과 서버의 신규 6개 필드 검증 배포가 필요합니다. 이 항목은 배포 전 소스 후보이며 고객지원의 새 차트 설정 대행 기능은 없습니다.",
+      "body": "개인 설정 → 일반 설정의 첫 항목인 차트 설정에서 메인 차트 스타일, 배경, 확대/축소, 상승·하락 색상, 가격 축, 실시간 가격, 그리기 도구, 도형 숨기기 및 주문 표시를 설정합니다. 변경 사항은 즉시 적용되며 계정별 필드 큐가 39개 차트 필드, 오프라인 변경 및 기본값 복원을 동기화합니다. 밝은 테마와 어두운 테마의 색상은 별도로 저장됩니다. 차트 잠금과 다섯 가지 표시 설정은 시장·대화를 바꿔도 유지됩니다. 차트 초기화는 현재 기기의 보기만 변경합니다. 권리락 정보가 없으면 원래 가격을 유지하고 계좌 주문은 읽기 전용으로 표시합니다. 전체 동기화에는 Mac v8 설정 프로토콜과 서버의 신규 6개 필드 검증 배포가 필요합니다. 이 항목은 배포 전 소스 후보이며 고객지원의 새 차트 설정 대행 기능은 없습니다. 가격 축 숨기기는 기본적으로 꺼져 있습니다. 켜면 메인 및 분할 차트의 일반 가격 눈금과 오른쪽 축 공간을 숨겨 캔들 영역을 확장합니다. 실시간 가격, 카운트다운, 십자선, 도형 및 주문 가격 표시는 오른쪽에 유지되며 보조 지표 눈금도 유지됩니다. 즉시 적용되어 로컬에 저장되고 기본값 복원 시 다시 표시됩니다. 새 필드의 기기 간 동기화에는 서버 지원이 필요합니다.",
       "category": "chart-settings",
       "locale": "ko",
       "status": "pending",
@@ -1060,7 +1075,12 @@
       "sources": [
         "youle_desktop/src/renderer/trading-expert-chart-settings.ts",
         "youle_desktop/src/renderer/trading-expert-market.ts",
-        "youle_desktop/src/renderer/account-settings-sync.ts"
+        "youle_desktop/src/renderer/account-settings-sync.ts",
+        "youle_desktop/src/renderer/trading-price-axis.ts",
+        "youle_desktop/src/renderer/trading-expert-split-pane.ts",
+        "youle_desktop/src/renderer/trading-expert-drawing.ts",
+        "youle_desktop/src/renderer/trading-expert-order-lines.ts",
+        "youle_desktop/scripts/trading-chart-library-patch.mjs"
       ]
     },
     {
@@ -2408,7 +2428,7 @@
     {
       "id": "chart-settings-full-sync-vi",
       "title": "Cài đặt nến và đồng bộ đa thiết bị",
-      "body": "Mục đầu tiên «Cài đặt nến» trong Cài đặt cá nhân → Cài đặt chung, gồm kiểu biểu đồ chính, nền biểu đồ, thu phóng nến, màu tăng giảm, chọn trục tọa độ, giá thời gian thực, công cụ vẽ đường, ẩn hình vẽ và hiển thị lệnh. Thay đổi áp dụng ngay; cùng một tài khoản đồng bộ 38 trường biểu đồ qua hàng đợi từng trường, thay đổi ngoại tuyến được giữ lại, khôi phục mặc định cũng tham gia đồng bộ. Màu chủ đề sáng tối lưu riêng; khóa nến và năm loại công tắc ẩn là tùy chọn tài khoản, chuyển thị trường hay phiên không bị xóa. Đặt lại biểu đồ chỉ đặt lại chế độ xem hiện tại, không gửi thao tác qua thiết bị. Điều chỉnh giá giữ giá gốc trên dữ liệu không có sự kiện điều chỉnh; lệnh chỉ là hiển thị chỉ đọc của tài khoản đã liên kết. Đồng bộ đầy đủ cần giao thức cài đặt Mac v8 đi kèm và máy chủ thêm xác thực sáu trường được phát hành; đây là bản mã nguồn ứng viên chờ phát hành. Hỗ trợ khách hàng chỉ giải thích các bước, chưa có khả năng thao tác thay mới cho cài đặt nến.",
+      "body": "Mục đầu tiên «Cài đặt nến» trong Cài đặt cá nhân → Cài đặt chung, gồm kiểu biểu đồ chính, nền biểu đồ, thu phóng nến, màu tăng giảm, chọn trục tọa độ, giá thời gian thực, công cụ vẽ đường, ẩn hình vẽ và hiển thị lệnh. Thay đổi áp dụng ngay; cùng một tài khoản đồng bộ 39 trường biểu đồ qua hàng đợi từng trường, thay đổi ngoại tuyến được giữ lại, khôi phục mặc định cũng tham gia đồng bộ. Màu chủ đề sáng tối lưu riêng; khóa nến và năm loại công tắc ẩn là tùy chọn tài khoản, chuyển thị trường hay phiên không bị xóa. Đặt lại biểu đồ chỉ đặt lại chế độ xem hiện tại, không gửi thao tác qua thiết bị. Điều chỉnh giá giữ giá gốc trên dữ liệu không có sự kiện điều chỉnh; lệnh chỉ là hiển thị chỉ đọc của tài khoản đã liên kết. Đồng bộ đầy đủ cần giao thức cài đặt Mac v8 đi kèm và máy chủ thêm xác thực sáu trường được phát hành; đây là bản mã nguồn ứng viên chờ phát hành. Hỗ trợ khách hàng chỉ giải thích các bước, chưa có khả năng thao tác thay mới cho cài đặt nến. Tùy chọn Ẩn trục giá mặc định tắt. Khi bật, các vạch chia giá thông thường trên biểu đồ chính và chia màn hình bị ẩn, vùng trục bên phải thu gọn để mở rộng vùng nến. Giá trực tiếp, đếm ngược, con trỏ chữ thập, nhãn giá hình vẽ và lệnh vẫn ở mép phải; thang đo chỉ báo phụ vẫn hiển thị. Thiết lập áp dụng ngay, lưu trên máy và trở lại hiển thị khi khôi phục mặc định. Đồng bộ trường mới giữa các thiết bị cần máy chủ hỗ trợ.",
       "category": "chart-settings",
       "locale": "vi",
       "status": "pending",
@@ -2420,7 +2440,12 @@
       "sources": [
         "youle_desktop/src/renderer/trading-expert-chart-settings.ts",
         "youle_desktop/src/renderer/trading-expert-market.ts",
-        "youle_desktop/src/renderer/account-settings-sync.ts"
+        "youle_desktop/src/renderer/account-settings-sync.ts",
+        "youle_desktop/src/renderer/trading-price-axis.ts",
+        "youle_desktop/src/renderer/trading-expert-split-pane.ts",
+        "youle_desktop/src/renderer/trading-expert-drawing.ts",
+        "youle_desktop/src/renderer/trading-expert-order-lines.ts",
+        "youle_desktop/scripts/trading-chart-library-patch.mjs"
       ]
     },
     {
@@ -3373,6 +3398,29 @@
         "youle_desktop/src/renderer/trading-price-alert-store.ts",
         "youle_desktop/src/main/trading-alerts/cloud-price-alerts.mjs",
         "youle_desktop/docs/chart-price-alert-markers-20261025.zh-CN.md"
+      ]
+    },
+    {
+      "id": "chart-settings-full-sync-ja",
+      "title": "チャート設定と価格軸の同期",
+      "body": "個人設定→一般設定の先頭にあるチャート設定で、スタイル、背景、拡大縮小、色、座標、リアルタイム価格、描画、表示・非表示、注文表示を設定できます。変更は即時適用され、アカウント別のキューで39項目とオフライン編集、既定値の復元を同期します。明暗テーマの色は別々に保存され、チャートのロックと表示設定は市場や会話を切り替えても保持されます。「価格軸を非表示」は既定でオフです。有効にするとメイン・分割チャートの通常の価格目盛りと右側の軸領域を隠し、ローソク足の領域を広げます。現在価格、カウントダウン、十字カーソル、描画と注文の価格ラベルは右端に残り、補助指標の目盛りも維持されます。即時適用・ローカル保存され、既定値の復元で再表示されます。新しい項目の端末間同期にはサーバー側の対応が必要です。チャートのリセットは現在の表示だけに適用されます。権利落ちデータがなければ元の価格を保持し、口座の注文表示は読み取り専用です。完全な同期にはMac v8設定プロトコルと追加6項目のサーバー検証の配布が必要です。これは未配布のソース候補で、サポートによる新たな設定代行はありません。",
+      "category": "chart-settings",
+      "locale": "ja",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-expert-chart-settings.ts",
+        "youle_desktop/src/renderer/trading-expert-market.ts",
+        "youle_desktop/src/renderer/account-settings-sync.ts",
+        "youle_desktop/src/renderer/trading-price-axis.ts",
+        "youle_desktop/src/renderer/trading-expert-split-pane.ts",
+        "youle_desktop/src/renderer/trading-expert-drawing.ts",
+        "youle_desktop/src/renderer/trading-expert-order-lines.ts",
+        "youle_desktop/scripts/trading-chart-library-patch.mjs"
       ]
     }
   ]

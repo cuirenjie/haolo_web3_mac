@@ -110,6 +110,8 @@ interface TradingOrderLineBounds {
   height: number;
   /** Right axis width, outside the plot's width. */
   priceScaleWidth?: number;
+  /** Label width inside the plot when the price-axis column is collapsed. */
+  priceScaleOverlayWidth?: number;
 }
 
 interface TradingOrderLineRenderGeometry extends TradingOrderLineRenderEntry {
@@ -621,10 +623,10 @@ function visibleTradingOrderLineGeometry(
   // to avoid candles or neighbouring labels. Account labels keep their layout.
   const planEntries = visible.filter(({ line }) => line.labelMode === "price").map(({ line, lineY }) => {
     const keyWidth = orderLineLabelKeyWidth(line);
-    const priceWidth = Math.max(0, bounds.priceScaleWidth ?? tradingOrderLineLabelWidth(line) - keyWidth);
+    const priceWidth = Math.max(0, bounds.priceScaleOverlayWidth ?? bounds.priceScaleWidth ?? tradingOrderLineLabelWidth(line) - keyWidth);
     return {
       line, lineY, labelY: lineY,
-      labelLeft: bounds.width - keyWidth,
+      labelLeft: bounds.width - keyWidth - (bounds.priceScaleOverlayWidth ?? 0),
       labelTop: lineY - ORDER_LINE_LABEL_HEIGHT / 2,
       labelWidth: keyWidth + priceWidth,
       priceLevelIndex: 0,
@@ -901,7 +903,7 @@ export function renderTradingOrderLineSvg(
     const liquidation = line.kind === "liquidation";
     const keyWidth = orderLineLabelKeyWidth(line);
     const plan = line.labelMode === "price";
-    const labelTextX = plan ? bounds.width + (width - keyWidth) / 2 : left + keyWidth + ORDER_LINE_LABEL_TEXT_GAP;
+    const labelTextX = plan ? left + keyWidth + (width - keyWidth) / 2 : left + keyWidth + ORDER_LINE_LABEL_TEXT_GAP;
     const lineEnd = Math.max(0, left - 6);
     const connector = priceLevelIndex === 0 && Math.abs(lineY - labelY) > 0.5
       ? `<path class="trading-order-line-connector" d="M ${lineEnd} ${lineY} L ${left - 2} ${labelY}" />`

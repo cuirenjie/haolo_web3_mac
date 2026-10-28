@@ -116,6 +116,27 @@ test("price controls default to Auto, migrate frozen legacy defaults and persist
   assert.deepEqual(migrated.themes, normalizeTradingChartSettings(settings).themes);
 });
 
+test("hiding price ticks defaults off and persists independently of live price annotations", () => {
+  assert.equal(cloneTradingChartSettings().hidePriceAxis, false);
+  for (const value of [undefined, null, "true", 1]) {
+    assert.equal(normalizeTradingChartSettings({ hidePriceAxis: value }).hidePriceAxis, false);
+  }
+  const settings = { ...cloneTradingChartSettings(), hidePriceAxis: true, showCountdown: true };
+  const storage = memoryStorage();
+  saveTradingChartSettings(storage, settings);
+  const restored = loadTradingChartSettings(storage);
+  assert.equal(restored.hidePriceAxis, true);
+  assert.equal(restored.showPriceLabel, true);
+  assert.equal(restored.showPriceLine, true);
+  assert.equal(restored.showCountdown, true);
+  for (const theme of ["light", "dark"]) {
+    const html = renderTradingChartSettingsDialog(restored, theme);
+    assert.match(html, /data-chart-settings-panel="coordinate"[\s\S]*?data-chart-setting="hidePriceAxis"[^>]*checked/);
+  }
+  saveTradingChartSettings(storage, cloneTradingChartSettings());
+  assert.equal(loadTradingChartSettings(storage).hidePriceAxis, false);
+});
+
 test("HLC is the default and migrates legacy candlestick while current choices remain authoritative", async () => {
   assert.equal(DEFAULT_TRADING_CHART_SETTINGS.chartStyle, "hlc");
   assert.equal(cloneTradingChartSettings().chartStyle, "hlc");
@@ -535,7 +556,7 @@ test("candle countdown is attached to the live price axis in both themes", async
   assert.match(market, /private updateCurrentPriceLabel\(\)[\s\S]*?this\.positionCandleCountdown\(y\)/);
   assert.match(
     market,
-    /private positionCandleCountdown\(y: number\)[\s\S]*?priceScale\("right", 0\)\.width\(\)[\s\S]*?dataset\.placement = placement/,
+    /private positionCandleCountdown\(y: number\)[\s\S]*?tradingPriceAxisLabelGeometry\(this\.chart\)[\s\S]*?dataset\.placement = placement/,
   );
   const countdownCssStart = css.indexOf(".trading-market-candle-countdown {");
   const countdownCssEnd = css.indexOf(".trading-market-candle-countdown[hidden]", countdownCssStart);
