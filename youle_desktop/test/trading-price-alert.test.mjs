@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
+import {setImmediate as nextTurn} from 'node:timers/promises';
 import {createCloudPriceAlerts, cloudPriceAlertCard} from '../src/main/trading-alerts/cloud-price-alerts.mjs';
 import {parsePriceAlertInput} from '../src/main/trading-alerts/price-alert.mjs';
 import {cloudPriceAlertFixture} from './helpers/cloud-price-alert-fixture.mjs';
 import {applyTradingAlertsSnapshot,createTradingAlertsUiState,renderTradingAlertsPage} from '../src/renderer/trading-alerts-ui.ts';
 import {formatPriceAlertLabel,priceAlertInterval} from '../src/renderer/trading-price-alert.ts';
-import {chartPriceAlerts} from '../src/renderer/trading-price-alert-store.ts';
+import {chartPriceAlerts, publishChartPriceAlerts, publishCreatedChartPriceAlert, subscribeChartPriceAlerts, refreshChartPriceAlerts} from '../src/renderer/trading-price-alert-store.ts';
 const owner = {ownerId:'host::user',accountId:'user',email:'fixture@example.invalid',baseUrl:'host'};
 const input = (patch={}) => ({requestId:'price-alert-00000001',confirmed:true,marketId:'BINANCE:FUTURES:BTCUSDT',interval:'1h',price:120,referencePrice:100,...patch});
 const setup = () => {const api=cloudPriceAlertFixture(); const create=()=>createCloudPriceAlerts({owner:async()=>owner,api:()=>api});return {api,create,service:create()};};
@@ -157,4 +160,70 @@ test('an account switch between replacement save and delete prevents cross-accou
   await assert.rejects(guarded.create(input({requestId:'replacement-00000005',price:95,replacesAlertId:alert.alertId,replacesVersion:2})),{code:'TRADING_PREFERENCE_OWNER_CHANGED'});
   assert.equal(api.items[0].state,'arming');
   assert.equal(api.calls.some(c=>c.operation==='priceAlertAction'),false);
+});
+
+test('replacement reuses the original read, retains final deletion verification and returns a verified receipt',async()=>{
+  const {api,service}=setup();const {alert}=await service.create(input());api.calls.length=0;
+  const spec=input({requestId:'replacement-fast-0001',price:95,replacesAlertId:alert.alertId,replacesVersion:2});
+  const result=await service.create(spec);
+  assert.equal(result.readbackVerified,true);assert.equal(result.requestId,spec.requestId);assert.equal(result.replacedAlertId,alert.alertId);
+  assert.deepEqual(api.calls.map(c=>c.operation),['capabilities','priceAlerts','createPriceAlertDraft','confirmPriceAlert','priceAlerts','priceAlertAction','priceAlerts']);
+});
+
+test('replacement reads capabilities and original concurrently but writes only after both finish',async()=>{
+  const {api,service}=setup();const {alert}=await service.create(input());api.calls.length=0;
+  const original=api.tradingCloudRequest;let unblock;const waiting=new Promise(r=>unblock=r);const started=[];
+  api.tradingCloudRequest=async(...args)=>{started.push(args[0]);if(started.length<=2)await waiting;return original(...args);};
+  const result=service.create(input({requestId:'replacement-fast-0002',price:95,replacesAlertId:alert.alertId,replacesVersion:2}));
+  await nextTurn();assert.deepEqual(started,['capabilities','priceAlerts']);assert.equal(api.items.length,1);
+  unblock();await result;
+});
+
+test('a changed original version during replacement is still rejected by the server',async()=>{
+  const {api,service}=setup();const {alert}=await service.create(input());
+  const original=api.tradingCloudRequest;
+  api.tradingCloudRequest=async(...args)=>{const result=await original(...args);if(args[0]==='confirmPriceAlert')api.items[0].version++;return result;};
+  await assert.rejects(service.create(input({requestId:'replacement-fast-0003',price:95,replacesAlertId:alert.alertId,replacesVersion:2})),{code:'PRICE_ALERT_REPLACEMENT_INCOMPLETE'});
+  assert.equal(api.items[0].state,'arming');assert.equal(api.items.length,2);
+});
+
+test('verified receipts merge only the affected chart markers and invalidate an older pending read',async()=>{
+  const {service}=setup();const first=await service.create(input());
+  const other=await service.create(input({requestId:'price-other-00000001',price:150}));
+  const spec=input({requestId:'replacement-fast-0004',price:95,replacesAlertId:first.alert.alertId,replacesVersion:2});
+  const result=await service.create(spec);
+  const previousWindow=globalThis.window,previousDocument=globalThis.document;
+  let resolveSnapshot,latest;const snapshot=new Promise(r=>resolveSnapshot=r);
+  globalThis.window=Object.assign(new EventTarget(),{setInterval:()=>1,clearInterval:()=>{},codexDesktop:{tradingAlertsSnapshot:()=>snapshot}});
+  globalThis.document={hidden:false};let unsubscribe;
+  try {
+    unsubscribe=subscribeChartPriceAlerts(value=>latest=value);
+    const old={cloudLoaded:true,alerts:[first.alert,other.alert]};publishChartPriceAlerts(old);
+    assert.equal(publishCreatedChartPriceAlert({...result,readbackVerified:false},spec),false);
+    assert.equal(publishCreatedChartPriceAlert(result,{...spec,requestId:'another-request'}),false);
+    assert.equal(publishCreatedChartPriceAlert(result,{...spec,price:96}),false);
+    assert.equal(publishCreatedChartPriceAlert(result,spec),true);
+    assert.deepEqual(latest.map(a=>a.price),[150,95]);
+    resolveSnapshot(old);await refreshChartPriceAlerts();
+    assert.deepEqual(latest.map(a=>a.price),[150,95],'a pre-save response cannot restore the old line');
+    assert.equal(publishCreatedChartPriceAlert({...result,alert:{...result.alert,status:'completed',enabled:false}},spec),true);
+    assert.deepEqual(latest.map(a=>a.price),[150],'an alert triggered during saving is not drawn as active');
+  } finally {unsubscribe?.();globalThis.window=previousWindow;globalThis.document=previousDocument;}
+});
+
+for(const fails of [false,true])test(`actual IPC returns the verified create receipt before a ${fails?'failed':'pending'} full-list refresh`,async()=>{
+  const source=readFileSync(new URL('../src/main/main.mjs',import.meta.url),'utf8');
+  const body=source.slice(source.indexOf('async function tradingAlertIpcCall('),source.indexOf('\nfunction getAnalysisModelRecoveryStore('));
+  let finish,created=0,checked=0,sent=0;
+  const snapshot=new Promise((resolve,reject)=>finish=()=>fails?reject(Error('list offline')):resolve({cloudLoaded:true,alerts:[]}));
+  const receipt={readbackVerified:true,alert:{alertId:'fixture'}};
+  const context={assertExternalModelsIpcSender:()=>{},requireFreshTradingPremiumAccess:async()=>checked++,
+    cloudPriceAlerts:{create:async()=>{created++;return receipt;}},tradingAlertsCombinedSnapshot:()=>snapshot,
+    sendToRenderer:()=>sent++,appLanguage:()=> 'en',cloudStrategyFailure:e=>({code:e.code||'error'})};
+  const invoke=vm.runInNewContext(`(${body})`,context);let outcome;
+  const request=invoke({},'createPriceAlert',input()).then(value=>outcome=value);
+  await nextTurn();assert.equal(outcome?.ok,true);assert.equal(outcome.data,receipt);assert.equal(sent,0);
+  assert.equal(checked,1);assert.equal(created,1);finish();await request;await nextTurn();assert.equal(sent,fails?0:1);
+  context.requireFreshTradingPremiumAccess=async()=>{throw Object.assign(Error('membership'),{code:'TRIAL_REQUIRED'});};
+  assert.equal((await invoke({},'createPriceAlert',input())).error.code,'TRIAL_REQUIRED');assert.equal(created,1);
 });

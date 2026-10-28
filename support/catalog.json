@@ -1309,8 +1309,8 @@
     },
     {
       "id": "chart-price-alert-markers",
-      "title": "图表价格预警线、拖动与删除",
-      "body": "macOS 图表价格标签左侧加号可创建云端价格预警。确认创建后，主图及同交易对分屏在目标价格显示虚线和右向三角；悬浮显示交易对、触发条件、价格和删除按钮，鼠标显示上下拖动箭头。删除须经弹窗确认。拖动时隐藏说明框，松开后确认新价格；取消保留原预警，确认后先验证新预警创建成功，再自动删除原预警。创建失败不会删除原预警；替换未完成时按弹窗提示重试，不应重复点击加号另建。已暂停、触发完成或删除的预警不再显示有效预警线。支持币安现货和永续，到价发送一次邮件至绑定邮箱，客户端在线且消息弹窗开启时同步桌面浮窗，监控及邮件不依赖电脑在线。需核对实际安装版本；源码与候选知识包不代表已上线。客服可说明操作，不能代用户创建、移动或删除预警。",
+      "title": "图表价格预警线、改价、拖动与删除",
+      "body": "Mac 图表价格标签左侧加号可创建云端价格预警。确认创建后，主图及同交易对分屏在目标价格显示虚线和右向三角；悬浮显示交易对、触发条件、价格和删除按钮。点击价格框可打开修改弹窗，预填原价格；输入大于零的有效价格并确定后创建新预警、自动删除原预警，预警线移至新价格。取消或 Escape 保留原预警及原位置；支持 Enter 确认，保存失败按弹窗提示以相同价格重试。预警线仍可上下拖动，拖动时隐藏说明框，松开后确认新价格。删除须经弹窗确认。创建失败不会删除原预警；替换未完成时按弹窗提示重试，不应重复点击加号另建。已暂停、触发完成或删除的预警不再显示有效预警线。支持币安现货和永续，到价发送一次邮件至绑定邮箱，客户端在线且消息弹窗开启时同步桌面浮窗，监控及邮件不依赖电脑在线。需核对实际安装版本；源码与候选知识包不代表已上线。客服可说明操作，不能代用户创建、移动或删除预警。创建及改价在云端回读验证后立即更新预警线，完整预警列表改为后台刷新，减少重复等待；仍须完成登录、会员及云端保存检查，实际耗时取决于网络和服务响应。 账号状态发生变化后，旧弹窗不能继续创建、改价或删除；请关闭弹窗并重新打开。关闭图表后到达的旧回执不会重新写入图表标记。",
       "category": "alerts",
       "locale": "zh-CN",
       "status": "pending",
@@ -2556,7 +2556,7 @@
     {
       "id": "chart-price-alert-markers-vi",
       "title": "Đường cảnh báo giá trên biểu đồ, kéo và xóa",
-      "body": "Dấu cộng bên trái nhãn giá trên biểu đồ Mac có thể tạo cảnh báo giá đám mây. Sau khi xác nhận tạo, biểu đồ chính và màn hình chia của cùng cặp giao dịch hiển thị đường nét đứt và tam giác hướng phải tại mức giá mục tiêu; khi di chuột hiển thị cặp giao dịch, điều kiện kích hoạt, giá và nút xóa, chuột hiển thị mũi tên kéo lên xuống. Xóa phải được xác nhận qua cửa sổ bật lên. Khi kéo, ẩn hộp mô tả, sau khi thả xác nhận giá mới; hủy giữ nguyên cảnh báo gốc, sau khi xác nhận trước tiên xác minh tạo cảnh báo mới thành công, rồi tự động xóa cảnh báo gốc. Tạo thất bại sẽ không xóa cảnh báo gốc; khi thay thế chưa hoàn tất, hãy thử lại theo gợi ý của cửa sổ bật lên, không nên nhấp lại dấu cộng để tạo thêm. Cảnh báo đã tạm dừng, đã kích hoạt xong hoặc đã xóa sẽ không còn hiển thị đường cảnh báo hợp lệ. Hỗ trợ Binance giao ngay và hợp đồng tương lai vĩnh cửu, khi đạt giá sẽ gửi một email đến hộp thư đã liên kết, khi ứng dụng trực tuyến và bật cửa sổ thông báo tin nhắn sẽ đồng bộ cửa sổ nổi trên máy tính, giám sát và email không phụ thuộc vào việc máy tính trực tuyến. Cần đối chiếu phiên bản cài đặt thực tế; mã nguồn và gói kiến thức ứng viên không đại diện cho đã ra mắt. Hỗ trợ khách hàng có thể giải thích thao tác, không thể tạo, di chuyển hoặc xóa cảnh báo thay người dùng.",
+      "body": "Dấu cộng bên trái nhãn giá trên biểu đồ Mac có thể tạo cảnh báo giá đám mây. Sau khi xác nhận tạo, biểu đồ chính và màn hình chia của cùng cặp giao dịch hiển thị đường nét đứt và tam giác hướng phải tại mức giá mục tiêu; khi di chuột hiển thị cặp giao dịch, điều kiện kích hoạt, giá và nút xóa, chuột hiển thị mũi tên kéo lên xuống. Xóa phải được xác nhận qua cửa sổ bật lên. Khi kéo, ẩn hộp mô tả, sau khi thả xác nhận giá mới; hủy giữ nguyên cảnh báo gốc, sau khi xác nhận trước tiên xác minh tạo cảnh báo mới thành công, rồi tự động xóa cảnh báo gốc. Tạo thất bại sẽ không xóa cảnh báo gốc; khi thay thế chưa hoàn tất, hãy thử lại theo gợi ý của cửa sổ bật lên, không nên nhấp lại dấu cộng để tạo thêm. Cảnh báo đã tạm dừng, đã kích hoạt xong hoặc đã xóa sẽ không còn hiển thị đường cảnh báo hợp lệ. Hỗ trợ Binance giao ngay và hợp đồng tương lai vĩnh cửu, khi đạt giá sẽ gửi một email đến hộp thư đã liên kết, khi ứng dụng trực tuyến và bật cửa sổ thông báo tin nhắn sẽ đồng bộ cửa sổ nổi trên máy tính, giám sát và email không phụ thuộc vào việc máy tính trực tuyến. Cần đối chiếu phiên bản cài đặt thực tế; mã nguồn và gói kiến thức ứng viên không đại diện cho đã ra mắt. Hỗ trợ khách hàng có thể giải thích thao tác, không thể tạo, di chuyển hoặc xóa cảnh báo thay người dùng. Nhấp vào ô giá của cảnh báo để chỉnh sửa giá đã điền sẵn. Nhập giá hữu hạn lớn hơn 0 rồi xác nhận hoặc nhấn Enter; hủy hoặc Escape giữ nguyên cảnh báo. Khi kết quả lưu đã được xác minh trên đám mây, biểu đồ cập nhật ngay và danh sách đầy đủ làm mới trong nền. Nếu lưu thất bại hoặc mất phản hồi, thử lại với cùng yêu cầu và giá để tránh tạo trùng. Khi trạng thái tài khoản thay đổi, đóng và mở lại hộp thoại trước khi tạo, sửa hoặc xóa cảnh báo. Phản hồi đến sau khi đóng biểu đồ không khôi phục các dấu cảnh báo.",
       "category": "alerts",
       "locale": "vi",
       "status": "pending",
@@ -3293,6 +3293,86 @@
         "youle_desktop/src/main/deepseek-responses-adapter.mjs",
         "youle_desktop/src/main/turn-diagnostics.mjs",
         "youle_desktop/src/renderer/main.ts"
+      ]
+    },
+    {
+      "id": "chart-price-alert-markers-en",
+      "title": "Chart price alerts: edit, drag and delete",
+      "body": "On Mac, use the plus beside the chart price to create a cloud price alert. Click an existing alert price box to edit its prefilled price, then confirm or press Enter. A verified replacement is created before the original is deleted, and the line moves to the new price. Cancel or Escape keeps the original. Enter a finite price greater than zero. Dragging and confirmed deletion remain available. Failed or uncertain saves retry the same request without creating duplicates. After cloud readback, the chart updates immediately while the full list refreshes in the background, reducing repeated waits. Login, membership and server save checks still apply; timing depends on the network and service. Main and split charts support Binance spot and perpetual markets. Paused, completed and deleted alerts have no active line. Cloud monitoring and email continue with the app closed; desktop notifications require the app to be online with message popups enabled. This is an unreleased source candidate: check the installed version. Support can explain these steps but cannot create, move or delete alerts for the user. If account details change, close and reopen the dialog before creating, editing or deleting an alert. Receipts arriving after the chart is closed do not repopulate its markers.",
+      "category": "alerts",
+      "locale": "en",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-price-alert.ts",
+        "youle_desktop/src/renderer/trading-price-alert-markers.ts",
+        "youle_desktop/src/renderer/trading-price-alert-store.ts",
+        "youle_desktop/src/main/trading-alerts/cloud-price-alerts.mjs",
+        "youle_desktop/docs/chart-price-alert-markers-20261025.zh-CN.md"
+      ]
+    },
+    {
+      "id": "chart-price-alert-markers-zh-hant",
+      "title": "圖表價格預警線、改價、拖動與刪除",
+      "body": "Mac 圖表價格旁的加號可建立雲端價格預警。點擊既有預警的價格框，修改預填價格後按「確定建立」或 Enter；驗證新預警建立成功後刪除原預警，預警線移至新價格。取消或 Escape 保留原預警，價格須為大於零的有效有限數值。仍可拖動預警線，刪除須確認。儲存失敗或結果未明時以相同請求重試，避免重複建立。雲端回讀驗證後立即更新圖表，完整清單於背景重新整理，減少重複等待；仍須完成登入、會員權益及雲端儲存檢查，實際耗時取決於網路與服務。主圖及分屏支援幣安現貨和永續市場；暫停、完成或刪除的預警不顯示有效線。關閉客戶端後仍由雲端監控並寄送郵件，桌面浮窗需客戶端在線且開啟訊息彈窗。此為未發布的原始碼候選，須核對安裝版本。客服僅說明操作，不能代建、移動或刪除預警。 帳號狀態變更後，舊視窗不能繼續建立、改價或刪除；請關閉後重新開啟。關閉圖表後抵達的舊回執不會重新寫入圖表標記。",
+      "category": "alerts",
+      "locale": "zh-Hant",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-price-alert.ts",
+        "youle_desktop/src/renderer/trading-price-alert-markers.ts",
+        "youle_desktop/src/renderer/trading-price-alert-store.ts",
+        "youle_desktop/src/main/trading-alerts/cloud-price-alerts.mjs",
+        "youle_desktop/docs/chart-price-alert-markers-20261025.zh-CN.md"
+      ]
+    },
+    {
+      "id": "chart-price-alert-markers-ko",
+      "title": "차트 가격 알림: 가격 수정, 드래그 및 삭제",
+      "body": "Mac 차트 가격 옆의 더하기 버튼으로 클라우드 가격 알림을 만듭니다. 기존 알림의 가격 상자를 클릭하면 현재 가격이 입력된 수정 창이 열립니다. 0보다 큰 유한한 가격을 입력하고 확인하거나 Enter를 누르면 새 알림의 저장을 검증한 뒤 기존 알림을 삭제하고 선을 새 가격으로 이동합니다. 취소 또는 Escape는 기존 알림을 유지합니다. 드래그와 확인 후 삭제도 계속 지원합니다. 저장 실패나 결과 불명확 시 동일한 요청으로 재시도하여 중복 생성을 방지합니다. 클라우드에서 저장 결과를 다시 확인하면 차트를 즉시 갱신하고 전체 목록은 백그라운드에서 새로 고쳐 반복 대기를 줄입니다. 로그인, 회원 권한 및 서버 저장 확인은 유지되며 실제 시간은 네트워크와 서버에 따라 달라집니다. 기본 및 분할 차트에서 바이낸스 현물과 무기한 선물을 지원합니다. 일시 중지, 완료 또는 삭제된 알림은 활성 선을 표시하지 않습니다. 앱을 종료해도 클라우드 모니터링과 이메일은 계속되며 데스크톱 알림은 앱이 온라인이고 메시지 팝업이 켜져 있어야 합니다. 아직 출시하지 않은 소스 후보이므로 설치 버전을 확인해야 합니다. 고객지원은 사용법만 설명하며 알림을 대신 생성, 이동 또는 삭제할 수 없습니다. 계정 상태가 변경되면 창을 닫고 다시 열어 알림을 생성, 수정 또는 삭제하세요. 차트를 닫은 뒤 도착한 이전 응답은 차트 표시를 다시 추가하지 않습니다.",
+      "category": "alerts",
+      "locale": "ko",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-price-alert.ts",
+        "youle_desktop/src/renderer/trading-price-alert-markers.ts",
+        "youle_desktop/src/renderer/trading-price-alert-store.ts",
+        "youle_desktop/src/main/trading-alerts/cloud-price-alerts.mjs",
+        "youle_desktop/docs/chart-price-alert-markers-20261025.zh-CN.md"
+      ]
+    },
+    {
+      "id": "chart-price-alert-markers-ja",
+      "title": "チャートの価格アラート：価格変更・ドラッグ・削除",
+      "body": "Macのチャート価格横のプラスボタンからクラウド価格アラートを作成できます。既存アラートの価格欄をクリックすると現在の価格が入力された編集画面が開きます。0より大きい有限の価格を入力して確定またはEnterを押すと、新しいアラートの保存を検証してから元のアラートを削除し、ラインを新しい価格へ移動します。キャンセルまたはEscapeで元の状態を維持します。ドラッグと確認後の削除も利用できます。保存失敗や結果不明の場合は同じリクエストで再試行し、重複作成を防ぎます。クラウドで保存結果を読み戻して検証した後はチャートをすぐに更新し、一覧全体はバックグラウンドで更新して重複した待機を減らします。ログイン、会員権限、サーバー保存の確認は維持され、実際の所要時間はネットワークとサービスの応答に依存します。メイン・分割チャートでBinanceの現物と無期限先物に対応します。一時停止、完了、削除済みのアラートには有効なラインを表示しません。アプリを終了してもクラウド監視とメール通知は継続します。デスクトップ通知にはアプリがオンラインでメッセージポップアップが有効である必要があります。未公開のソース候補のため、インストール済みバージョンを確認してください。サポートは操作を説明できますが、ユーザーに代わってアラートを作成・移動・削除することはできません。 アカウントの状態が変わった場合は画面を閉じて再度開いてから作成・編集・削除してください。チャートを閉じた後に届いた以前の応答はマーカーを再追加しません。",
+      "category": "alerts",
+      "locale": "ja",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-price-alert.ts",
+        "youle_desktop/src/renderer/trading-price-alert-markers.ts",
+        "youle_desktop/src/renderer/trading-price-alert-store.ts",
+        "youle_desktop/src/main/trading-alerts/cloud-price-alerts.mjs",
+        "youle_desktop/docs/chart-price-alert-markers-20261025.zh-CN.md"
       ]
     }
   ]

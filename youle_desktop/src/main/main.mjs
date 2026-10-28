@@ -15402,7 +15402,12 @@ async function tradingAlertIpcCall(event, method, params = {}) {
   if (method === 'createPriceAlert' || ['pause','resume','delete'].includes(method) && isCloudPriceAlert(params?.alertId)) {
     try {
       const data = method === 'createPriceAlert' ? await cloudPriceAlerts.create(params) : await cloudPriceAlerts.mutate(method, params);
-      sendToRenderer('tradingAlerts:changed', await tradingAlertsCombinedSnapshot());
+      if (method === 'createPriceAlert') {
+        // The creation result already includes persisted readback. A full-list
+        // refresh must neither delay that receipt nor turn a saved alert into an error.
+        void tradingAlertsCombinedSnapshot().then(snapshot => sendToRenderer('tradingAlerts:changed', snapshot))
+          .catch(() => { /* The regular alert poll will retry the list refresh. */ });
+      } else sendToRenderer('tradingAlerts:changed', await tradingAlertsCombinedSnapshot());
       return {ok:true,data};
     } catch (error) { return {ok:false,error:cloudStrategyFailure(error,{language:appLanguage()})}; }
   }
@@ -16185,10 +16190,13 @@ ipcMain.handle('tradingCloud:taskChat',async(event,params={})=>{
 });
 const cloudPlans = createCloudPlans({owner:requireHaoloAccountOwner,api:getYouleApiClient,sources:getCloudRunJournal});
 const cloudPriceAlerts = createCloudPriceAlerts({owner:requireHaoloAccountOwner,api:getYouleApiClient});
+let tradingAlertsSnapshotSequence = 0;
 async function tradingAlertsCombinedSnapshot() {
+  const sequence = ++tradingAlertsSnapshotSequence;
   const token = getYouleApiClient().token;
   const assertSession = () => {
     if (token !== getYouleApiClient().token) throw new Error('ALERT_SESSION_CHANGED');
+    if (sequence !== tradingAlertsSnapshotSequence) throw new Error('ALERT_SNAPSHOT_SUPERSEDED');
   };
   const local = await (await getTradingAlertService()).snapshot();
   assertSession();

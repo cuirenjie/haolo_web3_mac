@@ -10,10 +10,23 @@ for(const boundary of ['local','session','remote'])test(`alert snapshot fences a
   let token='alice', release;
   const pause=value=>new Promise(resolve=>{release=()=>resolve(value);});
   const client={get token(){return token;},getSession:()=>boundary==='session'?pause({authenticated:true}):Promise.resolve({authenticated:true})};
-  const run=Function('getYouleApiClient','getTradingAlertService','cloudPriceAlerts',body+';return tradingAlertsCombinedSnapshot;')(
+  const run=Function('getYouleApiClient','getTradingAlertService','cloudPriceAlerts','let tradingAlertsSnapshotSequence=0;'+body+';return tradingAlertsCombinedSnapshot;')(
     ()=>client,async()=>({snapshot:()=>boundary==='local'?pause({alerts:[{id:'old-local'}]}):Promise.resolve({alerts:[]})}),
     {snapshot:()=>boundary==='remote'?pause({alerts:[{id:'old-remote'}]}):Promise.resolve({alerts:[]})});
   const result=assert.rejects(run(),/ALERT_SESSION_CHANGED/);
   for(let i=0;i<10&&!release;i++)await new Promise(setImmediate);
   assert.equal(typeof release,'function');token='bob';release();await result;
+});
+
+test('an older background snapshot cannot overwrite a newer saved alert list',async()=>{
+  let reads=0,release;
+  const client={token:'same-account',getSession:async()=>({authenticated:true})};
+  const run=Function('getYouleApiClient','getTradingAlertService','cloudPriceAlerts','let tradingAlertsSnapshotSequence=0;'+body+';return tradingAlertsCombinedSnapshot;')(
+    ()=>client,async()=>({snapshot:async()=>({alerts:[]})}),
+    {snapshot:()=>++reads===1?new Promise(resolve=>release=()=>resolve({alerts:[{id:'old'}]})):Promise.resolve({alerts:[{id:'old'},{id:'new'}]})});
+  const stale=assert.rejects(run(),/ALERT_SNAPSHOT_SUPERSEDED/);
+  for(let i=0;i<10&&!release;i++)await new Promise(setImmediate);
+  assert.equal(typeof release,'function');
+  assert.deepEqual((await run()).alerts.map(x=>x.id),['old','new']);
+  release();await stale;
 });

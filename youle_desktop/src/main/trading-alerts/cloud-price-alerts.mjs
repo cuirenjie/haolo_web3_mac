@@ -48,11 +48,13 @@ export function createCloudPriceAlerts({owner, api}) {
     if (!Array.isArray(response?.items)) fail('CLOUD_RESULT_CONTEXT_INVALID');
     return response.items;
   }
-  async function mutate(captured, action, {alertId,version}) {
+  async function mutate(captured, action, {alertId,version}, knownItems) {
     if (!['pause','resume','delete'].includes(action) || !isCloudPriceAlert(alertId) || !uuid.test(alertId.slice(prefix.length))
       || !Number.isSafeInteger(version) || version < 1) fail('CLOUD_RESULT_CONTEXT_INVALID');
     const id = alertId.slice(prefix.length);
-    const current = (await list(captured)).find(a => a.id === id);
+    // Replacement already read the original. The server still enforces its version
+    // atomically, so reading the whole list again cannot add a stronger guarantee.
+    const current = (knownItems ?? await list(captured)).find(a => a.id === id);
     if (!current && action === 'delete') return {deleted:true};
     if (!current || !cloudPriceAlertCard(current)) fail('RESOURCE_NOT_FOUND');
     const desired = action === 'pause' ? 'paused' : action === 'resume' ? 'arming' : 'deleted';
@@ -84,12 +86,15 @@ export function createCloudPriceAlerts({owner, api}) {
         return existing.promise;
       }
       const promise = (async () => {
-        const caps = await request(captured, 'capabilities');
+        const [caps, originals] = await Promise.all([
+          request(captured, 'capabilities'),
+          spec.replacesAlertId ? list(captured) : null,
+        ]);
         if (caps.priceAlerts !== 'inclusive-intrabar-v1') fail('PRICE_ALERT_CLOUD_UNAVAILABLE');
         const rule = {marketKey:spec.marketId.replace('BINANCE:FUTURES:','binance:usdm:').replace('BINANCE:SPOT:','binance:spot:'),
           interval:spec.interval, operator:spec.price >= spec.referencePrice ? 'gte' : 'lte', threshold:spec.price, confirmation:'intrabar'};
         if (spec.replacesAlertId) {
-          const original = (await list(captured)).find(a => prefix + a.id === spec.replacesAlertId);
+          const original = originals.find(a => prefix + a.id === spec.replacesAlertId);
           if (original && (!cloudPriceAlertCard(original) || original.rule.marketKey !== rule.marketKey)) fail('CLOUD_RESULT_CONTEXT_INVALID');
           if (original && original.version !== spec.replacesVersion) fail('VERSION_CONFLICT');
         }
@@ -105,17 +110,19 @@ export function createCloudPriceAlerts({owner, api}) {
         const saved = caps.priceAlertReadback === 'single-v1'
           ? await request(captured, 'priceAlert', {alertId:draft.id})
           : (await list(captured)).find(a => a.id === draft.id);
-        if (!saved || saved.id !== draft.id || saved.ruleHash !== draft.ruleHash || saved.confirmedVersion == null || ['draft','deleted'].includes(saved.state)) fail('PRICE_ALERT_READBACK_FAILED');
+        if (!saved || saved.id !== draft.id || saved.ruleHash !== draft.ruleHash || !equal(saved.rule,rule)
+          || saved.confirmedVersion == null || ['draft','deleted'].includes(saved.state)) fail('PRICE_ALERT_READBACK_FAILED');
         if (spec.replacesAlertId) {
           try {
-            await mutate(captured, 'delete', {alertId:spec.replacesAlertId,version:spec.replacesVersion});
+            await mutate(captured, 'delete', {alertId:spec.replacesAlertId,version:spec.replacesVersion}, originals);
             if ((await list(captured)).some(a => prefix + a.id === spec.replacesAlertId && a.state !== 'deleted')) fail('PRICE_ALERT_READBACK_FAILED');
           } catch (error) {
             if (error.code === 'TRADING_PREFERENCE_OWNER_CHANGED') throw error;
             fail('PRICE_ALERT_REPLACEMENT_INCOMPLETE');
           }
         }
-        return {alert:cloudPriceAlertCard(saved), monitoringReady:['arming','monitoring','completed'].includes(saved.state)};
+        return {alert:cloudPriceAlertCard(saved), monitoringReady:['arming','monitoring','completed'].includes(saved.state),
+          readbackVerified:true, requestId:spec.requestId, replacedAlertId:spec.replacesAlertId ?? null};
       })();
       pending.set(lock, {spec,promise});
       try { return await promise; } finally { pending.delete(lock); }
