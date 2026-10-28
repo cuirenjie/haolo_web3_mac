@@ -16,6 +16,38 @@ app.disableHardwareAcceleration();
   const { harnessSource } = await import(pathToFileURL(path.join(project, "test/helpers/trading-preference-harness.mjs")));
   const { compileTradingPreferences } = await import(pathToFileURL(path.join(project, "src/main/personal-context/trading-preference-compiler.mjs")));
   const { tradingRiskProfileFromEntries } = await import(pathToFileURL(path.join(project, "src/main/personal-context/memory-store.mjs")));
+  const { createCloudTradingPreferences } = await import(pathToFileURL(path.join(project, "src/main/personal-context/cloud-trading-preferences.mjs")));
+  const { DEFAULT_TRADING_PREFERENCE_ENTRIES } = await import(pathToFileURL(path.join(project, "src/main/personal-context/trading-preference-defaults.mjs")));
+  const { TRADING_PREFERENCE_CHOICE_FIELDS } = await import(pathToFileURL(path.join(project, "src/shared/trading-preference-fields.mjs")));
+  let cloudConfig, cloudAdapter;
+  ipcMain.handle("qa:cloud-preferences", async (_event, operation, payload) => {
+    if (operation === "reset") {
+      cloudConfig = { schemaVersion: 1, revision: 0, configHash: "a".repeat(64),
+        entries: DEFAULT_TRADING_PREFERENCE_ENTRIES, extraNotes: { value: "" },
+        fields: { entryMode: { choice: { selected: ["auto"], custom: "" }, source: "product_default" },
+          ...Object.fromEntries(Object.values(TRADING_PREFERENCE_CHOICE_FIELDS).flat().map(field =>
+            [field.id, { choice: { selected: [field.defaultValue], custom: "" }, source: "product_default" }])) },
+      };
+      cloudAdapter = createCloudTradingPreferences({
+        owner: async () => ({ ownerId: "qa-cloud", accountId: "qa-account", baseUrl: "https://haolo.example" }),
+        store: () => ({ list: async () => ({ entries: [] }) }),
+        api: () => ({ tradingCloudRequest: async (kind, body) => {
+          if (kind === "preferences") return cloudConfig;
+          assert.equal(kind, "savePreferences");
+          assert.deepEqual(Object.keys(body.changes), ["entryMode"]);
+          assert.equal(body.expectedRevision, cloudConfig.revision);
+          assert.equal(Object.hasOwn(body, "extraNotes"), false);
+          cloudConfig = { ...cloudConfig, revision: cloudConfig.revision + 1,
+            fields: { ...cloudConfig.fields, entryMode: { choice: body.changes.entryMode, source: "user_saved" } } };
+          return cloudConfig;
+        } }),
+      });
+      return;
+    }
+    if (operation === "load") return cloudAdapter.load();
+    assert.equal(operation, "save");
+    return cloudAdapter.save(payload);
+  });
   // Exercise the real host compiler and schema checks; only model transport is a
   // fixture here. Live-model acceptance is a separate script.
   ipcMain.handle("qa:compile-preferences", async (_event, payload) => {
@@ -37,9 +69,12 @@ app.disableHardwareAcceleration();
   fs.writeFileSync(fixture, `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><style>${fs.readFileSync(path.join(project, "src/renderer/styles.css"), "utf8")}</style><style>body{background:#e9ebee}html[data-theme=dark] body{background:#202329}</style></head><body><div id="root"></div><script type="module">import {localizeAppTree} from ${JSON.stringify(pathToFileURL(path.join(project, "src/renderer/app-language.mjs")).href)};window.localizeAppTree=localizeAppTree;</script></body></html>`);
   await app.whenReady();
   const preload = path.join(output, "preload.cjs");
-  fs.writeFileSync(preload, 'const {contextBridge,ipcRenderer}=require("electron");contextBridge.exposeInMainWorld("qa",{compile:payload=>ipcRenderer.invoke("qa:compile-preferences",payload)});');
+  fs.writeFileSync(preload, 'const {contextBridge,ipcRenderer}=require("electron");contextBridge.exposeInMainWorld("qa",{compile:payload=>ipcRenderer.invoke("qa:compile-preferences",payload),cloud:(operation,payload)=>ipcRenderer.invoke("qa:cloud-preferences",operation,payload)});');
   const win = new BrowserWindow({ show: false, width: 1200, height: 860, webPreferences: { preload, offscreen: true, backgroundThrottling: false } });
-  const js = code => win.webContents.executeJavaScript(code, true);
+  const js = async code => {
+    try { return await win.webContents.executeJavaScript(code, true); }
+    catch (error) { console.error("Renderer check failed:", code.slice(0, 160), errors); throw error; }
+  };
   const errors = [];
   win.webContents.on("console-message", event => {
     if (event.level === "error") {
@@ -50,11 +85,11 @@ app.disableHardwareAcceleration();
   const bootstrap = `${harnessSource}
     window.root = document.querySelector('#root');
     window.stored = { onboardingCompleted:true, maxLossPerTradePercent:1, moveStopToBreakEven:false, breakEvenTriggerR:1, minimumRiskRewardRatio:2, analysisStyle:'detailed', requiredAnalysisSections:'根据问题按需选择栏目', entries:[{scope:'trading.discipline',key:'user_custom_rules',value:'不允许亏损加仓；每天最多两次'}] };
-    window.saveCalls = []; window.failSave = false; window.failLoad = false;
+    window.saveCalls = []; window.failSave = false; window.failLoad = false; window.useCloud = false;
     window.h = createHarness({localizeAppTree, window, localStorage, render:()=>redraw(),
       openSettingsDialog:tab=>window.openSettings(tab), showToast:(...args)=>window.showSetupToast(...args), api:{
-      getTradingPreferenceProfile:async()=>{if(failLoad) throw Error('load'); return {ok:true,completed:stored.onboardingCompleted,profile:stored}},
-      saveTradingPreferenceProfile:async payload=>{saveCalls.push(payload);if(failSave) throw Error('save'); const result=await qa.compile(payload); if(result.ok) stored=result.profile; return result;}
+      getTradingPreferenceProfile:async()=>{if(failLoad) throw Error('load'); if(useCloud)return qa.cloud('load'); return {ok:true,completed:stored.onboardingCompleted,profile:stored}},
+      saveTradingPreferenceProfile:async payload=>{saveCalls.push(payload);if(failSave) throw Error('save'); const result=useCloud?await qa.cloud('save',payload):await qa.compile(payload); if(result.ok) stored=result.profile; return result;}
     }});
     h.state.settingsOpen=true;
     h.state.settings={tab:'general',cwd:'',language:'zh-CN',github:{},externalModels:{loaded:true}};
@@ -62,7 +97,7 @@ app.disableHardwareAcceleration();
     const esc=value=>String(value??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
     const deps={state, tradingPreferenceSettings, ENABLE_GITHUB_SETTINGS_UI:false, ENABLE_LOCAL_EXTERNAL_MODEL_SETTINGS:false,
       escapeHtml:esc,escapeAttr:esc,selectedChatModelValue:()=>'',renderOption:()=>'',DESKTOP_APPROVAL_POLICY:'never',DESKTOP_SANDBOX_POLICY:'danger-full-access',
-      ...${JSON.stringify(assets)},renderSettingsLanguageRow:()=>'',renderSettingsSwitchRow:()=>'',renderSettingsTaskCompletionPopupRow:()=>'',renderSettingsThemeRow:()=>'',renderSettingsFontSizeRow:()=>'',renderSettingsUserDataRow:()=>'',renderSettingsDiagnosticsButton:()=>'',
+      ...${JSON.stringify(assets)},settingsSyncStatusText:()=>'',renderSettingsDesktopShortcutRow:()=>'',renderSettingsLanguageRow:()=>'',renderSettingsSwitchRow:()=>'',renderSettingsTaskCompletionPopupRow:()=>'',renderSettingsThemeRow:()=>'',renderSettingsFontSizeRow:()=>'',renderSettingsUserDataRow:()=>'',renderSettingsDiagnosticsButton:()=>'',
       root, render:()=>redraw(),clearGitHubAuthorizationPolling(){},refreshExternalModelProviders(){},refreshGitHubConnection(){},prepareProfileEditDraft(){},prefetchConsumptionData(){},refreshSystemIntegrationState(){}
     };
     const renderDialog = new Function(...Object.keys(deps), ${JSON.stringify(dialog + ";return renderSettingsDialog;")})(...Object.values(deps));
@@ -76,7 +111,7 @@ app.disableHardwareAcceleration();
     window.waitForSave=async()=>{for(let i=0;i<500&&document.querySelector('[data-trading-settings]')?.getAttribute('aria-busy')==='true';i++)await new Promise(resolve=>setTimeout(resolve,20));};
     redraw();
   `;
-  const report = { themes: [], errors };
+  const report = { themes: [], cloudEntryModes: [], errors };
   for (const theme of ["light", "dark"]) {
     await win.webContents.session.clearStorageData();
     await win.loadFile(fixture);
@@ -90,7 +125,7 @@ app.disableHardwareAcceleration();
     assert.equal(await js(`document.querySelector('[data-preference-field=risk] input:checked').value`), "1");
     assert.equal(await js(`document.querySelector('[data-preference-field]')?.dataset.preferenceField`), "entryMode");
     assert.equal(await js(`document.querySelector('[data-preference-field=entryMode] input:checked').value`), "right");
-    assert.equal(await js(`document.querySelectorAll('[data-preference-field=entryMode] input').length`), 3);
+    assert.equal(await js(`document.querySelectorAll('[data-preference-field=entryMode] input').length`), 2);
     assert.equal(await js(`document.querySelector('[data-preference-field=entryMode] textarea')`), null);
     assert.equal(await js(`document.querySelector('[data-preference-field=breakEven] input:checked').value`), "off");
     assert.equal(await js(`document.querySelector('[data-preference-custom=discipline]').value`), "每天最多两次");
@@ -153,7 +188,7 @@ app.disableHardwareAcceleration();
     await js(`choose('risk','3')`);
     assert.equal(await js(`document.querySelector('[data-preference-save]').disabled`), false);
     assert.equal(await js(`stored.maxLossPerTradePercent`), 2);
-    await js(`document.querySelector('[data-preference-save]').click()`);
+    await js(`document.querySelector('[data-preference-save]').click();waitForSave()`);
     assert.equal(await js(`stored.maxLossPerTradePercent`), 3);
     assert.equal(await js(`document.querySelector('[data-preference-save]').disabled`), true);
     win.setSize(1200, 860);
@@ -174,6 +209,33 @@ app.disableHardwareAcceleration();
     await js(`stored={onboardingCompleted:false};h.resetTradingPreferenceProfileState();state.settingsOpen=false;redraw();h.loadTradingPreferenceProfile()`);
     await js(`h.scheduleTradingPreferenceSetupPrompt();new Promise(resolve=>requestAnimationFrame(resolve))`);
     assert.equal(await js(`state.settingsOpen`), false, "persisted prompt history must survive renderer reload");
+    // The cloud schema has no legacy onboarding_completed entry; saved-field provenance confirms completion.
+    // Exercise actual radio clicks, IPC and the production cloud adapter.
+    await js(`qa.cloud('reset')`);
+    await js(`useCloud=true;state.settingsOpen=true;state.settings.tab='trading';reopen()`);
+    for (const mode of ["left", "right"]) {
+      await js(`choose('entryMode',${JSON.stringify(mode)})`);
+      if (mode === "left") {
+        await js(`failSave=true;document.querySelector('[data-preference-save]').click();waitForSave()`);
+        assert.equal(await js(`document.querySelector('[role=alert]').hidden`), false);
+        assert.equal(await js(`document.querySelector('[data-preference-field=entryMode] input:checked').value`), mode);
+        assert.equal((await cloudAdapter.effective()).revision, 0);
+        await js(`failSave=false`);
+      }
+      await js(`document.querySelector('[data-preference-save]').click();waitForSave()`);
+      assert.match(await js(`document.querySelector('.settings-trading-status').textContent`), /交易偏好已保存/);
+      assert.equal(await js(`document.querySelector('[role=alert]').hidden`), true);
+      assert.equal(await js(`document.querySelector('[data-preference-save]').disabled`), true);
+      assert.equal(await js(`stored.onboardingCompleted`), true);
+      assert.deepEqual(await js(`saveCalls.at(-1).changedFields`), ["entryMode"]);
+      assert.equal((await cloudAdapter.effective()).profile.entryMode, mode);
+      await js(`reopen()`);
+      assert.equal(await js(`document.querySelector('[data-preference-field=entryMode] input:checked').value`), mode);
+      assert.match(await js(`document.querySelector('[data-preference-source=entryMode]').textContent`), /已保存的偏好/);
+      assert.match(await js(`document.querySelector('[data-preference-source=risk]').textContent`), /产品默认值/);
+      assert.equal(await js(`document.querySelector('[data-preference-save]').disabled`), true);
+      report.cloudEntryModes.push({ theme, mode, revision: cloudConfig.revision });
+    }
     report.themes.push(theme);
   }
   assert.deepEqual(errors, []);

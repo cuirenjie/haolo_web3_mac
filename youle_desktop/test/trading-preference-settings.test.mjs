@@ -139,6 +139,45 @@ test("save failure retains choices, suppresses duplicate saves, and can retry", 
   assert.equal(payloads[1].choices.risk.custom, "1.5%");
 });
 
+test("successful cloud saves do not require the legacy onboarding completion flag", async () => {
+  for (const entryMode of ["left", "right", "auto"]) {
+    for (const completed of [false, undefined]) {
+      let completions = 0;
+      const profile = {
+        entryMode, onboardingCompleted: false,
+        fieldSources: { entryMode: "user_saved", risk: "product_default" },
+      };
+      const editor = controller({
+        save: async () => ({ ok: true, profile, ...(completed === undefined ? {} : { completed }) }),
+        onSaved: () => { completions++; },
+      });
+      await editor.load();
+      await editor.save();
+      assert.equal(completions, 1);
+      const view = editor.render();
+      assert.match(view, /交易偏好已保存/);
+      assert.match(view, /role="alert" hidden/);
+      assert.match(view, /data-preference-save disabled/);
+      assert.match(view, new RegExp(`name="settings-preference-entryMode" value="${entryMode === "auto" ? "right" : entryMode}" checked`));
+      assert.match(view, /data-preference-source="entryMode">已保存的偏好/);
+      assert.match(view, /data-preference-source="risk">产品默认值/);
+    }
+  }
+});
+
+test("legacy onboarding completion cannot turn a rejected save into success", async () => {
+  let completions = 0;
+  const editor = controller({
+    save: async () => ({ ok: false, completed: true, error: { message: "云端保存失败" } }),
+    onSaved: () => { completions++; },
+  });
+  await editor.load();
+  await editor.save();
+  assert.equal(completions, 0);
+  assert.match(editor.render(), /云端保存失败/);
+  assert.doesNotMatch(editor.render(), /交易偏好已保存/);
+});
+
 test("account reset ignores stale load/save completions", async () => {
   const read = deferred();
   let completions = 0;

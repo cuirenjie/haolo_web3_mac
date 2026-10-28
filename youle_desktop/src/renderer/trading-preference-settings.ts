@@ -200,7 +200,8 @@ export function createTradingPreferenceSettings(deps: {
         ...(revision !== undefined ? { expectedRevision: revision } : {}),
         ...(editedFields.size ? { changedFields: [...editedFields] } : {}) });
       if (token !== generation) return;
-      // ok is the save receipt; completed only describes legacy onboarding.
+      // `completed` describes the legacy onboarding questionnaire. Cloud field
+      // saves can succeed without that marker, including an entry-mode-only edit.
       if (result?.ok !== true) {
         error = result?.error?.message || "交易偏好保存失败，已保留你的修改，请重试。";
         errorTitle = failureTitle(result?.error?.code);
