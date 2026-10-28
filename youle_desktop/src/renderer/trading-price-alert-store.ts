@@ -27,9 +27,30 @@ let alerts: ChartPriceAlert[] = [];
 const listeners = new Set<(alerts: ChartPriceAlert[]) => void>();
 let pending: Promise<void> | null = null;
 let revision = 0;
+let accountRevision = 0;
 let timer: number | undefined;
 let cleanups: Array<() => void> = [];
 const emit = () => listeners.forEach(listener => listener(alerts));
+
+export const chartPriceAlertAccountRevision = () => accountRevision;
+
+// Merge a verified mutation receipt; this is deliberately not a full-list snapshot.
+export function publishCreatedChartPriceAlert(result: any, expected: {
+  requestId: string; marketId: string; price: number; replacesAlertId?: string;
+}) {
+  const alert = result?.alert;
+  if (result?.readbackVerified !== true || result.requestId !== expected.requestId
+    || (result.replacedAlertId ?? null) !== (expected.replacesAlertId ?? null)
+    || !alert?.cloud?.id || alert.alertId !== `cloud-price-${alert.cloud.id}`
+    || !Number.isSafeInteger(alert.cloud.version) || alert.cloud.version < 1
+    || alert.cloud.threshold !== expected.price
+    || alert.rule?.contexts?.[0]?.marketSelector?.marketIds?.[0] !== expected.marketId) return false;
+  revision++;
+  alerts = [...alerts.filter(entry => entry.alertId !== alert.alertId && entry.alertId !== result.replacedAlertId),
+    ...chartPriceAlerts({cloudLoaded:true, alerts:[alert]})];
+  emit();
+  return true;
+}
 
 export function publishChartPriceAlerts(payload: any) {
   if (payload?.ok === false || !(payload?.data ?? payload)?.cloudLoaded) return;
@@ -58,7 +79,7 @@ export function subscribeChartPriceAlerts(listener: (alerts: ChartPriceAlert[]) 
   listeners.add(listener);
   if (listeners.size === 1) {
     const api = window.codexDesktop;
-    const reset = () => { revision++; pending = null; alerts = []; emit(); void refreshChartPriceAlerts(); };
+    const reset = () => { accountRevision++; revision++; pending = null; alerts = []; emit(); void refreshChartPriceAlerts(); };
     cleanups = [api?.onTradingAlertsChanged?.(publishChartPriceAlerts), api?.onProfileUpdated?.(reset),
       api?.onAuthExpired?.(reset)].filter((cleanup): cleanup is () => void => !!cleanup);
     timer = window.setInterval(() => { if (!document.hidden) void refreshChartPriceAlerts(); }, 15_000);

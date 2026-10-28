@@ -4,10 +4,10 @@ import {DEFAULT_TRADING_CHART_SETTINGS as defaults, cloneTradingChartSettings, n
 import {SettingsReplica, flattenSettings, applySettingValues} from '../src/renderer/account-settings-sync.ts';
 import {TradingDrawingVisibility} from '../src/renderer/trading-drawing-visibility.ts';
 
-test('all 38 chart fields roundtrip through mobile wire keys and desktop normalization',()=>{
-  const flat=flattenSettings(defaults,'chart');assert.equal(Object.keys(flat).length,38);
+test('all 39 chart fields roundtrip through account wire keys and desktop normalization',()=>{
+  const flat=flattenSettings(defaults,'chart');assert.equal(Object.keys(flat).length,39);
   const desktop=new SettingsReplica(),mobile=new SettingsReplica();
-  const changes={...flat,'chart.chartStyle':'bars','chart.verticalLocked':true,
+  const changes={...flat,'chart.chartStyle':'bars','chart.verticalLocked':true,'chart.hidePriceAxis':true,
     'chart.drawingVisibility.plansHidden':true,'chart.drawingVisibility.aiHidden':true,
     'chart.themes.dark.backgroundColor':'#12345680','chart.scaleAnchor':'right'};
   mobile.edit(flat,changes);
@@ -15,6 +15,7 @@ test('all 38 chart fields roundtrip through mobile wire keys and desktop normali
   desktop.merge(receipt);
   const rendered=normalizeTradingChartSettings(applySettingValues(cloneTradingChartSettings(),desktop.values(),'chart'));
   assert.equal(rendered.verticalLocked,true);assert.equal(rendered.chartStyle,'bars');assert.equal(rendered.scaleAnchor,'right');
+  assert.equal(rendered.hidePriceAxis,true);assert.equal(rendered.showPriceLabel,true);
   assert.equal(rendered.drawingVisibility.plansHidden,true);assert.equal(rendered.drawingVisibility.aiHidden,true);
   assert.equal(rendered.themes.dark.backgroundColor,'#12345680');
   const reset=flattenSettings(cloneTradingChartSettings(),'chart');desktop.edit(flattenSettings(rendered,'chart'),reset);

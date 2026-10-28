@@ -4,52 +4,185 @@
   "surface": "windows",
   "features": [
     {
+      "id": "model-incomplete-response-zh-cn",
+      "title": "模型回答未完成与手动补全",
+      "body": "新版 Windows 源码会区分模型输出达到上限、内容限制和原因未知的未完成响应，并保留已收到的部分回答。可继续的情况提供“继续补全”，点击仅在当前会话填入草稿，由用户检查并发送，不自动重放原请求、不切换备用模型。继续前核对已有工具结果和操作记录，状态不明的操作先核实，不能保证所有外部操作天然幂等。诊断报告保留未完成原因、响应 ID 和用量元数据。此修复待客户端发布，旧安装版本以实际行为为准。网关预热与历史拼接修复独立部署；本项无新增客服代操作。",
+      "category": "usage",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/shared/model-incomplete.mjs",
+        "youle_desktop/src/main/deepseek-responses-adapter.mjs",
+        "youle_desktop/src/main/model-failure-policy.mjs",
+        "youle_desktop/src/main/turn-diagnostics.mjs",
+        "youle_desktop/src/renderer/main.ts"
+      ]
+    },
+    {
+      "id": "model-incomplete-response-zh-hant",
+      "title": "模型回答未完成與手動補全",
+      "body": "新版 Windows 原始碼會區分輸出達到上限、內容限制及原因未知的未完成回應，並保留已收到的部分回答。可繼續時提供「繼續補全」，點選只在目前會話填入草稿，須由使用者檢查後傳送，不會自動重送原請求或切換備用模型。繼續前須核對工具結果與操作紀錄，狀態不明的操作先查證。診斷報告保留原因、回應 ID 及用量中繼資料。此修正尚待發布，舊安裝版本以實際行為為準；閘道修正另行部署。無新增客服代操作。",
+      "category": "usage",
+      "locale": "zh-Hant",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/shared/model-incomplete.mjs",
+        "youle_desktop/src/main/deepseek-responses-adapter.mjs",
+        "youle_desktop/src/main/turn-diagnostics.mjs",
+        "youle_desktop/src/renderer/main.ts"
+      ]
+    },
+    {
+      "id": "model-incomplete-response-en",
+      "title": "Incomplete model answers and manual continuation",
+      "body": "The updated Windows source distinguishes output limits, content restrictions and unknown incomplete responses, retaining received partial answers. When continuation is available, Continue answer fills a draft in the same conversation for the user to review and send. It does not automatically replay the failed request or change models. Check previous tool results and action records, and verify operations with an unknown outcome before proceeding. Diagnostics retain the reason, response ID and usage metadata. This fix is pending a client release; gateway prewarm and history fixes deploy separately. No support action is added.",
+      "category": "usage",
+      "locale": "en",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/shared/model-incomplete.mjs",
+        "youle_desktop/src/main/deepseek-responses-adapter.mjs",
+        "youle_desktop/src/main/turn-diagnostics.mjs",
+        "youle_desktop/src/renderer/main.ts"
+      ]
+    },
+    {
       "id": "recharge-entitlement-refresh-zh-cn",
       "title": "充值后会员与积分自动刷新",
       "body": "修复版 Windows 客户端在订单支付成功后自动刷新会员和可用积分；刷新暂时失败会继续重试，返回聊天后也会继续。较早的余额请求不能覆盖已取得的新权益，模型会员校验随新资料更新。模型进程启动时若未取得 DeepSeek 连接凭证，下次开始或恢复任务前会重新获取并安全重建空闲进程，不必重启整个客户端；存在其他执行中任务时不会中断它们，凭证仍不可用会提示稍后重试。无需通过重复付款恢复使用。此项为待发布源码修复，旧安装版本以实际行为为准；若重启后恢复，可导出诊断报告交官方客服核查。客服不能仅凭此现象认定订单到账或补发积分，无新增代操作能力。",
-      "category": "usage", "locale": "zh-CN", "status": "pending", "requires_login": true,
-      "platforms": ["windows"], "actions": {},
-      "sources": ["youle_desktop/src/renderer/recharge-profile-refresh.ts", "youle_desktop/src/renderer/main.ts", "youle_desktop/src/main/youle-api-client.mjs", "youle_desktop/src/main/main.mjs", "youle_desktop/src/main/execution-credential-refresh.mjs", "youle_desktop/src/main/app-server-client.mjs"]
+      "category": "usage",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/recharge-profile-refresh.ts",
+        "youle_desktop/src/renderer/main.ts",
+        "youle_desktop/src/main/youle-api-client.mjs",
+        "youle_desktop/src/main/main.mjs",
+        "youle_desktop/src/main/execution-credential-refresh.mjs",
+        "youle_desktop/src/main/app-server-client.mjs"
+      ]
     },
     {
       "id": "recharge-entitlement-refresh-zh-hant",
       "title": "儲值後會員與積分自動更新",
       "body": "修正版 Windows 用戶端會在訂單付款成功後自動更新會員與可用積分；更新暫時失敗時會重試，返回聊天後也會繼續。較早的餘額請求不會覆蓋已取得的新權益，模型會員檢查會隨新資料更新。模型程序啟動時若未取得 DeepSeek 連線憑證，下次開始或恢復任務前會重新取得並安全重建閒置程序，無須重新啟動整個用戶端；不會中斷其他執行中的任務，憑證仍不可用時會提示稍後重試。無須重複付款來恢復使用。此項為尚待發布的原始碼修正，舊安裝版本以實際行為為準；若重新啟動後恢復，可匯出診斷報告交官方客服核查。客服不能僅憑此現象認定訂單到帳或補發積分，無新增代操作能力。",
-      "category": "usage", "locale": "zh-Hant", "status": "pending", "requires_login": true,
-      "platforms": ["windows"], "actions": {},
-      "sources": ["youle_desktop/src/renderer/recharge-profile-refresh.ts", "youle_desktop/src/renderer/main.ts", "youle_desktop/src/main/youle-api-client.mjs", "youle_desktop/src/main/main.mjs", "youle_desktop/src/main/execution-credential-refresh.mjs", "youle_desktop/src/main/app-server-client.mjs"]
+      "category": "usage",
+      "locale": "zh-Hant",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/recharge-profile-refresh.ts",
+        "youle_desktop/src/renderer/main.ts",
+        "youle_desktop/src/main/youle-api-client.mjs",
+        "youle_desktop/src/main/main.mjs",
+        "youle_desktop/src/main/execution-credential-refresh.mjs",
+        "youle_desktop/src/main/app-server-client.mjs"
+      ]
     },
     {
       "id": "recharge-entitlement-refresh-en",
       "title": "Membership and credit refresh after payment",
       "body": "The fixed Windows client refreshes membership and available credits after a paid order. Temporary refresh failures retry even after returning to chat. Earlier balance requests cannot overwrite newer entitlements, and model membership checks follow the refreshed profile. If the model runtime started without DeepSeek credentials, starting or resuming a task refreshes credentials and safely recreates an idle runtime without restarting the desktop app. Active tasks are not interrupted; credentials that remain unavailable produce a retry-later connection message. Repeating a payment is unnecessary. This source fix is pending release; older installed versions may behave differently. If restarting restores access, export a diagnostic report for official support. Support must verify payment records before concluding that credits arrived or granting credits. No new assisted action is added.",
-      "category": "usage", "locale": "en", "status": "pending", "requires_login": true,
-      "platforms": ["windows"], "actions": {},
-      "sources": ["youle_desktop/src/renderer/recharge-profile-refresh.ts", "youle_desktop/src/renderer/main.ts", "youle_desktop/src/main/youle-api-client.mjs", "youle_desktop/src/main/main.mjs", "youle_desktop/src/main/execution-credential-refresh.mjs", "youle_desktop/src/main/app-server-client.mjs"]
+      "category": "usage",
+      "locale": "en",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/recharge-profile-refresh.ts",
+        "youle_desktop/src/renderer/main.ts",
+        "youle_desktop/src/main/youle-api-client.mjs",
+        "youle_desktop/src/main/main.mjs",
+        "youle_desktop/src/main/execution-credential-refresh.mjs",
+        "youle_desktop/src/main/app-server-client.mjs"
+      ]
     },
     {
       "id": "support-publication-integrity-zh-cn",
       "title": "客户端发布与客服能力同步",
       "body": "新版Windows安装包发布将同步同次构建的客服知识和已实现的代操作能力。代操作仍需用户点击同意；拒绝或版本不匹配时不执行。K线红涨绿跌使用既有改色能力，授权后检查上涨红色、下跌绿色均已保存。本项为待发布的发布流程修复，不代表旧安装包的客服能力已启用。",
-      "category": "support", "locale": "zh-CN", "status": "pending", "requires_login": false,
-      "platforms": ["windows"], "actions": {},
-      "sources": ["tools/windows-support-artifact.mjs", "tools/publish-windows-support.mjs", "tools/release-windows.ps1", "tools/upload-windows-release.ps1", "youle_desktop/scripts/seal-support-artifact.cjs"]
+      "category": "support",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": false,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "tools/windows-support-artifact.mjs",
+        "tools/publish-windows-support.mjs",
+        "tools/release-windows.ps1",
+        "tools/upload-windows-release.ps1",
+        "youle_desktop/scripts/seal-support-artifact.cjs"
+      ]
     },
     {
       "id": "support-publication-integrity-zh-hant",
       "title": "用戶端發布與客服能力同步",
       "body": "新版Windows安裝包發布將同步同次建置的客服知識和已實作的代操作能力。代操作仍須使用者點選同意；拒絕或版本不符時不執行。K線紅漲綠跌沿用改色能力，授權後確認上漲紅色、下跌綠色均已儲存。此發布流程修正尚待發布，不代表舊安裝包已啟用客服能力。",
-      "category": "support", "locale": "zh-Hant", "status": "pending", "requires_login": false,
-      "platforms": ["windows"], "actions": {},
-      "sources": ["tools/windows-support-artifact.mjs", "tools/publish-windows-support.mjs", "tools/release-windows.ps1", "tools/upload-windows-release.ps1", "youle_desktop/scripts/seal-support-artifact.cjs"]
+      "category": "support",
+      "locale": "zh-Hant",
+      "status": "pending",
+      "requires_login": false,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "tools/windows-support-artifact.mjs",
+        "tools/publish-windows-support.mjs",
+        "tools/release-windows.ps1",
+        "tools/upload-windows-release.ps1",
+        "youle_desktop/scripts/seal-support-artifact.cjs"
+      ]
     },
     {
       "id": "support-publication-integrity-en",
       "title": "Desktop release and support capability synchronization",
       "body": "New Windows installer publications synchronize the support knowledge and implemented actions from the same build. Assisted changes still require explicit consent; declining or a version mismatch prevents execution. Red-up/green-down candles use the existing color action and verify both saved colors. This publication fix is pending release and does not imply support actions are activated for older installers.",
-      "category": "support", "locale": "en", "status": "pending", "requires_login": false,
-      "platforms": ["windows"], "actions": {},
-      "sources": ["tools/windows-support-artifact.mjs", "tools/publish-windows-support.mjs", "tools/release-windows.ps1", "tools/upload-windows-release.ps1", "youle_desktop/scripts/seal-support-artifact.cjs"]
+      "category": "support",
+      "locale": "en",
+      "status": "pending",
+      "requires_login": false,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "tools/windows-support-artifact.mjs",
+        "tools/publish-windows-support.mjs",
+        "tools/release-windows.ps1",
+        "tools/upload-windows-release.ps1",
+        "youle_desktop/scripts/seal-support-artifact.cjs"
+      ]
     },
     {
       "id": "alert-email-desktop-zh-cn",
@@ -159,7 +292,9 @@
       "locale": "zh-CN",
       "status": "pending",
       "requires_login": true,
-      "platforms": ["windows"],
+      "platforms": [
+        "windows"
+      ],
       "actions": {},
       "sources": [
         "youle_desktop/src/main/binance-account/private-proxy-fetch.mjs",
@@ -175,7 +310,9 @@
       "locale": "en",
       "status": "pending",
       "requires_login": true,
-      "platforms": ["windows"],
+      "platforms": [
+        "windows"
+      ],
       "actions": {},
       "sources": [
         "youle_desktop/src/main/binance-account/private-proxy-fetch.mjs",
@@ -191,7 +328,9 @@
       "locale": "zh-Hant",
       "status": "pending",
       "requires_login": true,
-      "platforms": ["windows"],
+      "platforms": [
+        "windows"
+      ],
       "actions": {},
       "sources": [
         "youle_desktop/src/main/binance-account/private-proxy-fetch.mjs",
@@ -207,7 +346,9 @@
       "locale": "zh-CN",
       "status": "pending",
       "requires_login": true,
-      "platforms": ["windows"],
+      "platforms": [
+        "windows"
+      ],
       "actions": {},
       "sources": [
         "youle_desktop/src/main/execution-plan-card-view.mjs",
@@ -440,9 +581,14 @@
       "locale": "zh-CN",
       "status": "pending",
       "requires_login": true,
-      "platforms": ["windows"],
+      "platforms": [
+        "windows"
+      ],
       "actions": {},
-      "sources": ["youle_desktop/src/renderer/trading-expert-ai-playback.ts", "youle_desktop/src/renderer/trading-expert-drawing.ts"]
+      "sources": [
+        "youle_desktop/src/renderer/trading-expert-ai-playback.ts",
+        "youle_desktop/src/renderer/trading-expert-drawing.ts"
+      ]
     },
     {
       "id": "ai-drawing-cursor-zh-hant",
@@ -452,9 +598,14 @@
       "locale": "zh-Hant",
       "status": "pending",
       "requires_login": true,
-      "platforms": ["windows"],
+      "platforms": [
+        "windows"
+      ],
       "actions": {},
-      "sources": ["youle_desktop/src/renderer/trading-expert-ai-playback.ts", "youle_desktop/src/renderer/trading-expert-drawing.ts"]
+      "sources": [
+        "youle_desktop/src/renderer/trading-expert-ai-playback.ts",
+        "youle_desktop/src/renderer/trading-expert-drawing.ts"
+      ]
     },
     {
       "id": "ai-drawing-cursor-en",
@@ -464,9 +615,14 @@
       "locale": "en",
       "status": "pending",
       "requires_login": true,
-      "platforms": ["windows"],
+      "platforms": [
+        "windows"
+      ],
       "actions": {},
-      "sources": ["youle_desktop/src/renderer/trading-expert-ai-playback.ts", "youle_desktop/src/renderer/trading-expert-drawing.ts"]
+      "sources": [
+        "youle_desktop/src/renderer/trading-expert-ai-playback.ts",
+        "youle_desktop/src/renderer/trading-expert-drawing.ts"
+      ]
     },
     {
       "id": "ai-drawing-cursor-ko",
@@ -476,9 +632,14 @@
       "locale": "ko",
       "status": "pending",
       "requires_login": true,
-      "platforms": ["windows"],
+      "platforms": [
+        "windows"
+      ],
       "actions": {},
-      "sources": ["youle_desktop/src/renderer/trading-expert-ai-playback.ts", "youle_desktop/src/renderer/trading-expert-drawing.ts"]
+      "sources": [
+        "youle_desktop/src/renderer/trading-expert-ai-playback.ts",
+        "youle_desktop/src/renderer/trading-expert-drawing.ts"
+      ]
     },
     {
       "id": "ai-drawing-cursor-ja",
@@ -488,9 +649,14 @@
       "locale": "ja",
       "status": "pending",
       "requires_login": true,
-      "platforms": ["windows"],
+      "platforms": [
+        "windows"
+      ],
       "actions": {},
-      "sources": ["youle_desktop/src/renderer/trading-expert-ai-playback.ts", "youle_desktop/src/renderer/trading-expert-drawing.ts"]
+      "sources": [
+        "youle_desktop/src/renderer/trading-expert-ai-playback.ts",
+        "youle_desktop/src/renderer/trading-expert-drawing.ts"
+      ]
     },
     {
       "id": "wyckoff-complete-chart-zh-cn",
@@ -892,7 +1058,7 @@
     {
       "id": "chart-settings-full-sync-zh-cn",
       "title": "K线设置与跨设备同步",
-      "body": "个人设置→通用设置首项「K线设置」，包含主图样式、图表背景、K线缩放、涨跌颜色、坐标选择、实时价格、画线工具、隐藏绘图及订单显示。修改即时应用；同一账号通过逐字段队列同步38个图表字段，离线修改保留，恢复默认也参与同步。明暗主题颜色分开保存；锁定K线和五类隐藏开关为账号偏好，切换市场或会话不会清除。重置图表只重置当前视图，不跨设备发送操作。复权在没有除权事件的数据上保留原始价格；订单仅为绑定账户的只读显示。全部同步需要配套Windows v8设置协议及服务端新增六字段校验上线；此条为待发布源码候选。客服仅说明步骤，尚无新增K线设置代操作能力。",
+      "body": "个人设置→通用设置首项「K线设置」，包含主图样式、图表背景、K线缩放、涨跌颜色、坐标选择、实时价格、画线工具、隐藏绘图及订单显示。修改即时应用；同一账号通过逐字段队列同步39个图表字段，离线修改保留，恢复默认也参与同步。明暗主题颜色分开保存；锁定K线和五类隐藏开关为账号偏好，切换市场或会话不会清除。坐标选择新增「隐藏价格轴」，默认关闭；开启后隐藏主图和分屏的普通价格刻度数字，同时收起右侧价格轴预留空间，让K线画布扩展到右边缘；实时价格、倒计时、十字线、绘图及订单价格标注覆盖显示在画布右边缘，成交量等副图刻度保留；设置即时生效、本机保存，恢复默认重新显示。此新增字段跨设备同步仍需服务端配套支持。重置图表只重置当前视图，不跨设备发送操作。复权在没有除权事件的数据上保留原始价格；订单仅为绑定账户的只读显示。全部同步需要配套Windows v8设置协议及服务端新增六字段校验上线；此条为待发布源码候选。客服仅说明步骤，尚无新增K线设置代操作能力。",
       "category": "chart-settings",
       "locale": "zh-CN",
       "status": "pending",
@@ -904,13 +1070,18 @@
       "sources": [
         "youle_desktop/src/renderer/trading-expert-chart-settings.ts",
         "youle_desktop/src/renderer/trading-expert-market.ts",
-        "youle_desktop/src/renderer/account-settings-sync.ts"
+        "youle_desktop/src/renderer/account-settings-sync.ts",
+        "youle_desktop/src/renderer/trading-price-axis.ts",
+        "youle_desktop/src/renderer/trading-expert-split-pane.ts",
+        "youle_desktop/src/renderer/trading-expert-drawing.ts",
+        "youle_desktop/src/renderer/trading-expert-order-lines.ts",
+        "youle_desktop/scripts/trading-chart-library-patch.mjs"
       ]
     },
     {
       "id": "chart-settings-full-sync-en",
       "title": "Chart settings and cross-device sync",
-      "body": "Personal settings → the first General settings entry, Chart settings, provides chart style, background, zoom, up/down colors, price scale, live price, drawing tools, drawing visibility and order display. Changes apply immediately. Per-field account queues synchronize all 38 chart fields, retain offline edits and sync restored defaults. Light and dark colors are saved separately. The chart lock and five visibility switches follow the account across markets and conversations. Reset chart is a local viewport command. Adjustment modes preserve original prices when corporate-action data is absent. Account order overlays are read-only. Full synchronization requires the Windows v8 settings protocol and the six-field server extension to be released; this is a pending source candidate. Support explains steps and has no new delegated chart-settings action.",
+      "body": "Personal settings → the first General settings entry, Chart settings, provides chart style, background, zoom, up/down colors, price scale, live price, drawing tools, drawing visibility and order display. Changes apply immediately. Per-field account queues synchronize all 39 chart fields, retain offline edits and sync restored defaults. Light and dark colors are saved separately. The chart lock and five visibility switches follow the account across markets and conversations. Price scale settings include Hide price scale, off by default. It hides ordinary price ticks on main and split charts and collapses the reserved right axis column, expanding the canvas to the right edge. Live prices, countdowns, crosshair, drawing and order price labels overlay the right edge, while indicator tick labels remain visible. It applies immediately, saves locally and resets to visible with restored defaults. Cross-device sync of this new field requires server support. Reset chart is a local viewport command. Adjustment modes preserve original prices when corporate-action data is absent. Account order overlays are read-only. Full synchronization requires the Windows v8 settings protocol and the six-field server extension to be released; this is a pending source candidate. Support explains steps and has no new delegated chart-settings action.",
       "category": "chart-settings",
       "locale": "en",
       "status": "pending",
@@ -922,7 +1093,12 @@
       "sources": [
         "youle_desktop/src/renderer/trading-expert-chart-settings.ts",
         "youle_desktop/src/renderer/trading-expert-market.ts",
-        "youle_desktop/src/renderer/account-settings-sync.ts"
+        "youle_desktop/src/renderer/account-settings-sync.ts",
+        "youle_desktop/src/renderer/trading-price-axis.ts",
+        "youle_desktop/src/renderer/trading-expert-split-pane.ts",
+        "youle_desktop/src/renderer/trading-expert-drawing.ts",
+        "youle_desktop/src/renderer/trading-expert-order-lines.ts",
+        "youle_desktop/scripts/trading-chart-library-patch.mjs"
       ]
     },
     {
@@ -1207,8 +1383,8 @@
     },
     {
       "id": "chart-price-alert-markers",
-      "title": "图表价格预警线、拖动与删除",
-      "body": "Windows 图表价格标签左侧加号可创建云端价格预警。确认创建后，主图及同交易对分屏在目标价格显示虚线和右向三角；悬浮显示交易对、触发条件、价格和删除按钮，鼠标显示上下拖动箭头。删除须经弹窗确认。拖动时隐藏说明框，松开后确认新价格；取消保留原预警，确认后先验证新预警创建成功，再自动删除原预警。创建失败不会删除原预警；替换未完成时按弹窗提示重试，不应重复点击加号另建。已暂停、触发完成或删除的预警不再显示有效预警线。支持币安现货和永续，到价发送一次邮件至绑定邮箱，客户端在线且消息弹窗开启时同步桌面浮窗，监控及邮件不依赖电脑在线。需核对实际安装版本；源码与候选知识包不代表已上线。客服可说明操作，不能代用户创建、移动或删除预警。",
+      "title": "图表价格预警线、改价、拖动与删除",
+      "body": "Windows 图表价格标签左侧加号可创建云端价格预警。确认创建后，主图及同交易对分屏在目标价格显示虚线和右向三角；悬浮显示交易对、触发条件、价格和删除按钮。点击价格框可打开修改弹窗，预填原价格；输入大于零的有效价格并确定后创建新预警、自动删除原预警，预警线移至新价格。取消或 Escape 保留原预警及原位置；支持 Enter 确认，保存失败按弹窗提示以相同价格重试。预警线仍可上下拖动，拖动时隐藏说明框，松开后确认新价格。删除须经弹窗确认。创建失败不会删除原预警；替换未完成时按弹窗提示重试，不应重复点击加号另建。已暂停、触发完成或删除的预警不再显示有效预警线。支持币安现货和永续，到价发送一次邮件至绑定邮箱，客户端在线且消息弹窗开启时同步桌面浮窗，监控及邮件不依赖电脑在线。需核对实际安装版本；源码与候选知识包不代表已上线。客服可说明操作，不能代用户创建、移动或删除预警。创建及改价在云端回读验证后立即更新预警线，完整预警列表改为后台刷新，减少重复等待；仍须完成登录、会员及云端保存检查，实际耗时取决于网络和服务响应。",
       "category": "alerts",
       "locale": "zh-CN",
       "status": "pending",
@@ -2970,6 +3146,86 @@
       "sources": [
         "youle_desktop/src/renderer/app-language.mjs",
         "youle_desktop/src/shared/vietnamese.mjs"
+      ]
+    },
+    {
+      "id": "chart-price-alert-markers-en",
+      "title": "Chart price alerts: edit, drag and delete",
+      "body": "On Windows, use the plus beside the chart price to create a cloud price alert. Click an existing alert price box to edit its prefilled price, then confirm or press Enter. A verified replacement is created before the original is deleted, and the line moves to the new price. Cancel or Escape keeps the original. Enter a finite price greater than zero. Dragging and confirmed deletion remain available. Failed or uncertain saves retry the same request without creating duplicates. After cloud readback, the chart updates immediately while the full list refreshes in the background, reducing repeated waits. Login, membership and server save checks still apply; timing depends on the network and service. Main and split charts support Binance spot and perpetual markets. Paused, completed and deleted alerts have no active line. Cloud monitoring and email continue with the app closed; desktop notifications require the app to be online with message popups enabled. This is an unreleased source candidate: check the installed version. Support can explain these steps but cannot create, move or delete alerts for the user.",
+      "category": "alerts",
+      "locale": "en",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-price-alert.ts",
+        "youle_desktop/src/renderer/trading-price-alert-markers.ts",
+        "youle_desktop/src/renderer/trading-price-alert-store.ts",
+        "youle_desktop/src/main/trading-alerts/cloud-price-alerts.mjs",
+        "youle_desktop/docs/chart-price-alert-markers-20261025.zh-CN.md"
+      ]
+    },
+    {
+      "id": "chart-price-alert-markers-zh-Hant",
+      "title": "圖表價格預警線、改價、拖動與刪除",
+      "body": "Windows 圖表價格旁的加號可建立雲端價格預警。點擊既有預警的價格框，修改預填價格後按「確定建立」或 Enter；驗證新預警建立成功後刪除原預警，預警線移至新價格。取消或 Escape 保留原預警，價格須為大於零的有效有限數值。仍可拖動預警線，刪除須確認。儲存失敗或結果未明時以相同請求重試，避免重複建立。雲端回讀驗證後立即更新圖表，完整清單於背景重新整理，減少重複等待；仍須完成登入、會員權益及雲端儲存檢查，實際耗時取決於網路與服務。主圖及分屏支援幣安現貨和永續市場；暫停、完成或刪除的預警不顯示有效線。關閉客戶端後仍由雲端監控並寄送郵件，桌面浮窗需客戶端在線且開啟訊息彈窗。此為未發布的原始碼候選，須核對安裝版本。客服僅說明操作，不能代建、移動或刪除預警。",
+      "category": "alerts",
+      "locale": "zh-Hant",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-price-alert.ts",
+        "youle_desktop/src/renderer/trading-price-alert-markers.ts",
+        "youle_desktop/src/renderer/trading-price-alert-store.ts",
+        "youle_desktop/src/main/trading-alerts/cloud-price-alerts.mjs",
+        "youle_desktop/docs/chart-price-alert-markers-20261025.zh-CN.md"
+      ]
+    },
+    {
+      "id": "chart-price-alert-markers-ko",
+      "title": "차트 가격 알림: 가격 수정, 드래그 및 삭제",
+      "body": "Windows 차트 가격 옆의 더하기 버튼으로 클라우드 가격 알림을 만듭니다. 기존 알림의 가격 상자를 클릭하면 현재 가격이 입력된 수정 창이 열립니다. 0보다 큰 유한한 가격을 입력하고 확인하거나 Enter를 누르면 새 알림의 저장을 검증한 뒤 기존 알림을 삭제하고 선을 새 가격으로 이동합니다. 취소 또는 Escape는 기존 알림을 유지합니다. 드래그와 확인 후 삭제도 계속 지원합니다. 저장 실패나 결과 불명확 시 동일한 요청으로 재시도하여 중복 생성을 방지합니다. 클라우드에서 저장 결과를 다시 확인하면 차트를 즉시 갱신하고 전체 목록은 백그라운드에서 새로 고쳐 반복 대기를 줄입니다. 로그인, 회원 권한 및 서버 저장 확인은 유지되며 실제 시간은 네트워크와 서버에 따라 달라집니다. 기본 및 분할 차트에서 바이낸스 현물과 무기한 선물을 지원합니다. 일시 중지, 완료 또는 삭제된 알림은 활성 선을 표시하지 않습니다. 앱을 종료해도 클라우드 모니터링과 이메일은 계속되며 데스크톱 알림은 앱이 온라인이고 메시지 팝업이 켜져 있어야 합니다. 아직 출시하지 않은 소스 후보이므로 설치 버전을 확인해야 합니다. 고객지원은 사용법만 설명하며 알림을 대신 생성, 이동 또는 삭제할 수 없습니다.",
+      "category": "alerts",
+      "locale": "ko",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-price-alert.ts",
+        "youle_desktop/src/renderer/trading-price-alert-markers.ts",
+        "youle_desktop/src/renderer/trading-price-alert-store.ts",
+        "youle_desktop/src/main/trading-alerts/cloud-price-alerts.mjs",
+        "youle_desktop/docs/chart-price-alert-markers-20261025.zh-CN.md"
+      ]
+    },
+    {
+      "id": "chart-price-alert-markers-ja",
+      "title": "チャートの価格アラート：価格変更・ドラッグ・削除",
+      "body": "Windowsのチャート価格横のプラスボタンからクラウド価格アラートを作成できます。既存アラートの価格欄をクリックすると現在の価格が入力された編集画面が開きます。0より大きい有限の価格を入力して確定またはEnterを押すと、新しいアラートの保存を検証してから元のアラートを削除し、ラインを新しい価格へ移動します。キャンセルまたはEscapeで元の状態を維持します。ドラッグと確認後の削除も利用できます。保存失敗や結果不明の場合は同じリクエストで再試行し、重複作成を防ぎます。クラウドで保存結果を読み戻して検証した後はチャートをすぐに更新し、一覧全体はバックグラウンドで更新して重複した待機を減らします。ログイン、会員権限、サーバー保存の確認は維持され、実際の所要時間はネットワークとサービスの応答に依存します。メイン・分割チャートでBinanceの現物と無期限先物に対応します。一時停止、完了、削除済みのアラートには有効なラインを表示しません。アプリを終了してもクラウド監視とメール通知は継続します。デスクトップ通知にはアプリがオンラインでメッセージポップアップが有効である必要があります。未公開のソース候補のため、インストール済みバージョンを確認してください。サポートは操作を説明できますが、ユーザーに代わってアラートを作成・移動・削除することはできません。",
+      "category": "alerts",
+      "locale": "ja",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "windows"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-price-alert.ts",
+        "youle_desktop/src/renderer/trading-price-alert-markers.ts",
+        "youle_desktop/src/renderer/trading-price-alert-store.ts",
+        "youle_desktop/src/main/trading-alerts/cloud-price-alerts.mjs",
+        "youle_desktop/docs/chart-price-alert-markers-20261025.zh-CN.md"
       ]
     }
   ]

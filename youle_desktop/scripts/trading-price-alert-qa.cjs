@@ -18,7 +18,11 @@ let service;
   const remote = cloudPriceAlertFixture();
   let calls = [], hideReadback = false;
   service = createCloudPriceAlerts({owner:async()=>({ownerId:'qa',accountId:'qa',email:'fixture@example.invalid',baseUrl:'qa'}),api:()=>remote});
-  ipcMain.handle('priceQa:create', async (_event, params) => { calls.push(params); return {ok:true,data:await service.create(params)}; });
+  ipcMain.handle('priceQa:create', async (_event, params) => {
+    calls.push(params);const data=await service.create(params);
+    if(hideReadback)delete data.readbackVerified; // Exercise compatibility with an older main process.
+    return {ok:true,data};
+  });
   ipcMain.handle('priceQa:snapshot', async () => ({ok:true,data:{...(hideReadback ? {alerts:[]} : await service.snapshot()),cloudLoaded:true}}));
   await app.whenReady();
   const win = new BrowserWindow({ show: false, width: 1200, height: 800, webPreferences: { preload, offscreen: true, backgroundThrottling: false } });
@@ -36,7 +40,7 @@ let service;
   const results = [];
   for (const theme of ['light','dark']) {
     const fixture = path.join(root, 'test/fixtures/trading-chart-navigation.html').replaceAll('\\','/');
-    await win.loadURL(`http://127.0.0.1:5177/@fs/${fixture}`);
+    await win.loadURL(`${process.env.HAOLO_PRICE_QA_URL || 'http://127.0.0.1:5177'}/@fs/${fixture}`);
     await until('window.ready === true');
     await js(`document.documentElement.dataset.theme='${theme}';document.documentElement.lang='zh-CN';window.primary=workspace;
       workspace.loadingHistory=true;workspace.splitLayoutId='1-single';workspace.applySplitLayout();workspace.applyChartTheme();

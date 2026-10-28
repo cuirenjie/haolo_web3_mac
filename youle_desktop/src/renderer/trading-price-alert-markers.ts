@@ -6,7 +6,7 @@ export type PriceAlertChart = {
   getChart: () => any;
   getSeries: () => any;
 };
-type Marker = { row: HTMLDivElement; label: HTMLSpanElement; remove: HTMLButtonElement; alert: ChartPriceAlert };
+type Marker = { row: HTMLDivElement; label: HTMLButtonElement; remove: HTMLButtonElement; alert: ChartPriceAlert };
 type Drag = { marker: Marker; pointerId: number; startY: number; price: number; moved: boolean; marketId: string };
 
 export class TradingPriceAlertMarkers {
@@ -22,8 +22,10 @@ export class TradingPriceAlertMarkers {
     marketId: () => string | undefined;
     precision: (price: number) => number;
     label: (alert: ChartPriceAlert) => string;
+    editLabel: () => string;
     deleteLabel: () => string;
     blocked: () => boolean;
+    edit: (alert: ChartPriceAlert) => void;
     remove: (alert: ChartPriceAlert) => void;
     move: (alert: ChartPriceAlert, price: number) => void;
   }) {
@@ -57,7 +59,8 @@ export class TradingPriceAlertMarkers {
       marker.alert = alert;
       const label = this.options.label(alert);
       if (marker.label.textContent !== label) marker.label.textContent = label;
-      marker.label.title = label;
+      marker.label.title = this.options.editLabel();
+      marker.label.ariaLabel = `${this.options.editLabel()}: ${label}`;
       marker.row.setAttribute('aria-label', marker.label.textContent);
       marker.remove.title = marker.remove.ariaLabel = this.options.deleteLabel();
       const price = this.drag?.marker === marker ? this.drag.price
@@ -73,9 +76,11 @@ export class TradingPriceAlertMarkers {
     row.className = 'trading-price-alert-line';
     row.dataset.priceAlertId = alert.alertId;
     row.tabIndex = 0;
-    row.innerHTML = '<span class="trading-price-alert-dash"></span><span class="trading-price-alert-tip"></span><span class="trading-price-alert-caption"><span data-price-alert-label></span><button type="button" data-price-alert-delete><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14M7 5V3h6v2M5 5l1 12h8l1-12M8 8v6M12 8v6"/></svg></button></span>';
-    const marker = { row, label: row.querySelector<HTMLSpanElement>('[data-price-alert-label]')!,
-      remove: row.querySelector<HTMLButtonElement>('button')!, alert };
+    row.innerHTML = '<span class="trading-price-alert-dash"></span><span class="trading-price-alert-tip"></span><span class="trading-price-alert-caption"><button type="button" data-price-alert-label></button><button type="button" data-price-alert-delete><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14M7 5V3h6v2M5 5l1 12h8l1-12M8 8v6M12 8v6"/></svg></button></span>';
+    const marker = { row, label: row.querySelector<HTMLButtonElement>('[data-price-alert-label]')!,
+      remove: row.querySelector<HTMLButtonElement>('[data-price-alert-delete]')!, alert };
+    marker.label.addEventListener('pointerdown', event => event.stopPropagation());
+    marker.label.addEventListener('click', event => { event.stopPropagation(); if (!this.options.blocked()) this.options.edit(marker.alert); });
     marker.remove.addEventListener('pointerdown', event => event.stopPropagation());
     marker.remove.addEventListener('click', event => { event.stopPropagation(); if (!this.options.blocked()) this.options.remove(marker.alert); });
     row.addEventListener('pointerdown', event => this.startDrag(event, marker));
@@ -84,6 +89,9 @@ export class TradingPriceAlertMarkers {
     row.addEventListener('pointercancel', this.cancelDrag);
     row.addEventListener('lostpointercapture', this.cancelDrag);
     row.addEventListener('keydown', event => {
+      if (event.target === row && ['Enter', ' '].includes(event.key) && !this.options.blocked()) {
+        event.preventDefault(); event.stopPropagation(); this.options.edit(marker.alert);
+      }
       if (event.target === row && ['Delete', 'Backspace'].includes(event.key) && !this.options.blocked()) {
         event.preventDefault(); event.stopPropagation(); this.options.remove(marker.alert);
       }

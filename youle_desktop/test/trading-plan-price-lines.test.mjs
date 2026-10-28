@@ -34,6 +34,17 @@ test('five plan levels reuse account-line labels with exact prices and no accoun
   assert.equal(renderTradingOrderLineSvg(lines, market, bounds, () => null), '');
 });
 
+test('collapsed price axes keep plan price text and all label bounds inside the expanded plot', () => {
+  const { lines } = buildTradingPlanPriceLines(sample());
+  const svg = renderTradingOrderLineSvg(lines, market,
+    { width: 1000, height: 600, priceScaleWidth: 0, priceScaleOverlayWidth: 80 }, price => (1500 - price) * 2);
+  for (const line of lines) assert.ok(svg.includes(`>${line.label}</tspan>`));
+  const boxes = [...svg.matchAll(/class="trading-order-line-label-bg[^"]*" x="([^"]+)" y="[^"]+" width="([^"]+)"/g)];
+  assert.equal(boxes.length, lines.length);
+  for (const [, x, width] of boxes) { assert.ok(Number(x) >= 0); assert.equal(Number(x) + Number(width), 1000); }
+  assert.equal((svg.match(/text-anchor="middle" x="960"/g) || []).length, lines.length);
+});
+
 test('only horizontal AI plan levels are adapted; manual drawings and theory geometry remain intact', () => {
   const ignored = [drawing('entry', 10, 0, { source: 'manual' }), drawing('entry', 10, 1, { tool: 'note' }),
     drawing('entry', 10, 2, { colorToken: 'strategy-support' }), drawing('entry', NaN, 3),

@@ -3,7 +3,7 @@ import { japaneseText } from '../shared/japanese.mjs';
 import { priceAlertDeliveryDescription } from '../shared/price-alert-copy.mjs';
 import { koreanText } from '../shared/korean.mjs';
 import { TradingPriceAlertMarkers, type PriceAlertChart } from './trading-price-alert-markers.ts';
-import { publishChartPriceAlerts, refreshChartPriceAlerts, type ChartPriceAlert } from './trading-price-alert-store.ts';
+import { chartPriceAlertAccountRevision, publishCreatedChartPriceAlert, publishChartPriceAlerts, refreshChartPriceAlerts, type ChartPriceAlert } from './trading-price-alert-store.ts';
 type PriceContext = { marketId: string; interval: string; referencePrice: number };
 const supported = (marketId: string) => /^BINANCE:(?:FUTURES|SPOT):/.test(marketId);
 const copy = {
@@ -21,6 +21,9 @@ const copy = {
   readback: ['尚未从预警列表读回，请重试确认创建结果。', 'Could not verify the saved alert. Retry to check the result.', '尚未從預警清單讀回，請重試確認建立結果。'],
   cloudUnavailable: ['云端价格预警暂未就绪，请稍后重试。', 'Cloud price alerts are not ready. Please retry shortly.', '雲端價格預警暫未就緒，請稍後重試。'],
   emailRequired: ['请先在账号页面绑定邮箱。', 'Add an email address on the Account page first.', '請先在帳號頁面綁定信箱。'],
+  edit: ['修改预警价格', 'Edit alert price', '修改預警價格', '알림 가격 수정', 'アラート価格を変更', 'Chỉnh sửa giá cảnh báo'],
+  targetPrice: ['预警价格', 'Alert price', '預警價格', '알림 가격', 'アラート価格', 'Giá cảnh báo'],
+  invalidPrice: ['请输入大于 0 的有效价格', 'Enter a valid price greater than 0', '請輸入大於 0 的有效價格', '0보다 큰 유효한 가격을 입력하세요', '0より大きい有効な価格を入力してください', 'Nhập giá hợp lệ lớn hơn 0'],
   moveTitle: ['在此价格重新创建预警？', 'Create a replacement alert at this price?', '在此價格重新建立預警？', '이 가격으로 알림을 다시 만들까요?'],
   moveDetail: ['确认后将在此价格创建预警，并自动删除原预警；取消则保留原预警。', 'Confirm to create an alert at this price and automatically delete the original. Cancel to keep the original.', '確認後將在此價格建立預警，並自動刪除原預警；取消則保留原預警。', '확인하면 이 가격으로 알림을 만들고 기존 알림을 자동 삭제합니다. 취소하면 기존 알림을 유지합니다.'],
   deleteTitle: ['删除这个预警？', 'Delete this alert?', '刪除這個預警？', '이 알림을 삭제할까요?'],
@@ -34,8 +37,8 @@ const copy = {
 function t(key: keyof typeof copy | 'detail') {
   const language = document.documentElement.lang;
   if (key === 'detail') return priceAlertDeliveryDescription(language);
-  if (language.startsWith('vi')) return vietnameseText(copy[key][0]);
-  if (language.startsWith('ja')) return japaneseText(copy[key][0]);
+  if (language.startsWith('vi')) return (copy[key] as string[])[5] || vietnameseText(copy[key][0]);
+  if (language.startsWith('ja')) return (copy[key] as string[])[4] || japaneseText(copy[key][0]);
   if (language.startsWith('ko')) return (copy[key] as string[])[3] || koreanText(copy[key][0]);
   return copy[key][language.startsWith('en') ? 1 : /TW|Hant/i.test(language) ? 2 : 0];
 }
@@ -89,7 +92,13 @@ export class TradingPriceAlertControl {
     this.button.addEventListener('click', this.open);
     if (chart) this.markers = new TradingPriceAlertMarkers({ ...chart,
       marketId: () => context()?.marketId, precision: priceAlertPrecision, label: markerLabel,
-      deleteLabel: () => t('delete'), blocked: () => !!this.dialog,
+      editLabel: () => t('edit'), deleteLabel: () => t('delete'), blocked: () => !!this.dialog,
+      edit: alert => {
+        const current = context();
+        if (current?.marketId === alert.marketId && current.referencePrice > 0) {
+          this.showCreate({ ...current, price: alert.price }, '', alert, true);
+        }
+      },
       remove: alert => this.openDelete(alert),
       move: (alert, price) => {
         const current = context();
@@ -121,7 +130,7 @@ export class TradingPriceAlertControl {
     if (current?.marketId !== this.sample.marketId || current?.interval !== this.sample.interval) return;
     this.showCreate(this.sample, this.value.textContent || '');
   };
-  private showCreate(sample: PriceContext & { price: number }, label: string, replaces?: ChartPriceAlert) {
+  private showCreate(sample: PriceContext & { price: number }, label: string, replaces?: ChartPriceAlert, editable = false) {
     if (this.dialog) return;
     const language = document.documentElement.lang;
     const frozen = { ...sample, interval: replaces?.interval ?? priceAlertInterval(sample.interval), requestId: crypto.randomUUID(), confirmed: true as const,
@@ -131,14 +140,32 @@ export class TradingPriceAlertControl {
     const dialog = document.createElement('dialog');
     this.dialog = dialog;
     dialog.className = 'trading-price-alert-dialog';
-    dialog.setAttribute('aria-label', t(replaces ? 'moveTitle' : 'title'));
+    const title = t(editable ? 'edit' : replaces ? 'moveTitle' : 'title');
+    dialog.setAttribute('aria-label', title);
     dialog.innerHTML = '<h2></h2><strong class="trading-price-alert-market"></strong><div class="trading-price-alert-target"></div><p data-price-alert-description></p><p role="status" data-price-alert-status></p><footer><button type="button" data-price-alert-cancel></button><button type="button" data-price-alert-confirm></button></footer>';
     const heading = dialog.querySelector('h2')!;
-    heading.textContent = t(replaces ? 'moveTitle' : 'title');
+    heading.textContent = title;
     dialog.querySelector('strong')!.textContent = `${marketLabel(frozen.marketId)} · ${frozen.interval}`;
     dialog.querySelector('.trading-price-alert-target')!.textContent = label;
     dialog.querySelector('[data-price-alert-description]')!.textContent = t(replaces ? 'moveDetail' : 'detail');
     const status = dialog.querySelector<HTMLElement>('[data-price-alert-status]')!;
+    let priceInput: HTMLInputElement | null = null;
+    if (editable) {
+      const field = document.createElement('label');
+      field.className = 'trading-price-alert-price-field';
+      const name = document.createElement('span');
+      name.textContent = t('targetPrice');
+      priceInput = document.createElement('input');
+      priceInput.type = 'number'; priceInput.inputMode = 'decimal'; priceInput.step = 'any';
+      priceInput.required = true;
+      priceInput.dataset.priceAlertInput = '';
+      priceInput.value = String(frozen.price);
+      status.id = `price-alert-status-${frozen.requestId}`;
+      priceInput.setAttribute('aria-describedby', status.id);
+      priceInput.addEventListener('input', () => { priceInput!.removeAttribute('aria-invalid'); status.textContent = ''; });
+      field.append(name, priceInput);
+      dialog.querySelector('.trading-price-alert-target')!.replaceWith(field);
+    }
     const cancel = dialog.querySelector<HTMLButtonElement>('[data-price-alert-cancel]')!;
     const confirm = dialog.querySelector<HTMLButtonElement>('[data-price-alert-confirm]')!;
     cancel.textContent = t('cancel'); confirm.textContent = t('confirm');
@@ -159,22 +186,39 @@ export class TradingPriceAlertControl {
         window.dispatchEvent(new CustomEvent('haolo:open-price-alert', { detail: { alertId: createdId } }));
         return;
       }
+      if (priceInput && !priceInput.readOnly) {
+        const price = priceInput.valueAsNumber;
+        if (!Number.isFinite(price) || price <= 0) {
+          status.textContent = t('invalidPrice');
+          priceInput.setAttribute('aria-invalid', 'true'); priceInput.focus();
+          return;
+        }
+        frozen.price = price;
+      }
       busy = true; confirm.disabled = cancel.disabled = true;
       confirm.textContent = t('saving'); status.textContent = '';
       try {
         const api = window.codexDesktop;
         if (!api?.tradingAlertsCreateCloudPriceAlert || !api.tradingAlertsSnapshot) throw new Error(t('missing'));
+        const accountRevision = chartPriceAlertAccountRevision();
+        // A failed response may still have saved the alert. Retry the same price and request ID.
+        if (priceInput) priceInput.readOnly = true;
         const response = await api.tradingAlertsCreateCloudPriceAlert(frozen);
         if (response?.ok === false) {
           const key = ({PRICE_ALERT_CLOUD_UNAVAILABLE:'cloudUnavailable',PRICE_ALERT_EMAIL_REQUIRED:'emailRequired',PRICE_ALERT_READBACK_FAILED:'readback',PRICE_ALERT_REPLACEMENT_INCOMPLETE:'replacementIncomplete'} as const)[response.error?.code as 'PRICE_ALERT_CLOUD_UNAVAILABLE'];
           throw new Error(key ? t(key) : response.error?.message || t('missing'));
         }
         const result = response?.data ?? response;
-        const snapshot = await api.tradingAlertsSnapshot();
-        publishChartPriceAlerts(snapshot);
-        const alerts = (snapshot?.data ?? snapshot)?.alerts;
-        if (snapshot?.ok === false || !result?.alert?.alertId || !alerts?.some((alert: any) => alert.alertId === result.alert.alertId)) throw new Error(t('readback'));
-        if (replaces && alerts.some((alert: any) => alert.alertId === replaces.alertId)) throw new Error(t('replacementIncomplete'));
+        if (accountRevision !== chartPriceAlertAccountRevision()) throw new Error(t('readback'));
+        if (!publishCreatedChartPriceAlert(result, frozen)) {
+          // Older main processes do not return a verified receipt yet.
+          const snapshot = await api.tradingAlertsSnapshot();
+          if (accountRevision !== chartPriceAlertAccountRevision()) throw new Error(t('readback'));
+          publishChartPriceAlerts(snapshot);
+          const alerts = (snapshot?.data ?? snapshot)?.alerts;
+          if (snapshot?.ok === false || !result?.alert?.alertId || !alerts?.some((alert: any) => alert.alertId === result.alert.alertId)) throw new Error(t('readback'));
+          if (replaces && alerts.some((alert: any) => alert.alertId === replaces.alertId)) throw new Error(t('replacementIncomplete'));
+        }
         createdId = result.alert.alertId;
         this.markers?.finishMove();
         if (replaces) { dialog.close(); return; }
@@ -189,8 +233,12 @@ export class TradingPriceAlertControl {
         confirm.textContent = t(createdId ? 'view' : 'confirm');
       }
     };
+    priceInput?.addEventListener('keydown', event => {
+      if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); confirm.click(); }
+    });
     document.body.append(dialog);
-    dialog.showModal(); cancel.focus();
+    dialog.showModal();
+    if (priceInput) { priceInput.focus(); priceInput.select(); } else cancel.focus();
   }
   private openDelete(alert: ChartPriceAlert) {
     if (this.dialog) return;

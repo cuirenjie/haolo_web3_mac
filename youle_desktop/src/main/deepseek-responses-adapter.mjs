@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { Transform } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
+import { modelIncompleteFacts, incompleteErrorMessage, MODEL_RESPONSE_INCOMPLETE } from "../shared/model-incomplete.mjs";
 import zlib from "node:zlib";
 import { leakedToolProtocolIndex, redactLeakedToolProtocol, MODEL_TOOL_PROTOCOL_ERROR, modelProtocolErrorText } from "../shared/model-protocol-text.mjs";
 
@@ -206,8 +207,23 @@ export function createDeepSeekResponseStream(names, { maxBufferedBytes = 16 * 10
     return encode({ type: "response.failed", response: { id: responseId, object: "response", status: "failed", output: [], error: { code: MODEL_TOOL_PROTOCOL_ERROR, message: `${MODEL_TOOL_PROTOCOL_ERROR}: ${modelProtocolErrorText()}`, retryable: false } } });
   };
   const process = event => {
-    if (failed) return [];
+    if (failed || terminal) return [];
     if (event.response?.id) responseId = event.response.id;
+    const incomplete = modelIncompleteFacts(event);
+    if (incomplete) {
+      // The bundled runtime reliably surfaces response.failed.error.message.
+      // Preserve the original incomplete status/reason/usage and prior deltas;
+      // never turn a truncated tool call into executable feedback or success.
+      terminal = true;
+      failed = true;
+      const output = (event.response?.output || []).filter(item => item.type === "message" || item.type === "reasoning");
+      const response = restoreDeepSeekResponse({ ...event.response, output }, names);
+      const tail = [...texts.values()]; texts.clear(); bufferedBytes = 0;
+      return [...tail, { ...event, type: "response.failed", response: { ...response, status: "incomplete", error: {
+        code: MODEL_RESPONSE_INCOMPLETE, message: incompleteErrorMessage(incomplete), retryable: false,
+        incomplete_reason: incomplete.reason, response_id: incomplete.responseId,
+      } } }];
+    }
     if (event.item?.id) items.set(event.item.id, { ...items.get(event.item.id), ...event.item });
     const item = event.item || items.get(event.item_id);
     if (responsePolicies.get(names)?.allowFeedback === false && item?.type?.endsWith("_call")) throw protocolError();

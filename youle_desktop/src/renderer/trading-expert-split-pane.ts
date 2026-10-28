@@ -1,5 +1,6 @@
 import {chartTickLabel} from "./trading-chart-time.ts";
 import { TradingChartClock } from "./trading-chart-clock.ts";
+import { setTradingPriceAxisOverlay, tradingPriceAxisLabelGeometry } from './trading-price-axis.ts';
 import { TradingPriceAlertControl } from './trading-price-alert.ts';
 import { deferInteractionRender } from "./interaction-render-guard.ts";
 import type { VolumeHistoryRequest, VolumeHistoryResult } from './trading-volume-history.ts';
@@ -1012,6 +1013,10 @@ export class TradingExpertSplitPane {
     });
     this.chartClock = new TradingChartClock(this.chartElement, this.chart);
     this.addSeries();
+    this.chart.priceScale("right", 0).applyOptions({
+      textColor: this.settings.hidePriceAxis ? "transparent" : this.themeName === "dark" ? "#dfe1e3" : "#172033",
+    });
+    setTradingPriceAxisOverlay(this.chart, this.settings.hidePriceAxis);
     this.extremaOverlay?.destroy();
     this.extremaOverlay = new TradingChartExtremaOverlay({
       root: this.viewportElement,
@@ -1293,8 +1298,9 @@ export class TradingExpertSplitPane {
       this.priceAlertControl.update(price, Math.max(2, 6 - digits));
       const halfHeight = 12 * this.chart.options().layout.fontSize / 11;
       const height = this.chart.panes()[0]?.getHeight() ?? 0;
-      this.crosshairPriceElement.style.left = `${this.chart.timeScale().width()}px`;
-      this.crosshairPriceElement.style.width = `${this.chart.priceScale('right', 0).width()}px`;
+      const priceLabel = tradingPriceAxisLabelGeometry(this.chart);
+      this.crosshairPriceElement.style.left = `${priceLabel.left}px`;
+      this.crosshairPriceElement.style.width = `${priceLabel.width}px`;
       this.crosshairPriceElement.style.top = `${Math.min(Math.max(y, halfHeight), Math.max(halfHeight, height - halfHeight))}px`;
       this.crosshairPriceElement.hidden = false;
     } else this.crosshairPriceElement.hidden = true;
@@ -1582,6 +1588,7 @@ export class TradingExpertSplitPane {
   }
 
   private applySettings(settings: TradingChartSettings, themeName: TradingChartThemeName) {
+    setTradingPriceAxisOverlay(this.chart, settings.hidePriceAxis);
     const autoScaleChanged = settings.autoScale !== this.settings.autoScale;
     if (autoScaleChanged) this.chart?.priceScale("right", 0).setAutoScale(settings.autoScale);
     const manualRanges = captureManualTradingPriceRanges(this.chart);
@@ -1623,6 +1630,7 @@ export class TradingExpertSplitPane {
     this.chartClock?.update();
     this.chart?.priceScale("right", 0).applyOptions({
       ...(scaleModeChanged ? { mode: priceScaleMode(settings), autoScale: true } : {}),
+      textColor: settings.hidePriceAxis ? "transparent" : themeName === "dark" ? "#dfe1e3" : "#172033",
       scaleMargins: {
         top: settings.verticalPaddingPercent / 100,
         bottom: settings.verticalPaddingPercent / 100,

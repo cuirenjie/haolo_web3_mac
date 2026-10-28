@@ -38,6 +38,11 @@
 .trading-price-alert-dialog h2 { margin: 0 0 20px; font-size: 19px; }
 .trading-price-alert-market { font-size: 13px; overflow-wrap: anywhere; }
 .trading-price-alert-target { margin: 8px 0 18px; font-size: 28px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.trading-price-alert-price-field { display: grid; gap: 8px; margin: 18px 0; font-size: 14px; }
+.trading-price-alert-price-field input { box-sizing: border-box; width: 100%; min-width: 0; padding: 10px 12px; border: 1px solid #8886; border-radius: 8px; background: transparent; color: inherit; font: inherit; font-size: 24px; font-variant-numeric: tabular-nums; }
+.trading-price-alert-price-field input:focus { outline: 2px solid #3977ff; outline-offset: 1px; }
+.trading-price-alert-price-field input[aria-invalid="true"] { border-color: #f23545; }
+.trading-price-alert-price-field input:read-only { opacity: .65; }
 .trading-price-alert-dialog p { font-size: 14px; line-height: 1.6; }
 .trading-price-alert-dialog small { color: #657087; }
 .trading-price-alert-dialog [role="status"]:empty { display: none; }
@@ -107,8 +112,22 @@ html[data-theme="dark"] .trading-price-alert-dialog [data-price-alert-confirm] {
   line-height: 26px;
   white-space: nowrap;
 }
-.trading-price-alert-caption > span { padding: 0 9px; overflow: hidden; text-overflow: ellipsis; }
 .trading-price-alert-caption button {
+  border: 0;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+}
+.trading-price-alert-caption [data-price-alert-label] {
+  min-width: 0;
+  padding: 0 9px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: 4px 0 0 4px;
+}
+.trading-price-alert-caption [data-price-alert-delete] {
   flex: 0 0 28px;
   width: 28px;
   height: 26px;
@@ -123,6 +142,7 @@ html[data-theme="dark"] .trading-price-alert-dialog [data-price-alert-confirm] {
   cursor: pointer;
 }
 .trading-price-alert-caption button:hover { background: #8882; }
+.trading-price-alert-caption button:focus-visible { outline: 2px solid #3977ff; outline-offset: -2px; }
 .trading-price-alert-caption svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.4; }
 .trading-price-alert-line:is(:hover, :focus-within) { z-index: 1; }
 .trading-price-alert-line:is(:hover, :focus-within) .trading-price-alert-caption { display: flex; }

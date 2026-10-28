@@ -44,6 +44,7 @@ export interface TradingChartSettings {
   drawingVisibility: TradingDrawingLayerVisibility;
   priceScaleMode: TradingPriceScaleMode;
   autoScale: boolean;
+  hidePriceAxis: boolean;
   showPriceLine: boolean;
   showPriceLabel: boolean;
   showCountdown: boolean;
@@ -133,6 +134,7 @@ export const DEFAULT_TRADING_CHART_SETTINGS: Readonly<TradingChartSettings> = {
   drawingVisibility: { ...DEFAULT_TRADING_DRAWING_VISIBILITY },
   priceScaleMode: "linear",
   autoScale: true,
+  hidePriceAxis: false,
   showPriceLine: true,
   showPriceLabel: true,
   showCountdown: false,
@@ -388,6 +390,7 @@ export function normalizeTradingChartSettings(value: unknown): TradingChartSetti
     // Clear stale frozen ranges on upgrade; later manual choices persist until
     // the next zoom, which explicitly restores automatic price fitting.
     autoScale: sourceVersion >= 7 && typeof source.autoScale === "boolean" ? source.autoScale : defaults.autoScale,
+    hidePriceAxis: typeof source.hidePriceAxis === "boolean" ? source.hidePriceAxis : defaults.hidePriceAxis,
     showPriceLine: typeof source.showPriceLine === "boolean" ? source.showPriceLine : defaults.showPriceLine,
     showPriceLabel: typeof source.showPriceLabel === "boolean" ? source.showPriceLabel : defaults.showPriceLabel,
     showCountdown: typeof source.showCountdown === "boolean" ? source.showCountdown : defaults.showCountdown,
@@ -694,7 +697,9 @@ export function renderTradingChartSettingsDialog(
                 ${checkbox("autoScale", "自动适配价格", settings.autoScale)}
                 ${checkbox("logarithmicScale", "对数坐标", settings.priceScaleMode === "logarithmic")}
                 ${checkbox("percentageScale", "百分比坐标", settings.priceScaleMode === "percentage")}
+                ${checkbox("hidePriceAxis", "隐藏价格轴", settings.hidePriceAxis)}
               </div></div>
+              <p class="trading-chart-settings-theme-note">隐藏主图价格刻度并收起轴空间，K线画布自动扩展；实时价格、十字线及其他价格标注保留在画布右边缘。</p>
               <p class="trading-chart-settings-theme-note">默认以鼠标位置缩放；滚轮或键盘加减键缩放时，价格轴随可见 K 线自动适配，完整显示最高价和最低价。手动调轴后，下次缩放或双击价格轴会恢复自动适配，不影响成交量等副图。</p>
             </section>
             <section data-chart-settings-panel="live-price" hidden>

@@ -379,6 +379,7 @@ import {
 } from "./media-model-pricing";
 import { redactVideoGenerationCompletionMetadata } from "./video-generation-privacy";
 import { redactLeakedToolProtocol, modelProtocolErrorText } from "../shared/model-protocol-text.mjs";
+import { modelIncompleteFacts, incompleteResponseCopy, incompleteNoticeItem, preserveIncompletePartial } from "../shared/model-incomplete.mjs";
 import {
   isFeishuImageAttachment,
   isFeishuVideoAttachment,
@@ -16741,6 +16742,7 @@ function orderedThreadItems(thread: any, existingItems: CodexItem[] = [], option
     });
   }
   for (const row of rows) {
+    row.item = preserveIncompletePartial(existingItems.find((item) => itemStableId(item) === itemStableId(row.item)), row.item);
     if (!isContextCompactionItem(row.item)) continue;
     row.item = mergeCompactionItem(existingItems.find((item) => itemStableId(item) === itemStableId(row.item)), row.item);
   }
@@ -16959,6 +16961,7 @@ function shouldPreserveExistingThreadItem(item: CodexItem, incomingIds: Set<stri
   if (id && isLocalStatusThreadItem(id, item)) {
     return Boolean(options.preserveUnmatched);
   }
+  if (item.__youleIncompletePartial === true && options.preserveUnmatched) return true;
   // Compaction items are live UI state. The app-server snapshot can omit them
   // while compaction is running and after a failed pre-sampling compact. Keep
   // the local item so switching away and back cannot erase its status bubble.
@@ -22379,7 +22382,8 @@ function handleNotification(message: JsonRpcMessage) {
       const completedTurnStatus =
         firstString(message.params?.turn?.status, message.params?.status)?.toLowerCase()
         || (message.params?.turn?.error || message.params?.error ? "failed" : "");
-      const completedTurnFailed = completedTurnStatus === "failed" || completedTurnStatus === "error";
+      const completedTurnIncomplete = modelIncompleteFacts(message);
+      const completedTurnFailed = completedTurnStatus === "failed" || completedTurnStatus === "error" || Boolean(completedTurnIncomplete);
       const compactionTerminalError = completedTurnFailed
         ? formatTurnFailureMessage(notificationFailureReason(message), automaticTurnRecoveryMeta(message))
         : "上下文压缩已中断，请重试。";
@@ -22427,6 +22431,9 @@ function handleNotification(message: JsonRpcMessage) {
         completedTurnFailureMessage = withDiagnosticId(completedTurnFailureMessage, completedTurnDiagnosticId);
       }
       // HAOLO-TURN-DIAGNOSTICS-END: removable completed-turn display ID
+      if (threadId && completedTurnIncomplete) {
+        appendIncompleteTurnNotice(threadId, completedTurnId, completedTurnIncomplete.reason, completedTurnDiagnosticId);
+      }
       const interruptionWasRequested = Boolean(
         completedTurnId && interruptedCodexTurnIds.has(completedTurnId),
       );
@@ -22523,7 +22530,7 @@ function handleNotification(message: JsonRpcMessage) {
         }
         markFinalResultUnviewed(threadId);
         scheduleCompletedTurnHydration(threadId, completedTurnId, {
-          warnIfNoReply: wasAwaitingReply && !insufficientQuota,
+          warnIfNoReply: wasAwaitingReply && !insufficientQuota && !completedTurnIncomplete,
           failureMessage: completedTurnFailureMessage,
           // HAOLO-CONTEXT-RECOVERY-PATCH-BEGIN
           contextWindowExhausted: completedTurnContextWindowExhausted,
@@ -22602,7 +22609,9 @@ function handleNotification(message: JsonRpcMessage) {
           // HAOLO-TURN-DIAGNOSTICS-BEGIN: removable failed-turn display ID
           failureNotice = withDiagnosticId(failureNotice, failedTurnDiagnosticId);
           // HAOLO-TURN-DIAGNOSTICS-END: removable failed-turn display ID
-          appendAgentNotice(threadId, failureNotice);
+          const incomplete = modelIncompleteFacts(message);
+          if (incomplete) appendIncompleteTurnNotice(threadId, failedTurnId, incomplete.reason, failedTurnDiagnosticId);
+          else appendAgentNotice(threadId, failureNotice);
         }
       }
       closeConversationSupplementWindow(threadId, failedTurnId);
@@ -22951,6 +22960,8 @@ function withDiagnosticId(text: string, diagnosticId: string | null | undefined)
 // HAOLO-TURN-DIAGNOSTICS-END: removable renderer diagnostic helpers
 
 function notificationFailureReason(message: JsonRpcMessage) {
+  const incomplete = modelIncompleteFacts(message);
+  if (incomplete) return `MODEL_RESPONSE_INCOMPLETE reason=${incomplete.reason}`;
   const turnError = message.params?.turn?.error;
   const rootError = message.params?.error;
   return firstString(
@@ -23031,6 +23042,8 @@ function formatTurnFailureMessage(
   recovery?: Record<string, unknown> | null,
   displayModelName = "GPT-6 Astra",
 ) {
+  const incomplete = modelIncompleteFacts(reason);
+  if (incomplete) return incompleteResponseCopy(incomplete.reason, state.settings.language).message;
   if (recovery?.status === "exhausted") {
     return "备用模型也未能完成本轮请求。任务记录已保留，请稍后重试。";
   }
@@ -30277,6 +30290,17 @@ function appendAgentNotice(threadId: string, text: string) {
     createdAt: new Date().toISOString(),
     __youleLocalStatus: true,
   });
+}
+
+function appendIncompleteTurnNotice(threadId: string, turnId: string | null | undefined, reason: string, diagnosticId: string | null | undefined) {
+  for (const item of Object.values(state.items[threadId] || {})) {
+    if (turnId && itemTurnId(item) === turnId && item.type === "agentMessage" && !item.__youleLocalStatus) item.__youleIncompletePartial = true;
+  }
+  let suffix = "";
+  // HAOLO-TURN-DIAGNOSTICS-BEGIN
+  suffix = withDiagnosticId("", diagnosticId);
+  // HAOLO-TURN-DIAGNOSTICS-END
+  upsertItem(threadId, incompleteNoticeItem(threadId, turnId, reason, state.settings.language, suffix));
 }
 
 function refreshTradingExpertConversationSurface(threadId: string) {
@@ -67560,6 +67584,21 @@ function bindMessageContentEvents(container: ParentNode = root) {
       event.preventDefault();
       event.stopPropagation();
       const kind = button.dataset.messageActionKind || "";
+      if (kind === "continue-incomplete") {
+        const threadId = button.dataset.messageActionConversation;
+        const itemId = button.closest<HTMLElement>("[data-message-id]")?.dataset.messageId;
+        const item = threadId && itemId ? state.items[threadId]?.[itemId] : null;
+        if (!threadId || threadId !== currentComposerThreadId() || isThreadBusy(threadId) || !item?.__youleIncompleteNotice) return;
+        // Prepare a new follow-up in this conversation. Sending is an explicit
+        // user action; do not replay the failed request or overwrite a draft.
+        if (state.composerText.trim()) return;
+        const action = messageActionsFromItem(item)?.find(action => action.kind === "continue-incomplete");
+        if (!action?.text) return;
+        state.composerText = action.text;
+        rememberActiveComposerDraft();
+        render();
+        return;
+      }
       if (button.dataset.messageAction === RECHARGE_TOKEN_ACTION_ID || kind === RECHARGE_TOKEN_ACTION_KIND) {
         openRechargePage();
         return;

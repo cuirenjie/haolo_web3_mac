@@ -6,6 +6,7 @@ import { modelFailureFacts } from "./model-failure-policy.mjs";
 import { errorSignals } from "./error-signals.mjs";
 import fs from "node:fs";
 import path from "node:path";
+import { modelIncompleteFacts } from "../shared/model-incomplete.mjs";
 
 export const TURN_DIAGNOSTIC_SCHEMA_VERSION = 1;
 
@@ -74,6 +75,7 @@ export function failureDiagnosticsFromNotification(message) {
   ];
   const details = [...new Set(candidates.map((value) => redactDiagnosticText(value)).filter(Boolean))];
   const facts = modelFailureFacts({ error: turnError || rootError, message: details.join(" | ") });
+  const incomplete = modelIncompleteFacts(message) || facts.incomplete;
   const httpStatus = facts.httpStatus ?? firstHttpStatus([
     turnError?.status,
     turnError?.statusCode,
@@ -95,11 +97,12 @@ export function failureDiagnosticsFromNotification(message) {
   ]);
   const combined = details.join(" | ");
   return {
-    errorClass: classifyTurnFailure(combined, httpStatus),
+    errorClass: incomplete ? "response_incomplete" : classifyTurnFailure(combined, httpStatus),
+    ...(incomplete ? { incomplete } : {}),
     httpStatus,
     detail: combined || null,
-    ...(facts.retryable === undefined ? {} : { retryable: facts.retryable }),
-    willRetry: Boolean(
+    ...(incomplete ? { retryable: false } : facts.retryable === undefined ? {} : { retryable: facts.retryable }),
+    willRetry: !incomplete && Boolean(
       params?.willRetry === true
       || params?.will_retry === true
       || rootError?.willRetry === true
@@ -111,6 +114,7 @@ export function failureDiagnosticsFromNotification(message) {
 }
 
 export function classifyTurnFailure(detail, httpStatus = null) {
+  if (modelIncompleteFacts(detail)) return "response_incomplete";
   const text = String(detail || "");
   const { statuses } = errorSignals({ message: text, status: httpStatus });
   if (/\b(?:list_turns|list_items) is not supported yet|Task history could not be restored automatically/i.test(text)) {
