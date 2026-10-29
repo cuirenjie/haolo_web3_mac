@@ -16740,7 +16740,7 @@ type OrderedThreadItemsOptions = {
 };
 
 function orderedThreadItems(thread: any, existingItems: CodexItem[] = [], options: OrderedThreadItemsOptions = {}) {
-  const rows = flattenThreadItemRows(thread);
+  const rows = flattenThreadItemRows(thread, options.threadId);
   preserveLiveConversationSupplementOrder(rows, existingItems, options);
   const incomingTurnIndexes = incomingTurnIndexById(rows);
   const latestExistingSortTime = options.preserveUnmatched ? latestSortTime(existingItems) : null;
@@ -16844,12 +16844,20 @@ function preservedSameTurnItemIndex(item: CodexItem, itemIndex: number) {
   return isUserSideThreadItem(item) ? -100_000 + itemIndex : 1_000_000_000 + itemIndex;
 }
 
-function flattenThreadItemRows(thread: any): OrderedThreadItemRow[] {
+function flattenThreadItemRows(thread: any, contextThreadId?: string | null): OrderedThreadItemRow[] {
   const rows: OrderedThreadItemRow[] = [];
   (thread.turns || []).forEach((turn: any, turnIndex: number) => {
-    const turnItems = Array.isArray(turn?.items) ? turn.items : [];
+    const turnItems = Array.isArray(turn?.items) ? [...turn.items] : [];
     const turnId = firstString(turn?.id, turn?.turnId, turn?.turn_id);
-    const turnStatus = firstString(turn?.status)?.toLowerCase() || null;
+    const incomplete = modelIncompleteFacts(turn);
+    const turnStatus = incomplete ? "failed" : firstString(turn?.status)?.toLowerCase() || null;
+    const threadId = firstString(contextThreadId, thread?.id, thread?.threadId, thread?.thread_id);
+    if (incomplete && threadId && turnId) {
+      const notice = incompleteNoticeItem(threadId, turnId, incomplete.reason, state.settings.language);
+      // Restore the same notice after a restart without adding it to server
+      // history or interpreting assistant/tool text as protocol metadata.
+      if (!turnItems.some((item: CodexItem) => item.id === notice.id)) turnItems.push(notice);
+    }
     const turnStartedTime = sortTimeFromValues(turn?.startedAt, turn?.started_at, turn?.createdAt, turn?.created_at);
     const turnCompletedTime = sortTimeFromValues(turn?.completedAt, turn?.completed_at, turn?.updatedAt, turn?.updated_at);
     // The app-server reports turn times as startedAt/completedAt (unix
@@ -16876,6 +16884,7 @@ function flattenThreadItemRows(thread: any): OrderedThreadItemRow[] {
         (item as any).__youleTurnCompletedAt = new Date(turnCompletedTime).toISOString();
       }
       if (turnStatus) (item as any).__youleTurnStatus = turnStatus;
+      if (incomplete && item.type === "agentMessage" && !item.__youleLocalStatus) item.__youleIncompletePartial = true;
       // Snapshot items often carry no per-item timestamp (it lives on the turn
       // envelope); inherit it so the hover time can show the send time.
       if (!(item as any).createdAt && !(item as any).created_at && derivedTurnTime != null) {

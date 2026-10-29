@@ -309,3 +309,31 @@ class FakeSocket extends EventEmitter {
     this.emit("message", Buffer.from(JSON.stringify(payload), "utf8"));
   }
 }
+
+for (const boundary of ['cancel', 'shutdown', 'replacement']) test(`pending voice credentials cannot start a socket after ${boundary}`, async () => {
+  const pending = [], sockets = [];
+  const client = createTencentAsrClient({
+    getConfig: () => new Promise(resolve => pending.push(resolve)),
+    createWebSocket(url) {
+      const socket = new FakeSocket(url); sockets.push(socket);
+      queueMicrotask(() => socket.receive({code: 0, message: 'success'}));
+      return socket;
+    },
+  });
+  try {
+    const first = client.startSession({requestId: 'old'}).then(value => ({value}), error => ({error}));
+    let replacement;
+    if (boundary === 'cancel') await client.cancel('old');
+    if (boundary === 'shutdown') await client.shutdown();
+    if (boundary === 'replacement') replacement = client.startSession({requestId: 'new'});
+    pending[0](credentials);
+    const result = await first;
+    assert.equal(result.error?.code, 'VOICE_CANCELLED');
+    assert.equal(sockets.length, 0);
+    if (replacement) {
+      pending[1](credentials);
+      assert.equal((await replacement).requestId, 'new');
+      assert.equal(sockets.length, 1);
+    }
+  } finally { await client.shutdown(); }
+});

@@ -13,7 +13,7 @@ import { completedTradingAnalysisReport, tradingAnalysisDeliveryItems } from "..
 
 const source = fs.readFileSync(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
 const ast = ts.createSourceFile("main.ts", source, ts.ScriptTarget.Latest, true);
-const awaitedRendererImports = await rendererImports(ast, ['preserveIncompletePartial']);
+const awaitedRendererImports = await rendererImports(ast, ['preserveIncompletePartial', 'modelIncompleteFacts', 'incompleteNoticeItem']);
 const names = [
   "orderedThreadItems", "flattenThreadItemRows", "incomingTurnIndexById",
   "preservedExistingThreadItemRow", "preservedSameTurnItemIndex", "compareThreadItemRows",
@@ -166,4 +166,48 @@ test("sequential strategy reports keep independent processing folds and executio
   const bothExpanded = render(h, items);
   assert.equal(bothExpanded.some((message) => message.id === "progress"), true);
   assert.equal(bothExpanded.some((message) => message.id === secondProgress.id), true);
+});
+
+
+test("repeated history reads retain an incomplete answer after an equal then sparse snapshot", () => {
+  const h = harness();
+  const partial = {id: "partial", type: "agentMessage", turnId: "turn", text: "Already received answer", __youleIncompletePartial: true};
+  const snapshot = text => ({id: "thread", turns: [{id: "turn", status: "failed", items: [{id: "partial", type: "agentMessage", text}]}]});
+  const equal = h.orderedThreadItems(snapshot(partial.text + " extended"), [partial], {threadId: "thread", preserveUnmatched: true});
+  assert.equal(equal[0].text, partial.text + " extended");
+  const unchanged = h.orderedThreadItems(snapshot(equal[0].text), equal, {threadId: "thread", preserveUnmatched: true});
+  const sparse = h.orderedThreadItems(snapshot(""), unchanged, {threadId: "thread", preserveUnmatched: true});
+  assert.equal(sparse.find(item => item.id === "partial").text, partial.text + " extended");
+});
+
+test("cold history restores incomplete notices in turn order with six-language manual continuation", () => {
+  for (const language of ["zh-CN", "zh-TW", "en", "ko", "ja", "vi"]) {
+    const h = harness();
+    h.state.settings = {language};
+    for (const reason of ["max_output_tokens", "content_filter", "unknown"]) {
+      const thread = {id: "thread", turns: [
+        {id: "incomplete", status: "failed", error: {message: `MODEL_RESPONSE_INCOMPLETE reason=${reason}`}, items: [{id: "partial", type: "agentMessage", text: "Partial answer"}]},
+        {id: "next", status: "completed", items: [{id: "next-answer", type: "agentMessage", text: "Later answer"}]},
+      ]};
+      const rows = h.orderedThreadItems(thread);
+      const notice = rows.find(item => item.__youleIncompleteNotice);
+      assert.ok(notice, `${language}: ${reason}`);
+      assert.equal(rows.indexOf(notice), 1);
+      assert.equal(notice.turnId, "incomplete");
+      assert.equal(notice.__youleTurnStatus, "failed");
+      assert.equal(rows[0].__youleIncompletePartial, true);
+      assert.equal(notice.actions.length, reason === "content_filter" ? 0 : 1);
+      if (notice.actions.length) assert.equal(notice.actions[0].conversation_id, "thread");
+      assert.equal(h.orderedThreadItems(thread, rows, {threadId: "thread", preserveUnmatched: true}).filter(item => item.__youleIncompleteNotice).length, 1);
+    }
+  }
+});
+
+test("history does not interpret quoted model markers as a failed turn", () => {
+  const h = harness();
+  const rows = h.orderedThreadItems({id: "thread", turns: [{id: "success", status: "completed", items: [
+    {id: "answer", type: "agentMessage", text: "Example: MODEL_RESPONSE_INCOMPLETE reason=max_output_tokens"},
+  ]}]});
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].__youleIncompletePartial, undefined);
 });

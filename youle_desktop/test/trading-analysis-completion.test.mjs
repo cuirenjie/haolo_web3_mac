@@ -16,7 +16,7 @@ import * as businessErrors from "../src/shared/business-tool-error.mjs";
 
 const source = fs.readFileSync(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
 const ast = ts.createSourceFile("main.ts", source, ts.ScriptTarget.Latest, true);
-const imported = await rendererImports(ast, ['preserveIncompletePartial']);
+const imported = await rendererImports(ast, ['preserveIncompletePartial', 'modelIncompleteFacts', 'incompleteNoticeItem']);
 const functions = [
   "isCloudTaskThread",
   "orderedThreadItems", "flattenThreadItemRows", "incomingTurnIndexById",

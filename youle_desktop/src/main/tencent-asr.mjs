@@ -125,54 +125,67 @@ export function createTencentAsrClient(options = {}) {
   const finalTimeoutMs = positiveInteger(options.finalTimeoutMs, FINAL_RESULT_TIMEOUT_MS);
   const sendTimeoutMs = positiveInteger(options.sendTimeoutMs, SEND_TIMEOUT_MS);
   let activeSession = null;
+  let pendingStart = null;
 
   async function startSession(params = {}) {
     const requestId = String(params.requestId || "").trim();
     if (!requestId) throw new TencentAsrError("VOICE_INVALID_REQUEST", "语音识别请求缺少 requestId");
-    if (activeSession) await cancel(activeSession.requestId);
+    const cancellation = activeSession ? cancel(activeSession.requestId) : null;
+    const pending = { requestId };
+    pendingStart = pending;
+    try {
+      if (cancellation) await cancellation;
+      const assertPending = () => {
+        if (pendingStart !== pending) throw new TencentAsrError("VOICE_CANCELLED", "已取消语音识别");
+      };
+      assertPending();
+      const config = await getConfig();
+      assertPending();
+      const url = buildTencentAsrWebSocketUrl(config, {
+        language: params.language,
+        nowMs: options.nowMs?.(),
+        nonce: options.nonce?.(),
+        voiceId: options.voiceId?.(),
+      });
+      const socket = createSocket(url);
+      const ready = deferred();
+      const finalResult = deferred();
+      finalResult.promise.catch(() => {});
+      const session = {
+        requestId,
+        socket,
+        engine: config.engine || TENCENT_ASR_ENGINE,
+        onResult: typeof params.onResult === "function" ? params.onResult : () => {},
+        segments: new Map(),
+        latestText: "",
+        ready,
+        readyReceived: false,
+        finalResult,
+        finalReceived: false,
+        ending: false,
+        cancelled: false,
+        failed: false,
+        connectTimer: null,
+        finalTimer: null,
+      };
+      activeSession = session;
+      pendingStart = null;
+      bindSocket(session);
+      session.connectTimer = setTimeout(() => {
+        failSession(session, new TencentAsrError("VOICE_CONNECT_TIMEOUT", "连接腾讯云语音识别超时"));
+      }, connectTimeoutMs);
+      session.connectTimer.unref?.();
 
-    const config = await getConfig();
-    const url = buildTencentAsrWebSocketUrl(config, {
-      language: params.language,
-      nowMs: options.nowMs?.(),
-      nonce: options.nonce?.(),
-      voiceId: options.voiceId?.(),
-    });
-    const socket = createSocket(url);
-    const ready = deferred();
-    const finalResult = deferred();
-    finalResult.promise.catch(() => {});
-    const session = {
-      requestId,
-      socket,
-      engine: config.engine || TENCENT_ASR_ENGINE,
-      onResult: typeof params.onResult === "function" ? params.onResult : () => {},
-      segments: new Map(),
-      latestText: "",
-      ready,
-      readyReceived: false,
-      finalResult,
-      finalReceived: false,
-      ending: false,
-      cancelled: false,
-      failed: false,
-      connectTimer: null,
-      finalTimer: null,
-    };
-    activeSession = session;
-    bindSocket(session);
-    session.connectTimer = setTimeout(() => {
-      failSession(session, new TencentAsrError("VOICE_CONNECT_TIMEOUT", "连接腾讯云语音识别超时"));
-    }, connectTimeoutMs);
-    session.connectTimer.unref?.();
-
-    await ready.promise;
-    return {
-      requestId,
-      engine: "tencent-cloud-asr",
-      model: session.engine,
-      streaming: true,
-    };
+      await ready.promise;
+      return {
+        requestId,
+        engine: "tencent-cloud-asr",
+        model: session.engine,
+        streaming: true,
+      };
+    } finally {
+      if (pendingStart === pending) pendingStart = null;
+    }
   }
 
   async function sendAudio(params = {}) {
@@ -204,8 +217,10 @@ export function createTencentAsrClient(options = {}) {
   }
 
   async function cancel(requestId) {
+    const pendingCancelled = Boolean(pendingStart && (!requestId || pendingStart.requestId === requestId));
+    if (pendingCancelled) pendingStart = null;
     const session = activeSession;
-    if (!session || (requestId && session.requestId !== requestId)) return false;
+    if (!session || (requestId && session.requestId !== requestId)) return pendingCancelled;
     session.cancelled = true;
     const error = new TencentAsrError("VOICE_CANCELLED", "已取消语音识别");
     session.ready.reject(error);

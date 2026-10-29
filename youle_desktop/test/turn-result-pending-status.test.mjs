@@ -48,7 +48,7 @@ test("thread snapshots retain turn status for pending-result recovery after rest
   const failure = sourceBlock(renderer, 'case "turn/failed":', 'case "item/started":');
   const localInterrupt = sourceBlock(renderer, "function finishInterruptedTurnLocally", "function isMissingActiveTurnInterruptError");
 
-  assert.match(flatten, /const turnStatus = firstString\(turn\?\.status\)/);
+  assert.match(flatten, /firstString\(turn\?\.status\)/);
   assert.match(flatten, /item as any\)\.__youleTurnStatus = turnStatus/);
   assert.match(completion, /rememberTurnResultStatus/);
   assert.match(completion, /wasInterrupted\s*\? "interrupted"/);

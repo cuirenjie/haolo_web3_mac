@@ -75,6 +75,11 @@ export function preserveIncompletePartial(existing, incoming) {
   const text = incoming.text || "";
   // A late sparse snapshot cannot erase a received prefix. A different,
   // authoritative answer is never overwritten with the local partial answer.
-  return existing.text.length > text.length && existing.text.startsWith(text)
-    ? { ...incoming, text: existing.text, __youleIncompletePartial: true } : incoming;
+  if (existing.text.startsWith(text)) {
+    return { ...incoming, text: existing.text, __youleIncompletePartial: true };
+  }
+  // Equal or extending history must retain the marker too: hydration replaces
+  // the item map, and a later sparse snapshot still needs the same protection.
+  return text.startsWith(existing.text)
+    ? { ...incoming, __youleIncompletePartial: true } : incoming;
 }

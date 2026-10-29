@@ -13171,11 +13171,21 @@ ipcMain.handle("voice:startSession", async (event, params = {}) => {
   if (voiceSessionOwner && voiceSessionOwner.webContentsId !== event.sender.id) {
     return { ok: false, code: "VOICE_SESSION_BUSY", message: "已有语音识别会话正在进行" };
   }
-  const microphoneAccess = await ensureVoiceMicrophoneAccess();
-  if (!microphoneAccess.ok) return microphoneAccess;
-  voiceSessionOwner = { webContentsId: event.sender.id, requestId };
+  // Reserve before macOS permission UI yields. Cancellation, renderer teardown
+  // or a replacement request can revoke this reservation while it is pending.
+  const owner = { webContentsId: event.sender.id, requestId };
+  voiceSessionOwner = owner;
   try {
     const sender = event.sender;
+    const microphoneAccess = await ensureVoiceMicrophoneAccess();
+    if (!microphoneAccess.ok) {
+      if (voiceSessionOwner === owner) voiceSessionOwner = null;
+      return microphoneAccess;
+    }
+    if (voiceSessionOwner !== owner || sender.isDestroyed()) {
+      if (voiceSessionOwner === owner) voiceSessionOwner = null;
+      return { ok: false, code: "VOICE_SESSION_NOT_FOUND", message: "语音识别会话不存在或已经结束" };
+    }
     const result = await getVoiceRecognizer().startSession({
       requestId,
       language: appLanguage(),
@@ -13188,7 +13198,7 @@ ipcMain.handle("voice:startSession", async (event, params = {}) => {
     });
     return { ok: true, ...result };
   } catch (error) {
-    clearVoiceSessionOwner(event.sender.id, requestId);
+    if (voiceSessionOwner === owner) voiceSessionOwner = null;
     return voiceTranscriptionErrorPayload(error);
   }
 });
