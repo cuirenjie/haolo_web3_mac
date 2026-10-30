@@ -3746,6 +3746,114 @@
         "youle_desktop/src/renderer/trading-expert-market.ts",
         "youle_desktop/src/renderer/trading-expert-indicators.ts"
       ]
+    },
+    {
+      "id": "mac-analysis-preparation-zh-cn",
+      "title": "分析准备与取消",
+      "body": "分析前并行读取行情和账户授权，不用账户页的短暂缓存代替本次授权读取。停止或准备失败会取消本次账户读取；切换账号后旧结果不会提交分析。本次为本地源码候选，未验证生产云端。没有新增客服代操作。",
+      "category": "usage",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/main.mjs",
+        "youle_desktop/src/main/youle-api-client.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-runtime.mjs"
+      ]
+    },
+    {
+      "id": "mac-analysis-preparation-en",
+      "title": "Analysis preparation and cancellation",
+      "body": "Analysis prepares market data and account consent in parallel, using a fresh consent read instead of the account page cache. Stopping or a preparation failure cancels this account read; results from a different account cannot submit an analysis. This is a local source candidate; production cloud behavior was not verified. No new support actions.",
+      "category": "usage",
+      "locale": "en",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/main.mjs",
+        "youle_desktop/src/main/youle-api-client.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-runtime.mjs"
+      ]
+    },
+    {
+      "id": "mac-analysis-preparation-zh-hant",
+      "title": "分析準備與取消",
+      "body": "分析前並行讀取行情與帳號授權，不使用帳戶頁面的短暫快取取代本次授權讀取。停止或準備失敗會取消本次帳戶讀取；切換帳號後舊結果不會提交分析。本次為本機原始碼候選，未驗證正式雲端。沒有新增客服代操作。",
+      "category": "usage",
+      "locale": "zh-Hant",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/main.mjs",
+        "youle_desktop/src/main/youle-api-client.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-runtime.mjs"
+      ]
+    },
+    {
+      "id": "mac-analysis-preparation-ko",
+      "title": "분석 준비와 취소",
+      "body": "분석 전에 시세와 계정 동의를 병렬로 조회하며 계정 화면의 임시 캐시 대신 새로운 동의 조회를 사용합니다. 중지하거나 준비가 실패하면 해당 계정 조회를 취소하며 계정 전환 전의 결과로 분석을 제출하지 않습니다. 로컬 소스 후보이며 운영 클라우드는 검증하지 않았습니다. 새로운 고객지원 대행 작업은 없습니다.",
+      "category": "usage",
+      "locale": "ko",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/main.mjs",
+        "youle_desktop/src/main/youle-api-client.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-runtime.mjs"
+      ]
+    },
+    {
+      "id": "mac-analysis-preparation-ja",
+      "title": "分析準備とキャンセル",
+      "body": "分析前に市場データとアカウントの同意を並行して取得し、アカウント画面の一時キャッシュで今回の同意確認を代用しません。停止または準備の失敗時は今回のアカウント取得を中止し、別アカウントの結果では分析を送信しません。ローカルのソース候補で、本番クラウドは未検証です。サポート代行操作の追加はありません。",
+      "category": "usage",
+      "locale": "ja",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/main.mjs",
+        "youle_desktop/src/main/youle-api-client.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-runtime.mjs"
+      ]
+    },
+    {
+      "id": "mac-analysis-preparation-vi",
+      "title": "Chuẩn bị và hủy phân tích",
+      "body": "Trước khi phân tích, dữ liệu thị trường và sự đồng ý của tài khoản được đọc song song, bằng yêu cầu mới thay vì bộ nhớ đệm của trang tài khoản. Dừng hoặc lỗi chuẩn bị sẽ hủy yêu cầu đọc tài khoản này; kết quả từ tài khoản khác không được dùng để gửi phân tích. Đây là mã nguồn cục bộ, chưa kiểm chứng đám mây sản xuất. Không có thao tác hỗ trợ mới.",
+      "category": "usage",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/main/main.mjs",
+        "youle_desktop/src/main/youle-api-client.mjs",
+        "youle_desktop/src/main/trading-strategy-runtime/cloud-runtime.mjs"
+      ]
     }
   ]
 }

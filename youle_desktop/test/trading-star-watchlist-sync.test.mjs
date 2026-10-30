@@ -85,6 +85,49 @@ function harness({ api = server(), storage = memoryStorage(), account = "account
   return { workspace, api, storage, warnings };
 }
 const sharedIds = workspace => workspace.watchlist.groups[0].markets.map(r => r.id);
+
+test('live ticker painting updates quotes without relabeling the nested hide action', () => {
+  const node = workspaceClass.members.find(member => member.name?.getText(ast) === 'scheduleFavoriteTickerPaint');
+  const code = ts.transpileModule(`class Painter { ${node.getText(ast)} }`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const frames = [];
+  const Painter = new Function('window', 'translateAppText', 'formatMarketPrice', `${code};return Painter;`)(
+    { requestAnimationFrame: callback => frames.push(callback) }, text => text, value => value.toFixed(2));
+  // Attribute selectors on a small DOM-shaped tree exercise the production
+  // painter, including its nested action, instead of matching source text.
+  const element = (attributes, children = []) => ({
+    attributes: new Map(Object.entries(attributes)), children,
+    dataset: Object.fromEntries(Object.entries(attributes).filter(([name]) => name.startsWith('data-'))
+      .map(([name, value]) => [name.slice(5).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase()), value])),
+    textContent: '', classList: { toggle() {} },
+    setAttribute(name, value) { this.attributes.set(name, String(value)); },
+    matches(selector) {
+      return [...selector.matchAll(/\[([^=\]]+)(?:="([^"]*)")?\]/g)].every(([, name, value]) =>
+        value === undefined ? this.attributes.has(name) : this.attributes.get(name) === value);
+    },
+    querySelectorAll(selector) { return children.flatMap(child => [
+      ...(child.matches(selector) ? [child] : []), ...child.querySelectorAll(selector),
+    ]); },
+    querySelector(selector) { return this.querySelectorAll(selector)[0] ?? null; },
+  });
+  const btc = { ...market('BTC'), markPrice: 12345, changePercent: -2 };
+  const hide = element({ 'data-market-id': btc.id, 'data-market-action': 'remove-favorite', 'aria-label': 'Hide top tab BTC/USDT' });
+  const change = element({ 'data-market-favorite-change': '' });
+  const ticker = element({ 'data-market-id': btc.id, 'data-market-action': 'favorite-symbol' }, [change, hide]);
+  const painter = Object.assign(new Painter(), {
+    favoriteTickerPaintFrame: null, favoriteTickerBar: element({}, [ticker]),
+    favoriteTickerMarketsById: new Map([[btc.id, btc]]), paintFavoritePrices() {},
+    picker: { hidden: true }, watchlistPanel: { paintQuotes() {} },
+  });
+  painter.scheduleFavoriteTickerPaint(); painter.scheduleFavoriteTickerPaint();
+  assert.equal(frames.length, 1); frames[0]();
+  assert.equal(change.textContent, '-2.00%');
+  assert.match(ticker.attributes.get('aria-label'), /12345\.00/);
+  assert.equal(hide.attributes.get('aria-label'), 'Hide top tab BTC/USDT');
+  assert.equal(hide.attributes.has('aria-busy'), false);
+});
+
 function topBarAction(workspace, action, marketId = '') {
   let branch;
   function visit(node) {

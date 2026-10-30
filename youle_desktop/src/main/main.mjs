@@ -15795,9 +15795,14 @@ function getCloudStrategyRuntime() {
   cloudStrategyRuntime = createCloudStrategyRuntime({
     owner: requireHaoloAccountOwner, api: getYouleApiClient,
     journal: getCloudRunJournal(),
-    connection: async (_owner, target) => {
+    connection: async (owner, target, {signal} = {}) => {
       if (!target.marketKey.startsWith("binance:usdm:") || !target.marketKey.endsWith("USDT")) return null;
-      const connections = await readSharedBinanceAccountConnections();
+      // Analysis needs fresh consent and its own cancellable read. The account
+      // page's short-lived cache/coalesced requests must not substitute for it.
+      const result = await getYouleApiClient().tradingCloudRequest("accountConnections", {}, {
+        signal, expectedAccountId: owner.accountId, expectedBaseUrl: owner.baseUrl,
+      });
+      const connections = (Array.isArray(result?.items) ? result.items : []).filter(activeSharedBinanceConnection);
       return cloudAccountConnection(connections, target);
     },
   });

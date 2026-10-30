@@ -3523,6 +3523,7 @@ export class YouleApiClient {
       savePreferences: ["PATCH", "/trading-preferences"],
       importPreferences: ["POST", "/trading-preferences/import"],
       capabilities: ["GET", "/trading-capabilities"],
+      accountConnections: ["GET", "/account-connections"],
       createRun: ["POST", "/agent-runs"],
       createAssistantRun: ["POST", "/assistant-runs"],
       plans: ["GET", "/trading-plans"],

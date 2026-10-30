@@ -7469,7 +7469,7 @@ class TradingExpertMarketWorkspace {
     this.favoriteTickerPaintFrame = window.requestAnimationFrame(() => {
       this.favoriteTickerPaintFrame = null;
       this.paintFavoritePrices();
-      this.favoriteTickerBar.querySelectorAll<HTMLButtonElement>("[data-market-id]").forEach((button) => {
+      this.favoriteTickerBar.querySelectorAll<HTMLButtonElement>('[data-market-action="favorite-symbol"][data-market-id]').forEach((button) => {
         const market = this.favoriteTickerMarketsById.get(String(button.dataset.marketId || ""));
         if (!market) return;
         const change = button.querySelector<HTMLElement>("[data-market-favorite-change]");
