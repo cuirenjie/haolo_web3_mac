@@ -1,6 +1,7 @@
 // Generated once from renderer-owned Simplified Chinese UI strings with
 // OpenCC s2twp. Runtime language switching is fully offline.
 export const GENERATED_TRADITIONAL_UI_PHRASES = Object.freeze({
+  "MACD柱颜色": "MACD柱顏色",
   "加入计划": "加入計劃",
   "加入計畫": "加入計畫",
   "查看計畫": "檢視計畫",

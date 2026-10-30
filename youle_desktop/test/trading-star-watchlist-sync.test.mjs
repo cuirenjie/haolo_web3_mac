@@ -3,7 +3,8 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import ts from "typescript";
 import { TradingWatchlistStore } from "../src/renderer/trading-watchlist.ts";
-import { TradingIndexFavorites } from "../src/renderer/trading-index-favorites.ts";
+import { TradingIndexFavorites, tickerIdentity } from "../src/renderer/trading-index-favorites.ts";
+import { TradingTickerVisibility } from "../src/renderer/trading-ticker-visibility.ts";
 import { tradingMarketAvailable } from "../src/shared/trading-market-availability.mjs";
 
 const source = await readFile(new URL("../src/renderer/trading-expert-market.ts", import.meta.url), "utf8");
@@ -67,6 +68,7 @@ function harness({ api = server(), storage = memoryStorage(), account = "account
     favoriteStorageAccountIdentity: account,
     watchlist: new TradingWatchlistStore(storage, account, normalize),
     indexFavorites: new TradingIndexFavorites(storage, account),
+    tickerVisibility: new TradingTickerVisibility(storage, account),
     markets: [], finnhubFavoriteMarkets: new Map(), favoriteTickerMarketsById: new Map(),
     favoriteSymbols: new Set(), favoriteMarketRecords: new Map(),
     favoriteServerQueue: Promise.resolve(), favoriteServerLastSyncAt: 0, favoriteServerVersion: null, favoriteServerReady: true,
@@ -74,7 +76,7 @@ function harness({ api = server(), storage = memoryStorage(), account = "account
     saveFavoriteSymbols() {}, renderMarkets() {},
     renderFavoriteTickerBar() {
       workspace.tickers = workspace.indexFavorites.sort([
-        ...workspace.favoriteTickerMarkets(), ...workspace.indexFavorites.values(),
+        ...workspace.favoriteTickerMarkets(), ...workspace.indexFavorites.values().filter(i => workspace.tickerVisibility.visible(i.id)),
       ]).map(record => record.id);
     },
     syncWatchlistChanges() {}, syncWatchlistPicker() {},
@@ -82,6 +84,72 @@ function harness({ api = server(), storage = memoryStorage(), account = "account
   return { workspace, api, storage, warnings };
 }
 const sharedIds = workspace => workspace.watchlist.groups[0].markets.map(r => r.id);
+function topBarAction(workspace, action, marketId = '') {
+  let branch;
+  function visit(node) {
+    if (ts.isIfStatement(node) && node.expression.getText(ast) === `action === "${action}"`) branch = node;
+    ts.forEachChild(node, visit);
+  }
+  visit(workspaceClass);
+  assert.ok(branch, action);
+  const code = ts.transpileModule(`function run(event, target) { ${branch.thenStatement.getText(ast)} }`, {compilerOptions: {target: ts.ScriptTarget.ES2022}}).outputText;
+  workspace.syncFavoriteTickerStreams = () => {};
+  const run = new Function('tickerIdentity', `${code}; return run;`)(tickerIdentity);
+  run.call(workspace, {preventDefault() {}, stopPropagation() {}}, {dataset: {marketId}});
+}
+
+test('top tab close hides only; cloud/default/custom favorites survive sync and restart', async () => {
+  const {workspace: w, storage, api} = harness();
+  const btc = market('BTC');
+  w.toggleFavoriteMarket(btc);
+  await w.favoriteServerQueue;
+  w.watchlist.addGroup('观察组');
+  w.watchlist.addMarkets([btc]);
+  w.favoriteTickerMarketsById.set(btc.id, btc);
+  const before = api.calls.length;
+  topBarAction(w, 'remove-favorite', btc.id);
+  assert.deepEqual(w.tickers, []);
+  assert.equal(w.isMarketFavorite(btc), true);
+  assert.deepEqual(sharedIds(w), [btc.id]);
+  assert.deepEqual(w.watchlist.activeGroup.markets.map(r => r.id), [btc.id]);
+  await w.favoriteServerQueue;
+  assert.equal(api.calls.length, before, 'closing does not enqueue cloud deletion');
+  await w.syncFavoriteServer(true);
+  assert.deepEqual(w.tickers, []);
+  assert.equal(api.records.size, 1);
+  const restored = harness({storage, api}).workspace;
+  // The real constructor reloads this separate persisted star snapshot.
+  restored.favoriteSymbols = new Set(w.favoriteSymbols);
+  restored.favoriteMarketRecords = new Map(w.favoriteMarketRecords);
+  await restored.syncFavoriteServer(true);
+  assert.deepEqual(restored.tickers, []);
+  assert.deepEqual(sharedIds(restored), [btc.id]);
+  topBarAction(restored, 'restore-tickers');
+  assert.deepEqual(restored.tickers, [btc.id]);
+  assert.equal(restored.tickerVisibility.count, 0);
+});
+
+test('hidden indices persist and remain account isolated; real unstar still removes membership', async () => {
+  const {workspace: w, storage, api} = harness();
+  const index = {id: 'index:gold', name: 'Gold', code: 'XAUUSD'};
+  w.indexFavorites.add(index);
+  topBarAction(w, 'remove-favorite', index.id);
+  assert.equal(w.indexFavorites.values().length, 1);
+  assert.equal(new TradingTickerVisibility(storage, 'account-a').visible(index.id), false);
+  assert.equal(new TradingTickerVisibility(storage, 'account-b').visible(index.id), true);
+  topBarAction(w, 'restore-tickers');
+  assert.deepEqual(w.tickers, [index.id]);
+  const eth = market('ETH');
+  w.toggleFavoriteMarket(eth);
+  await w.favoriteServerQueue;
+  w.tickerVisibility.hide(eth.id);
+  w.addFavoriteMarket(eth);
+  assert.equal(w.tickerVisibility.visible(eth.id), true, 'explicit add restores a hidden tab');
+  w.toggleFavoriteMarket(eth);
+  await w.favoriteServerQueue;
+  assert.deepEqual(sharedIds(w), []);
+  assert.equal(api.records.size, 0);
+});
 const deferred = () => {
   let resolve;
   const promise = new Promise(done => { resolve = done; });

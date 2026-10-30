@@ -1,4 +1,5 @@
 export const VIETNAMESE_CATALOG = Object.freeze({
+  "MACD柱颜色": "Màu cột MACD",
   "\n\nテキストルールとプレビューは完了しましたが、現在のチャートではシミュレーションレイヤーを一時的に表示できません。まずテキストでご確認ください。": "\n\nQuy tắc văn bản và mô phỏng đã hoàn tất, nhưng biểu đồ hiện tại tạm thời không thể hiển thị lớp mô phỏng; vui lòng đối chiếu theo phần văn bản trước.",
   "\n\nルールとシミュレーションは生成されましたが、今回のチャート注釈は一時的に表示されていません。まず上記のテキスト条件でご確認ください。確認が完了するまでアラートストレージには書き込まれません。": "\n\nQuy tắc và mô phỏng đã được tạo, nhưng lần chú thích biểu đồ này tạm thời chưa hiển thị. Vui lòng đối chiếu theo điều kiện văn bản ở trên trước; trước khi xác nhận sẽ không ghi vào kho lưu trữ cảnh báo.",
   "\n\nルールエンジン検証：\n": "\n\nKiểm tra bằng công cụ quy tắc:\n",

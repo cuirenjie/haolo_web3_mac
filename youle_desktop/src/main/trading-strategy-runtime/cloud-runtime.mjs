@@ -344,19 +344,16 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
         });
         // Independent fresh reads can overlap after capability/history checks.
         // No cached market result or account consent replaces either read.
-        const fast = params.pureReferenceAnalysis === true;
         const readConnection = () => available(captured,()=>connection?.(captured,target,{signal:snapshotSignal}),{...options,signal:snapshotSignal});
         let marketRead, parallelAccount;
         try {
-          [marketRead,parallelAccount] = fast
-            ? await Promise.all([readSnapshot(), readConnection()])
-            : [await readSnapshot(), undefined];
+          [marketRead,parallelAccount] = await Promise.all([readSnapshot(), readConnection()]);
         } finally { snapshotController.abort(); }
         const {snapshot,deferred} = marketRead;
         if (snapshot.marketKey !== target.marketKey || snapshot.interval !== target.interval || !snapshot.snapshotId) throw fail('CLOUD_MARKET_CONTEXT_INVALID');
         // A long market cooldown must not reuse an account binding captured
         // before the wait; revocation and rebinding must take effect first.
-        const account = fast && !deferred ? parallelAccount : await available(captured,()=>connection?.(captured,target,{signal:options.signal}),options);
+        const account = !deferred ? parallelAccount : await available(captured,()=>connection?.(captured,target,{signal:options.signal}),options);
         await assertOwner(captured);
         options.signal?.throwIfAborted();
         const runId = randomUUID();

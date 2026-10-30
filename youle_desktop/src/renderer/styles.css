@@ -38243,11 +38243,35 @@ html[data-theme="dark"] .trading-alert-simulation-point > span {
   font: inherit;
 }
 
-.trading-market-indicator-histogram-hint {
+.trading-market-macd-palette {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 20px;
+  min-height: 42px;
+  font-size: calc(12px + var(--app-font-size-offset));
+}
+
+.trading-market-macd-palette > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+}
+
+.trading-market-macd-palette label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  cursor: pointer;
+}
+
+.trading-market-macd-palette input {
+  width: 16px;
+  height: 16px;
   margin: 0;
-  color: var(--trading-market-muted);
-  font-size: calc(11px + var(--app-font-size-offset));
-  line-height: 1.6;
+  accent-color: var(--trading-market-text);
 }
 
 .trading-market-indicator-display-row > div > .trading-market-indicator-color:only-child {
