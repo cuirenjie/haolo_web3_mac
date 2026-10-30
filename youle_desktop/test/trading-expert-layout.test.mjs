@@ -1820,7 +1820,7 @@ test("Trading Expert favorites persist, lead the next open, and remain available
   assert.match(tickerRender, /class="trading-market-favorite-sort-status" data-market-favorite-sort-status aria-live="polite"/);
   assert.match(tickerRender, /data-quote-state="\$\{market\.quoteAvailable \? "live" : "loading"\}"[\s\S]*?aria-busy="\$\{!market\.quoteAvailable\}"/);
   assert.match(tickerRender, /data-market-favorite-price[\s\S]*?data-market-favorite-change/);
-  assert.match(tickerRender, /class="trading-market-favorite-remove"[\s\S]*?data-market-action="remove-favorite"[\s\S]*?data-market-favorite-sort-ignore[\s\S]*?tickerVisibilityLabel\('hide'/);
+  assert.match(tickerRender, /class="trading-market-favorite-remove"[\s\S]*?data-market-action="remove-favorite"[\s\S]*?data-market-favorite-sort-ignore[\s\S]*?tickerVisibilityLabel\('hide', document\.documentElement\.dataset\.language\)/);
   assert.match(tickerRender, /class="trading-market-favorite-add"[\s\S]*?data-market-action="add-favorite"[\s\S]*?aria-label="添加收藏交易对"[\s\S]*?aria-haspopup="dialog"[\s\S]*?aria-expanded="false"/);
   assert.match(tickerRender, /this\.favoriteTickerBar\.hidden = false/);
   assert.doesNotMatch(tickerRender, /renderTradingMarketAssetLogo/);
