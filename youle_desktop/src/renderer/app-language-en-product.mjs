@@ -1,5 +1,9 @@
 // Reviewed terminology shared across account, billing, chart and task surfaces.
 export const PRODUCT_ENGLISH_UI_PHRASES = Object.freeze({
+  "隐藏顶部标签": "Hide top tab",
+  "隱藏頂部標籤": "Hide top tab",
+  "恢复隐藏的标签": "Restore hidden tabs",
+  "恢復隱藏的標籤": "Restore hidden tabs",
   "隐藏价格轴": "Hide price scale",
   "隐藏主图价格刻度并收起轴空间，K线画布自动扩展；实时价格、十字线及其他价格标注保留在画布右边缘。": "Hide the main price ticks and expand the chart into the axis space. Live prices, crosshair prices and other price labels remain at the chart's right edge.",
   "即将上线，敬请期待": "Coming soon. Stay tuned.",
