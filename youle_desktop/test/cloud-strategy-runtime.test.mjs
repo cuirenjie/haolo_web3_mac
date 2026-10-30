@@ -348,17 +348,71 @@ test('stop and account changes during an event wait cannot resume polling or rep
   }
 });
 
-test('only pure analysis overlaps snapshot and account reads, and never admits until both complete',async()=>{
+test('ordinary and pure analysis overlap fresh reads, and never admit until both complete',async()=>{
   for(const pure of [true,false]) {
     let release,readStarted=false,accountStarted=false;
     const gate=new Promise(r=>release=r);
     const s=setup(async({operation})=>{if(operation==='marketSnapshot'){readStarted=true;await gate;}},
       {connection:async()=>{accountStarted=true;return {id:'bound-account'};}});
     const pending=s.runtime.run('moving-average-analysis',{...params,pureReferenceAnalysis:pure});
-    await new Promise(r=>setImmediate(r));assert.equal(readStarted,true);assert.equal(accountStarted,pure);
+    await new Promise(r=>setImmediate(r));assert.equal(readStarted,true);assert.equal(accountStarted,true);
     assert.equal(s.calls.some(c=>c.operation==='createRun'),false);release();await pending;
     assert.equal(s.calls.find(c=>c.operation==='createRun').payload.connectionId,'bound-account');
   }
+});
+
+test('ordinary analysis waits for the account read and rejects stale ownership before admission',async()=>{
+  for (const changed of [false,true]) {
+    let release,started;const entered=new Promise(r=>started=r);const gate=new Promise(r=>release=r);
+    const s=setup(undefined,{connection:async()=>{started();await gate;return {id:'bound-account'};}});
+    const result=s.runtime.run('moving-average-analysis',params);
+    const check=changed?assert.rejects(result,{code:'TRADING_PREFERENCE_OWNER_CHANGED'}):result;
+    await entered;await new Promise(r=>setImmediate(r));
+    assert.equal(s.calls.some(c=>c.operation==='createRun'),false);
+    if(changed)s.setOwner({...account,ownerId:'new-owner'});
+    release();await check;
+    assert.equal(s.calls.filter(c=>c.operation==='createRun').length,changed?0:1);
+  }
+});
+
+test('ordinary parallel preparation rereads account consent after market cooldown',async()=>{
+  let snapshots=0,bindings=0;
+  const s=setup(({operation})=>{
+    if(operation==='marketSnapshot'&&++snapshots===1)throw Object.assign(Error('quota'),{status:429,code:'MARKET_RATE_LIMITED'});
+  },{connection:async()=>++bindings===1?{id:'old-binding'}:{id:null,unavailable:true}});
+  await s.runtime.run('moving-average-analysis',params);
+  assert.equal(snapshots,2);assert.equal(bindings,2);
+  const body=s.calls.find(c=>c.operation==='createRun').payload;
+  assert.equal(body.connectionId,undefined);assert.equal(body.accountBindingUnavailable,true);
+});
+
+test('ordinary preparation failure aborts the sibling read without creating a run',async()=>{
+  for (const failed of ['market','account']) {
+    let siblingSignal;
+    const hold=signal=>{siblingSignal=signal;return new Promise((_,reject)=>signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));};
+    const s=setup(async({operation,options})=>{
+      if(operation==='marketSnapshot'){
+        if(failed==='market'){await new Promise(r=>setImmediate(r));throw Object.assign(Error('denied'),{status:403});}
+        return hold(options.signal);
+      }
+    },{connection:async(_captured,_target,{signal})=>{
+      if(failed==='account'){await new Promise(r=>setImmediate(r));throw Object.assign(Error('denied'),{status:403});}
+      return hold(signal);
+    }});
+    await assert.rejects(s.runtime.run('moving-average-analysis',params),{status:403});
+    assert.equal(siblingSignal.aborted,true);assert.equal(s.calls.some(c=>c.operation==='createRun'),false);
+  }
+});
+
+test('ordinary preparation cancellation stops both reads before any paid admission',async()=>{
+  const signals=[];let entered;const both=new Promise(r=>entered=r);
+  const hold=signal=>{signals.push(signal);if(signals.length===2)entered();return new Promise((_,reject)=>signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));};
+  const s=setup(({operation,options})=>operation==='marketSnapshot'?hold(options.signal):undefined,
+    {connection:(_captured,_target,{signal})=>hold(signal)});
+  const controller=new AbortController();
+  const checked=assert.rejects(s.runtime.run('moving-average-analysis',params,{signal:controller.signal}),{name:'AbortError'});
+  await both;controller.abort();await checked;
+  assert.ok(signals.every(s=>s.aborted));assert.equal(s.calls.some(c=>c.operation==='createRun'),false);
 });
 
 test('official analysis sends identities and preferences, never local core inputs or credentials',async()=>{

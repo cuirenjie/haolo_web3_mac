@@ -5,6 +5,7 @@ import { deferInteractionRender } from "./interaction-render-guard.ts";
 import { openBoundAnalysisChart } from "./trading-analysis-chart-context.ts";
 import { indexName, indexCopy, indexValue, indexChange, type PublicMarketIndex } from "./trading-public-indices.ts";
 import { TradingIndexFavorites, tickerIdentity } from './trading-index-favorites.ts';
+import { TradingTickerVisibility, tickerVisibilityLabel } from './trading-ticker-visibility.ts';
 import { colorPickerInput } from './color-picker.ts';
 import { IFIND_BUSINESS_ENABLED, tradingMarketAvailable, tradingMarketUnavailableMessage } from "../shared/trading-market-availability.mjs";
 import { binanceCandleBackfillLimit, binanceCandleHistoryComplete } from "../shared/binance-candle-request.mjs";
@@ -52,6 +53,8 @@ import { tradingChartCandleIndex, updateTradingChartLegendRows, type TradingChar
 import { TradingChartNavigation, TRADING_CHART_NAVIGATION_OPTIONS, captureManualTradingPriceRanges, restoreManualTradingPriceRanges } from "./trading-chart-navigation.ts";
 import {
   TRADING_FALLING_BAR_COLOR,
+  tradingIndicatorColors,
+  type TradingMacdPalette,
   TRADING_INDICATORS,
   TRADING_RISING_BAR_COLOR,
   calculateTradingIndicator,
@@ -788,6 +791,7 @@ export interface TradingIndicatorSeriesSetting {
   color: string;
   lineWidth: 1 | 2 | 3;
   histogramStyle?: TradingHistogramStyle;
+  histogramPalette?: TradingMacdPalette;
 }
 
 export interface TradingIndicatorSetting {
@@ -994,6 +998,7 @@ function defaultTradingIndicatorSettings(): TradingIndicatorSettings {
         color: series.color,
         lineWidth: series.defaultLineWidth ?? 2,
         ...(indicator.scope === 'sub' && series.type === 'histogram' ? { histogramStyle: 'solid' as const } : {}),
+        ...(indicator.id === 'macd' && series.key === 'histogram' ? { histogramPalette: 'green-up' as const } : {}),
       }])),
     },
   ]));
@@ -1047,6 +1052,9 @@ export function normalizeTradingIndicatorSettings(value: unknown): TradingIndica
         lineWidth,
         ...(indicator.scope === 'sub' && field.type === 'histogram'
           ? { histogramStyle: savedRecord.histogramStyle === 'hollow' ? 'hollow' as const : 'solid' as const }
+          : {}),
+        ...(indicator.id === 'macd' && field.key === 'histogram'
+          ? { histogramPalette: savedRecord.histogramPalette === 'red-up' ? 'red-up' as const : 'green-up' as const }
           : {}),
       }];
     }));
@@ -5243,6 +5251,7 @@ class TradingExpertMarketWorkspace {
   private favoriteSymbols = new Set<string>();
   private favoriteMarketRecords = new Map<string, TradingFavoriteMarketRecord>();
   private readonly favoriteStorageAccountIdentity: string;
+  private readonly tickerVisibility: TradingTickerVisibility;
   private drawingStorageSessionId: string;
   private newTaskWorkspace: boolean;
   private favoriteStorageMigratedFromLegacy = false;
@@ -5300,6 +5309,7 @@ class TradingExpertMarketWorkspace {
     this.newsController = new MarketNewsController(host, (market) => this.openNewsMarket(market));
     this.newTaskWorkspace = newTaskWorkspace;
     this.favoriteStorageAccountIdentity = favoriteStorageAccountIdentity;
+    this.tickerVisibility = new TradingTickerVisibility(window.localStorage, favoriteStorageAccountIdentity);
     this.indexFavorites = new TradingIndexFavorites(window.localStorage, favoriteStorageAccountIdentity);
     this.drawingStorageSessionId = drawingStorageSessionId;
     this.drawingVisibilitySettings = new TradingDrawingVisibility(drawingStorageSessionId, (edited) => {
@@ -5614,16 +5624,18 @@ class TradingExpertMarketWorkspace {
     }
     if (action === "remove-favorite") {
       const marketId = tickerIdentity(String(target.dataset.marketId || ""));
-      if (this.indexFavorites.get(marketId)) {
-        event.preventDefault(); event.stopPropagation();
-        this.indexFavorites.remove(marketId); this.renderFavoriteTickerBar(); return;
-      }
-      const market = this.favoriteTickerMarketsById.get(marketId)
-        || this.favoriteMarketFromId(marketId);
-      if (!market) return;
+      if (!this.indexFavorites.get(marketId) && !this.favoriteTickerMarketsById.has(marketId)) return;
       event.preventDefault();
       event.stopPropagation();
-      this.toggleFavoriteMarket(market);
+      this.tickerVisibility.hide(marketId);
+      this.renderFavoriteTickerBar();
+      this.syncFavoriteTickerStreams();
+      return;
+    }
+    if (action === "restore-tickers") {
+      this.tickerVisibility.restore();
+      this.renderFavoriteTickerBar();
+      this.syncFavoriteTickerStreams();
       return;
     }
     if (action === "market-category") {
@@ -5815,7 +5827,7 @@ class TradingExpertMarketWorkspace {
       const index = this.watchlistPanel.indexById(marketId) || this.indexFavorites.get(marketId);
       if (index) {
         if (this.indexFavorites.get(marketId)) this.indexFavorites.remove(marketId);
-        else this.indexFavorites.add(index);
+        else { this.indexFavorites.add(index); this.tickerVisibility.show(marketId); }
         this.renderFavoriteTickerBar(); this.renderMarkets(); this.watchlistPanel.refresh();
         return;
       }
@@ -5910,6 +5922,9 @@ class TradingExpertMarketWorkspace {
       if (width === 1 || width === 2 || width === 3) series.lineWidth = width;
     } else if (target.dataset.marketIndicatorHistogramStyle !== undefined && series.histogramStyle !== undefined) {
       series.histogramStyle = target.value === 'hollow' ? 'hollow' : 'solid';
+    } else if (target.dataset.marketIndicatorHistogramPalette !== undefined && series.histogramPalette !== undefined) {
+      series.histogramPalette = target.value === 'red-up' ? 'red-up' : 'green-up';
+      series.color = TRADING_RISING_BAR_COLOR;
     }
     this.setIndicatorStatus("有未保存的更改");
   };
@@ -7320,6 +7335,7 @@ class TradingExpertMarketWorkspace {
     const liveMarkets = new Map(this.markets.map((market) => [market.id, market]));
     return [...this.favoriteMarketRecords.values()]
       .filter(tradingMarketAvailable)
+      .filter((record) => this.tickerVisibility.visible(record.id))
       .filter((record) => (record.assetClass === "crypto" || record.provider === "binance") && this.favoriteSymbols.has(record.id))
       .map((record) => liveMarkets.get(record.id)
         || this.finnhubFavoriteMarkets.get(record.id)
@@ -7385,7 +7401,7 @@ class TradingExpertMarketWorkspace {
     this.favoriteTickerMarketsById = new Map(markets.map((market) => [market.id, market]));
     const tickers = this.indexFavorites.sort<Pick<TradingMarket, 'id'|'displaySymbol'|'tag'|'markPrice'|'changePercent'|'quoteAvailable'>>([
       ...markets,
-      ...this.indexFavorites.values().map(index=>({id:index.id,displaySymbol:indexName(index),tag:indexCopy('指数','Index'),markPrice:index.value??0,changePercent:index.changePercent??NaN,quoteAvailable:index.value!==null})),
+      ...this.indexFavorites.values().filter(index => this.tickerVisibility.visible(index.id)).map(index=>({id:index.id,displaySymbol:indexName(index),tag:indexCopy('指数','Index'),markPrice:index.value??0,changePercent:index.changePercent??NaN,quoteAvailable:index.value!==null})),
     ]);
     this.syncTitlebarFavoriteTickerHost();
     this.favoriteTickerBar.hidden = false;
@@ -7422,8 +7438,8 @@ class TradingExpertMarketWorkspace {
             data-market-favorite-sort-ignore
             role="button"
             tabindex="0"
-            aria-label="取消收藏 ${escapeAttribute(name)}"
-            title="取消收藏"
+            aria-label="${escapeAttribute(tickerVisibilityLabel('hide', document.documentElement.dataset.language))} ${escapeAttribute(name)}"
+            title="${escapeAttribute(tickerVisibilityLabel('hide', document.documentElement.dataset.language))}"
           ><svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m5 5 6 6M11 5l-6 6" /></svg></span>
         </button>
       `;
@@ -7439,6 +7455,7 @@ class TradingExpertMarketWorkspace {
       >
         <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M10 4v12M4 10h12" /></svg>
       </button>
+      ${this.tickerVisibility.count ? `<button type="button" class="trading-market-favorite-add" data-market-action="restore-tickers" aria-label="${escapeAttribute(tickerVisibilityLabel('restore', document.documentElement.dataset.language))}" title="${escapeAttribute(tickerVisibilityLabel('restore', document.documentElement.dataset.language))}">↶</button>` : ''}
       <span class="trading-market-favorite-sort-status" data-market-favorite-sort-status aria-live="polite"></span>`;
     this.paintFavoritePrices();
     this.favoriteTickerBar.querySelector<HTMLElement>('[data-market-action="add-favorite"]')
@@ -7699,6 +7716,8 @@ class TradingExpertMarketWorkspace {
   }
 
   private addFavoriteMarket(market: TradingMarket) {
+    const wasHidden = !this.tickerVisibility.visible(market.id);
+    this.tickerVisibility.show(market.id);
     const alreadyFavorite = this.isMarketFavorite(market);
     const hasStableFavorite = this.favoriteSymbols.has(market.id)
       && this.favoriteMarketRecords.has(market.id);
@@ -7707,7 +7726,7 @@ class TradingExpertMarketWorkspace {
       this.watchlist.setSharedMembership(tradingFavoriteRecord(market), true);
       void this.syncFavoriteServerMembership();
     }
-    if (alreadyFavorite && hasStableFavorite) return !inWatchlist;
+    if (alreadyFavorite && hasStableFavorite) return !inWatchlist || wasHidden;
     this.favoriteSymbols.add(market.id);
     // Insert before the ticker limit is applied, and ahead of any saved
     // mixed index/market drag order, without moving the remaining favorites.
@@ -7748,6 +7767,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private async selectIndex(index: PublicMarketIndex) {
+    this.tickerVisibility.show(index.id);
     this.setLoading(true);
     if (!this.selectedIndex) this.marketIntervalBeforeIndex = this.activeInterval;
     this.setPeriodEditorOpen(false); this.setPeriodOverflowOpen(false); this.setLayoutPickerOpen(false);
@@ -8688,7 +8708,18 @@ class TradingExpertMarketWorkspace {
           </label>
           <div>${widthControl}${colorControl}</div>
         </div>
-        ${hasHistogramStyle ? '<p class="trading-market-indicator-histogram-hint">空心柱仅显示边框，柱高和颜色保持不变。</p>' : ''}
+        ${indicator.id === 'macd' && field.key === 'histogram' ? `
+          <div class="trading-market-macd-palette" role="group" aria-label="MACD柱颜色">
+            <span>MACD柱颜色</span>
+            <div>
+              ${[['green-up', '绿涨红跌'], ['red-up', '红涨绿跌']].map(([value, label]) => `
+                <label><input type="radio" name="${this.drawingStorageSessionId}-macd-palette"
+                  value="${value}" ${(series.histogramPalette ?? 'green-up') === value ? 'checked' : ''}
+                  data-market-indicator-setting="${key}" data-market-indicator-series="${field.key}"
+                  data-market-indicator-histogram-palette /><span>${label}</span></label>
+              `).join('')}
+            </div>
+          </div>` : ''}
       `;
     }).join("");
     this.indicatorDetail.innerHTML = `
@@ -13553,7 +13584,8 @@ class TradingExpertMarketWorkspace {
       result.series.forEach((descriptor) => {
         const seriesRuntime = runtime.series.find((series) => series.key === descriptor.key);
         if (!seriesRuntime) return;
-        setTradingChartSeriesValues(seriesRuntime.api, candles, descriptor.values, CHINA_TIME_OFFSET_SECONDS, descriptor.colors);
+        setTradingChartSeriesValues(seriesRuntime.api, candles, descriptor.values, CHINA_TIME_OFFSET_SECONDS,
+          tradingIndicatorColors(id, descriptor, setting.series[descriptor.key]?.histogramPalette));
         seriesRuntime.latestValue = Number.NaN;
         for (let index = descriptor.values.length - 1; index >= 0; index -= 1) {
           if (Number.isFinite(descriptor.values[index])) {

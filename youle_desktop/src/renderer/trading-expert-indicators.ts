@@ -67,6 +67,20 @@ export const TRADING_INDICATORS: readonly TradingIndicatorDefinition[] = [
 export const TRADING_RISING_BAR_COLOR = "#2EBD85";
 export const TRADING_FALLING_BAR_COLOR = "#F6465D";
 
+export type TradingMacdPalette = 'green-up' | 'red-up';
+
+// Display-only: both primary and split panes keep the original MACD values.
+export function tradingIndicatorColors(
+  id: TradingIndicatorId,
+  series: TradingIndicatorSeries,
+  palette: TradingMacdPalette = 'green-up',
+): string[] | undefined {
+  if (id !== 'macd' || series.key !== 'histogram') return series.colors;
+  const up = palette === 'red-up' ? TRADING_FALLING_BAR_COLOR : TRADING_RISING_BAR_COLOR;
+  const down = palette === 'red-up' ? TRADING_RISING_BAR_COLOR : TRADING_FALLING_BAR_COLOR;
+  return series.values.map(value => value >= 0 ? up : down);
+}
+
 const LINE_COLORS = {
   cyan: "#22b8cf",
   amber: "#e5ad25",

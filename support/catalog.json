@@ -4,6 +4,108 @@
   "surface": "macos",
   "features": [
     {
+      "id": "top-tab-hide-zh-cn",
+      "title": "顶部标签隐藏与自选保留",
+      "body": "关闭顶部行情标签仅隐藏本设备、当前账号的标签，不删除右侧默认自选、自建分组或云端收藏。顶部恢复按钮可重新显示隐藏标签；在品种选择器重新选择也可恢复。真正取消收藏仍会移除默认自选。本次不恢复“添加到当前分组”勾选框。源码候选尚未发布，无新增客服代操作。",
+      "category": "usage",
+      "locale": "zh-CN",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-ticker-visibility.ts",
+        "youle_desktop/src/renderer/trading-expert-market.ts"
+      ]
+    },
+    {
+      "id": "top-tab-hide-en",
+      "title": "Hide top tabs without removing favorites",
+      "body": "Closing a top quote tab only hides it for this account on this device. Default and custom watchlists and cloud favorites remain. Use the restore button or select the market again to show it. Explicitly removing a favorite still removes default-watchlist membership. The add-to-current-group checkbox is unchanged. Unpublished source candidate; no new support actions.",
+      "category": "usage",
+      "locale": "en",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-ticker-visibility.ts",
+        "youle_desktop/src/renderer/trading-expert-market.ts"
+      ]
+    },
+    {
+      "id": "top-tab-hide-zh-hant",
+      "title": "隱藏頂部標籤並保留自選",
+      "body": "關閉頂部行情標籤只隱藏本機目前帳號的標籤，保留右側預設自選、自建分組與雲端收藏。可用恢復按鈕或重新選擇品種顯示；明確取消收藏仍會移除預設自選。此次不恢復加入目前分組的勾選框。原始碼候選尚未發布，無新增客服代操作。",
+      "category": "usage",
+      "locale": "zh-Hant",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-ticker-visibility.ts",
+        "youle_desktop/src/renderer/trading-expert-market.ts"
+      ]
+    },
+    {
+      "id": "top-tab-hide-ko",
+      "title": "상단 탭 숨기기와 관심종목 유지",
+      "body": "상단 시세 탭을 닫으면 이 기기의 현재 계정에서만 숨겨집니다. 기본 및 사용자 관심그룹과 클라우드 즐겨찾기는 유지됩니다. 복원 버튼이나 종목 재선택으로 다시 표시할 수 있습니다. 즐겨찾기 해제는 기본 관심목록에서 삭제합니다. 현재 그룹 추가 체크박스는 변경하지 않습니다. 미출시 소스 후보이며 고객지원 대행 기능은 추가되지 않았습니다.",
+      "category": "usage",
+      "locale": "ko",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-ticker-visibility.ts",
+        "youle_desktop/src/renderer/trading-expert-market.ts"
+      ]
+    },
+    {
+      "id": "top-tab-hide-ja",
+      "title": "上部タブの非表示とウォッチリストの保持",
+      "body": "上部の価格タブを閉じても、この端末の現在のアカウントで非表示になるだけです。既定・独自グループとクラウドのお気に入りは保持されます。復元ボタンや銘柄の再選択で再表示できます。お気に入り解除では既定リストから削除されます。現在のグループに追加するチェックボックスは変更しません。未公開のソース候補で、サポート代行操作の追加はありません。",
+      "category": "usage",
+      "locale": "ja",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-ticker-visibility.ts",
+        "youle_desktop/src/renderer/trading-expert-market.ts"
+      ]
+    },
+    {
+      "id": "top-tab-hide-vi",
+      "title": "Ẩn thẻ phía trên và giữ danh sách theo dõi",
+      "body": "Đóng thẻ giá phía trên chỉ ẩn thẻ cho tài khoản hiện tại trên thiết bị này. Danh sách mặc định, nhóm tự tạo và mục yêu thích trên đám mây vẫn được giữ. Có thể khôi phục bằng nút hiện lại hoặc chọn lại sản phẩm. Bỏ yêu thích vẫn xóa khỏi danh sách mặc định. Không thay đổi ô thêm vào nhóm hiện tại. Mã nguồn chưa phát hành; không có thao tác hỗ trợ mới.",
+      "category": "usage",
+      "locale": "vi",
+      "status": "pending",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-ticker-visibility.ts",
+        "youle_desktop/src/renderer/trading-expert-market.ts"
+      ]
+    },
+    {
       "id": "recharge-entitlement-refresh-zh-cn",
       "title": "充值后会员与积分自动刷新",
       "body": "修复版 Mac 客户端在订单支付成功后自动刷新会员和可用积分；刷新暂时失败会继续重试，返回聊天后也会继续。较早的余额请求不能覆盖已取得的新权益，模型会员校验随新资料更新。模型进程启动时若未取得 DeepSeek 连接凭证，下次开始或恢复任务前会重新获取并安全重建空闲进程，不必重启整个客户端；存在其他执行中任务时不会中断它们，凭证仍不可用会提示稍后重试。无需通过重复付款恢复使用。此项为待发布源码修复，旧安装版本以实际行为为准；若重启后恢复，可导出诊断报告交官方客服核查。客服不能仅凭此现象认定订单到账或补发积分，无新增代操作能力。",
@@ -3541,6 +3643,108 @@
         "youle_desktop/src/renderer/voice-input.ts",
         "youle_desktop/test/mac-voice-permission-lifecycle.test.mjs",
         "youle_desktop/src/main/tencent-asr.mjs"
+      ]
+    },
+    {
+      "id": "macd-histogram-palette-zh-cn",
+      "title": "MACD柱颜色",
+      "body": "指标设置的 MACD 柱下方可选择“绿涨红跌”或“红涨绿跌”，保存后应用。只改变 MACD 柱的正负配色，不改变柱值、DIF/DEA 或 K 线颜色。恢复默认回到绿涨红跌。账号同步需要服务端支持 histogramPalette 字段；本次为未发布源码。客服可说明入口，未增加颜色代操作。",
+      "category": "indicators",
+      "locale": "zh-CN",
+      "status": "approved",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-expert-market.ts",
+        "youle_desktop/src/renderer/trading-expert-indicators.ts"
+      ]
+    },
+    {
+      "id": "macd-histogram-palette-en",
+      "title": "MACD histogram colors",
+      "body": "Below the MACD histogram setting, choose Green up, red down or Red up, green down, then save to apply. Only positive/negative MACD bar colors change; values, DIF/DEA and candle colors stay the same. Restore defaults selects green up. Account sync requires server support for histogramPalette; this source change is not released. Support can explain the setting; no color automation action was added.",
+      "category": "indicators",
+      "locale": "en",
+      "status": "approved",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-expert-market.ts",
+        "youle_desktop/src/renderer/trading-expert-indicators.ts"
+      ]
+    },
+    {
+      "id": "macd-histogram-palette-zh-hant",
+      "title": "MACD柱顏色",
+      "body": "指標設定的 MACD 柱下方可選擇「綠漲紅跌」或「紅漲綠跌」，儲存後套用。只改變 MACD 柱的正負配色，不改變柱值、DIF/DEA 或 K 線顏色。恢復預設回到綠漲紅跌。帳號同步需要伺服器支援 histogramPalette 欄位；本次為未發布原始碼。客服可說明入口，未增加顏色代操作。",
+      "category": "indicators",
+      "locale": "zh-Hant",
+      "status": "approved",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-expert-market.ts",
+        "youle_desktop/src/renderer/trading-expert-indicators.ts"
+      ]
+    },
+    {
+      "id": "macd-histogram-palette-ko",
+      "title": "MACD 히스토그램 색상",
+      "body": "MACD 히스토그램 설정 아래에서 상승 초록·하락 빨강 또는 상승 빨강·하락 초록을 선택하고 저장하면 적용됩니다. 양수·음수 막대의 색상만 바뀌며 값, DIF/DEA 및 캔들 색상은 유지됩니다. 기본값 복원 시 상승 초록으로 돌아갑니다. 계정 동기화에는 서버의 histogramPalette 지원이 필요하며 아직 출시되지 않은 소스 변경입니다. 고객지원은 설정 위치만 안내하며 색상 자동 변경 기능은 추가되지 않았습니다.",
+      "category": "indicators",
+      "locale": "ko",
+      "status": "approved",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-expert-market.ts",
+        "youle_desktop/src/renderer/trading-expert-indicators.ts"
+      ]
+    },
+    {
+      "id": "macd-histogram-palette-ja",
+      "title": "MACDヒストグラムの色",
+      "body": "MACDヒストグラム設定の下で「上昇は緑・下落は赤」または「上昇は赤・下落は緑」を選び、保存すると適用されます。正負の棒の色だけが変わり、数値、DIF/DEA、ローソク足の色は変わりません。初期設定に戻すと上昇は緑になります。アカウント同期にはサーバーの histogramPalette 対応が必要で、今回は未公開のソース変更です。サポートは設定場所を案内できますが、色の自動操作は追加していません。",
+      "category": "indicators",
+      "locale": "ja",
+      "status": "approved",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-expert-market.ts",
+        "youle_desktop/src/renderer/trading-expert-indicators.ts"
+      ]
+    },
+    {
+      "id": "macd-histogram-palette-vi",
+      "title": "Màu cột MACD",
+      "body": "Bên dưới cài đặt cột MACD, chọn Tăng xanh, giảm đỏ hoặc Tăng đỏ, giảm xanh, rồi lưu để áp dụng. Chỉ màu cột MACD dương và âm thay đổi; giá trị, DIF/DEA và màu nến được giữ nguyên. Khôi phục mặc định sẽ chọn tăng xanh. Đồng bộ tài khoản cần máy chủ hỗ trợ trường histogramPalette; thay đổi mã nguồn này chưa được phát hành. Hỗ trợ có thể hướng dẫn vị trí cài đặt; không bổ sung thao tác tự động đổi màu.",
+      "category": "indicators",
+      "locale": "vi",
+      "status": "approved",
+      "requires_login": true,
+      "platforms": [
+        "macos"
+      ],
+      "actions": {},
+      "sources": [
+        "youle_desktop/src/renderer/trading-expert-market.ts",
+        "youle_desktop/src/renderer/trading-expert-indicators.ts"
       ]
     }
   ]

@@ -1,4 +1,8 @@
 export const VIETNAMESE_CATALOG = Object.freeze({
+  "隐藏顶部标签": "Ẩn thẻ trên cùng",
+  "隱藏頂部標籤": "Ẩn thẻ trên cùng",
+  "恢复隐藏的标签": "Hiện lại các thẻ đã ẩn",
+  "恢復隱藏的標籤": "Hiện lại các thẻ đã ẩn",
   "当前正在编辑暗色主题；切换主题后可分别设置另一套颜色。": "Bạn đang chỉnh sửa chủ đề tối; hãy chuyển chủ đề để thiết lập một bộ màu riêng cho chủ đề còn lại.",
   "当前正在编辑亮色主题；切换主题后可分别设置另一套颜色。": "Bạn đang chỉnh sửa chủ đề sáng; hãy chuyển chủ đề để thiết lập một bộ màu riêng cho chủ đề còn lại.",
   "本地对话体验，云端任务尚未接入。": "Trải nghiệm trò chuyện cục bộ; tác vụ đám mây chưa được kết nối.",
@@ -9,6 +13,7 @@ export const VIETNAMESE_CATALOG = Object.freeze({
   "蠟燭形態": "Mô hình nến",
   "蜡烛形态": "Mô hình nến",
   "盘面分析已完成；个人风险约束暂不可读，执行计划已暂停。": "Phân tích thị trường đã hoàn tất; hiện chưa thể đọc các giới hạn rủi ro cá nhân nên kế hoạch thực hiện đã tạm dừng.",
+  "MACD柱颜色": "Màu cột MACD",
   "\n\nテキストルールとプレビューは完了しましたが、現在のチャートではシミュレーションレイヤーを一時的に表示できません。まずテキストでご確認ください。": "\n\nQuy tắc văn bản và mô phỏng đã hoàn tất, nhưng biểu đồ hiện tại tạm thời không thể hiển thị lớp mô phỏng; vui lòng đối chiếu theo phần văn bản trước.",
   "\n\nルールとシミュレーションは生成されましたが、今回のチャート注釈は一時的に表示されていません。まず上記のテキスト条件でご確認ください。確認が完了するまでアラートストレージには書き込まれません。": "\n\nQuy tắc và mô phỏng đã được tạo, nhưng lần chú thích biểu đồ này tạm thời chưa hiển thị. Vui lòng đối chiếu theo điều kiện văn bản ở trên trước; trước khi xác nhận sẽ không ghi vào kho lưu trữ cảnh báo.",
   "\n\nルールエンジン検証：\n": "\n\nKiểm tra bằng công cụ quy tắc:\n",

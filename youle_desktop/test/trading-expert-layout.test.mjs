@@ -1763,7 +1763,7 @@ test("Trading Expert auto-favorites every successfully opened picker result", as
   assert.doesNotMatch(source, /shouldAutoFavoriteTradingMarketSelection\(action, this\.search\.value\)/);
   assert.match(source, /market && autoFavorite && this\.addFavoriteMarket\(market\)[\s\S]*?this\.commitFavoriteMarketChanges\(\)/);
   assert.match(source, /if \(!this\.selectMarket\(market\)\)[\s\S]*?const favoriteAdded = autoFavorite && this\.addFavoriteMarket\(market\)[\s\S]*?this\.commitFavoriteMarketChanges\(false\)/);
-  assert.match(source, /private addFavoriteMarket\(market: TradingMarket\)[\s\S]*?this\.favoriteSymbols\.has\(market\.id\)[\s\S]*?this\.favoriteMarketRecords\.has\(market\.id\)[\s\S]*?if \(alreadyFavorite && hasStableFavorite\) return !inWatchlist;[\s\S]*?this\.favoriteMarketRecords = new Map\(\[\s*\[market\.id, tradingFavoriteRecord\(market\)\],/);
+  assert.match(source, /private addFavoriteMarket\(market: TradingMarket\)[\s\S]*?this\.tickerVisibility\.show\(market\.id\)[\s\S]*?this\.favoriteSymbols\.has\(market\.id\)[\s\S]*?this\.favoriteMarketRecords\.has\(market\.id\)[\s\S]*?if \(alreadyFavorite && hasStableFavorite\) return !inWatchlist \|\| wasHidden;[\s\S]*?this\.favoriteMarketRecords = new Map\(\[\s*\[market\.id, tradingFavoriteRecord\(market\)\],/);
 });
 
 test("Trading Expert favorites persist, lead the next open, and remain available in the full directory", async () => {
@@ -1787,7 +1787,9 @@ test("Trading Expert favorites persist, lead the next open, and remain available
   assert.match(renderer, /syncTradingExpertMarketWorkspace\([\s\S]*?tradingExpertFavoriteStorageAccountIdentity\(\)/);
   assert.match(source, /if \(action === "favorite"\)[\s\S]*?this\.toggleFavoriteMarket\(market\)/);
   assert.match(source, /if \(action === "add-favorite"\)[\s\S]*?this\.setPickerOpen\(true\)/);
-  assert.match(source, /if \(action === "remove-favorite"\)[\s\S]*?event\.stopPropagation\(\)[\s\S]*?this\.toggleFavoriteMarket\(market\)/);
+  const hideTicker = sourceBlock(source, 'if (action === "remove-favorite")', 'if (action === "restore-tickers")');
+  assert.match(hideTicker, /event\.stopPropagation\(\)[\s\S]*?this\.tickerVisibility\.hide\(marketId\)/);
+  assert.doesNotMatch(hideTicker, /toggleFavoriteMarket|removeFavoriteMarket|indexFavorites\.remove/);
   assert.match(source, /const TRADING_FAVORITE_MARKETS_STORAGE_KEY = "haolo\.trading-market\.favorite-records\.v1"/);
   assert.match(source, /export const MAX_TRADING_FAVORITE_TICKERS = 20/);
   assert.match(source, /data-market-favorite-tickers[\s\S]*?data-market-period-controls/);
@@ -1818,7 +1820,7 @@ test("Trading Expert favorites persist, lead the next open, and remain available
   assert.match(tickerRender, /class="trading-market-favorite-sort-status" data-market-favorite-sort-status aria-live="polite"/);
   assert.match(tickerRender, /data-quote-state="\$\{market\.quoteAvailable \? "live" : "loading"\}"[\s\S]*?aria-busy="\$\{!market\.quoteAvailable\}"/);
   assert.match(tickerRender, /data-market-favorite-price[\s\S]*?data-market-favorite-change/);
-  assert.match(tickerRender, /class="trading-market-favorite-remove"[\s\S]*?data-market-action="remove-favorite"[\s\S]*?data-market-favorite-sort-ignore[\s\S]*?取消收藏/);
+  assert.match(tickerRender, /class="trading-market-favorite-remove"[\s\S]*?data-market-action="remove-favorite"[\s\S]*?data-market-favorite-sort-ignore[\s\S]*?tickerVisibilityLabel\('hide'/);
   assert.match(tickerRender, /class="trading-market-favorite-add"[\s\S]*?data-market-action="add-favorite"[\s\S]*?aria-label="添加收藏交易对"[\s\S]*?aria-haspopup="dialog"[\s\S]*?aria-expanded="false"/);
   assert.match(tickerRender, /this\.favoriteTickerBar\.hidden = false/);
   assert.doesNotMatch(tickerRender, /renderTradingMarketAssetLogo/);
@@ -2151,7 +2153,7 @@ test("Trading Expert subchart indicators cover pane behavior and both themes", a
   assert.match(rebuildPanes, /finally \{\s*this\.rebuildingIndicatorPanes = false/);
   assert.match(createPane, /priceScale\(\)\?\.applyOptions\(\{[\s\S]*?mode: PriceScaleMode\.Normal,[\s\S]*?invertScale: false,[\s\S]*?autoScale: true,/);
   assert.match(createPane, /descriptor\.type === "histogram"[\s\S]*?pane\.addSeries\(HistogramSeries/);
-  assert.match(updateIndicatorData, /setTradingChartSeriesValues\(seriesRuntime\.api, candles, descriptor\.values, CHINA_TIME_OFFSET_SECONDS, descriptor\.colors\)/);
+  assert.match(updateIndicatorData, /setTradingChartSeriesValues\(seriesRuntime\.api, candles, descriptor\.values, CHINA_TIME_OFFSET_SECONDS,\s*tradingIndicatorColors\(id, descriptor, setting\.series\[descriptor\.key\]\?\.histogramPalette\)\)/);
   assert.doesNotMatch(createPane, /descriptor\.barStyle|rgba\(0, 0, 0, 0\)/);
   assert.doesNotMatch(updateIndicatorData, /descriptor\.barStyle/);
   assert.doesNotMatch(updateIndicatorData, /setAutoScale\(true\)/, "routine indicator refreshes preserve a manually adjusted range");

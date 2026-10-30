@@ -1,6 +1,11 @@
 // Generated once from renderer-owned Simplified Chinese UI strings with a
 // local offline translation model. Runtime language switching is fully offline.
 export const GENERATED_ENGLISH_UI_PHRASES = Object.freeze({
+  "MACD柱颜色": "MACD histogram colors",
+  "隐藏顶部标签": "Hide top tab",
+  "隱藏頂部標籤": "Hide top tab",
+  "恢复隐藏的标签": "Restore hidden tabs",
+  "恢復隱藏的標籤": "Restore hidden tabs",
   "加入计划": "Add to plans",
   "加入計畫": "Add to plans",
   "查看計畫": "View plan",

@@ -28,6 +28,8 @@ import { TradingChartNavigation, TRADING_CHART_NAVIGATION_OPTIONS, captureManual
 import {
   TRADING_INDICATORS,
   calculateTradingIndicator,
+  tradingIndicatorColors,
+  type TradingMacdPalette,
   indicatorEma,
   indicatorSma,
   type TradingIndicatorId,
@@ -143,6 +145,7 @@ export interface TradingSplitPaneIndicatorSeriesSetting {
   color: string;
   lineWidth: 1 | 2 | 3;
   histogramStyle?: TradingHistogramStyle;
+  histogramPalette?: TradingMacdPalette;
 }
 
 export interface TradingSplitPaneIndicatorSetting {
@@ -1517,7 +1520,8 @@ export class TradingExpertSplitPane {
       result.series.forEach((descriptor) => {
         const seriesRuntime = runtime.series.find((series) => series.key === descriptor.key);
         if (!seriesRuntime) return;
-        setTradingChartSeriesValues(seriesRuntime.api, this.candles, descriptor.values, CHINA_TIME_OFFSET_SECONDS, descriptor.colors);
+        setTradingChartSeriesValues(seriesRuntime.api, this.candles, descriptor.values, CHINA_TIME_OFFSET_SECONDS,
+          tradingIndicatorColors(id, descriptor, current.series[descriptor.key]?.histogramPalette));
         seriesRuntime.latestValue = Number.NaN;
         for (let index = descriptor.values.length - 1; index >= 0; index -= 1) {
           if (Number.isFinite(descriptor.values[index])) {
